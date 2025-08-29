@@ -1,0 +1,1083 @@
+Title: Vrmm: A volumetric relightable morphable head model
+
+VRMM: A Volumetric Relightable Morphable Head Model
+Haotian Yang1 Mingwu Zheng1 Chongyang Ma1 Yu-Kun Lai2 Pengfei Wan1 Haibin Huang1∗
+1Kuaishou Technology
+2Cardiff University
+Identity
+Illumination
+VRMM
+Few-shot personalization
+Figure 1: We present VRMM, a novel volumetric head prior with fully disentangled low-dimensional parametric space for
+identity, expression, and illumination. Trained on dynamic expressions of hundreds of people captured in a LightStage with
+controllable illumination, our VRMM enables high-quality animatable and relightable avatar reconstruction from few-shot
+observations.
+ABSTRACT
+In this paper, we introduce the Volumetric Relightable Morphable
+Model (VRMM), a novel volumetric and parametric facial prior
+for 3D face modeling. While recent volumetric prior models offer
+improvements over traditional methods like 3D Morphable Models
+(3DMMs), they face challenges in model learning and personalized
+reconstructions. Our VRMM overcomes these by employing a novel
+training framework that efficiently disentangles and encodes latent
+spaces of identity, expression, and lighting into low-dimensional
+representations. This framework, designed with self-supervised
+learning, significantly reduces the constraints for training data,
+making it more feasible in practice. The learned VRMM offers
+relighting capabilities and encompasses a comprehensive range
+of expressions. We demonstrate the versatility and effectiveness
+of VRMM through various applications like avatar generation,
+facial reconstruction, and animation. Additionally, we address the
+common issue of overfitting in generative volumetric models with a
+novel prior-preserving personalization framework based on VRMM.
+Such an approach enables high-quality 3D face reconstruction from
+even a single portrait input. Our experiments showcase the potential
+of VRMM to significantly enhance the field of 3D face modeling.
+CCS CONCEPTS
+• Computing methodologies →Volumetric models; Motion
+capture; Reflectance modeling.
+KEYWORDS
+3D avatar creation; Facial animation; Neural rendering; View syn-
+thesis; Relighting.
+* Corresponding author.
+1
+INTRODUCTION
+In this study, we explore 3D face modeling from a representation
+learning perspective. The pursuit of realistic 3D facial representa-
+tions is pivotal in both academic research and practical applications,
+encompassing digital entertainment, telepresence, and biometric
+identification. As a critical task in computer graphics and computer
+vision, this area has garnered sustained attention. Early works like
+3D Morphable Models (3DMMs) [Blanz and Vetter 1999; Booth et al.
+2016; Cao et al. 2013; Jiang et al. 2019; Li et al. 2017; Paysan et al.
+2009; Vlasic et al. 2005; Yang et al. 2020] have set a benchmark
+due to their ability to encode faces in a parametric form. Their
+parametric nature allows for the manipulation of face identity,
+expressions and other attributes with relative ease, making 3DMMs
+a powerful tool in the field. However, they often struggle to achieve
+a truly lifelike fidelity, particularly in the subtleties of complex
+head components such as hair and the interior of the mouth. To
+overcome these limitations, research has shifted towards volumetric
+models [Bühler et al. 2023; Cao et al. 2022; Hong et al. 2022; Wang
+et al. 2022; Zhuang et al. 2022], which offer a more comprehensive
+representation of facial structures and promise enhanced realism.
+Despite the advancements offered by volumetric models, there
+remains a significant gap in their capability. Our main observations
+are two-fold: first of all, existing data-driven volumetric models
+are not able to adequately model dynamic facial expressions or
+to simulate the effects of variable lighting conditions on the face.
+Existing animatable volumetric prior models either adopt super-
+vised learning with decoupled input data of discrete identities
+and expressions [Hong et al. 2022; Zhuang et al. 2022], or require
+expensive and brittle preprocessing steps [Cao et al. 2022], which is
+tedious and not practical to scale up. These drawbacks also limit the
+further query of a continuous relightable model. Subsequently, there
+arXiv:2402.04101v2  [cs.CV]  8 May 2024
+
+
+Yang et al.
+will be common overfitting issues when using generative models
+for downstream reconstruction tasks [Abdal et al. 2019; Tewari et al.
+2020; Tov et al. 2021; Zhu et al. 2020], which is also observed in
+volumetric prior personalization [Bühler et al. 2023]. This drawback
+is that due to the limited training data, the inversion of input facial
+data into the volumetric modeling space is often problematic and
+leading to reconstruction below satisfactory, which also deteriorates
+the editability, i.e., relightable and animatable properties learned in
+the prior model.
+To bridge this gap, we propose VRMM, a novel volumetric and
+parametric 3D face prior. VRMM is built upon volumetric primitives
+linked to the UV space of a base mesh [Lombardi et al. 2021], and
+adapt a physically-inspired appearance decoder [Yang et al. 2023]
+for relighting . It uses multi-identity mapping and an expression
+encoder to handle various expressions and lighting conditions.
+By explicitly encoding identity, expression and lighting into low-
+dimensional representations, VRMM learns to disentangle the asso-
+ciated latent spaces and can be trained in a self-supervised manner.
+Our design of VRMM effectively reduces the constraints of training
+data required by previous volumetric models and enables training
+with more flexible data collections. In practice, the training of our
+VRMM is based on a dataset comprising high-quality multi-view
+image sequences of fewer than 300 individuals. These individuals
+were captured exhibiting dynamic expressions within a LightStage
+under controllable lighting conditions.
+We further adapt our VRMM model for various fitting and re-
+construction tasks. As discussed above, fine-tuning is necessary for
+volumetric prior models to overcome the inversion issue [Bühler
+et al. 2023; Cao et al. 2022; Wang et al. 2022] at the cost of over-
+fitting. Hence we propose a prior-preserving framework for model
+fitting. Specifically, we use an identity related regularization term
+to balance the VRMM’s generation capacity and fitting accuracy.
+Our specifically designed framework allows high-quality avatars
+that are animatable and relightable to be created from few-shot
+captures, significantly outperforming existing baselines.
+In summary, our contributions are:
+• We present VRMM, the first 3D volumetric facial prior that is
+both continuously relightable and encompasses full range of
+expressions to the best of our knowledge.
+• We propose a novel training framework to learn the disentangled
+parametric space of expression, identity and lighting for VRMM
+from dynamic multi-view image sequences captured under con-
+trollable light conditions.
+• We propose a novel personalization method that is elaborately de-
+signed to keep the animatable and relightable properties provided
+by the prior, which enables high-fidelity avatar reconstruction
+from several or even one image.
+• Extensive experiments demonstrate that VRMM can be used in
+various applications and outperforms previous methods.
+2
+RELATED WORK
+In this section, we review closely related parametric 3D face models
+based on both traditional mesh-based representation and volumetric
+representation. We also discuss related methods of neural avatar
+reconstruction.
+Parametric head models. Accurate modeling of 3D head geometry
+and appearance remains a significant challenge in both computer
+graphics and computer vision. Among various methodologies, 3D
+Morphable Models (3DMMs) emerged as a pioneering and system-
+atic approach. Originally introduced by Blanz and Vetter [1999] and
+later evolved into multi-linear models [Vlasic et al. 2005], 3DMMs
+have been fundamental in modeling facial meshes and textures.
+They serve as a universal facial prior in diverse applications like
+face reconstruction and tracking from single-view images [Dou
+et al. 2017b; Thies et al. 2016; Zhu et al. 2017]. However, 3DMMs
+are limited by their linear and mesh-based nature, restricting the
+scope of shape and appearance modeling.
+Recent advances in deep learning have sought to address these
+limitations, employing nonlinear methods for more refined facial
+modeling [Bagautdinov et al. 2018; Ploumpis et al. 2020; Tran
+and Liu 2018, 2019; Zhang et al. 2022; Zheng et al. 2022]. Despite
+these improvements, surface-based representations, including both
+meshes and implicit functions, still struggle to capture the complete
+complexity of human head components such as teeth, facial hair,
+eyes, and so on.
+A significant shift in this domain is evident with the advent of
+neural volumetric rendering, particularly NeRF (Neural Radiance
+Field)-based techniques [Kerbl et al. 2023; Mildenhall et al. 2020;
+Müller et al. 2022]. These methods holistically represent the 3D
+objects, achieving both photorealism and 3D consistency from
+multi-view images. Early attempts in volumetric head modeling
+primarily focused on the geometry and appearance of a single
+scene or identity [Lombardi et al. 2019, 2021; Ma et al. 2021; Yang
+et al. 2023]. More recent work extends to multi-identity scenarios
+through generative modeling [Bühler et al. 2023; Cao et al. 2022;
+Hong et al. 2022; Wang et al. 2022; Zhuang et al. 2022]. For instance,
+MoRF [Wang et al. 2022] employs an auto-decoder framework [Park
+et al. 2019] to learn a conditional NeRF in a polarization-based studio
+setup, separating the diffuse and specular shading components.
+However, its applications are confined to studio environments and
+lack generalization to in-the-wild scenes. Preface [Bühler et al. 2023]
+expands on this, allowing high-resolution rendering in more casual
+settings. Nonetheless, both MoRF and Preface are limited to static
+head models, missing out on dynamic and relightable features which
+are crucial for real-world applications. MoFaNeRF [Zhuang et al.
+2022] and Cao et al. [2022] integrate dynamic expressions, enabling
+the creation of animatable avatars. HeadNeRF [Hong et al. 2022] also
+introduces basic relighting capabilities but is constrained to certain
+lighting conditions. Currently, no previous method achieves full
+creation of expressive, dynamically relightable heads under various
+physically accurate lighting conditions. For a more comprehensive
+comparison, please refer to Tab. 1. To our knowledge, VRMM is the
+first model to achieve this, presenting a significant advancement in
+the field of volumetric and relightable morphable head models.
+Avatar reconstruction. The field of 3D face reconstruction and per-
+formance capture has seen extensive research efforts over decades,
+leading to the development of sophisticated 3D scanning systems.
+These systems, focusing on static geometry reconstruction [Beeler
+et al. 2010; Ghosh et al. 2011] and dynamic performance capture
+[Beeler et al. 2011; Bradley et al. 2010; Collet et al. 2015; Dou et al.
+2017a; Guo et al. 2019; Huang et al. 2011], predominantly employ
+
+
+VRMM: A Volumetric Relightable Morphable Head Model
+Table 1: Comparison of different methods for volumetric
+head models across four aspects. VRMM is the only
+model that enables a physically relightable and animatable
+model with real-time rendering capabilities. Single-stage
+reconstruction indicates that the morphable model does not
+require reconstructed meshes or other 3DMMs when fitting
+new data. (* Zhuang et al. [2022] and Hong et al. [2022] only
+support limited expressions. Hong et al. [2022] is limited to
+relighting under preset lighting conditions.)
+Method
+Animatable
+Relightable
+Single-stage
+reconstruction
+Real-time
+rendering
+Zhuang et al. [2022]
+✓*
+✗
+✓
+✗
+Cao et al. [2022]
+✓
+✗
+✗
+✓
+Hong et al. [2022]
+✓*
+✓*
+✗
+✓
+Wang et al. [2022]
+✗
+✗
+✓
+✗
+Buhler et al. [2023]
+✗
+✗
+✓
+✗
+VRMM (Ours)
+✓
+✓
+✓
+✓
+multi-view stereo (MVS) and structured light techniques for point
+cloud acquisition. Subsequent steps involve estimating deforming
+geometry to maintain temporal mesh consistency. However, such
+tracking process often requires labor-intensive MVS reconstruction
+for numerous frames and complex optical-flow optimization, while
+real-time face tracking algorithms still fall short in accuracy.
+Another vital component for creating realistic and relightable
+avatars is the estimation of light interaction with the subject, par-
+ticularly the reflectance properties. Traditional methods typically
+model this interaction using bidirectional reflectance distribution
+functions (BRDF) [Schlick 1994], determined by observing appear-
+ance changes under various lighting conditions. Active lighting
+approaches, such as those using LightStage setups [Debevec et al.
+2000], involve data collection with complex arrangements like one-
+light-at-a-time (OLAT) capture or polarized and color gradient
+illuminations [Fyffe and Debevec 2015; Ghosh et al. 2011; Guo et al.
+2019; Ma et al. 2007; Zhang et al. 2022]. Conversely, passive capture
+methods [Li et al. 2022; Riviere et al. 2020; Zheng et al. 2023a]
+significantly reduce the need for elaborate setups.
+Despite these advancements, these methods still require high
+hardware costs and considerable effort for data acquisition. The
+advent of deep learning and large-scale datasets has enabled the
+estimation of geometry and reflectance properties from single-view
+input [Caselles et al. 2023; Lattas et al. 2020, 2021; Li et al. 2020b,a;
+Papantoniou et al. 2023; Yamaguchi et al. 2018]. Nevertheless, these
+methods typically focus only on skin regions, as the complexity
+of hair and eye structures makes single-view inverse rendering
+difficult. Moreover, most reconstructed results are static and not
+animatable. Recent endeavors have focused on creating dynamic
+avatars from monocular videos [Chen and Liu 2022; Gao et al. 2022;
+Zheng et al. 2023b; Zielonka et al. 2023] or RGB-D inputs [Cao et al.
+2022]. However, these methods typically fall short in providing
+relightable attributes, or their quality is constrained by the training
+video’s limitations, due to the lack of a powerful prior model. The
+challenge remains to photorealistically model complete human
+heads, considering all the highly complex and diverse compositions
+of material, geometry, and expression.
+To our best knowledge, our VRMM is the first capable of re-
+constructing high-quality animatable and relightable volumetric
+avatars from few-shot captures, representing a significant leap in
+the field of 3D avatar reconstruction.
+3
+METHOD
+In this section, we first introduce the training framework of our
+volumetric relightable morphable model using high-quality data
+captured in the studio, as shown in Figure 2. Then we present a
+specially designed pipeline to fit the learned VRMM model to in
+the studio or in-the-wild captures for consumer-grade authentic
+3D avatar reconstruction.
+3.1
+Preliminaries
+Our VRMM is built upon the representation of Mixture of Volumet-
+ric Primitives (MVP) [Lombardi et al. 2021], which represents the
+scene as volumetric primitives attached to the UV space of a base
+mesh. We adopt the physically-inspired appearance decoder [Yang
+et al. 2023] to support relighting, where the lighting condition 𝑙
+is represented as the incoming light field of 𝑁𝑙densely sampled
+directions on the sphere. Specifically, given the expression code
+𝑧𝑒, the view direction d, and the lighting condition 𝑙, a series of
+decoders D𝑀𝑉𝑃predict the position and color of 𝑁𝑝𝑟𝑖𝑚volumetric
+primitives for rendering:
+{v, 𝑅𝑝,𝑡𝑝,𝑠𝑝,𝑉𝛼,𝑉𝑟𝑔𝑏} = D𝑀𝑉𝑃(𝑧𝑒, d,𝑙),
+(1)
+where v is the position of the vertices of the base mesh, {𝑅𝑝,𝑡𝑝,𝑠𝑝}
+are the rotation, translation and non-uniform scaling of 𝑁𝑝𝑟𝑖𝑚
+primitives relative to the base mesh, 𝑉𝛼and 𝑉𝑟𝑔𝑏are the opacity
+and color of each voxel in the primitives, respectively. The color of
+the rendered image 𝐼𝑟𝑔𝑏at pixel 𝑝can be obtained by integrating
+the radiance of the voxels along the direction d𝑝of the ray starting
+from the position o𝑝of pixel in 3D space:
+𝐼𝑟𝑔𝑏(𝑝) =
+∫𝑡max
+𝑡min
+𝑉𝑟𝑔𝑏(o𝑝+ 𝑡d𝑝)𝑑𝑇(𝑝,𝑡)
+𝑑𝑡
+,
+(2)
+𝑇(𝑝,𝑡) = min
+
+1,
+∫𝑡
+𝑡min
+𝑉𝛼
+ o𝑝+ 𝑡d𝑝
+
+,
+(3)
+where 𝑡min and 𝑡max are the predetermined near and far range of
+the camera plane.
+The volumetric primitives in MVP have consistent structure
+in the UV space of the base mesh, which improves the quality
+when extending to multiple identities as it is easier for the network
+to learn the shared features across identities compared to other
+alternatives based on the NeRF representation [Bühler et al. 2023;
+Hong et al. 2022; Wang et al. 2022; Zhuang et al. 2022].
+3.2
+VRMM
+We start by extending the existing person-specific relightable MVP
+with a low-dimensional identity code 𝑧𝑖𝑑for our generative volu-
+metric morphable head model. Then we discuss our modification to
+the network architecture and training process for disentanglement
+and better reconstruction quality.
+
+
+Yang et al.
+Up
+Up
+Up
+Up
+Up
+c
+c
+.
++
++
+𝑧𝑒𝑧𝑖𝑑
+𝑧𝑖𝑑
+𝑧𝑒, 𝑧𝑖𝑑
+𝑧𝑒
+𝑧𝑒, 𝐝
+𝑙
+𝒟𝑇
+𝒟𝛼
+𝒟𝑟𝑔𝑏
+𝒟𝑖𝑑
+𝒟𝑚𝑒𝑠ℎ
+𝑅𝑝, 𝑡𝑝, 𝑠𝑝
+𝐯
+𝑉𝑟𝑔𝑏
+𝑉𝛼
+VRMM
+VRMM
+VRMM
+Reconstruct
+𝐼𝑐𝑖𝑛𝑝𝑢𝑡
+𝑖,𝑚
+𝑧𝑒
+𝑖,𝑚
+{𝑅, 𝑡}ℎ𝑒𝑎𝑑
+𝑖,𝑚
+መ𝐼𝑐
+𝑖,𝑚
+GT
+𝑧𝑒
+𝑖,𝑚
+𝑧𝑖𝑑
+𝑗, 𝐝𝑐, 𝑙n
+Ƹ𝑧𝑒
+𝑖,𝑚
+{𝑅, 𝑡}ℎ𝑒𝑎𝑑
+𝑖,𝑚
+ℒ𝑖𝑚𝑔
+. Pointwise product
+Training framework
++ Pointwise add
+c Concatenate
+SG
+Stop gradient
+Up
+ConvT + L-ReLU
+Up
+Linear ConvT
+id condition
+id condition
+S
+G
+Up
+Up
+Up
+Up
+c
+c
+.
++
+id condition
+id condition
+S
+G
+Up
+Up
+Up
+Up
+…
+…
+…
++
+c
+Up
+Up
+Up
+c
+Up
+Up
+Up
+…
+…
+.
+𝑧𝑖𝑑
+𝑖, 𝐝, 𝑙m
+𝑧𝑖𝑑
+𝑖, 𝐝, 𝑙m
+ℰ𝑇,𝑒
+{𝑅, 𝑡}ℎ𝑒𝑎𝑑
+𝑖,𝑚
+ℰ𝑒
+መመ𝐼𝑐
+𝑖,𝑚
+𝐼𝑐𝑖𝑛𝑝𝑢𝑡
+𝑗,𝑛
+ℒ𝑒𝑥𝑝
+Figure 2: The VRMM pipeline. Network architecture (left): VRMM accepts inputs of identity code 𝑧𝑖𝑑, expression code 𝑧𝑒,
+view direction d, and environmental light 𝑙. The output, comprising a base mesh and volumetric primitives, is generated by
+respective decoders and rendered into an image in real-time. Notably, the transformation decoder D𝑇, opacity decoder D𝛼, and
+the non-linear branch of the relightable appearance decoder D𝑟𝑔𝑏are interconnected through a detach-concatenation process
+between blocks, a key factor we found for achieving stable results. Training Framework (right): Our framework jointly trains
+the expression encoder E𝑒, transformation encoder E𝑇, per-person identity codes 𝑧𝑖𝑑, and the decoders in VRMM. Additionally,
+we incorporate a novel expression consistency loss L𝑒𝑥𝑝to enhance the semantic alignment of expression codes.
+Multi-identity model. Formally, our VRMM maps the identity
+code 𝑧𝑖𝑑, the expression code 𝑧𝑒, the view direction d, and the
+lighting condition 𝑙to the base mesh and corresponding volumetric
+primitives:
+{v, 𝑅𝑝,𝑡𝑝,𝑠𝑝,𝑉𝛼,𝑉𝑟𝑔𝑏} = VRMM(𝑧𝑖𝑑,𝑧𝑒, d,𝑙).
+(4)
+Specifically, VRMM is composed of five decoders:
+VRMM := {D𝑚𝑒𝑠ℎ, D𝑖𝑑, D𝑇, D𝛼, D𝑟𝑔𝑏}.
+(5)
+The mesh decoder D𝑚𝑒𝑠ℎis a multi-layer perceptron that predicts
+the vertex positions v of the base mesh given the identity code 𝑧𝑖𝑑
+and expression code 𝑧𝑒. The convolutional identity decoder D𝑖𝑑
+maps the low-dimensional identity code 𝑧𝑖𝑑to hierarchical feature
+maps Falpha and Fappe that are injected to the opacity decoder D𝛼
+and appearance decoder D𝑟𝑔𝑏, respectively. The transformation
+decoder D𝑇maps the identity code𝑧𝑖𝑑and expression code𝑧𝑒to the
+rotation 𝑅𝑝, translation𝑡𝑝, and scale𝑠𝑝of the primitives for identity-
+related expression decoding. The opacity decoder D𝛼predicts the
+voxel opacity 𝑉𝛼of the primitives conditioned on the expression
+code 𝑧𝑒and the feature maps Falpha from the identity encoder.
+The relightable appearance decoder D𝑟𝑔𝑏adopts an architecture
+similar to [Yang et al. 2023] that takes view direction d, lighting
+condition 𝑙, and expression code 𝑧𝑒as input to predict the voxel
+color 𝑉𝑟𝑔𝑏with a linear branch for lighting related decoding and
+Fappe hierarchically injected to the non-linear branch.
+Considering the fact that the transformation and appearance of
+the volumetric primitives are closely related, we further concatenate
+the feature maps from the intermediate layers of the convolutional
+transformation decoder D𝑇to corresponding layers of the opacity
+decoder D𝛼and the non-linear branch of the relightable appearance
+decoder D𝑟𝑔𝑏, and vice-versa. However, direct concatenation leads
+to unstable convergence during training, which we believe is due to
+the scale discrepancy of gradient in different branches. So we stop
+the gradient back-propagation through the concatenated feature
+maps. We empirically find that the detach-concatenate operation
+significantly alleviate the jittering of the volumetric primitives
+when the numbers of identities and training frames increase.
+Different from [Cao et al. 2022] where the meshes and tex-
+tures are directly fed into the prior model for identity encoding,
+VRMM learns to generate novel relightable identities from the low-
+dimensional identity code, enabling VRMM to be used for avatar
+reconstruction by directly fitting to images without depending on
+traditional mesh-based parametric face models.
+Disentangled latent space training. Different from previous volu-
+metric head priors [Hong et al. 2022; Zhuang et al. 2022] that are
+trained on limited predefined expressions, our VRMM is designed
+to encompass a full range of dynamic expressions for animatable
+avatar reconstruction. Besides, the relightable appearance means
+capturing under varying lighting conditions, which leads to a sig-
+nificant challenge, as it is not feasible to capture many people
+performing a large number of identical expressions under different
+lighting conditions even in the studio.
+Inspired by recent cross-identity neural retargeting methods [Xu
+et al. 2023; Zhang et al. 2022], we propose a novel framework for
+our VRMM to learn shared expression latent space across identities
+without explicit supervision. We also adopt the tracking-free train-
+ing pipeline [Yang et al. 2023] that jointly learns topology consistent
+tracking end-to-end from dynamic image sequences, which avoids
+the brittle preprocessing step of surface-tracking (especially with
+
+
+VRMM: A Volumetric Relightable Morphable Head Model
+changing lightings) and enables scalable training for a large number
+of different identities.
+Specifically, given the training dataset with image 𝐼𝑖,𝑚
+𝑐
+of dy-
+namic performance of subject 𝑖captured by camera 𝑐at frame𝑚un-
+der known illumination 𝑙𝑚, we jointly train an expression encoder
+E𝑒that predicts the mean and variance of a multi-variant Gaussian
+distribution for expression code as well as a transformation encoder
+E𝑇that predicts the rigid rotation 𝑅𝑖,𝑚and translation 𝑡𝑖,𝑚of
+the head in that frame from a subset of camera views 𝐼𝑖,𝑚
+𝑐𝑖𝑛𝑝𝑢𝑡. The
+expression code 𝑧𝑒is then sampled from the Gaussian distribution.
+The encoding process can be represented as:
+𝑧𝑖,𝑚
+𝑒
+= E𝑒(𝐼𝑖,𝑚
+𝑐𝑖𝑛𝑝𝑢𝑡),
+(6)
+𝑅𝑖,𝑚,𝑡𝑖,𝑚= E𝑇(𝐼𝑖,𝑚
+𝑐𝑖𝑛𝑝𝑢𝑡).
+(7)
+As for the identity code, instead of using the full auto-encoder
+framework, we adopt the decoder-only method [Bühler et al. 2023;
+Wang et al. 2022] where the identity code 𝑧𝑖
+𝑖𝑑for each subject
+is initialized with Gaussian noise and jointly optimized with the
+networks during training. Note that the auto-decoder framework
+learns a generative model though there is not an explicit sampling
+process during training as discussed in [Park et al. 2019]. Then the
+synthesized image ˆ𝐼𝑖,𝑚
+𝑐
+of a camera 𝑐with view direction d𝑐and
+camera parameters 𝜙𝑐is given by:
+ˆ𝐼𝑖,𝑚
+𝑐
+= Π(VRMM(𝑧𝑖
+𝑖𝑑,𝑧𝑖,𝑚
+𝑒
+, d𝑐,𝑙𝑚), 𝑅𝑖,𝑚,𝑡𝑖,𝑚,𝜙𝑐),
+(8)
+where Π represents the aforementioned differentiable ray-marching
+process for rendering.
+The loss L𝑡𝑜𝑡𝑎𝑙of the training objective function consists of
+three parts:
+L𝑡𝑜𝑡𝑎𝑙= L𝑖𝑚𝑔+ L𝑟𝑒𝑔+ L𝑒𝑥𝑝,
+(9)
+where L𝑖𝑚𝑔= L1 +𝜆𝑉𝐺𝐺L𝑉𝐺𝐺comparing the reconstruction ˆ𝐼𝑖,𝑚
+𝑐
+and the observed image 𝐼𝑖,𝑚
+𝑐
+consists of the 𝐿1 loss term L1 and the
+perceptual loss term L𝑉𝐺𝐺with weight 𝜆𝑉𝐺𝐺. The regularization
+loss is given by:
+L𝑟𝑒𝑔= 𝜆𝐾𝐿𝐷L𝐾𝐿𝐷+ 𝜆𝑣𝑜𝑙L𝑣𝑜𝑙+ 𝜆𝑠𝑐𝑎𝑙𝑒L𝑠𝑐𝑎𝑙𝑒+ 𝜆𝑖𝑑||𝑧𝑖𝑑||2
+2, (10)
+where L𝐾𝐿𝐷is the KL-divergence loss between the distribution of
+the expression code 𝑧𝑒and multi-variant Gaussian prior. L𝑣𝑜𝑙is
+the volume minimization prior proposed in MVP [Lombardi et al.
+2021]. The scale regularization term L𝑠𝑐𝑎𝑙𝑒penalizes the 𝑘sides
+with the shortest length in the 𝑁𝑝𝑟𝑖𝑚cubic primitives to prevent
+the volumetric primitives from squeezing without affecting normal
+primitives:
+L𝑠𝑐𝑎𝑙𝑒=
+∑︁
+𝑛∈S
+log(1/𝑠𝑛
+𝑝),
+(11)
+where S is the set of indices of the 𝑘shortest sides among all the
+sides 𝑠𝑝, and 𝑠𝑛𝑝is the predicted scale of the 𝑛-th side. The 𝐿2
+regularization term on identity code 𝑧𝑖𝑑is derived by assuming the
+prior distribution of 𝑧𝑖𝑑to be multi-variant Gaussian distribution.
+𝜆𝐾𝐿𝐷, 𝜆𝑣𝑜𝑙, 𝜆𝑠𝑐𝑎𝑙𝑒, and 𝜆𝑖𝑑are balancing weights.
+We find that the KL-divergence regularization L𝐾𝐿𝐷on the
+expression code plays an important role for our VRMM to learn
+a disentangled representation for identity and expression. By ap-
+plying a much larger regularization weight 𝜆𝐾𝐿𝐷on expression
+code compared to 𝜆𝑖𝑑, the information in 𝑧𝑒is limited so that the
+expression encoder E𝑒learns to extract only expression-related
+Subject
+Lighting 1
+Lighting 2
+Lighting 3
+Figure 3: Our model allows real-time global illumination.
+The lighting condition is represented as latitude-longitude
+environment maps, which is shown on the top.
+information while lighting and identity are injected from other
+branches. We also experiment with the adversarial training for dis-
+entanglement [Schwartz et al. 2020; Zhang et al. 2022] but observe
+no improvement.
+The system tends to learn a shared expression space even without
+a specific constraint as the decoders are shared across identities. To
+further align the semantic meaning for the expression code 𝑧𝑒for
+different identities, we propose to incorporate a novel expression
+consistency loss L𝑒𝑥𝑝. Specifically, given the expression code 𝑧𝑖,𝑚
+𝑒
+predicted by expression encoder E𝑒from 𝐼𝑖,𝑚
+𝑐𝑖𝑛𝑝𝑢𝑡, we randomly
+choose an identity code 𝑧𝑗
+𝑖𝑑from another identity 𝑗and a different
+lighting condition 𝑙𝑛. Then we render images corresponding to 𝑧𝑖,𝑚
+𝑒
+,
+𝑧𝑗
+𝑖𝑑, and 𝑙𝑛:
+ˆ𝐼𝑗,𝑛
+𝑐𝑖𝑛𝑝𝑢𝑡= Π(VRMM(𝑧𝑗
+𝑖𝑑,𝑧𝑖,𝑚
+𝑒
+, d𝑐𝑖𝑛𝑝𝑢𝑡,𝑙𝑛), 𝑅𝑖,𝑚,𝑡𝑖,𝑚,𝜙𝑐𝑖𝑛𝑝𝑢𝑡). (12)
+ˆ𝐼𝑗,𝑛
+𝑐𝑖𝑛𝑝𝑢𝑡should have the same expression as in 𝐼𝑖,𝑚
+𝑐𝑖𝑛𝑝𝑢𝑡but different
+identity and lighting condition. We feed ˆ𝐼𝑗,𝑛
+𝑐𝑖𝑛𝑝𝑢𝑡to the expression
+encoder E𝑒to extract the corresponding expression code ˆ𝑧𝑒𝑖,𝑚. We
+also render the image ˆˆ𝐼𝑖,𝑚
+𝑐
+with ˆ𝑧𝑒𝑖,𝑚, the original identity 𝑧𝑖
+𝑖𝑑, and
+lighting 𝑙𝑚, as directly measuring the distance in the parameter
+space is shown to be inefficient [Tewari et al. 2020, 2017]. The
+expression consistency loss L𝑒𝑥𝑝is then given by:
+L𝑒𝑥𝑝= 𝜆𝑖𝑚𝑔𝑒𝑥𝑝L𝑖𝑚𝑔𝑒𝑥𝑝+ 𝜆𝑝𝑎𝑟𝑒𝑥𝑝|| ˆ𝑧𝑒𝑖,𝑚−𝑧𝑖,𝑚
+𝑒
+||2
+2,
+(13)
+where L𝑖𝑚𝑔𝑒𝑥𝑝measures the image space difference similar to
+L𝑖𝑚𝑔, 𝜆𝑖𝑚𝑔𝑒𝑥𝑝and 𝜆𝑝𝑎𝑟𝑒𝑥𝑝are the weights of different terms.
+3.3
+Model Fitting
+Once trained, VRMM can be used for avatar reconstruction with
+the analysis-by-synthesis scheme as traditional 3DMMs. However,
+volumetric avatars include complex components that cannot be
+expressed by the constrained parametric space of the prior model,
+as it was trained with only hundreds of identities. For faithful
+reconstruction, we further finetune VRMM for personalized avatar
+
+
+Yang et al.
+generation similar to [Bühler et al. 2023; Cao et al. 2022; Wang et al.
+2022]. We find finetuning can increase the reconstruction quality
+but make manipulation deteriorate. Similar distortion-editability
+trade-off is also demonstrated in the GAN inversion field [Tov et al.
+2021; Zhu et al. 2020]. Our fitting pipeline is specially designed to
+preserve the data-driven prior that can create a relightable and
+animatable avatar from even a single image. We illustrate our
+pipeline for fitting a single in-the-wild image for clarity, which
+can be easily extended to image sets.
+Inversion. Given an image, we first detect 2D facial landmarks
+and optimize the rough rigid transformation and camera projection
+parameters with respect to the corresponding predefined 3D land-
+marks on the mean base mesh of VRMM for initialization. Then
+we jointly optimize the input parameters of VRMM and camera
+projection by inverse rendering. Particularly, instead of directly
+solving for the identity code 𝑧𝑖𝑑, we find a set of weights w that
+linearly blends the existing identity codes in the training set to
+constrain the domain. The objective function is formulated as:
+arg min
+w,𝑧𝑒,𝑙,𝑅,𝑡,𝜙
+L𝑖𝑚𝑔+ 𝜆𝑒𝑥𝑝||𝑧𝑒||2
+2,
+(14)
+where L𝑖𝑚𝑔is identical to the data term in Equation 9 and 𝜆𝑒𝑥𝑝
+is the weight of regularization term. The lighting 𝑙is restrict to
+be non-negative during optimization. The view direction d can be
+computed as inversion of the rotation 𝑅.
+Fine-tuning. After inversion we obtain an avatar that is animat-
+able and relightable but may not authentically replicate the image.
+Inspired by Pivotal Tuning [Roich et al. 2022] and DreamBooth [Ruiz
+et al. 2023], we propose to finetune the parameters 𝜃of VRMM with
+the prior preservation technique to better reproduce the individual
+characteristics:
+arg min
+𝑧𝑒,𝑙,𝑅,𝑡,𝜙,𝜃
+L𝑖𝑚𝑔+ 𝜆𝐿𝑅L𝐿𝑅+ 𝜆𝑖𝑑||𝑧𝑖𝑑||2
+2 + 𝜆𝑒𝑥𝑝||𝑧𝑒||2
+2,
+(15)
+where 𝜆𝐿𝑅, 𝜆𝑖𝑑, and 𝜆𝑒𝑥𝑝are balancing weights. L𝐿𝑅is the locality
+regularization term that restricts the modification to the local region
+around the inverted identity code 𝑧∗
+𝑖𝑑. Specifically, the interpolated
+identity code 𝑧𝑖𝑛𝑡𝑒𝑟
+𝑖𝑑
+is obtained by linearly blending 𝑧∗
+𝑖𝑑with a
+randomly selected identity code 𝑧𝑖
+𝑖𝑑from the training set with a
+weight 𝛼:
+𝑧𝑖𝑛𝑡𝑒𝑟
+𝑖𝑑
+= 𝛼𝑧∗
+𝑖𝑑+ (1 −𝛼)𝑧𝑖
+𝑖𝑑.
+(16)
+Then we use the interpolated identity code 𝑧𝑖𝑛𝑡𝑒𝑟
+𝑖𝑑
+, a randomly
+selected expression code 𝑧𝑒, and a lighting condition 𝑙to render
+an image with both the fine-tuned VRMM and the original VRMM.
+L𝐿𝑅measures the difference of these two images similarly to L𝑖𝑚𝑔.
+We have found that fine-tuning for 500 iterations leads to good
+convergence, taking about five minutes. Our experiments show
+that the locality regularization significantly improves the prior
+preservation while having minor effect on the detail reconstruction.
+4
+EXPERIMENTS
+4.1
+Dataset
+We capture dynamic facial performance of 254 subjects in a custom-
+built apparatus with synchronized multi-view cameras and con-
+trollable lighting condition. Each subject is asked to perform 21
+Ground truth
+MoFaNeRF
+HeadNeRF
+Ours
+Figure 4: Qualitative comparison results on novel view syn-
+thesis. Our method produces more faithful results compared
+to existing parametric head models MoFaNeRF [Zhuang et al.
+2022] and HeadNeRF [Hong et al. 2022].
+predefined expressions, read out a paragraph, look at different di-
+rections and freely perform exaggerated and combined expressions.
+We record 1800 frames for each subject at 16fps with 29 cameras
+surrounding the head with a resolution of 2448 × 2048. We utilize
+the group light pattern with basic background illumination [Bi
+et al. 2021; Yang et al. 2023] for relightable model capture. We
+also capture a full-on frame every four shots. The background
+images are recorded and alpha blended with the rendering during
+training similar to previous work [Lombardi et al. 2021; Yang et al.
+2023]. The unprecedented dataset consists of more than 13M images
+in total with diverse dynamic expressions and known varying
+illuminations. Notice that the expressions do not need to be aligned
+or registered for different identities thanks to our self-supervised
+training framework, allowing for flexible dynamic performance
+capture. The network training on the dataset takes about two weeks
+on eight NVIDIA V100 graphics cards.
+4.2
+Qualitative Results
+Latent space evaluation. Figure 5 shows interpolation between
+the identity codes of different individuals while keeping expression
+code and lighting condition fixed. The relighting results are shown
+in Figure 3. The visualization shows that the identity, expression
+and illumination spaces of our VRMM are fully disentangled and
+can be freely combined, which demonstrates the effectiveness of
+our self-supervised training framework.
+Avatar personalization. Our model can be utilized to create per-
+sonalized avatars from few-shot captures. Figure 6 shows that
+VRMM generates high-fidelity relightable and animatable avatars
+by fitting multi-view images from various sources. The first two
+rows are from the Multiface Dataset [Wuu et al. 2022], which are
+collected in a multi-view capture system with 40 and 146 cameras,
+respectively. We use the images of one frame as input. The middle
+
+
+VRMM: A Volumetric Relightable Morphable Head Model
+Figure 5: Interpolation results between three identities (left, center, right). Our model learns a smooth identity latent space that
+allows linear interpolation. Besides, the expression keeps unchanged during the interpolation, confirming that the expression
+and identity spaces have been effectively disentangled.
+Table 2: Quantitative evaluation results.
+Novel view synthesis
+Single-view reconstruction
+Method
+MAE ↓
+SSIM ↑
+LPIPS ↓
+MAE ↓
+SSIM ↑
+LPIPS ↓
+MoFaNeRF
+28.3
+0.829
+0.247
+35.00
+0.878
+0.199
+HeadNeRF
+17.19
+0.892
+0.211
+14.07
+0.905
+0.163
+Ours
+5.29
+0.950
+0.120
+4.45
+0.933
+0.106
+two rows are from [Yang et al. 2023] with 23 input views. The last
+two rows are captured in our studio. The personalization is per-
+formed given only three images. Please refer to our accompanying
+video for the corresponding animations results.
+4.3
+Comparisons
+We compare our method with existing publicly available paramet-
+ric head models, i.e., HeadNeRF [Hong et al. 2022] and MoFaN-
+eRF [Zhuang et al. 2022].
+Novel view synthesis. We conduct both qualitative and quanti-
+tative evaluations on the task of novel view synthesis using the
+Multiface Dataset [Wuu et al. 2022]. The parametric models are
+fitted to multi-view images from a single frame of each subject,
+and performance is measured against five held out views. The
+visual comparison is provided in Figure 4, with detailed quantitative
+results presented in Table 2.
+Single-view reconstruction. Figure 7 shows qualitative compari-
+son results for single-view head reconstruction. The average quan-
+titative fitting error on 100 in-the-wild images from the FFHQ
+dataset [Karras et al. 2019] is reported in Table 2. These calculations
+are confined to the regions shared by different methods. Our method
+can achieve high-quality reconstruction results from a single in-
+the-wild image, while other baselines produce less accurate results.
+4.4
+Ablation Study
+Expression consistency constraint. We conduct an ablation study
+to evaluate the effectiveness of the expression consistency loss
+(ECL). The experimental model is trained without expression con-
+sistency loss while keeping other parts identical. Then we set the
+expression code as the one corresponding to the target image to
+evaluate the expression consistency across identities. The results in
+Figure 8 show that our method learns more consistent expressions
+for different identities compared with the model w/o ECL.
+Locality regularization loss. We attempt to remove our proposed
+locality regularization loss (LRL). The results are shown in Figure 9.
+We perform personalization using 39 images of a single frame
+from the Multiface Dataset. The personalized avatar is animated
+by the expression code corresponding to the target expression.
+The fine-tuning deteriorates the prior model without the locality
+regularization loss, which results in inaccurate animation results.
+5
+CONCLUSION
+We present VRMM, the first volumetric morphable head model that
+enables continuous control over expression, identity, and global
+illumination. Through an elaborately designed training framework,
+VRMM is capable of disentangling complex attributes from multi-
+view sequences of casually varied expressions and lightings in
+a self-supervised manner. Once trained, VRMM can serve as a
+powerful prior for various reconstruction tasks. Combined with the
+novel fitting technique we propose, VRMM requires only minimal
+observations to accurately fit a specific portrait and generate an
+animatable and relightable avatar with real-time rendering. We
+believe this work will have a profound impact on the development
+of the field.
+ACKNOWLEDGMENTS
+We thank Xiaoqiang Liu for being our capture subject, the authors
+of [Zhuang et al. 2022] and [Hong et al. 2022] for releasing their
+source code and pretrained models, as well as anonymous reviewers
+for their insightful feedback.
+
+
+Yang et al.
+Reference
+Reconstruction
+Relighting
+Animation
+Figure 6: Few-shot personalization results. Given multi-view images of a subject in a static expression under unknown fixed
+illumination, our model enables the creation of a high-fidelity avatar that can be animated and relighted. Our model learns the
+relightable appearance even when the input images suffer from strong specular reflection.
+A
+IMPLEMENTATION DETAILS
+We provide the values of hyperparameters in Table 3. The detailed
+neural network architecture is shown in Figure 11. The network
+is initially trained without the expression consistency loss L𝑒𝑥𝑝
+for efficiency. Subsequently, L𝑒𝑥𝑝is incorporated and the network
+continues training until it converges.
+B
+ADDITIONAL EXPERIMENTS
+B.1
+Evaluation of Personalization
+Animation. We evaluate the animation quality of the few-shot
+personalized avatar with held-out identities from the captured
+dataset. The fitting is performed on different numbers of frames in
+Table 3: Values of our hyperparameters.
+Parameter
+Value
+Parameter
+Value
+Parameter
+Value
+𝑁𝑙
+356
+𝑁𝑝𝑟𝑖𝑚
+16384
+𝜆𝑉𝐺𝐺
+0.1
+𝜆𝐾𝐿𝐷
+0.01
+𝜆𝑣𝑜𝑙
+0.01
+𝜆𝑠𝑐𝑎𝑙𝑒
+0.01
+𝜆𝑖𝑑
+0.0001
+𝜆𝑖𝑚𝑔𝑒𝑥𝑝
+0.2
+𝜆𝑝𝑎𝑟𝑒𝑥𝑝
+0.02
+𝜆𝑒𝑥𝑝
+0.01
+𝜆𝐿𝑅
+0.1
+varying expressions and other frames are used to drive the avatar.
+As shown in Figure 10, the animation resembles to the ground truth
+expression, and personal idiosyncrasies are more distinct when the
+number of reference expressions increases.
+
+
+VRMM: A Volumetric Relightable Morphable Head Model
+Input
+MoFaNeRF
+HeadNeRF
+Ours
+Figure 7: Comparison with existing volumetric head priors, MoFaNeRF [Zhuang et al. 2022] and HeadNeRF [Hong et al.
+2022], on single-view head reconstruction. We show the fitting results in the original view as well as two different views. The
+reconstruction results of our method achieve significantly better visual quality.
+Target
+w/o ECL
+Ours
+Figure 8: Ablation experiment about the expression consis-
+tency loss (ECL). By adding the expression consistency loss,
+our model learns a more unified expression space of different
+identities.
+Source
+w/o LRL
+Ours
+Target
+Figure 9: Ablation study on the locality regularization loss.
+The locality regularization loss helps our model to keep the
+knowledge from the prior during fine-tuning, resulting in
+accurate expression transfer after personalization.
+Relighting. The relighting results of the personalized avatar from
+different numbers of views are compared to the ground truth images
+captured under known illumination. Figure 12 shows the results.
+Single frame
+5 frames
+20 frames
+Ground truth
+LPIPS: 0.275
+LPIPS: 0.262
+LPIPS: 0.254
+LPIPS: 0.315
+LPIPS: 0.300
+LPIPS: 0.291
+Figure 10: The assessment of animation quality is depicted
+in the left three columns, illustrating the animated results
+of the personalized avatar derived from varying numbers
+of frames. The accuracy of expression amplitude improves,
+and additional identity-specific wrinkles emerge as the
+number of reference images increases. Quantitative metrics
+for each animation are displayed at the top-right corner of
+the corresponding image.
+Our VRMM achieves accurate relighting from as few as three view
+inputs (frontal, left, right). The relighting accuracy is slightly im-
+proved with more input views, which demonstrates the robustness
+of our personalization framework.
+
+
+Yang et al.
+Reshape
+ConvT(256, 256, 4, 2) & LReLU
+ConvT(128, 128, 4, 2) & LReLU
+ConvT(256, 128, 4, 2) & LReLU
+ConvT(128, 64, 4, 2) & LReLU
+ConvT(64, 64, 4, 2) & LReLU
+ConvT(64, 32, 4, 2) & LReLU
+ConvT(32, 32, 4, 2) & LReLU
+FC & Reshape
+ConvT(128, 128, 4, 2)
+ConvT(64, 64, 4, 2)
+ConvT(128, 64, 4, 2)
+ConvT(64, 32, 4, 2)
+ConvT(32, 32, 4, 2)
+ConvT(32, 16, 4, 2)
+ConvT(16, 16, 4, 2)
+FC & Reshape
+ConvT(640, 128, 4, 2) & LReLU
+ConvT(320, 64, 4, 2) & LReLU
+ConvT(384, 64, 4, 2) & LReLU
+ConvT(192, 32, 4, 2) & LReLU
+ConvT(160, 32, 4, 2) & LReLU
+ConvT(41, 16, 4, 2) & LReLU
+ConvT(16, 16, 4, 2) & LReLU
+FC & Reshape
+ConvT(640, 128, 4, 2) & LReLU
+ConvT(320, 64, 4, 2) & LReLU
+ConvT(384, 64, 4, 2) & LReLU
+ConvT(192, 32, 4, 2) & LReLU
+ConvT(160, 32, 4, 2) & LReLU
+ConvT(41, 16, 4, 2) & LReLU
+ConvT(16, 16, 4, 2) & LReLU
+FC & Reshape
+ConvT(768, 256, 4, 2) & LReLU
+ConvT(384, 128, 4, 2) & LReLU
+ConvT(512, 256, 4, 2) & LReLU
+ConvT(256, 128, 4, 2) & LReLU
+ConvT(192, 9, 4, 2)
+ConvT(16, 8, 4, 2) & ReLU
+ConvT(16, 24, 4, 2)
+ConvT(16, 24, 4, 2)
+ConvT(1024, 512, 4, 2) & LReLU
+ConvT(512, 512, 4, 2) & LReLU
++
++
+.
+c
+c
+c
+S
+G
+S
+G
++
++
+.
+.
+……
+……
+……
+𝑅𝑝, 𝑡𝑝, 𝑠𝑝
+𝑉𝑟𝑔𝑏
+𝑉𝛼
+𝑧𝑖𝑑
+𝑙
+𝑧𝑒, 𝐝
+𝑧𝑒
+𝑧𝑒, 𝑧𝑖𝑑
+Figure 11: Detailed neural network architecture of VRMM. The transposed convolutional layer is represented as
+𝐶𝑜𝑛𝑣𝑇(𝑖𝑛𝑝𝑢𝑡𝑐ℎ𝑎𝑛𝑛𝑒𝑙𝑠,𝑜𝑢𝑡𝑝𝑢𝑡𝑐ℎ𝑎𝑛𝑛𝑒𝑙𝑠,𝑘𝑒𝑟𝑛𝑒𝑙𝑠𝑖𝑧𝑒,𝑠𝑡𝑟𝑖𝑑𝑒). The inter-connections between intermediate layers are omitted to avoid
+clutter. The expression encoder E𝑒, transformation encoder E𝑇, and the mesh decoder D𝑚𝑒𝑠ℎare identical to that in [Yang et al.
+2023].
+Source
+3 views
+29 views
+Ground truth
+LPIPS: 0.249
+LPIPS: 0.247
+LPIPS: 0.282
+LPIPS: 0.281
+Figure 12: The evaluation of relighting performance is
+showcased, where VRMM is adapted to different numbers
+of views captured under the original source lighting, as
+displayed in the left column. The model demonstrates the
+capability to achieve accurate relighting outcomes even with
+a minimal set of views.
+B.2
+Additional Ablations
+Detach-concatenation operation. We conduct experiments to eval-
+uate the effectiveness of the detach-concatenation operation. We
+ablate two alternative choices:
+w/o connection
+w/o SG
+Ours
+Ground truth
+Figure 13: Ablation study on the detach-concatenation
+operation. The rendered images get blurred as the number of
+identities increases without the inter-connection. Moreover,
+without detaching, the training process fails to converge.
+The detach-concatenation leads to clearer and more accurate
+renderings in the final output.
+(1) w/o connection: We remove the inter-connection between
+the transformation decoder D𝑇and other two decoders.
+(2) w/o SG: The stop gradient operation is removed and the
+inter-connection falls back to vanilla feature concatenation.

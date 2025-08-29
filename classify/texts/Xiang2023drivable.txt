@@ -1,0 +1,1092 @@
+Title: Drivable avatar clothing: Faithful full-body telepresence with dynamic clothing driven by sparse rgb-d input
+
+Drivable Avatar Clothing: Faithful Full-Body Telepresence with
+Dynamic Clothing Driven by Sparse RGB-D Input
+Donglai Xiang
+donglaix@cs.cmu.edu
+Carnegie Mellon University
+USA
+Fabian Prada
+fabianprada@meta.com
+Meta Reality Labs Research
+USA
+Zhe Cao
+zhecao@berkeley.edu
+Meta Reality Labs Research
+USA
+Kaiwen Guo
+guokaiwen_neu@126.com
+Meta Reality Labs Research
+USA
+Chenglei Wu
+chengleiwu@gmail.com
+Meta Reality Labs Research
+USA
+Jessica Hodgins
+jkh@cmu.edu
+Carnegie Mellon University
+USA
+Timur Bagautdinov
+timurb@meta.com
+Meta Reality Labs Research
+USA
+RGB-D Input
+Our Output
+Our Output
+Ground Truth
+Ground Truth
+RGB-D Input
+Figure 1: We present photorealistic full-body avatars that can be driven by sparse RGB-D views (along with body pose and
+facial keypoints) and faithfully reproduce the appearance and dynamics of challenging loose clothing from the input views.
+We show the input views, our output and the ground truth reference images in each group of results.
+ABSTRACT
+Clothing is an important part of human appearance but challeng-
+ing to model in photorealistic avatars. In this work we present
+avatars with dynamically moving loose clothing that can be faith-
+fully driven by sparse RGB-D inputs as well as body and face motion.
+We propose a Neural Iterative Closest Point (N-ICP) algorithm that
+can efficiently track the coarse garment shape given sparse depth
+input. Given the coarse tracking results, the input RGB-D images
+are then remapped to texel-aligned features, which are fed into
+Work done when DX was a visiting researcher at Meta. ZC and CW are now at Google.
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+© 2023 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-0315-7/23/12.
+https://doi.org/10.1145/3610548.3618136
+the drivable avatar models to faithfully reconstruct appearance
+details. We evaluate our method against recent image-driven syn-
+thesis baselines, and conduct a comprehensive analysis of the N-ICP
+algorithm. We demonstrate that our method can generalize to a
+novel testing environment, while preserving the ability to produce
+high-fidelity and faithful clothing dynamics and appearance.
+CCS CONCEPTS
+• Computing methodologies →Computer graphics; Com-
+puter vision.
+KEYWORDS
+Telepresence, photorealistic avatars, clothing capture
+ACM Reference Format:
+Donglai Xiang, Fabian Prada, Zhe Cao, Kaiwen Guo, Chenglei Wu, Jessica
+Hodgins, and Timur Bagautdinov. 2023. Drivable Avatar Clothing: Faithful
+Full-Body Telepresence with Dynamic Clothing Driven by Sparse RGB-D
+arXiv:2310.05917v2  [cs.GR]  11 Oct 2023
+
+
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+Xiang, D. et al
+Input. In SIGGRAPH Asia 2023 Conference Papers (SA Conference Papers ’23),
+December 12–15, 2023, Sydney, NSW, Australia. ACM, New York, NY, USA,
+11 pages. https://doi.org/10.1145/3610548.3618136
+1
+INTRODUCTION
+Photorealistic avatars are important for enabling truly immersive
+and believable telepresence experiences. An ideal telepresence ap-
+plication should not only produce plausible-looking results, but also
+be complete and accurate: all salient aspects of human appearance
+should be captured and resynthesized to fully match the real-world
+states of the subject. However, these properties are particularly
+challenging to achieve with clothing, an integral part of human
+appearance, due to its complex movements on human body.
+To deal with this challenge, some previous methods go beyond
+treating clothing effectively as a part of the human body [Bagaut-
+dinov et al. 2021; Liu et al. 2021] and perform explicit modeling of
+clothing as a separate layer on top of the underlying body [Xiang
+et al. 2022, 2021]. These methods can work well for pose-driven
+animation, i.e., synthesizing plausible clothing deformation and
+photorealistic appearance that are perceptually compatible with
+the input pose signal. However, there is no guarantee that the ani-
+mation output will faithfully reproduce the actual states of clothing
+(Fig. 6), and potentially distorting the conveyed social signals. In
+fact, the dynamics of clothing cannot be fully explained by the
+body pose of the current frame or a few previous frames. Given
+two distinct initial states of clothing, the same body motion can
+result in completely different trajectories of clothing deformations,
+especially for loose garments like skirts or dresses. Therefore, it is
+impossible to infer accurate clothing states given such incomplete
+input signals.
+An alternate approach for telepresence relies heavily on the
+availability of sensory inputs without a strong human prior. For
+example, volumetric fusion methods [Dou et al. 2017, 2016; New-
+combe et al. 2015] produce a complete geometrical representation
+of a scene by tracking and fusing observations from sparse RGB-D
+cameras. Neural implicit functions can also be utilized to recon-
+struct a dynamically moving human surface from sparse camera
+inputs [Shao et al. 2022a; Yu et al. 2021b], or even to directly model
+the radiance field of clothed human appearance [Lin et al. 2022;
+Shao et al. 2022b]. In theory, these methods are flexible enough to
+be able to reconstruct arbitrary shape from the given input streams.
+However, due to a lack of model constraints, it is generally more
+challenging for these methods to achieve high-fidelity temporal
+coherency especially with noisy or incomplete input, and the out-
+put quality is heavily tied with the sensory input. For example, it
+is hard to produce the sharp and subtle detail in hands [Shao et al.
+2022b] with the limited resolution and noise, and the observed and
+unobserved regions from the input can have obvious difference
+in the output quality [Shao et al. 2022a]. Human priors have been
+introduced to regularize the predictions [Kwon et al. 2021, 2023],
+but the ability to reliably handle loose clothing has not been clearly
+demonstrated.
+To leverage the benefits of both families of approaches, we can
+rely on explicit avatar models as a prior, but expand the driving
+signal to include the denser input in addition to the body pose.
+We build avatars with dynamic clothing that can be driven from
+a sparse set of RGB-D cameras (usually three unless otherwise
+stated). This formulation allows for more faithful resynthesis of the
+human appearance, including clothing details. We build on top of
+DVA [Remelli et al. 2022], which proposes the texel-conditioned
+avatar, an encoder-decoder model that takes in UV-aligned driving
+features and predicts geometry and appearance for rendering. How-
+ever, DVA only works well for tight clothing that closely follows
+underlying body, due to the limitation in relying on a generic body
+shape prior.
+To better handle loose clothing, our insight is to introduce a
+tracking stage that coarsely aligns the loose clothing surface with
+the input depth. More specifically, we propose a simple-yet-effective
+Neural Iterative Closest Points (N-ICP) algorithm to iteratively up-
+date a clothing deformation model given the feedback from surface
+error in a data-driven manner. N-ICP combines the flexibility of
+the classical ICP methods which allows us to handle large clothing
+deformations, while relying on learning for more efficient inference
+and reliable geometry estimates. In contrast to DVA, which uses
+coarse body geometry to extract features, the N-ICP tracking allows
+us to extract more accurate and meaningful texel-aligned features.
+It also eases the burden on the encoder-decoder model, since large
+deformations and misalignments are handled by the coarse tracking,
+and ultimately leads to better quality and generalization. In addition,
+several technical components have been leveraged to further im-
+prove the texel-conditioned avatars. To aid geometry prediction, we
+augment texel-aligned features with geometry features computed
+from depth and coarsely tracked geometry. To improve appearance,
+we adopt a specific perceptual loss to encourage high-frequency
+texture detail on the predicted clothing.
+Our contributions can be summarized as follows:
+• We develop photorealistic full-body avatars with dynamic
+clothing that faithfully reproduces the original states of sub-
+ject’s appearance and geometry. These avatars are driven
+by sparse (up to 3) RGB-D inputs and enable free-viewpoint
+rendering.
+• As an important component of our system, we introduce
+a Neural Iterative Closest Point algorithm that learns to
+iteratively find the most effective parameter update to track
+the input point cloud efficiently with a deformation model.
+• Our avatars can directly generalize to a novel testing envi-
+ronment with a different background and illumination, while
+capturing the complex clothing dynamics and preserving
+the original high-quality appearance from the training data.
+We also provide an option to finetune the model to adapt to
+the new appearance in the novel environment.
+2
+RELATED WORK
+We focus on related work in three areas: photorealistic clothed
+avatars, sensing-based telepresence, and image-conditioned novel-
+view synthesis and learning to optimize for non-rigid tracking.
+Photorealistic Clothed Avatars. Here we discuss approaches pose-
+driven avatars that model both the shape and photorealistic appear-
+ance of clothed humans leanrned directly from captured images in
+a data-driven manner. Depending on the appearance model, these
+methods can be roughly divided into three categories: methods that
+combine coarse human geometry with Deferred Neural Rendering
+[Grigorev et al. 2021; Raj et al. 2021; Thies et al. 2019], methods
+
+
+Faithful Full-Body Telepresence with Dynamic Clothing Driven by Sparse RGB-D Input
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+Texel- 
+Conditioned 
+Clothed Avatar
+Neural 
+Iterative 
+Closest Point
+Initial Tracking
+Clothing Deformation 
+Model
+Fused Point Cloud
+Sparse RGB-D 
+Driving Images
+Texel-Aligned 
+Features
+Output Image
+Unwrap
+{Ic, Dc}
+P
+D
+D(θ)
+FI
+FD
+Body Pose
+Viewpoint
+ρ
+v
+Figure 2: An overview of our method. The Neural Iterative Closest Point module efficiently tracks the clothing surface from the
+input point cloud P with a clothing deformation model D(𝜽); the initial tracking result D is then used to unwrap the driving
+images 𝐼𝑐and depth maps 𝐷𝑐into texel-aligned features F𝐼, F𝐷, which are then fed into the texel-conditioned avatar, together
+with body pose 𝝆, facial keypoints and viewpoint v, to predict the output image.
+that incorporate a human prior into Neural Radiance Fields [Li et al.
+2022; Liu et al. 2021; Mildenhall et al. 2020; Peng et al. 2021a; Su et al.
+2021; Zheng et al. 2022], and methods based on mesh and dynamic
+texture [Habermann et al. 2021; Shysheya et al. 2019]. Our method
+is more closely related to the Full-Body Codec Avatars [Bagautdi-
+nov et al. 2021] among the third category, as well as the followup
+work that can handle dynamic clothing [Xiang et al. 2022, 2021].
+Most of these methods learn a mapping from body pose or motion
+to clothed body appearance, without resolving the ambiguity in
+clothing states for similar body poses. Drivable Volumetric Avatars
+(DVA) [Remelli et al. 2022] is an exception, which is additionally
+conditioned on a dynamic texture unwrapped from sparse driving
+views to incorporate the clothing information. However, it is limited
+to tight clothing due to a constraint in body representation. Our
+method can further track and render dynamically moving loose
+clothing realistically.
+Sensing-Based Telepresence Approaches. Another category of ap-
+proaches for telepresence rely more heavily on the sensing input
+for surface reconstruction, usually from one or several RGB(-D)
+cameras. Volumetric fusion [Dou et al. 2017, 2016; Newcombe et al.
+2015] and multiview-conditioned implicit functions [Shao et al.
+2022a; Suo et al. 2021; Yu et al. 2021b] have been utilized to re-
+construct scene geometry from the sensor input. Early work only
+reconstructs the geometry [Newcombe et al. 2015], but later work
+also predicts color by warping and blending RGB information from
+input views [Dou et al. 2016; Lawrence et al. 2021], possibly assisted
+by deep neural networks [Shao et al. 2022a; Suo et al. 2021; Yu et al.
+2021b]. Neural rendering has also been introduced [Martin-Brualla
+et al. 2018; Nguyen-Ha et al. 2022] to compensate for artifacts in the
+reconstructed geometry. These sensing-based methods enjoy the
+flexibility in handling varying topology, but are generally more sen-
+sitive to noisy or missing input than the model-based approaches
+described in the previous section.
+Image-Conditioned Novel-View Synthesis. Our task can also be
+regarded as Novel-view Synthesis (NVS) based on sparse input
+images. Generalizable NeRF is a group of methods that extend the
+Neural Radiance Field (NeRF) [Mildenhall et al. 2020] and allow
+the reconstruction of a scene with sparse images as input without
+per-scene optimization [Chen et al. 2021; Lin et al. 2022; Shao et al.
+2022b; Wang et al. 2021; Yu et al. 2021a]. This formulation is thus
+more suitable for telepresence than the original NeRF, but tends to
+perform less well when the target view is far away from the sparse
+input views due to the inherent 3D ambiguity. To alleviate this
+problem, some methods incorporate prior knowledge of the human
+body to achieve better quality. Neural Body [Peng et al. 2021b]
+utilizes the SMPL model to aggregate the temporal information
+over the multiview videos. It still does not allow direct use of novel
+images as input, but this limitation is addressed in Neural Human
+Performer [Kwon et al. 2021] and GP-NeRF [Chen et al. 2022].
+Several other methods [Gao et al. 2023, 2022; Kwon et al. 2023;
+Zhao et al. 2022] predict radiance fields in a canonical space with
+the help of forward and inverse skinning transformations. These
+methods additionally allow generalization across identities, which
+is not the focus of our work. KeypointNeRF [Mihajlovic et al. 2022]
+utilizes 3D body keypoints to encode the spatial information in the
+rendered volume. These methods have shown limited capability to
+handle dynamic loose clothing due to the body representation.
+Learning to Optimize for Non-Rigid Tracking. Many non-rigid
+tracking and reconstruction problems are traditionally formulated
+as optimization. Examples include SMPL model fitting for 3D human
+pose estimation [Bogo et al. 2016], and non-rigid ICP for deformable
+surface tracking [Guo et al. 2015]. In recent years, researchers at-
+tempted to incorporate deep neural networks into these problems
+[Bhatnagar et al. 2020; Bozic et al. 2020, 2021; Li et al. 2020]. Our
+N-ICP formulation essentially treats the neural network as an opti-
+mization solver that iteratively generates a parameter update. Some
+work [Corona et al. 2022; Song et al. 2020] explores a similar idea
+
+
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+Xiang, D. et al
+for monocular human pose reconstruction in a supervised setting.
+RMA-Net [Feng et al. 2021] also addresses the non-rigid registration
+problem with recurrent update. In addition to the difference in de-
+formation model and loss function, our method integrates learning
+into optimization more deeply by explicit feeding the error and
+gradient into the network for update prediction, which is shown to
+be the key to effectiveness in the ablation study.
+3
+METHOD OVERVIEW
+Our method takes as input RGB-D images from sparse (up to 3)
+views, as well as 3D body pose in the form of joint angles (and facial
+keypoints if available), and generates photorealistic rendering of the
+subject from an arbitrary viewpoint. The model is trained on images
+of the subject captured in a dense camera system. We adopt the
+two-layer representation that has proven effective in previous work
+on loose clothing [Xiang et al. 2022, 2021]. Our method consists
+of two major modules. First, in the Neural Iterative Closest Point
+module, we coarsely track the loose clothing surface given the fused
+point cloud from the input depth maps using a deformation graph
+model. Second, we convert the sparse driving RGB-D images into
+texel-aligned features and feed them into texel-conditioned clothed
+avatars to infer detailed geometry and view-dependent texture,
+which are then rasterized to form the output image. The overall
+pipeline is illustrated in Fig. 2.
+4
+NEURAL ITERATIVE CLOSEST POINT
+As the first step of our approach, we introduce a Neural Iterative
+Closest Point (N-ICP) algorithm to coarsely track the dynamic
+clothing surface using a deformation graph representation of the
+clothing geometry. Such a module is needed for two reasons. First,
+coarse tracking provides rough correspondences on the clothing
+surface across different frames. Previous work [Xiang et al. 2022,
+2021] shows that such canonicalization reduces the variance in
+appearance that needs to be modelled by the downstream module
+and leads to improved quality. Second, compared with skeleton-
+level tracking [Remelli et al. 2022], the deformation graph enjoys the
+flexibility to track the surface at a higher accuracy from the input
+depth, so that the following stage (Sec. 5) only needs to predict a
+small geometry correction. This concept of coarse-to-fine modeling
+has also proven useful in previous work, e.g. [Habermann et al.
+2021].
+Non-Rigid ICP. The classical approach to track a deforming sur-
+face is the non-rigid Iterative Closest Point (ICP) algorithm [Li et al.
+2008]. Given a deformation model D controlled by deformation
+parameters 𝜽, the non-rigid ICP algorithm tracks an input point
+cloud1 P by solving the following minimization problem
+min
+𝜽
+𝐿ICP(𝜽; P) = min
+𝜽
+∑︁
+p∈P
+∥C(p, D(𝜽)) −p∥2,
+(1)
+where C queries the closest point on the deformed mesh D(𝜽)
+from a point p in the point cloud based on Euclidean or projective
+distance. To keep the deformed mesh in a smooth shape, some
+regularization terms are often used together with Eq. (1) to penal-
+ize extreme distortion. This non-linear optimization problem is
+1At test time, the point cloud comes from fused driving depth images. We only use the
+points from the regions of dynamic clothing identified by image segmentation.
+P
+θ(0)
+D(θ(0))
+C(p, D(θ(0)))
+M
+r
+g
+∆θ
+θ(1)
+C(p, D(θ(1)))
+M
+r
+g
+∆θ
+. . .
+θ(N)
+D(θ(1))
+D(θ(N))
+Figure 3: The Neural Iterative Closest Point algorithm. In
+each iteration, we perform the closest point query between
+the input point cloud P and deformed clothing model D(𝜽(𝑖)).
+The residual r and gradient g are then passed to a neural
+network M, which finds the best update Δ𝜽to the parameters.
+This process is repeated for 𝑁iterations.
+usually solved by the Gauss-Newton method, especially its Leven-
+berg–Marquardt variant. Concretely, in each iteration of optimiza-
+tion, the algorithm evaluates the residual vector r, which consists of
+offset r(p) = C(p, D(𝜽))−p for each point p in the point cloud, and
+the Jacobian J of each residual term with respect to the parameters.
+Then the algorithm searches for the update Δ𝜽by solving the linear
+system (J𝑇J + 𝜆I)Δ𝜽= −J𝑇r, where 𝜆> 0 is a damping coefficient.
+The parameters are updated by 𝜽(𝑖+1) = 𝜽(𝑖) + Δ𝜽, where 𝑖denotes
+the index of iteration.
+N-ICP. The problem of driving avatars for online telepresence
+poses a challenge in terms of both robustness and speed for the
+non-rigid tracking algorithm. The nonlinear minimization problem
+in Eq. (1) relies heavily on good initialization, so classical method
+usually requires sequential tracking that is hard to recover from
+failure and technically demanding GPU implementation to meet the
+runtime constraint [Newcombe et al. 2015; Zollhöfer et al. 2014].
+This challenge motivates us to introduce a Neural Iterative Clos-
+est Point (N-ICP) algorithm, where the goal is to leverage the prior
+learned by a deep neural network to make an efficient and robust
+prediction of the update direction Δ𝜽. We utilize a PointNet [Qi
+et al. 2017] architecture to operate on the input point cloud P. In
+addition to the coordinates of each point p, we also use the offset
+r(p) = C(p, D(𝜽)) −p as a feature, which includes the essential
+closest point information for solving the non-rigid ICP problem.
+Inspired by the classical optimization paradigm, we also a provide
+first-order derivative to the network. For the ease of computation,
+we use the gradient g = J𝑇r of total loss with respect to the param-
+eters, which can be automatically derived in most modern neural
+network libraries [Paszke et al. 2019], or manually derived for better
+computation efficiency. The formulation of the network M can be
+written as Δ𝜽= M(P, r, g). The update 𝜽(𝑖+1) = 𝜽(𝑖) + Δ𝜽is then
+performed for 𝑁= 3 times.
+Weakly-Supervised Learning. We train the network in a weakly-
+supervised manner without requiring the ground truth deformation
+parameters 𝜽. Instead, we only use the clothing geometry P re-
+constructed by Multi-View Stereo (MVS). Compared with P which
+has missing parts due to occlusion from the sparse depth input, P
+
+
+Faithful Full-Body Telepresence with Dynamic Clothing Driven by Sparse RGB-D Input
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+includes the complete clothing geometry reconstructed from all
+cameras in the capture studio, and is only used at training time for
+supervision. Our loss function for training the network is written
+as 𝐿N-ICP =
+1
+𝑁
+Í𝑁
+𝑖=1 𝐿ICP(𝜽(𝑖), P) plus regularization (see supple-
+mentary document). In other words, the network is trained to find
+an update to the parameters so that the deformed mesh can most
+efficiently track the clothing surface for every ICP iteration.
+Clothing Deformation Model. ICP-style methods require good
+initialization to converge to the right local minimum. We observe
+that the underlying body pose can provide coarse information about
+body orientation and articulation as a good starting point. Thus we
+adopt a hierarchical deformation model for dynamic loose clothing:
+an outer layer of Linear Blend Skinning (LBS) W with respect to
+body pose, and an inner layer of deformation graphs E [Sumner
+et al. 2007]: D(𝜽) = W(E(M, 𝜽), 𝝆), where M is the template
+shape of the clothing defined in the canonical space of LBS. The
+underlying body pose 𝝆can be obtained from sparse RGB-D input
+by vision-based keypoint detection followed by inverse kinematics
+[Mehta et al. 2017], and it remains fixed during the N-ICP process.
+In this formulation, 𝜽is defined as the rotation and translation of
+deformation graph nodes, and we set its initialization to be the
+rest pose 𝜽(0) = 0. Thanks to the global transformation and body
+articulation encoded in 𝝆, D(𝜽(0)) = W(M, 𝝆) is close enough to
+the target P for N-ICP to converge nicely. This formulation also
+makes it efficient to perform per-frame tracking, preventing the
+failure caused by error accumulation in sequential tracking. The
+complete N-ICP process is illustrated in Fig. 3.
+5
+TEXEL-CONDITIONED CLOTHED AVATARS
+The N-ICP algorithm in Sec. 4 can track large clothing dynamics,
+providing a good starting point for rendering the clothed body ap-
+pearance. However, the underlying deformation model is designed
+to only capture large geometry deformations, and does not model
+fine geometrical detail or appearance. Therefore, in the next step,
+we develop a clothed avatar that can produce high-fidelity geome-
+try and appearance when conditioned on both sparse RGB-D views
+as well as the output from the previous N-ICP stage. The critical
+question here is how to faithfully reconstruct the appearance detail
+from the sparse driving views for dynamic clothing.
+We build upon the texel-conditioned avatars from Drivable Vol-
+umetric Avatars (DVA) [Remelli et al. 2022]. DVA takes in driving
+signals of several RGB images mapped to texel-aligned features, as
+opposed to conditioned primarily on pose [Bagautdinov et al. 2021],
+and predicts geometry and view-dependent appearance that can
+reproduce the full-body appearance. Formally, in DVA, the input
+feature F𝑏
+𝐼is the mean unwrapped image from multiple RGB driving
+views based on the skinned mesh W𝑏𝝆= W(M𝑏, 𝝆) of the body
+template M𝑏. This unwrapping process can be written as
+F𝑏
+𝐼= U({𝐼𝑐}, W𝑏
+𝝆),
+(2)
+where U denotes the unwrapping operation and {𝐼𝑐} denotes the
+set of driving images. The neural avatar A𝑏is a convolutional
+encoder-decoder that takes in F𝑏
+𝐼, viewpoint v and body pose 𝝆,
+and predicts the geometry corrective 𝛿G𝑏and appearance T𝑏with
+[𝛿G𝑏, T𝑏] = A𝑏(F𝑏
+𝐼, v, 𝝆). The final geometry G𝑏is obtained by a
+function G that applies 𝛿G𝑏on top of the LBS mesh W𝑏𝝆with a
+pre-defined coordinate transformation
+G𝑏= G(W𝑏
+𝝆,𝛿G𝑏),
+(3)
+which is then used to render2 the output image together with the
+view-conditioned appearance T𝑏.
+Texel-Conditioned Clothing Avatars. The DVA baseline, however,
+struggles to handle the large deformation of dynamic clothing.
+The root of the problem is that the LBS mesh W𝑏𝝆, which encodes
+only the skeleton-level motion, is too coarse to serve as the base
+geometry for dynamic clothing. The large deviation of the LBS
+mesh W𝑏𝝆from the true clothing surface has two consequences:
+first, the unwrapping operation in Eq. (2) cannot effectively capture
+the appearance detail; second, it places a heavy burden for the
+network A𝑏to predict a large offset 𝛿G𝑏to update the geometry
+in Eq. (3).
+One of the key ideas of our clothed avatar model is to use the
+non-rigid tracking result D = D(𝜽(𝑁)) from the final N-ICP it-
+eration as the starting point. Because D is already well-aligned
+with the clothing surface, we can obtain better texel-aligned fea-
+tures with more appearance detail from the unwrapping operation
+F𝐼= U({𝐼𝑐}, D). In order to further guide the estimation of the
+geometry corrective using the driving depth images, we also pro-
+vide a “depth offset” feature F𝐷as input. For each pixel [𝑥,𝑦] in
+camera 𝑐with depth value 𝐷𝑐, we associate it with the rendered
+depth 𝑑𝑐from the tracked geometry D at the same pixel location
+and compute the offset as
+𝑂𝑐[𝑥,𝑦] = R𝑐(𝑑𝑐[𝑥,𝑦] −𝐷𝑐[𝑥,𝑦])K−1
+𝑐
+𝑥
+𝑦
+1𝑇+ t𝑐,
+(4)
+where K𝑐is the camera projection matrix, and {R𝑐, t𝑐} are the rigid
+transformation from each camera frame to a unified body root coor-
+dinate frame. The depth offset feature is then a 3-channel average
+tensor obtained by unwrapping {𝑂𝑐} for each driving camera 𝑐,
+F𝐷= U({𝑂𝑐}, D). Thus, F𝐷can be regarded as the offset to be
+corrected on top of D in order to match the sensor depth for each
+UV location. Our clothing model takes in the texel-aligned features
+F𝐼and F𝐷as well as the viewpoint v, and predicts the geometry
+corrective 𝛿G and texture T with [𝛿G, T] = A(F𝐼, F𝐷, v). Finally,
+the geometry G and texture T are used to render the output im-
+age. Following [Xiang et al. 2021], the clothing is modelled as a
+separate layer from the underlying body avatar. The body avatar
+can be conditioned on body pose 𝝆or additionally on texel-aligned
+features [Remelli et al. 2022]. To train the model, besides the stan-
+dard image reconstruction loss and mesh regularization, we use a
+part segmentation loss and an ID-MRF perceptual loss [Wang et al.
+2018], which are detailed in the supplementary document.
+2The geometry G and appearance T may take different forms depending on whether
+the Mixture of Volumetric Primitive (MVP) [Lombardi et al. 2021] or mesh-texture
+formulation [Lombardi et al. 2018] is adopted as the rendering model, but the high-
+level concepts are similar and described here in a unified manner. The original DVA
+method [Remelli et al. 2022] uses MVP, while we use mesh and texture.
+
+
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+Xiang, D. et al
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+Runtime (s)
+50
+100
+150
+200
+250
+300
+MSE (mm2)
+N-ICP (Ours)
+L-BFGS
+Nonlinear CG
+Levenberg-Marquardt
+Figure 4: Comparison between our method and classical non-
+rigid ICP with different types of optimization solvers. For
+each method, we plot the runtime in seconds vs. the Mean
+Squared Surface Error (MSE) in mm2 for the surface tracking
+results. The square markers on the curves denote individual
+steps in the optimization.
+6
+RESULTS
+6.1
+Capture Setup and Detail
+We capture a total of three sets of garments: (1) a red dress with
+a short full skirt; (2) a flared, short skirt3 in floral pattern with
+a bottom ruffle; (3) a loose T-shirt and a long skirt. The training
+data are captured in a multi-view capture studio equipped with
+roughly 150 RGB cameras. This dense capture setup enables us to
+use Multi-View Stereo (MVS) to reconstruct geometry, which can
+be rasterized to depth and used as input to drive our avatars. We
+split out a small segment of each sequence for testing purpose and
+use the multi-view captured images as ground truth for evaluation.
+To demonstrate the application of our method for telepresence,
+we additionally capture the subjects with the same garments in a
+novel environment with different background and illumination. It
+is designed to be a simpler capture setup, where nine Kinect RGB-D
+cameras are deployed, and we select three cameras as driving input
+to our model. We also split the data in the novel environment for
+fine-tuning and testing.
+6.2
+Evaluation of Neural Iterative Closest Point
+We conduct an evaluation on the N-ICP algorithm using the dress
+sequence. We use the ground truth from offline registration by non-
+rigid ICP from [Xiang et al. 2022]. For this evaluation, we adopt the
+same input as our full method: a point cloud fusing the depth maps
+from three driving views. We report the evaluation metric of the
+mean squared point-to-triangle distance for both directions from
+prediction to ground-truth and from ground truth to prediction.
+We compare N-ICP with classical optimization solvers, includ-
+ing L-BFGS and nonlinear Conjugate Gradient with strong Wolfe
+3The paired upper-body garments are tight and modelled in the body layer.
+Table 1: Quantitative comparison with various baselines
+and ablation studies using the loose T-shirt and long skirt
+sequence captured in the multi-view studio. The metrics
+are computed on the whole rendered images with a plain
+background from two different views. We compare with
+DVA [Remelli et al. 2022] and its two-layer variant, ENeRF
+[Lin et al. 2022], KeypointNeRF [Mihajlovic et al. 2022], and
+sensing-based baselines. Ablation studies are also included.
+Methods
+𝐿1 ↓
+PSNR↑
+SSIM↑
+LPIPS↓
+DVA
+2.89
+27.96
+0.9218
+0.0932
+DVA (Two-layer)
+2.90
+28.03
+0.9219
+0.0912
+ENeRF (Masked)
+3.07
+27.21
+0.9130
+0.0772
+KeypointNeRF
+3.14
+27.42
+0.9111
+0.1123
+Depth-based warping
+3.22
+26.94
+0.9171
+0.1111
++ LookinGood UNet
+2.27
+29.91
+0.9382
+0.0865
+Ours w/o N-ICP
+2.29
+29.04
+0.9299
+0.0755
+Ours w/o depth offset
+2.19
+29.35
+0.9327
+0.0728
+Ours w/o part loss
+2.11
+29.63
+0.9354
+0.0724
+Ours full
+1.93
+30.25
+0.9404
+0.0686
+linear search implemented in PyTorch-Minimize [Feinman 2021],
+and Levenberg-Marquart implemented in Theseus [Pineda et al.
+2022]. All the methods are implemented in CUDA PyTorch with
+analytically computed derivatives. The results are shown in Fig. 4.
+Our method converges at a faster rate than the baseline methods,
+including both the gradient-based methods (L-BFGS, CG and ours)
+and the more complicated Jacobian-based Levenberg-Marquardt
+method. For ablation studies on the formulation of our N-ICP net-
+work, please refer to our supplementary document.
+6.3
+Full Method Evaluation
+In this section, we present evaluation and comparison using high-
+quality data from the dense multi-view capture studio. For com-
+parison with most methods, we report quantitative results on the
+the challenging loose T-shirt and long skirt sequence in in Tab. 1,
+except for pose-driven clothed avatars because the tucked T-shirt is
+extremely challenging to simulate in [Xiang et al. 2022]. Therefore
+for this category we report results on the skirt with floral pattern
+shown in Tab. 2.
+Comparison w/ DVA [Remelli et al. 2022]. Although DVA adopts
+the Mixture of Volumetric Primitive (MVP) [Lombardi et al. 2021]
+formulation that can render any structure in theory, the spatial
+arrangement of the primitives relies on the guidance of base body
+mesh as initialization. Both the original method and its variant with
+body and clothing layers are guided by LBS transformation, which
+is too coarse to capture the motion of loose clothing. Qualitative
+comparison is shown on the left of Fig. 7.
+Comparison w/ NeRF-based methods. NeRF has been used to
+model dynamically moving human appearance, but many of them
+requires per-scene/frame fitting [Işık et al. 2023; Shao et al. 2023]
+and are not directly applicable to our telepresence setting. We only
+
+
+Faithful Full-Body Telepresence with Dynamic Clothing Driven by Sparse RGB-D Input
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+TSDF fusion
+from 3 views
+Warped image
+LookinGood
+-style UNet
+Ours
+Figure 5: Comparison with basic sensing-based baselines.
+Given the depth input from 3 views, we run TSDF fusion
+[Curless and Levoy 1996; Dong et al. 2022] to obtain a proxy
+geometry (first column), and then warp the driving RGB
+images to the target view (second column). We train a UNet
+following LookinGood [Martin-Brualla et al. 2018] to inpaint
+the missing regions (third column).
+compare our method with representative approaches of generaliz-
+able NeRF that directly take in sparse image input. ENeRF [Lin et al.
+2022] focuses on the setting of interpolating a target view from
+several most nearby source views without human prior, but does
+not perform well in our setting due to the difficulty in associating
+views given wide camera baselines. KeypointNeRF [Mihajlovic et al.
+2022] provides relative encoding of body keypoints as an additional
+input feature for radiance prediction but cannot handle clothing
+motion that does not closely follow the body motion. Qualitative
+comparison is shown on the right side of Fig. 7.
+Comparison w/ sensing-based baselines. Most sensing-based ap-
+proaches [Dou et al. 2017; Martin-Brualla et al. 2018; Shao et al.
+2022a; Yu et al. 2021b] are proprietary and tightly integrated with
+their capture system without available open-source implementa-
+tions. Therefore, we rather compare our method with baselines
+that can be implemented with moderate effort, listed in the third
+group of results in Tab. 1, including image warping based on TSDF
+fusion and further applying a U-Net follwing the idea of Lookin-
+Good [Martin-Brualla et al. 2018]. For detail please refer to our
+supplementary document.
+Ablation studies. We show ablation studies on several compo-
+nents of our framework and the results are shown in Fig. 8 and the
+fourth group of Tab. 1. First, the initial tracking by N-ICP provides
+a basis for the whole framework to estimate the correct clothing
+geometry and appearance. Without this component, the initializa-
+tion by only body pose is too coarse and leads to obvious artifacts.
+Clothing Codec Avatar 
+[Xiang et al. 2021]
+(L1 = 27.96)
+Dressing Avatars 
+[Xiang et al. 2022]
+(L1 = 30.53)
+Ours (L1 = 19.88)
+3 driving input views 
+Ground truth
+Figure 6: Qualitative comparison with Clothing Codec
+Avatars [Xiang et al. 2021] and Dressing Avatars [Xiang et al.
+2022]. The results are shown on the top row; the input views
+and ground truth are shown on the bottom. The 𝐿1 error in
+the skirt region is reported beside the names of the methods.
+Table 2: Quantitative comparison with Clothing Codec
+Avatars [Xiang et al. 2021] and Dressing Avatars [Xiang et al.
+2022] on the skirt sequence. The metrics are computed in the
+skirt region.
+Methods
+𝐿1↓
+PSNR↑
+SSIM↑
+LPIPS↓
+Clothing CAs
+25.46
+17.81
+0.2431
+0.507
+Dressing Avatars
+27.95
+17.01
+0.1818
+0.486
+Ours
+15.67
+21.99
+0.6527
+0.203
+Second, we demonstrate that the additional depth offset input to
+the encoder-decoder allows our method to predict more accurate
+overall clothing shape. Third, we verify that the part segmenta-
+tion loss helps to produce correct body-clothing boundary. Last,
+we compare the results with and without ID-MRF loss, which pre-
+serves the high-frequency texture detail in our output when the
+predicted geometry is not completely photometrically aligned with
+the driving images.
+Comparison w/ pose-driven avatars. A major motivation of our
+framework is that the underlying body motion does not contain
+enough information to fully determine the loose clothing states. We
+
+
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+Xiang, D. et al
+validate this intuition by comparison with Clothing Codec Avatars
+[Xiang et al. 2021] and Dressing Avatars [Xiang et al. 2022] shown
+in Fig. 6 and Tab. 2. Clothing Codec Avatars struggle to learn the
+mapping from a sequence of body pose to large clothing dynamics.
+Dressing Avatars produce clothing motion that looks realistic with
+the help of physics-based simulation, but its output is not faithful
+to the actual motion because of the lack of an efficient approach
+for estimating underlying physical parameters for simulation. Our
+method utilizes the driving signal from sparse RGB-D input to
+achieve faithful clothing telepresence, which is verified by the low
+error on the evaluation metrics in Tab. 2. Please refer to the supple-
+mentary document for a more detailed discussion on the difference
+in their formulation (e.g. supervised vs. self-supervised).
+6.4
+Results in the Novel Capture Environment
+For the novel capture environment, we test our model in two differ-
+ent scenarios: without and with fine-tuning, both shown in Fig. 9.
+The first scenario refers to a direct application of the model trained
+from the dense capture studio to the same subject but in the novel
+environment. For this scenario, our model needs to handle the dif-
+ference in the input RGB-D images between the training and testing
+environments, such as illumination and sensor setup. Note that our
+model is trained to be robust to these variations in the input and
+preserve the appearance style from the original training data in our
+output (see supplementary document), but with the unseen body
+and clothing motion captured in the novel environment. This exper-
+iment demonstrates the ability of our method to directly generalize
+to a novel environment.
+In the second scenario, we test our model after fine-tuning it
+with the training data captured in the new environment. Note
+that we use the same three Kinects for both driving input and
+ground truth supervision. During fine-tuning, the output of our
+model adapts to the new appearance caused by the illumination
+and sensor specification in the environment, as well as the change
+in body over time such as hair style. We test our model with a even
+more aggressive change in the body-layer appearance from the
+tank-top to the green capture suit in the second row of Fig. 9. The
+fine-tuning step can be viewed as an option to further boost the
+model output quality if time and computation budgets permit.
+7
+CONCLUSION
+We presented a framework for building photorealistic full-body
+avatars that can be driven by sparse RGB-D inputs and faithfully
+reproduce the motion of loose clothing. Our method accurately
+reconstructs challenging clothing appearance of the subjects, thus
+tackling a major drawback of existing pose-driven avatars. As per
+limitations, our model is still person- and garment-specific and can-
+not handle clothing motion that falls far outside of the deformation
+space of the deformation graph model, such as topology change.
+Interesting future directions would be to extend our method to
+multi-identity setting, and develop a formulation that can handle
+more generic garment categories, e.g. with implicit representations.
+REFERENCES
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabian Prada, Takaaki Shiratori,
+Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih. 2021. Driving-signal
+aware full-body avatars. ACM Transactions on Graphics (TOG) 40, 4 (2021).
+Bharat Lal Bhatnagar, Cristian Sminchisescu, Christian Theobalt, and Gerard Pons-
+Moll. 2020. Loopreg: Self-supervised learning of implicit surface correspondences,
+pose and shape for 3d human mesh registration. Advances in Neural Information
+Processing Systems 33 (2020).
+Federica Bogo, Angjoo Kanazawa, Christoph Lassner, Peter Gehler, Javier Romero, and
+Michael J Black. 2016. Keep it SMPL: Automatic estimation of 3D human pose and
+shape from a single image. In European Conference on Computer Vision.
+Aljaz Bozic, Pablo Palafox, Michael Zollhöfer, Angela Dai, Justus Thies, and Matthias
+Nießner. 2020. Neural non-rigid tracking. Advances in Neural Information Processing
+Systems 33 (2020).
+Aljaz Bozic, Pablo Palafox, Michael Zollhofer, Justus Thies, Angela Dai, and Matthias
+Nießner. 2021. Neural deformation graphs for globally-consistent non-rigid recon-
+struction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition.
+Anpei Chen, Zexiang Xu, Fuqiang Zhao, Xiaoshuai Zhang, Fanbo Xiang, Jingyi Yu, and
+Hao Su. 2021. Mvsnerf: Fast generalizable radiance field reconstruction from multi-
+view stereo. In Proceedings of the IEEE/CVF International Conference on Computer
+Vision.
+Mingfei Chen, Jianfeng Zhang, Xiangyu Xu, Lijuan Liu, Yujun Cai, Jiashi Feng, and
+Shuicheng Yan. 2022. Geometry-guided progressive nerf for generalizable and
+efficient neural human rendering. In European Conference on Computer Vision.
+Enric Corona, Gerard Pons-Moll, Guillem Alenyà, and Francesc Moreno-Noguer. 2022.
+Learned vertex descent: a new direction for 3D human model fitting. In European
+Conference on Computer Vision.
+Brian Curless and Marc Levoy. 1996. A volumetric method for building complex models
+from range images. In SIGGRAPH 1996 Conference Papers.
+Wei Dong, Yixing Lao, Michael Kaess, and Vladlen Koltun. 2022. ASH: A modern
+framework for parallel spatial hashing in 3D perception. IEEE transactions on
+pattern analysis and machine intelligence (2022).
+Mingsong Dou, Philip Davidson, Sean Ryan Fanello, Sameh Khamis, Adarsh Kowdle,
+Christoph Rhemann, Vladimir Tankovich, and Shahram Izadi. 2017. Motion2fusion:
+Real-time volumetric performance capture. ACM Transactions on Graphics (TOG)
+36, 6 (2017).
+Mingsong Dou, Sameh Khamis, Yury Degtyarev, Philip Davidson, Sean Ryan Fanello,
+Adarsh Kowdle, Sergio Orts Escolano, Christoph Rhemann, David Kim, Jonathan
+Taylor, et al. 2016. Fusion4d: Real-time performance capture of challenging scenes.
+ACM Transactions on Graphics (TOG) 35, 4 (2016).
+Reuben Feinman. 2021. Pytorch-minimize: a library for numerical optimization with
+autograd. https://github.com/rfeinman/pytorch-minimize
+Wanquan Feng, Juyong Zhang, Hongrui Cai, Haofei Xu, Junhui Hou, and Hujun
+Bao. 2021. Recurrent multi-view alignment network for unsupervised surface
+registration. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition.
+Qingzhe Gao, Yiming Wang, Libin Liu, Lingjie Liu, Christian Theobalt, and Baoquan
+Chen. 2023. Neural novel actor: Learning a generalized animatable neural represen-
+tation for human actors. IEEE Transactions on Visualization and Computer Graphics
+(2023).
+Xiangjun Gao, Jiaolong Yang, Jongyoo Kim, Sida Peng, Zicheng Liu, and Xin Tong.
+2022. MPS-NeRF: Generalizable 3D Human Rendering from Multiview Images.
+IEEE Transactions on Pattern Analysis and Machine Intelligence (2022).
+Artur Grigorev, Karim Iskakov, Anastasia Ianina, Renat Bashirov, Ilya Zakharkin,
+Alexander Vakhitov, and Victor Lempitsky. 2021. Stylepeople: A generative model
+of fullbody human avatars. In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition.
+Kaiwen Guo, Feng Xu, Yangang Wang, Yebin Liu, and Qionghai Dai. 2015. Robust
+non-rigid motion tracking and surface reconstruction using l0 regularization. In
+Proceedings of the IEEE International Conference on Computer Vision.
+Marc Habermann, Lingjie Liu, Weipeng Xu, Michael Zollhoefer, Gerard Pons-Moll, and
+Christian Theobalt. 2021. Real-time deep dynamic characters. ACM Transactions
+on Graphics (TOG) 40, 4 (2021).
+Mustafa Işık, Martin Rünz, Markos Georgopoulos, Taras Khakhulin, Jonathan Starck,
+Lourdes Agapito, and Matthias Nießner. 2023. HumanRF: High-Fidelity Neural
+Radiance Fields for Humans in Motion. ACM Transactions on Graphics (TOG) 42, 4
+(2023).
+Youngjoong Kwon, Dahun Kim, Duygu Ceylan, and Henry Fuchs. 2021. Neural human
+performer: Learning generalizable radiance fields for human performance rendering.
+Advances in Neural Information Processing Systems 34 (2021).
+YoungJoong Kwon, Dahun Kim, Duygu Ceylan, and Henry Fuchs. 2023. Neural Image-
+based Avatars: Generalizable Radiance Fields for Human Avatar Modeling. In
+International Conference on Learning Representations.
+Jason Lawrence, Danb Goldman, Supreeth Achar, Gregory Major Blascovich, Joseph G
+Desloge, Tommy Fortes, Eric M Gomez, Sascha Häberling, Hugues Hoppe, Andy
+Huibers, et al. 2021. Project starline: a high-fidelity telepresence system. ACM
+Transactions on Graphics (TOG) 40, 6 (2021).
+Hao Li, Robert W Sumner, and Mark Pauly. 2008. Global correspondence optimization
+for non-rigid registration of depth scans. In Computer graphics forum, Vol. 27.
+Ruilong Li, Julian Tanke, Minh Vo, Michael Zollhöfer, Jürgen Gall, Angjoo Kanazawa,
+and Christoph Lassner. 2022. Tava: Template-free animatable volumetric actors. In
+
+
+Faithful Full-Body Telepresence with Dynamic Clothing Driven by Sparse RGB-D Input
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+European Conference on Computer Vision.
+Yang Li, Aljaz Bozic, Tianwei Zhang, Yanli Ji, Tatsuya Harada, and Matthias Nießner.
+2020. Learning to optimize non-rigid tracking. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition.
+Haotong Lin, Sida Peng, Zhen Xu, Yunzhi Yan, Qing Shuai, Hujun Bao, and Xiaowei
+Zhou. 2022. Efficient Neural Radiance Fields for Interactive Free-viewpoint Video.
+In SIGGRAPH Asia 2022 Conference Papers.
+Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu Sarkar, Jiatao Gu, and
+Christian Theobalt. 2021. Neural actor: Neural free-view synthesis of human actors
+with pose control. ACM Transactions on Graphics (TOG) 40, 6 (2021).
+Stephen Lombardi, Jason Saragih, Tomas Simon, and Yaser Sheikh. 2018. Deep ap-
+pearance models for face rendering. ACM Transactions on Graphics (TOG) 37, 4
+(2018).
+Stephen Lombardi, Tomas Simon, Gabriel Schwartz, Michael Zollhoefer, Yaser Sheikh,
+and Jason Saragih. 2021. Mixture of volumetric primitives for efficient neural
+rendering. ACM Transactions on Graphics (TOG) 40, 4 (2021).
+Ricardo Martin-Brualla, Rohit Pandey, Shuoran Yang, Pavel Pidlypenskyi, Jonathan
+Taylor, Julien Valentin, Sameh Khamis, Philip Davidson, Anastasia Tkach, Peter
+Lincoln, et al. 2018. LookinGood: enhancing performance capture with real-time
+neural re-rendering. ACM Transactions on Graphics (TOG) 37, 6 (2018).
+Dushyant Mehta, Srinath Sridhar, Oleksandr Sotnychenko, Helge Rhodin, Moham-
+mad Shafiei, Hans-Peter Seidel, Weipeng Xu, Dan Casas, and Christian Theobalt.
+2017. Vnect: Real-time 3d human pose estimation with a single rgb camera. ACM
+Transactions on Graphics (TOG) 36, 4 (2017).
+Marko Mihajlovic, Aayush Bansal, Michael Zollhoefer, Siyu Tang, and Shunsuke Saito.
+2022. KeypointNeRF: Generalizing image-based volumetric avatars using relative
+spatial encoding of keypoints. In European Conference on Computer Vision.
+Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ra-
+mamoorthi, and Ren Ng. 2020. Nerf: Representing scenes as neural radiance fields
+for view synthesis. In European Conference on Computer Vision.
+Richard A Newcombe, Dieter Fox, and Steven M Seitz. 2015. Dynamicfusion: Recon-
+struction and tracking of non-rigid scenes in real-time. In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition.
+Phong Nguyen-Ha, Nikolaos Sarafianos, Christoph Lassner, Janne Heikkilä, and Tony
+Tung. 2022. Free-Viewpoint RGB-D Human Performance Capture and Rendering.
+In European Conference on Computer Vision.
+Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory
+Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. 2019.
+Pytorch: An imperative style, high-performance deep learning library. Advances in
+Neural Information Processing Systems 32 (2019).
+Sida Peng, Junting Dong, Qianqian Wang, Shangzhan Zhang, Qing Shuai, Xiaowei
+Zhou, and Hujun Bao. 2021a. Animatable neural radiance fields for modeling
+dynamic human bodies. In Proceedings of the IEEE/CVF International Conference on
+Computer Vision.
+Sida Peng, Yuanqing Zhang, Yinghao Xu, Qianqian Wang, Qing Shuai, Hujun Bao, and
+Xiaowei Zhou. 2021b. Neural body: Implicit neural representations with structured
+latent codes for novel view synthesis of dynamic humans. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+Luis Pineda, Taosha Fan, Maurizio Monge, Shobha Venkataraman, Paloma Sodhi,
+Ricky TQ Chen, Joseph Ortiz, Daniel DeTone, Austin Wang, Stuart Anderson, et al.
+2022. Theseus: A library for differentiable nonlinear optimization. Advances in
+Neural Information Processing Systems 35 (2022).
+Charles Ruizhongtai Qi, Li Yi, Hao Su, and Leonidas J Guibas. 2017. Pointnet++: Deep
+hierarchical feature learning on point sets in a metric space. Advances in Neural
+Information Processing Systems 30 (2017).
+Amit Raj, Julian Tanke, James Hays, Minh Vo, Carsten Stoll, and Christoph Lassner.
+2021. ANR: Articulated Neural Rendering for Virtual Avatars. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+Edoardo Remelli, Timur Bagautdinov, Shunsuke Saito, Chenglei Wu, Tomas Simon,
+Shih-En Wei, Kaiwen Guo, Zhe Cao, Fabian Prada, Jason Saragih, et al. 2022. Driv-
+able Volumetric Avatars using Texel-Aligned Features. In SIGGRAPH 2022 Confer-
+ence Papers.
+Ruizhi Shao, Liliang Chen, Zerong Zheng, Hongwen Zhang, Yuxiang Zhang, Han
+Huang, Yandong Guo, and Yebin Liu. 2022a. FloRen: Real-time High-quality Hu-
+man Performance Rendering via Appearance Flow Using Sparse RGB Cameras. In
+SIGGRAPH Asia 2022 Conference Papers.
+Ruizhi Shao, Hongwen Zhang, He Zhang, Mingjia Chen, Yan-Pei Cao, Tao Yu, and
+Yebin Liu. 2022b. Doublefield: Bridging the neural surface and radiance fields for
+high-fidelity human reconstruction and rendering. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition.
+Ruizhi Shao, Zerong Zheng, Hanzhang Tu, Boning Liu, Hongwen Zhang, and Yebin Liu.
+2023. Tensor4D: Efficient Neural 4D Decomposition for High-fidelity Dynamic Re-
+construction and Rendering. In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition.
+Aliaksandra Shysheya, Egor Zakharov, Kara-Ali Aliev, Renat Bashirov, Egor Burkov,
+Karim Iskakov, Aleksei Ivakhnenko, Yury Malkov, Igor Pasechnik, Dmitry Ulyanov,
+et al. 2019. Textured neural avatars. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition.
+Jie Song, Xu Chen, and Otmar Hilliges. 2020. Human body model fitting by learned
+gradient descent. In European Conference on Computer Vision.
+Shih-Yang Su, Frank Yu, Michael Zollhöfer, and Helge Rhodin. 2021. A-nerf: Articulated
+neural radiance fields for learning human shape, appearance, and pose. Advances
+in Neural Information Processing Systems 34 (2021).
+Robert W Sumner, Johannes Schmid, and Mark Pauly. 2007. Embedded deformation
+for shape manipulation. ACM Transactions on Graphics (TOG) 26, 3 (2007).
+Xin Suo, Yuheng Jiang, Pei Lin, Yingliang Zhang, Minye Wu, Kaiwen Guo, and Lan Xu.
+2021. Neuralhumanfvv: Real-time neural volumetric human performance rendering
+using rgb cameras. In Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition.
+Justus Thies, Michael Zollhöfer, and Matthias Nießner. 2019. Deferred neural rendering:
+Image synthesis using neural textures. ACM Transactions on Graphics (TOG) 38, 4
+(2019).
+Qianqian Wang, Zhicheng Wang, Kyle Genova, Pratul P Srinivasan, Howard Zhou,
+Jonathan T Barron, Ricardo Martin-Brualla, Noah Snavely, and Thomas Funkhouser.
+2021. Ibrnet: Learning multi-view image-based rendering. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+Yi Wang, Xin Tao, Xiaojuan Qi, Xiaoyong Shen, and Jiaya Jia. 2018. Image inpainting
+via generative multi-column convolutional neural networks. Advances in neural
+information processing systems 31 (2018).
+Donglai Xiang, Timur Bagautdinov, Tuur Stuyck, Fabian Prada, Javier Romero, Weipeng
+Xu, Shunsuke Saito, Jingfan Guo, Breannan Smith, Takaaki Shiratori, et al. 2022.
+Dressing Avatars: Deep Photorealistic Appearance for Physically Simulated Cloth-
+ing. ACM Transactions on Graphics (TOG) 41, 6 (2022).
+Donglai Xiang, Fabian Prada, Timur Bagautdinov, Weipeng Xu, Yuan Dong, He Wen,
+Jessica Hodgins, and Chenglei Wu. 2021. Modeling clothing as a separate layer for
+an animatable human avatar. ACM Transactions on Graphics (TOG) 40, 6 (2021).
+Alex Yu, Vickie Ye, Matthew Tancik, and Angjoo Kanazawa. 2021a. pixelnerf: Neural
+radiance fields from one or few images. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition.
+Tao Yu, Zerong Zheng, Kaiwen Guo, Pengpeng Liu, Qionghai Dai, and Yebin Liu. 2021b.
+Function4d: Real-time human volumetric capture from very sparse consumer rgbd
+sensors. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition.
+Fuqiang Zhao, Wei Yang, Jiakai Zhang, Pei Lin, Yingliang Zhang, Jingyi Yu, and Lan Xu.
+2022. Humannerf: Efficiently generated human radiance field from sparse inputs. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+Zerong Zheng, Han Huang, Tao Yu, Hongwen Zhang, Yandong Guo, and Yebin Liu.
+2022. Structured local radiance fields for human avatar modeling. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+Michael Zollhöfer, Matthias Nießner, Shahram Izadi, Christoph Rehmann, Christopher
+Zach, Matthew Fisher, Chenglei Wu, Andrew Fitzgibbon, Charles Loop, Christian
+Theobalt, et al. 2014. Real-time non-rigid reconstruction using an RGB-D camera.
+ACM Transactions on Graphics (TOG) 33, 4 (2014).
+
+
+SA Conference Papers ’23, December 12–15, 2023, Sydney, NSW, Australia
+Xiang, D. et al
+DVA [Remelli et al. 2022]
+Two-Layer DVA
+Ours
+Ground truth
+DVA [Remelli et al. 2022]
+Ours
+DVA [Remelli et al. 2022]
+Ours
+ENeRF (Masked)
+[Lin et al. 2022]
+KeypointNeRF
+[Mihajlovic et al. 2022]
+Ours
+Ground truth
+Figure 7: Left: comparison with Drivable Volumetric Avatars (DVA) [Remelli et al. 2022] and its two-layer variant. Right:
+comparison with NeRF-based methods [Lin et al. 2022; Mihajlovic et al. 2022]. We mask out the black background of results in
+ENeRF [Lin et al. 2022] with ground truth segmentation.
+W/o N-ICP
+Ours
+Ground truth
+Ours
+Ground truth
+W/o depth offset
+Ours
+Ground truth
+W/o IDMRF loss
+Ours
+Ground truth
+W/o segmentation loss
+Figure 8: Ablation studies on components in our framework, including N-ICP, depth offset as input to the encoder-decoder,
+part segmentation loss, and ID-MRF loss. Each result is shown in comparison to our full output and the ground truth.

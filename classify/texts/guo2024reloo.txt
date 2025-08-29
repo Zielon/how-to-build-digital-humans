@@ -1,0 +1,614 @@
+Title: Reloo: Reconstructing humans dressed in loose garments from monocular video in the wild
+
+ReLoo: Reconstructing Humans Dressed in Loose
+Garments from Monocular Video in the Wild
+Chen Guo∗1, Tianjian Jiang∗1, Manuel Kaufmann1, Chengwei Zheng1,
+Julien Valentin2, Jie Song†1, and Otmar Hilliges1
+1 ETH Zürich
+2 Microsoft
+Abstract. While previous years have seen great progress in the 3D
+reconstruction of humans from monocular videos, few of the state-of-
+the-art methods are able to handle loose garments that exhibit large
+non-rigid surface deformations during articulation. This limits the ap-
+plication of such methods to humans that are dressed in standard pants
+or T-shirts. Our method, ReLoo, overcomes this limitation and recon-
+structs high-quality 3D models of humans dressed in loose garments from
+monocular in-the-wild videos. To tackle this problem, we first establish
+a layered neural human representation that decomposes clothed humans
+into a neural inner body and outer clothing. On top of the layered neu-
+ral representation, we further introduce a non-hierarchical virtual bone
+deformation module for the clothing layer that can freely move, which
+allows the accurate recovery of non-rigidly deforming loose clothing. A
+global optimization jointly optimizes the shape, appearance, and defor-
+mations of the human body and clothing via multi-layer differentiable
+volume rendering. To evaluate ReLoo, we record subjects with dynami-
+cally deforming garments in a multi-view capture studio. This evaluation,
+both on existing and our novel dataset, demonstrates ReLoo’s clear su-
+periority over prior art on both indoor datasets and in-the-wild videos.
+Project page: https://moygcc.github.io/ReLoo/
+Keywords: human representation · human reconstruction
+* These authors contributed equally to this work
+† Corresponding author. Now at HKUST(GZ) & HKUST
+arXiv:2409.15269v2  [cs.CV]  28 Sep 2024
+
+
+2
+C. Guo and T. Jiang et al.
+1
+Introduction
+As researchers aim to democratize the creation of realistic human avatars, the
+reconstruction of 3D clothed humans from casually captured monocular videos
+has garnered increased attention. While many solutions have been proposed
+to do so in recent years [1, 9, 14, 19, 42, 53], they primarily focus on capturing
+subjects with tight-fitting clothing and perform poorly when reconstructing loose
+garments whose dynamics are less tightly coupled with body pose. Such loose
+garments, however, constitute a significant part of a real-life wardrobe and thus
+failure to capture them is limiting the creation of realistic human avatars from
+monocular footage. In this paper, we present a method, ReLoo, that overcomes
+this shortcoming.
+Reconstructing humans dressed in loose clothing requires accurate track-
+ing of large, non-rigid deformations and recovering fine-grained details of freely
+flowing surfaces. Template-based methods [15, 16, 54] have been applied to do
+so but the acquisition of the template burdens the deployment to unseen sub-
+jects and its explicit representation limits its expressive capability to capture
+dynamically changing surface details. More recently, methods based on neural
+implicit functions have emerged as a promising remedy for the disadvantages of
+template-based methods [14,17,19,21,38,42,44,50,52,61–63]. Yet, these methods
+currently fail to provide convincing reconstructions of humans in loose garments.
+We observe that few of these methods differentiate between the human body and
+clothing but model the clothed human as a single entity. This limits the expres-
+siveness and capacity of the underlying model to capture more local features.
+More importantly, this formulation only allows to drive the off-body garments
+with skeletal deformations that are derived from the underlying parametric body
+model (e.g., SMPL [30]). Thus, they are inherently incapable of handling highly
+dynamic loose garments that are topologically different from the inner body and
+do not correlate strongly with the bone movement.
+In this paper, we adopt the promising neural implicit shape modeling par-
+adigm, but we argue that a single implicit representation fundamentally limits
+the representation power and hinders the capability to model complex garment
+topology that exhibits free-form deformations. To properly model loose garment
+dynamics that only weakly correlate with skeletal deformations – while still re-
+taining the ability to deform human bodies with skeleton-driven motions – ReLoo
+takes neural implicit human models to the next level. To do so, our approach is
+grounded in the following core concepts: i) We establish a layered neural human
+representation that decomposes clothed humans into the neural inner body and
+outer clothing. ii) Based on this layered neural representation, we further pro-
+pose a non-hierarchical virtual bone deformation module for the clothing layer
+that allows free movement and accurate recovery of highly dynamic loose outfits.
+iii) In a global optimization, we jointly optimize the shape, appearance, and de-
+formations of both the human body and clothing layer over the entire sequence
+via multi-layer differentiable volume rendering.
+In our experiments, we demonstrate that our framework leads to temporally
+consistent and high-quality reconstructions of clothed humans dressed in loose
+
+
+ReLoo
+3
+garments. We also ablate our method to uncover the contribution of its essential
+components. Furthermore, we conduct comparisons with existing approaches in
+human surface reconstruction and novel view synthesis, showing that our method
+outperforms prior art from both the template-based and neural implicit modeling
+domains. To highlight differences to the prior art, we capture a new dataset,
+MonoLoose, which puts an emphasis on humans dressed in loose clothing under
+dynamic motions and contains ground-truth reconstructions captured with a
+high-end multi-view volumetric recording studio (MVS).
+In summary, in this paper we introduce ReLoo, a method that improves
+clothed human reconstruction quality and accurately captures human perfor-
+mance dressed in highly dynamic loose garments. Our key contributions are:
+– a novel layered neural human representation, disentangling the inner body
+and outer clothing; and
+– a virtual bone deformation module that is built on top of the layered neural
+human representation and accurately tracks the large surface dynamics; and
+– a robust framework that leverages multi-layer differentiable volume rendering
+achieving high-fidelity 3D human reconstructions from monocular in-the-
+wild videos of humans dressed in highly dynamic loose garments.
+2
+Related Work
+Single-Layer Human Reconstruction from Monocular Input Template-
+based monocular human performance capture methods track the pre-defined
+clothed human template to fit to 2D observations [15,16,54]. They demonstrate
+robust tracking of human performance even when dressed in loose garments.
+However, they struggle to generalize to in-the-wild settings due to the reliance
+on a rigged, personalized, pre-scanned template obtained from a dense capture
+setup. Follow-up works endeavor to remove this dependency by adding per-vertex
+offsets on top of the SMPL body [1,13]. Nevertheless, the explicit mesh represen-
+tation is held back by a fixed resolution and topology, hampering the represen-
+tation of fine-grained details. Other works have shown compelling results with
+learning-based methods that learn to regress 3D human geometry and appear-
+ance from images [2,17,18,42,52,53,61,63]. A major limitation of these methods
+is the necessity of high-quality 3D data for supervision. They also often fail to
+produce space-time coherent reconstructions over frames. Recent works employ
+neural rendering to fit neural fields to videos to obtain an articulated human
+model [9, 14, 19, 21, 22, 29, 37, 38, 40, 48, 50]. E.g., SelfRecon [19] deploys neural
+surface rendering [56] to achieve consistent reconstruction over the sequence and
+Vid2Avatar [14] leverages differentiable volume rendering [55] to eliminate the
+need for pre-masking thus producing robust 3D human reconstruction. However,
+all aforementioned methods treat the body and clothing as a single entity, lim-
+iting the model’s expressiveness and resulting in low-quality reconstructions for
+loose clothing. In contrast, our method is based on a layered neural human repre-
+sentation that, in conjunction with our novel virtual bone deformation module,
+enables tracking of highly dynamic loose clothing.
+
+
+4
+C. Guo and T. Jiang et al.
+Multi-Layer Human Representation and Reconstruction Several meth-
+ods exist that investigate how a clothing layer deforms given 3D human motion.
+They use either physically-simulated training data [3, 26, 28, 34, 35, 45, 47] or
+directly deploy physics-informed objectives [8, 11, 27, 43]. These methods have
+shown compelling results in modeling large deformations of loose outfits. How-
+ever, they lack generalization to in-the-wild settings and diverse clothing cate-
+gories due to a reliance on input templates [28,47] and assume high-quality 3D
+motion data is already available, not learned from video like in our setting. Our
+multi-layer representation and deformation modeling are inspired by this line
+of work, specifically Pan et al. [34], who also make use of virtual bones. Differ-
+ent from [34], our method jointly learns the clothing shape and deformations
+from only 2D observations, whereas [34] require known clothing templates and
+3D simulated data to achieve animation of clothes. Furthermore, [34] define and
+fix virtual bones using skinning decomposition [25], while in our framework the
+virtual bone placement evolves naturally with training.
+Methods that reconstruct layered clothed humans from videos or images alone
+are presented in [5,7,9,20,33,39,46,51,57]. Some of them either require active
+multi-view setups [4,5,39,51] or depth information [57] preventing them from be-
+ing deployed in the wild. BCNet [20] learns to predict clothing geometry draped
+over the SMPL body from a single image. However, it is limited to pre-defined
+clothing style templates. SMPLicit [7] and ClothWild [33] extend such learning-
+based methods to generalize to more general clothing types, but they tend to
+produce over-smooth results lacking details such as wrinkles. Our closest related
+work, SCARF [9] is built upon SMPL-X [36] and reconstructs the outer cloth-
+ing layer using NeRF [32], achieving better reconstruction quality than previous
+works. Our method differs from SCARF [9] in three regards: 1) ReLoo is a fully
+implicit representation that is expressive enough to capture detailed body (in-
+cluding faces) and clothing shape jointly, 2) it is not limited to self-rotating
+motions, and 3) it supports the capture of large non-rigid surface deformations
+of loose garments thanks to a novel virtual bone deformation module.
+In summary, existing monocular-based methods tend to overly rely on para-
+metric body models [30,36] as a human body proxy and thus struggle to model
+garments whose deformations cannot be easily correlated with the inner body
+pose under dynamic motion (as is the case for t-shirts or pants that are commonly
+used as example apparel). Moreover, they can only capture less detailed person-
+alized shape characteristics such as faces. ReLoo overcomes these limitations and
+when compared to existing single-layer, multi-layer, and template-based methods
+produces higher fidelity results across the board.
+3
+Method
+We introduce ReLoo, a novel method for detailed geometry and appearance
+reconstruction of a human performer in highly dynamic, loose clothing from
+monocular in-the-wild videos. The overview of our method is schematically given
+in Fig. 1. To enable a temporally consistent, expressive human representation
+
+
+ReLoo
+5
+Fig. 1: Method Overview. Given an image from a video sequence, we sample points
+along the camera ray for each neural layer. We warp sampled points for the body layer
+xB
+d into canonical space via inverse LBS derived from skeletal deformations. We deform
+sampled points for the garment layer xG
+d into canonical space via inverse warping
+based on the proposed virtual bone deformation module (Sec. 3.2). We then evaluate
+the respective implicit network to obtain the SDF and radiance values (Sec. 3.1). We
+apply multi-layer differentiable volume rendering to learn the shape, appearance, and
+deformations of the layered neural human representation from images (Sec. 3.3). The
+loss function L compares the rendered color predictions with image observations as
+well as a segmentation mask obtained using SAM [23] (Sec. 3.4).
+we establish a layered neural implicit representation for the body (inner layer,
+naked) and garment (outer layer, template-free) as described in Sec. 3.1. On
+top, we introduce a hybrid deformation strategy which consists of skeletal de-
+formation for the body and a virtual-bone-driven deformation module for the
+outer loose garment (Sec. 3.2). This allows us to capture dynamic loose gar-
+ments. We learn the layered human representation and the deformation module
+jointly by performing multi-layer differentiable volume rendering (Sec. 3.3). The
+whole process is trained globally to optimize jointly for shape, appearance, and
+deformations of the inner body and outer garment layer (Sec. 3.4).
+3.1
+Layered Neural Human Representation
+We represent the 3D shape of the clothed human with implicit signed-distance
+fields (SDF) and the appearance with texture fields in a temporally consistent
+canonical space. The inner body and outer garment are modeled separately. More
+specifically, we model the geometry and appearance of the body in canonical
+space with a neural network f B which predicts the signed distance value sB
+and radiance value cB for any 3D point xB
+c in this space. We similarly model
+the garment with a neural network f G that takes points xG
+c in the garment’s
+
+
+6
+C. Guo and T. Jiang et al.
+canonical space as input:
+  \ bo l d symb
+o l  {c }^{ B} ,  s^{B
+}  = f^{B}(\boldsymbol {x}_c^B, \boldsymbol {\theta }); \\boldsymbol {c}^{G}, s^{G} = f^{G}(\boldsymbol {x}_c^G, \boldsymbol {\theta }), 
+(1)
+where θ denote the SMPL pose parameters [30], which we concatenate to xB
+c and
+xG
+c to model pose-dependent effects such as facial features and clothing wrinkles.
+For clothing that is not a single, dress-like garment we use a separate network for
+the upper and lower garment. For simplicity and without loss of generality, we
+only discuss a single piece of clothing in the following. Note that if a canonical
+point is within any of these two surfaces (sB < 0 or sG < 0), it is also within the
+entire clothed human shape. Thus we can obtain the final clothed human shape
+by compositing these two neural fields and taking their minimum [41]:
+  s ^{H} = \text {min}\{s^{B}, s^{G}\}. 
+(2)
+3.2
+Hybrid Deformation Modeling
+To find point correspondences between the deformed space in the observed image
+and our pre-defined canonical space, we devise a hybrid deformation module
+that treats the body and clothing layers according to their respective levels of
+rigidity. The human body predominantly depends on skeletal deformation, but
+the deformation of the loose garments cannot solely be explained by skeletal
+motion alone. Therefore we propose to drive clothing deformation by a set of
+additional virtual bones whose transformations are directly learned from video.
+Skeletal Deformation. We follow a standard skeletal deformation based on
+SMPL to find correspondences in canonical and deformed space for the inner
+body [14]. Specifically, given the bone transformation matrices Bi for joints
+i ∈{1, ..., nb} which are derived from the body pose parameters θ, a canonical
+point xB
+c is mapped to the corresponding deformed space point xB
+d via linear
+blend skinning (LBS):
+  
+\ l
+ab
+e
+l {
+eq
+:lb s}
+ \boldsymbol {x}_d^B = \sum _{i = 1}^{n_s} w_{c}^i \boldsymbol {B}_i \, \boldsymbol {x}_c^B . 
+(3)
+Conversely, given a point in deformed space xB
+d , its canonical correspondence
+can be solved via:
+  
+\ l a
+be
+l
+ {e
+q:
+lbs_in v}
+ \boldsymbol {x}_c^B = (\sum _{i = 1}^{n_s} w_{d}^i \boldsymbol {B}_i)^{-1}\ \boldsymbol {x}_d^B. 
+(4)
+Here, ns denotes the number of skeletal bones in the transformation, and w(·) =
+{w1
+(·), ..., wns
+(·)} represents the skinning weights for xB
+(·). We assign wd to xB
+d based
+on the average of neighboring SMPL vertices’ skinning weights, weighted by the
+point-to-point distances in deformed space. The treatment of canonical points
+xB
+c follows a similar approach.
+Virtual Bone Deformation. The virtual bones correspond to a set of bones
+V = {vi}nv
+i=1 defined in the canonical space that drives the neighboring 3D gar-
+ment points xG
+c using rigid transformations. Different from the skeletons of char-
+acters rigged by artists such as SMPL [30], the virtual bones are non-hierarchical
+
+
+ReLoo
+7
+and are not restricted to rotate in relation to their parents following an anatomi-
+cal structure. Thus, they can be transformed freely and are applicable to capture
+the deformations of highly dynamic loose garments.
+Given a set of virtual bones V, their transformations consist of the rotations
+and translations relative to the SMPL root T i = [Ri|Ti] which are predicted by
+a deformation field DG, parameterized via an MLP. DG takes the concatenation
+of the 3D positions vi of the virtual bones, the human body pose θ and a
+continuous time embedding t as input, and outputs the axis angles Ai and
+translations Ti. The continuous time embedding t is included to aid in learning
+temporal dynamics from videos. The rotations Ri are further obtained from Ai
+via the Rodrigues’ formula f Rod(·):
+  \ bo ldsymbol {\ m athcal  { T}}_i = [f^{Rod}(\boldsymbol {A}_i) | \boldsymbol {T}_i] = \mathcal {D}^{G}(\boldsymbol {v}_i, \boldsymbol {\theta }, \boldsymbol {t}). 
+(5)
+To drive a 3D garment point from canonical space xG
+c to deformed space xG
+d and
+vice-versa, we use the neighboring virtual bones’ motions and LBS as follows:
+  
+\ l
+ab
+e
+l {
+eq
+:v b _l
+b s
+} 
+\ b o
+ld
+s
+ymb
+ol
+ { x}_d ^G
+ = \sum _{i = 1}^{n_v} \delta _{c}^i \boldsymbol {\mathcal {T}}_i \, \boldsymbol {x}_c^G, \quad \quad \boldsymbol {x}_c^G = (\sum _{i = 1}^{n_v} \delta _{d}^i \boldsymbol {\mathcal {T}}_i)^{-1} \, \boldsymbol {x}_d^G 
+(6)
+Here, nv denotes the number of virtual bones for deforming loose garments,
+which is a hyperparameter, and δ(·) = {δ1
+(·), ..., δnv
+(·)} represent the skinning
+weights of xG
+(·) w.r.t. each virtual bone vi ∈V. δ(·) is calculated based on the
+inverse of the distance between xG
+c and each vi whereby far away bones are
+clamped to 0. More details are shown in the Supp. Mat.
+Unlike [34], where a garment template is available and the virtual bones are
+extracted using 3D simulation data, we learn the clothed human model from
+monocular observations solely and extract the virtual bones on the fly without
+requiring any specific template prior. We explain the acquisition more in Sec. 3.4.
+3.3
+Multi-Layer Volume Rendering
+As we are aiming to jointly reconstruct multiple layers of neural implicit fields,
+we are required to depart from standard differentiable volume rendering for static
+scenes (e.g., [32]). We thus introduce multi-layer volume rendering tailored to our
+multi-layer human representation (Sec. 3.1) to reconstruct both inner body and
+outer clothing under garment-body occlusions. To do so, we use surface-based
+volume rendering [55] while re-ordering multiple neural layers [58].
+Specifically, we shoot a ray r through every pixel of the image and sample
+two sets of points in the body layer and the garment layer: {xB
+d,1, ..., xB
+d,N} and
+{xG
+d,1, ..., xG
+d,N} following the two-stage sampling strategy proposed in [55]. Note
+that both sets contain the same amount of points. Next, we use the skeletal de-
+formation to warp each sampled point xB
+d,i to the body’s canonical space xB
+c,i and
+we use our virtual bone deformation module to find canonical correspondences
+xG
+c,i to each sampled point xG
+d,i (Sec. 3.2). Then, we obtain the corresponding
+signed-distance (sB
+i and sG
+i ) and radiance values (cB
+i and cG
+i ) by querying the
+
+
+8
+C. Guo and T. Jiang et al.
+implicit shape and texture fields with the canonical points. We then compute
+the occupancy for the inner and outer layer at the i-th sampled point as:
+  
+o ^
+{
+B } _{i
+}
+ & 
+=  \l
+e
+ft
+ (1
+- \ e
+x
+p 
+\ l e
+f
+t (-\sigma _i^B \Delta \boldsymbol {x}^B_i\right )\right ); \\sigma _i^B = \sigma \left (s_{i}^B, \boldsymbol {\theta }\right ) \\ o^{G}_{i} &= \left (1-\exp \left (-\sigma _i^G \Delta \boldsymbol {x}^G_i\right )\right ); \\sigma _i^G = \sigma \left (s_{i}^G, \boldsymbol {\theta } \right )
+(8)
+where ∆x(·)
+i
+is the distance between two adjacent sample points in the respective
+layer, and σ(·) represents the scaled Laplace’s Cumulative Distribution Function
+(CDF) to convert sB
+i
+and sG
+i
+to volume densities (σB
+i
+and σG
+i ) following [55].
+Finally, we integrate the radiance numerically for both layers and obtain the
+neurally rendered color of the human performer ˆCH:
+  \ l
+a
+b
+el 
+{
+eq:colo
+r
+} \
+h at
+ 
+{
+C}^H=\s
+u
+m _{i=
+1
+}
+^ { N}
+ 
+\
+s
+u m _{p \in \{B,G\}}^{} \left [ o_i^p \boldsymbol {c}_i^p \prod _{q \in \{B,G\}}^{} \prod _{j \in \mathcal {I}_{i}^{q,p}}\left (1-o_j^q \right ) \right ], 
+(9)
+where Iq,p
+i
+= {j ∈[1, N] | z(xq
+d,j) < z(xp
+d,i)} and z(·) measures the depth of a
+point w.r.t. the camera origin. In other words, we sort all points according to
+their depth values from near to far and then conduct the volumetric integration.
+Scene Composition. To model the background of the scene we use NeRF++
+[59], denoted as f S, which estimates a color value ˆCS representing the scene’s
+color. The final pixel color ˆC is a composite of ˆCS with ˆCH following [14]. More
+details are shown in the Supp. Mat.
+3.4
+Global Optimization
+To jointly learn the inner body and outer clothing of clothed humans from
+monocular videos in a template-free manner, we propose a two-stage training
+schema. The whole training process is formulated as a global optimization over
+all optimizable parameters and the entire video sequence.
+Two-Stage Training Schema. In the first stage, we leverage skeletal defor-
+mation to deform both the body and garment layer. Meanwhile, we warm up
+the virtual bone deformation field DG by encouraging DG to have similar de-
+formations as the SMPL model around near-body regions. In the second stage,
+we activate the virtual bone deformation module to drive the garment layer. To
+obtain virtual bones, we generate garment meshes using Multiresolution IsoSur-
+face Extraction (MISE) [31]. In theory, each of the M vertices of the resulting
+canonical garment mesh can be made a virtual bone. This will however incur a
+high computational cost in the deformation module. To mitigate this but still
+retain expressive capability we employ a quadric mesh simplification algorithm
+to reduce the number of vertices to nv ≪M. The remaining vertices after the
+simplification are the initial virtual bone locations. We empirically found 80 vir-
+tual bones to deliver the best performance-efficiency compromise (see Sec. 4.5).
+Note that we periodically generate new sets of virtual bones during training to
+account for changing garment topologies.
+
+
+ReLoo
+9
+Reconstruction Loss. For every ray r ∈R we compute how well the rendered
+color ˆC(r) matches the image pixel’s RGB value C(r) with the L1-distance:
+  \m a
+t
+hca
+l
+ {L
+}_{\t e xt {rgb}} = \frac {1}{|\mathcal {R}|} \sum _{\boldsymbol {r} \in \mathcal {R}} | C(\boldsymbol {r}) - \hat {C}(\boldsymbol {r})|. 
+(10)
+Segmentation Loss. We modify Eq. (9) to render the opacity ˆOB(r) and ˆOG(r)
+per pixel for both layers:
+  \hat  
+{
+O
+}^B
+(\b
+o
+l
+dsymbol
+ 
+{r})=\
+s
+u
+m  _{
+i
+=
+1} ^{N} [  
+o
+_
+i^B
+ \p
+r
+o
+d _{q \
+i
+n \{B,
+G
+\
+} } ^{
+}
+ 
+\prod _{j \in \mathcal {I}_{i}^{q,B}}\left (1-o_j^q \right ) ]; \\hat {O}^G(\boldsymbol {r})=\sum _{i=1}^{N} [ o_i^G \prod _{q \in \{B,G\}}^{} \prod _{j \in \mathcal {I}_{i}^{q,G}}\left (1-o_j^q \right ) ] . 
+(11)
+The segmentation loss is calculated between the rendered pixel-wise opacity and
+the segmentation masks extracted using SAM [24]. A robust Geman-McClure
+error function ρ [10] is applied to down-weigh potentially erroneous cloth seg-
+mentation mask predictions (more details are explained in Supp. Mat):
+  \m a
+t
+hca
+l
+ {L
+}
+_{\text
+ {se
+g}} = \ frac {1}{|\mathcal {R}|} \sum _{\boldsymbol {r} \in \mathcal {R}} \sum _{p \in \{B,G\}}^{} \rho (\mathcal {M}_{\text {sam}}^{p}(\boldsymbol {r}) - \hat {O}^{p}(\boldsymbol {r})). 
+(12)
+Adaptive Eikonal Loss. We follow IGR [12] and sample points in the canonical
+space to compute the Eikonal constraint to regularize the validity of our SDFs
+in each layer. Unlike [12], which randomly samples points in the entire space,
+we periodically extract the canonical shapes for both layers and sample points
+around the explicit mesh surfaces:
+  \mathc a l {
+L
+}_{\text  {
+ei k ona
+l
+}} = \ma t h
+bb  {E}_{\boldsymbol {x}_c^B}\left (\left \|\nabla s^B \right \|-1\right )^2 + \mathbb {E}_{\boldsymbol {x}_c^G}\left (\left \|\nabla s^G \right \|-1\right )^2. 
+(13)
+Virtual Bone Deformation Regularization. To accelerate the convergence
+of the virtual bone deformation field in the first stage of the training process, we
+randomly sample 3D canonical garment points xG
+c and apply additional SMPL
+transformation regularization which ensures that the virtual bone deformation
+LBSG do not deviate excessively from the transformations made by skeletal
+deformation LBSB during the warm-up stage:
+  \m a thcal {L
+} _ { \text {
+r eg}} = \| LBS^B(\boldsymbol {x}_c^G) - LBS^G(\boldsymbol {x}_c^G) \|^2 
+(14)
+See Supp. Mat for more details about the final loss.
+4
+Experiments
+We first introduce the datasets and metrics used for evaluation. Then, we com-
+pare our proposed method with state-of-the-art approaches in two tasks: 3D sur-
+face reconstruction and novel view synthesis. Ablation studies are then conducted
+to demonstrate the effectiveness of our core components and design choices.
+
+
+10
+C. Guo and T. Jiang et al.
+Table 1: Quantitative evaluation on surface reconstruction. We compute the
+3D surface metrics on the MonoLoose dataset. Our method consistently outperforms
+all baselines on all evaluation metrics (cf . Fig. 2).
+Method
+C −ℓ2 ↓NC ↑V −IoU ↑
+SelfRecon [19]
+2.22
+0.788
+0.844
+Vid2Avatar [14]
+2.34
+0.794
+0.776
+SCARF [9]
+3.13
+0.711
+0.691
+Ours w/o Multi-Round Sampl.
+2.34
+0.770
+0.879
+Ours
+1.93
+0.831
+0.881
+4.1
+Datasets
+MonoLoose Dataset: Due to the lack of datasets that capture dynamic human
+performance with high-fidelity 3D ground-truth meshes when dressed in loose
+garments, we captured our own dataset, MonoLoose, with a high-end multi-
+view volumetric capture studio (MVS) [6]. This dataset is specifically curated
+for evaluating monocular human surface reconstruction and novel view synthesis
+methods, with a particular focus on subjects dressed in loose attire. It consists
+of five sequences with different identities, loose garment styles, and motions. For
+more details on the contents of MonoLoose, please refer to the Supp. Mat.
+DynaCap [15]: We further evaluate our method on DynaCap, which captures
+dynamic human performance with a dense multi-view system. We curate two
+sequences that feature loose garments for novel view synthesis evaluation. Note
+that DynaCap does not provide dense scans for reconstruction comparison.
+In-the-wild videos: We use in-the-wild videos collected from DeepCap [16] and
+online videos to demonstrate the robustness and generalization of our method.
+Evaluation Protocol: We report Chamfer distance (C −ℓ2) [cm], normal con-
+sistency (NC), and volumetric IoU for surface reconstruction comparison. Novel
+view synthesis quality is measured via PSNR, SSIM [49], and LPIPS (×100) [60].
+4.2
+Surface Reconstruction Comparisons
+We compare our proposed human surface reconstruction method to several state-
+of-the-art approaches [9, 14, 19] on our MonoLoose dataset. SelfRecon [19] and
+Vid2Avatar [14] deploy neural rendering to reconstruct the 3D clothed human
+using a single layer. SCARF [9] reconstructs a hybrid human model based on an
+explicit inner body and NeRF-based clothing model. All baseline methods rely
+on SMPL skeleton skinning transformation with additional deformation fields
+for the garments’ motion. Our method outperforms all baselines by a substan-
+tial margin on all evaluation metrics (cf . Tab. 1). This disparity becomes more
+visible in qualitative comparisons shown in Fig. 2. When the dynamic loose gar-
+ments necessitate large non-skeletal surface deformations, all baseline methods
+fail to recover complete human surfaces or produce implausible and corrupted
+reconstructions with visible artifacts (e.g., discontinuities between legs and miss-
+ing dress parts, see highlights in Fig. 2). Furthermore, they tend to produce less

@@ -1,0 +1,918 @@
+Title: Next3d: Generative neural texture rasterization for 3d-aware head avatars
+
+Next3D: Generative Neural Texture Rasterization for 3D-Aware Head Avatars
+Jingxiang Sun1
+Xuan Wang2
+Lizhen Wang1
+Xiaoyu Li3
+Yong Zhang3
+Hongwen Zhang1
+Yebin Liu1
+1Tsinghua University
+2Ant Group
+3Tencent AI Lab
+Figure 1. Our 3D GAN synthesizes generative, high-quality, and 3D-consistent facial avatars from unstructured 2D images. Unlike current
+animatable 3D GANs that only modify yaw-pitch head poses and facial expressions, our approach enables ﬁne-grained control over full-
+head rotations, facial expressions, eye blinks, and gaze directions with strict 3D consistency and a high level of photorealism. Our approach
+also provides strong 3D priors for downstream tasks such as 3D-aware stylization.
+Abstract
+3D-aware generative adversarial networks (GANs) syn-
+thesize high-ﬁdelity and multi-view-consistent facial images
+using only collections of single-view 2D imagery. Towards
+ﬁne-grained control over facial attributes, recent efforts in-
+corporate 3D Morphable Face Model (3DMM) to describe
+deformation in generative radiance ﬁelds either explicitly
+or implicitly. Explicit methods provide ﬁne-grained expres-
+sion control but cannot handle topological changes caused
+by hair and accessories, while implicit ones can model var-
+ied topologies but have limited generalization caused by the
+unconstrained deformation ﬁelds. We propose a novel 3D
+GAN framework for unsupervised learning of generative,
+high-quality and 3D-consistent facial avatars from unstruc-
+tured 2D images. To achieve both deformation accuracy
+and topological ﬂexibility, we propose a 3D representation
+called Generative Texture-Rasterized Tri-planes. The pro-
+posed representation learns Generative Neural Textures on
+top of parametric mesh templates and then projects them
+into three orthogonal-viewed feature planes through raster-
+ization, forming a tri-plane feature representation for vol-
+ume rendering. In this way, we combine both ﬁne-grained
+expression control of mesh-guided explicit deformation and
+the ﬂexibility of implicit volumetric representation. We fur-
+ther propose speciﬁc modules for modeling mouth interior
+which is not taken into account by 3DMM. Our method
+demonstrates state-of-the-art 3D-aware synthesis quality
+and animation ability through extensive experiments. Fur-
+thermore, serving as 3D prior, our animatable 3D repre-
+sentation boosts multiple applications including one-shot
+facial avatars and 3D-aware stylization.
+1. Introduction
+Animatable portrait synthesis is essential for movie post-
+production, visual effects, augmented reality (AR), and vir-
+tual reality (VR) telepresence applications. Efﬁcient ani-
+matable portrait generators should be capable of synthesiz-
+1
+arXiv:2211.11208v2  [cs.CV]  13 Mar 2023
+
+
+ing diverse high-ﬁdelity portraits with full control of the
+rigid head pose, facial expressions and gaze directions at
+a ﬁne-grained level. The main challenges of this task lie
+in how to model accurate deformation and preserve iden-
+tity through animation in the generative setting, i.e. training
+with only unstructured corpus of 2D images.
+Several 2D generative models perform image anima-
+tion by incorporating the 3D Morphable Face Models
+(3DMM) [4] into the portrait synthesis [13, 16, 35, 52, 62,
+65,70,73]. These 2D-based methods achieve photorealism
+but suffer from shape distortion during large motion due to
+a lack of geometry constraints. Towards better view con-
+sistency, many recent efforts incorporate 3DMM with 3D
+GANs, learning to synthesize animatable and 3D consis-
+tent portraits from only 2D image collections in an unsu-
+pervised manner [3, 30, 39, 44, 60, 61, 68, 74]. Bergman et
+al. [3] propose an explicit surface-driven deformation ﬁeld
+for warping radiance ﬁelds. While modeling accurate facial
+deformation, it cannot handle topological changes caused
+by non-facial components, e.g.
+hair, glasses, and other
+accessories. AnifaceGAN [68] builds an implicit 3DMM-
+conditioned deformation ﬁeld and constrains animation ac-
+curacy by imitation learning. It achieves smooth animation
+on interpolated expressions, however, struggles to generate
+reasonable extrapolation due to the under-constrained de-
+formation ﬁeld. Therefore, The key challenge of this task is
+modeling deformation in the 3D generative setting for ani-
+mation accuracy and topological ﬂexibility.
+In this paper, we propose a novel 3D GAN framework
+for unsupervised learning of generative, high-quality, and
+3D-consistent facial avatars from unstructured 2D images.
+Our model splits the whole head into dynamic and static
+parts, and models them respectively. For dynamic parts, the
+key insight is to combine both ﬁne-grained expression con-
+trol of mesh-guided explicit deformation and ﬂexibility of
+implicit volumetric representation. To this end, we propose
+a novel representation, Generative Texture-Rasterized Tri-
+planes, which learns the facial deformation through Gen-
+erative Neural Textures on top of a parametric template
+mesh and samples them into three orthogonal-viewed and
+axis-aligned feature planes through standard rasterization,
+forming a tri-plane feature representation.
+Such texture-
+rasterized tri-planes re-form high-dimensional dynamic sur-
+face features in a volumetric representation for efﬁcient vol-
+ume rendering and thus inherit both the accurate control of
+the mesh-driven deformation and the expressiveness of vol-
+umetric representations. Furthermore, we represent static
+components (body, hair, background, etc.) by another tri-
+plane branch, and integrate both through alpha blending.
+Another key insight of our method is to model the mouth
+interior which is not taken into account by 3DMM. Mouth
+interior is crucial for animation quality but often ignored
+by prior arts. We propose an efﬁcient teeth synthesis mod-
+ule, formed as a style-modulated UNet, to complete the in-
+ner mouth features missed by the template mesh. To fur-
+ther regularize the deformation accuracy, we introduce a
+deformation-aware discriminator which takes as input syn-
+thetic renderings, encouraging the alignment of the ﬁnal
+outputs with the 2D projection of the expected deformation.
+To summarize, the contributions of our approach are:
+• We present an animatable 3D-aware GAN framework
+for photorealistic portrait synthesis with ﬁne-grained
+animation, including expressions, eye blinks, gaze di-
+rection and full head poses.
+• We propose Generative Texture-Rasterized Triplanes,
+an efﬁcient deformable 3D representation that inherits
+both ﬁne-grained expression control of mesh-guided
+explicit deformation and ﬂexibility of implicit volu-
+metric representation. To our knowledge, we are the
+ﬁrst method to incorporate Neural Textures into ani-
+matable 3D-aware synthesis.
+• Our learned generative animatable 3D representation
+can serve as a strong 3D prior and boost the down-
+stream application of 3D-aware one-shot facial avatars.
+Our model also pushes the frontier of 3D stylization
+with high-quality out-of-domain facial avatars.
+2. Related Work
+Generative 3D-aware Image Synthesis. Generative adver-
+sarial networks [24] have achieved photorealistic synthesis
+in 2D domain. Building on the success of 2D GANs, many
+efforts have lifted the image synthesis into 3D with explicit
+view control. Early voxel-based approaches [19,28,41,42,
+67,82] adopt the 3D CNN generators whose heavy compu-
+tational burden limits the high-resolution image synthesis.
+Recent works incorporate more efﬁcient neural scene rep-
+resentations, such as fully implicit networks [6, 8–10, 14,
+47,54,57,81], sparse voxel grids [55], multiple planes [79]
+or a combination of low-resolution feature volume and 2D
+super-resolution [7, 27, 43, 46, 71, 72, 76, 78]. We leverage
+the tri-plane representation proposed in [7] and endow it
+with animation ability by the orthogonal-rasterized Gener-
+ative Neural Textures.
+Some other current works [3,30,36,44,58,59,61,68,77,
+83] focus on the editability of 3D-aware generative models.
+FENeRF [59] and IDE-3D [58] perform semantic-guided
+3D face editing by incorporating semantic-aware radiance
+ﬁelds and GAN inversion. However, they cannot produce
+continuous and stable editing on videos. Other methods [3,
+30,44,61,68] employ 3D priors to achieve animatable image
+synthesis and the main differences lie on the deformation
+strategies including linear blend skinning [30, 44], surface-
+driven deformation [3], 3DMM-guided latent decomposi-
+tion [61] and neural deformation ﬁelds [68].
+These ap-
+proaches either don’t allow for topology changes or need
+2
+
+
+Figure 2. Our 3D GAN framework consists of two tri-plane branches Tuv and Tstatic modeling dynamic and static components. Tuv
+is formed by the orthogonal rasterized Generative Neural Textures which are synthesized by a StyleGAN generator, Gtexture, on top
+of deformable template mesh. Tstatic is synthesized by another StyleGAN generator, Gstatic. The mouth synthesis module, Gteeth, is
+presented for completing mouth interior. Blended triplanes are incorporated with hybrid neural renderer consisting of volume rendering
+and a super-resolution module Gsuperres.. For discrimination, synthetic renderings Isynthetic is taken into the dual discriminator Ddual.
+elaborate loss design to ensure the accuracy of deformation.
+On the contrary, our approach naturally achieves accurate
+animation with explicit mesh guidance and further allow
+for topology changes by adapting surface deformation into
+a continuous volumetric representation.
+Facial animation with 3D morphable face models. Blanz
+et al. [4] model facial texture and shape as vector spaces,
+known as the 3D Morphable Model (3DMM). Extensions
+of 3DMM, such as full-head PCA models [12, 51], blend-
+shape models [38], are extensively studied and widely used
+in facial animation tasks [23,65]. Beneﬁting from 3DMM,
+these methods can model the deformation of facial parts ac-
+curately and continuously, nevertheless, struggle to repre-
+sent non-facial areas missed by 3DMM, e.g. hair, teeth,
+eyes, and body. Moreover, these methods are prone to lack-
+ing facial details. To ﬁll the missing areas and complete
+more realistic facial details, later works [13, 16, 18, 22, 35,
+52, 62, 64, 70] apply learned approaches on top of 3DMM
+renderings.
+DiscoFaceGAN [13] maps 3DMM parame-
+ters into the latent space and decouple them by imitative-
+contrastive learning. Though efﬁcient and photorealistic an-
+imation is achieved, these 2D methods don’t model 3D ge-
+ometry and thus cannot remain strict 3D consistency with
+large head pose changes. For strict 3D consistency, recent
+efforts [1,20,25,75,80] incorporate 3DMM into volumetric
+representations [31,32,40,49,56] to achieve view-consistent
+facial animation. Furthermore, volumetric representations
+enable the modeling of thin structures such as hair, and
+also mouth interior thanks to its spatial continuity. While
+3DMM have been adopted to animate radiance ﬁelds for
+single-scene scenarios, it is challenging to adapt to the gen-
+erative setting with the absence of groundtruth supervision.
+Neural scene representations. The neural scene represen-
+tations can be roughly categorized into implicit and explicit
+surface representations and volumetric representations [63].
+The surface can be represented explicitly by point clouds
+[37, 50], meshes [2, 5, 45, 64], or deﬁned implicitly as a
+zero level-set of a function [11,48,69], like signed distance
+function, which can be approximated by coordinate-based
+multi-layer perceptrons (MLPs). On the contrary, volumet-
+ric representations [32, 40, 49, 56] store volumetric prop-
+erties (occupancies, radiance, colors, etc.) instead of the
+surface of an object. These properties can be stored in ex-
+plicit voxel grids [32,49,56] or the weights of a neural net-
+work implicitly [40]. In this work, we propose a hybrid
+surface–volumetric representation. Speciﬁcally, we learn
+the deformable surface radiance by neural textures [26,64]
+on top of the template mesh and rasterize it into three
+orthogonal-viewed feature planes. Then, the planes are re-
+shaped to a tri-plane representation with decoding into neu-
+ral radiance ﬁelds for volume rendering.
+3. Approach
+We present an animatable 3D-aware facial generator that
+equips with ﬁne-grained expression and pose control, pho-
+torealistic rendering quality, and high-quality underlying
+geometry. The proposed method models dynamic and static
+components by two independent tri-plane branches. Specif-
+ically, we propose Generative Texture-rasterized Tri-planes
+for modeling dynamic facial parts (Sec. 3.1). Furthermore,
+we propose an efﬁcient mouth synthesis module to com-
+plete the mouth interior that is not included in 3DMM
+(Sec. 3.2). We further adopt another tri-plane branch for the
+static components (Sec. 3.3). Both tri-planes are blended to-
+gether for hybrid neural rendering (Sec. 3.4). We introduce
+an deformation-aware discriminator (Sec. 3.5) and illustrate
+3
+
+
+the training objectives in Sec. 3.6.
+3.1. Generative texture-rasterized tri-planes
+EG3D [7] presents an efﬁcient tri-plane-based hybrid
+3D representation to synthesize high-resolution images with
+multi-view consistency. Nonetheless, EG3D lacks control
+over facial deformations and thus cannot be directly applied
+to animation tasks. To this end, we leverage Neural tex-
+tures [64] to represent deformable facial parts. In general,
+Neural Textures are a set of learned high-dimensional fea-
+ture maps that can be interpreted by a neural renderer. We
+extend it to our generative setting and synthesize the neural
+textures through a StyleGAN2 CNN generator Gtexture. As
+shown in Fig. 2, we ﬁrst sample a latent code z and map it
+into an intermediate latent space by the mapping network.
+Our texture generator architecture closely follows Style-
+GAN2 backbone [34], except producing a 256 × 256 × 32
+neural texture map, T, instead of a three-channel RGB
+image. Storing a high-dimensional learned feature vector
+per texel, T can be rasterized to a view-dependent screen-
+space feature map given a mesh with uv-texture parame-
+terization and a target view as input. In our case, we use
+the FLAME template [38] to provide a coarse mesh that
+can be driven by deformation parameters. Given the pre-
+designed texture mapping function, we employ the stan-
+dard graphics pipeline to rasterize the neural textures from
+the texture space into the screen space based on the tem-
+plate mesh. We choose Neural Textures as the deforma-
+tion method for two reasons. First, compared with other ex-
+plicit deformation (e.g. linear blend skinning and surface-
+driven deformation) highly dependent on the accurate un-
+derlying geometry, Neural Textures embed high-level fea-
+tures which compensate the imperfect geometry and thus
+are more suitable for our settings where template meshes
+are not accurate. Furthermore, unlike implicit deformation
+methods [13,61,68], our explicit mesh-guided deformation
+alleviates the requirement of elaborate imitation learning
+while gain better expression generalization (Fig. 4).
+Neural Textures encode surface deformation accurately
+with mesh guidance but lack generalization to 3D points far
+from surface. Besides, it also doesn’t allow for topologi-
+cal changes. To this end, we propose Generative Texture-
+Rasterized Tri-planes, Tuv which reshapes the rasterized
+textures into a tri-plane representation. Therefore, we can
+adapt such surface deformation into a continuous volume.
+Speciﬁcally, we rasterize neural textures based on the tem-
+plate mesh into three orthogonal views and place them in
+three axis-aligned feature planes. In practice, considering
+the zygomorphy, the rasterization is applied at both the left
+and right views and the rasterized features are concatenated
+for one single plane by summation. In this way, Our hybrid
+surface-volumetric representation inherits the best of both
+worlds: accurate mesh-guided facial deformation of Neu-
+ral Textures and the continuity and topological ﬂexibility of
+volumetric representations. See Fig. 5 for the topological-
+aware animation of portraits with glasses.
+3.2. Mouth synthesis module
+Figure 3. The teeth synthesis module consists of a teeth complet-
+ing module and a neural blending module. The teeth competing
+module produces mouth interior conditioned on multi-scale teeth
+exterior features and latent codes w.
+Since the FLAME template doesn’t contain inner mouth,
+we propose a teeth synthesis module, Gteeth, to complete
+the missing teeth features in Tuv. As shown in Fig. 3, for
+each feature plane of Tuv, we crop the teeth area by the
+expanded landmarks and resize it into 64 × 64. Then, the
+stacked mouth features are processed by Gteeth which em-
+ploys a style-modulated UNet [66]. The downsampling pro-
+cess of Gteeth encodes fteeth into multi-scale feature maps
+which serve as content conditions for the following Style-
+GAN layers.
+The output teeth features f
+′
+teeth are trans-
+formed inversely and concatenated with the feature planes
+of Tuv. To eliminate the texture ﬂickering of mouth bound-
+ary, we further feed Tuv into a shallow-UNet-based neural
+blending module and obtain T
+′
+uv. We conduct a series of
+ablation studies and prove that the proposed teeth synthe-
+sis module brings a remarkable improvement on both the
+animation accuracy and synthesis quality (Sec. 4.2).
+3.3. Modeling static components
+The generative texture-rasterized tri-planes manage to
+model dynamic faces varying expressions and shapes,
+though, it is challenging to synthesize static parts like di-
+verse haircut, background and upper body which are not in-
+cluded in the FLAME template. To this end, we model these
+parts by another tri-plane branch, Tstatic, which is gener-
+ated by a StyleGAN2 CNN generator Gstatic sharing the
+same latent code with Gtexture. The plane features of T
+′
+uv
+and Tstatic are blended on each plane by the alpha masks
+rendered by rasterization. Such design not only beneﬁts the
+modeling of various-styled static components but also en-
+forces their consistency during facial animations.
+4
+
+
+3.4. Neural rendering
+Given the blended tri-planes, for any point in the 3D
+space, we project it into each plane and sample the features
+bi-linearly. Then, the sampled features are aggregated by
+summation and decoded into volume density σ and feature
+f by a lightweight decoder. Similar to [7,58], the decoder is
+a single hidden layered multi-layer perceptron (MLP) with
+softplus activation. The volume rendering is employed to
+accumulate σ and f along the rays cast through each pixel
+to compute a 2D feature image If. Similar to [7,27,46], we
+leverage a 2D super-resolution module Gsuperres. to inter-
+pret the feature image into RGB image IRGB with higher
+resolution. The super-resolution module consists of three
+StyleGAN2 synthesis blocks and the noise input is removed
+for alleviating texture ﬂickers. In our case, If and IRGB are
+set to 64 × 64 and 512 × 512, respectively.
+3.5. Deformation-aware discriminator
+To learn the unsupervised 3D representations, we adopt
+a 2D convolutional discriminator D to critique the render-
+ings. Inspired by [7], we regularize the ﬁrst three channels
+of If as low-resolution RGB image, which is concatenated
+with IRGB as the input for the discriminator. However, the
+discrimination with only image input can only ensure that
+the deformed images are always in a correct distribution in-
+stead of matching the expected deformations. Therefore, we
+make the discriminator aware of the expression and shape
+under which the generated image are deformed. For the
+same purpose, GNARF [3] conditions the discriminator on
+the FLAME parameters by concatenating them as the in-
+put to the mapping network. However, we ﬁnd empirically
+that such a conditioning method leads to training instabil-
+ity, consistent with [3]. Instead, we re-render the template
+mesh under the rendered pose to get the synthetic rendering
+Isynthetic and feed it into Ddual along with image pairs.
+Here, we adopt correspondence images inspired by [35].
+Such concatenation encourages the ﬁnal output to align with
+the synthetic rendering and learn the expected deformation.
+3.6. Training objectives
+During training, we use the non-saturating GAN loss
+with R1 regularization.
+Moreover, we adopt the density
+regularization proposed in EG3D [7]. Therefore, the total
+learning objective is:
+LDdual,G =Ez∼pz,ϵ∼pϵ[f(Ddual(G(z, ϵ)))]+
+EIr∼pIr [f(−Ddual(Ir)+
+λ∥▽Ddual(Ir)∥2],
+(1)
+Ldensity =
+X
+xs∈S∥d(xs) −d(xs + ϵ)∥2,
+(2)
+Ltotal =LDdual,G + λdensityLdensity,
+(3)
+where Ir is the combination of real images, blurred real
+images, and the corresponding synthetic renderings, which
+are sampled from the training set with distribution pI.
+We adopt many training hyperparameters from EG3D and
+StyleGAN2 (learning rates of generator and discriminator,
+batch size, R1 regularization, etc.).
+We train our model
+based on the pretrained model of EG3D [7] and continue
+to train on 4 3090 GPUs for roughly 4 days. Please refer to
+the supplemental material for the implementation details.
+4. Experiments
+In this section, we ﬁrst show qualitative and quantitative
+comparisons to state-of-the-art 2D / 3D animatable genera-
+tive facial models (Sec. 4.1), and then discuss the conducted
+ablation studies of our design choices (Sec. 4.2). Further-
+more, we show various applications combining our efﬁcient
+3D representation with GAN technologies such as GAN in-
+version and style transfer (Sec. 4.3).
+Datasets. We train and test our methods on FFHQ [33].
+We augment FFHQ with horizontal ﬂips and use an off-the-
+shelf pose estimator [15] to label images with the approxi-
+mated camera extrinsic parameters and constant intrinsics.
+To support full pose animation, in-plane (roll) rotation is
+also considered. Furthermore, we use DECA [17] to esti-
+mate the FLAME parameters of facial identity β ∈R100,
+jaw pose θjaw ∈R3 and expression ψ ∈R50.
+Since
+DECA doesn’t account for eyeball movement, we addition-
+ally adopt an efﬁcient facial detector 1 to detect 2D land-
+marks of irises and optimize eye poses θeye ∈R6 by min-
+imizing the re-projection errors. Based on these FLAME
+parameters, we produce a template mesh with 5023 vertices
+and 9976 faces to drive facial deformations.
+4.1. Comparisons
+Baselines. We compare our method against two state-of-
+the-art methods for animatable 3D-aware image synthesis:
+3DFaceShop [61], and AniFaceGAN [68]. Besides, we also
+select DiscoFaceGAN [13] as a baseline, which generates
+animatable 2D portraits conditioned on 3DMM parameters.
+Qualitative comparison. Fig. 4 provides a qualitative com-
+parison against baselines.
+Overall, as can be seen, our
+method outperforms all baselines by some margin on both
+synthesis quality and animation accuracy. Speciﬁcally, Dis-
+coFaceGAN [13] suffers from inconsistent identity during
+animation. Moreover, it cannot generate reasonable mouth
+interior, e.g. stretched teeth. 3DFaceshop and AnifaceGAN
+synthesize 3D-consistent images, nevertheless, still strug-
+gle to model consistent mouth interior with the driving im-
+ages. This is because their implicit deformation approaches
+are under-constrained, leading to overﬁt the expression bias
+(smiling with mouth half-opened) of datasets. Compared to
+1https://mediapipe.dev/
+5
+
+
+Figure 4. Comparison with the state-of-the-art animatable 3D & 2D image synthesis methods. We extract several frames from a video clip
+and use the interpreted face model parameters to animate random virtual avatars.
+Figure 5. High-quality dynamic shapes with topological changes.
+As can be seen, we model detailed dynamic shapes of eyelids and
+lips, while keeping glasses unchanged.
+the other methods, our approach not only synthesizes im-
+ages with higher quality, but also preserves more detailed
+FID↓
+AED↓
+APD↓
+APD*↓
+ID↑
+DiscoFaceGAN (2562) [13]
+17.1
+0.42
+0.046
+0.024
+0.73
+AniFaceGAN (2562) [68]
+20.1
+0.25
+0.041
+0.022
+0.82
+3DFaceShop (5122) [61]
+23.7
+0.31
+0.045
+0.024
+0.75
+Ours (5122)
+3.9
+0.16
+0.023
+0.019
+0.84
+Table 1. Quantitative comparison using FID, average expression
+distance (AED), average pose distance (APD), and identity consis-
+tency (ID) for FFHQ. APD* means calculating pose distance with
+roll ﬁxed.
+expressions of the driver images, including mouth interior,
+eye blinks and eye movements. Furthermore, we are the
+only method that supports in-plane head rotations. Fig. 5
+provides visual examples of the synthesized high-quality
+geometry. Our approach can model detailed shape defor-
+mations (see zoomed eyelids and lips in Fig. 5) with topo-
+logical awareness, i.e. glasses are kept unchanged.
+Quantitative evaluation.
+Tab. 1 demonstrates quantita-
+6
+
+
+Figure 6. Ablation study on model designs. Tstatic encourages
+better identity consistency; Gteeth beneﬁts realistic mouth inte-
+rior; the discriminator with Isynthetic input allows more consis-
+tent reconstruction of detailed expressions.
+tive results comparing our method against baselines eval-
+uated on several metrics. We measure image quality with
+Frechet Inception Distance (FID) [29] between the entire
+FFHQ dataset and 50k generated images using randomly
+sampled latent codes, camera poses, and FLAME param-
+eters. Since AniFaceGAN and DiscoFaceGAN synthesize
+images on the resolution of 2562, we test FID of them on
+FFHQ2562.
+Following [3, 39], we evaluate the faithful-
+ness of the animation with the Average Expression Dis-
+tance (AED), the Average Pose Distance (APD), and iden-
+tity consistency (ID). For each method, we randomly sam-
+ple 500 identities and animate each with randomly sampled
+20 FLAME parameters of expressions and poses. Then,
+we estimate the FLAME parameters for these 10000 gener-
+ated images and the average distances between the driving
+FLAME parameters and the reconstructed ones. For iden-
+tity consistency, we randomly sample 2000 poses, 2000 sets
+of FLAME parameters, and 1000 identities. Then we ran-
+FID↓
+AED↓
+APD↓
+ID↑
+w/o Tstatic
+6.6
+0.25
+0.026
+0.63
+w/o Gteeth(uv)
+7.2
+0.37
+0.042
+0.71
+w/o Gteeth(s)
+8.4
+0.32
+0.036
+0.79
+w/o Isynthetic
+3.8
+0.18
+0.025
+0.74
+Ours
+3.9
+0.16
+0.023
+0.84
+Table 2. Ablation study on model designs. Modeling static com-
+ponents by Tstatic improves identity consistency. The teeth syn-
+thesis Gteeth module beneﬁts both animation and synthesis qual-
+ity signiﬁcantly while adding synthetic renderings Isynthetic into
+discrimination takes both a step further.
+domly select two poses and two sets of FLAME parameters
+for each identity, generating a total of 1000 image pairs.
+We calculate consistency metric using a pre-trained Arcface
+model [15] for each image pair and report the average result.
+Since the other baselines don’t support in-plane (roll) head
+rotation, we further report APD* which only accounts for
+poses on yaw and pitch. Our method achieves the best per-
+formance on all metrics. Note that our model demonstrates
+signiﬁcant improvements in FID, bringing animatable 3D
+GAN to the same level as unconditional 3D GANs (4.7 for
+EG3D [7]). For AED and APD, we also show superiority
+against baselines. Note that we still achieve the best pose
+consistency (0.019) when only considering yaw and pitch.
+4.2. Ablation study
+Static tri-planes. As suggested by the grey lines in Fig. 8,
+this baseline removes the static tri-planes Tstatic and en-
+tangles both dynamic and static components in Tuv. As
+illustrated in the ﬁrst row of Fig. 6, the identities change
+when varying expressions. Since there are no explicit con-
+straints for identity consistency, the model would be prone
+to unexpected entanglement between expression and iden-
+tity. Tab. 2 shows a similar trend where removing Tstatic
+leads to worse identity consistency.
+Mouth Synthesis.
+When removing the mouth synthesis
+module Gteeth, we consider two altered choices: represent-
+ing mouth features by Tstatic or Tuv, named w/o Gteeth(s)
+(red lines in Fig. 8) and w/o Gteeth(uv) (blue lines in
+Fig. 8), respectively. The ﬁrst baseline, illustrated in the
+second row of Fig. 6, suffers from ’hole’ artifacts of mouth.
+This is because inferior teeth move along with the jaw ro-
+tations and thus cannot be modeled by static features. The
+second baseline modeling teeth with Tuv also leads to an
+unreasonable mouth interior since the FLAME template
+doesn’t account for teeth area and the neural textures for
+teeth would be sampled from other unrelated areas leading
+to artifacts. Quantitatively, both baselines without Gteeth
+show signiﬁcant degradation in AED and APD.
+Deformation-aware discriminator. Tab. 2 demonstrates
+that the deformation-aware discriminator with Isynthetic in-
+7
+
+
+Figure 7. Applications of our model. We use PTI [53] to ﬁt 3D-aware avatars for real portraits and animate them with sampled video clips.
+Furthermore, we leverage StyleGAN-NADA [21] into 3D settings and adapt these avatars into textually-prescribed domains.
+Figure 8. Illustrations of the proposed three variants of our model
+for ablation study.
+put improves both animation accuracy and identity consis-
+tency, at the negligible expense of slightly reduced image
+quality. In Fig. 6, we see that this design shows a better
+exploration of rare expressions, e.g. eye blinks.
+4.3. Applications
+One-shot portrait animation. Fig. 7 shows the application
+of our model for one-shot head avatars. The learned gen-
+erative animatbale 3D representation with expressive latent
+space can serve as a strong 3D prior for high-ﬁdelity single-
+view 3D reconstruction and animation. Note that we can
+generate natural and consistent animations without video
+data training.
+Animatable 3D-aware stylization.
+Inspired by IDE-
+3D [58], we incorporate 2D CLIP-guided style tranfer
+methods [21] with our animatable 3D representation for
+3D-aware portrait stylization. The right three columns of
+Fig. 7 show examples of text-driven, stylized portrait ani-
+mation. Speciﬁcally, to adapt a pre-trained model through
+only a textual prompt, we optimize the generator with two
+kinds of CLIP-based guidance [21]. However, leveraging
+text-guided 2D methods directly into the 3D setting is chal-
+lenging as it tends to break 3D awareness and deformation
+awareness inherited in the generator parameters. To this
+end, we make some necessary modiﬁcations to the train-
+ing framework. Please refer to the supplemental material
+for details. As shown in Fig. 7, we achieve high-quality
+3D-aware stylized portrait synthesis with preserving well
+properties (i.e. 3D consistency and accurate animation).
+5. Limitations and future work
+Though our approach enables reasonable extrapolation
+on some rare expressions (e.g. eye blinks, pouting, etc.), it
+struggles to model some other challenging expressions with
+full consistency, such as one-side mouth up, frown, sticking
+tongue out, etc. We could use high-quality video clips with
+more abundant expressions for training as well as a more
+powerful face model for better extrapolation. We leave it
+for future work. Furthermore, our model has the potential
+to provide a strong 3D prior for accelerating person-speciﬁc
+avatar reconstruction. Besides, extending our methods into
+full-body settings is also a promising direction.
+6. Conclusion
+We have presented Next3D, a novel animatable 3D rep-
+resentation for unsupervised learning of high-quality and
+3D-consistent virtual facial avatars from unstructured 2D
+images. Our approach has pushed the frontier of photore-
+alistic animatbale 3D-aware image synthesis. Serving as
+a strong 3D prior, we believe our learned 3D representa-
+tion will boost a series of downstream applications includ-
+ing 3D-aware one-shot facial avatars and animatable out-of-
+domain avatar generation.
+8
+
+
+References
+[1] ShahRukh Athar, Zexiang Xu, Kalyan Sunkavalli, Eli
+Shechtman, and Zhixin Shu. Rignerf: Fully controllable neu-
+ral 3d portraits. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 20364–
+20373, 2022. 3
+[2] Hendrik Baatz, Jonathan Granskog, Marios Papas, Fabrice
+Rousselle, and Jan Nov´ak. Nerf-tex: Neural reﬂectance ﬁeld
+textures. In Computer Graphics Forum. Wiley Online Li-
+brary, 2021. 3
+[3] Alexander W. Bergman, Petr Kellnhofer, Wang Yifan,
+Eric R. Chan, David B. Lindell, and Gordon Wetzstein. Gen-
+erative neural articulated radiance ﬁelds. In NeurIPS, 2022.
+2, 5, 7, 13
+[4] Volker Blanz and Thomas Vetter. A morphable model for
+the synthesis of 3d faces. In Proceedings of the 26th Annual
+Conference on Computer Graphics and Interactive Tech-
+niques, SIGGRAPH ’99, page 187–194, USA, 1999. ACM
+Press/Addison-Wesley Publishing Co. 2, 3
+[5] Andrei Burov, Matthias Nießner, and Justus Thies. Dynamic
+surface function networks for clothed human bodies.
+In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 10754–10764, 2021. 3
+[6] Shengqu Cai, Anton Obukhov, Dengxin Dai, and Luc
+Van Gool.
+Pix2nerf: Unsupervised conditional p-gan for
+single image to neural radiance ﬁelds translation. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 3981–3990, 2022. 2
+[7] Eric R. Chan, Connor Z. Lin, Matthew A. Chan, Koki
+Nagano, Boxiao Pan, Shalini De Mello, Orazio Gallo,
+Leonidas Guibas, Jonathan Tremblay, Sameh Khamis, Tero
+Karras, and Gordon Wetzstein.
+Efﬁcient geometry-aware
+3D generative adversarial networks. In Proceedings of the
+IEEE International Conference on Computer Vision (CVPR),
+2021. 2, 4, 5, 7, 13
+[8] Eric R Chan, Marco Monteiro, Petr Kellnhofer, Jiajun Wu,
+and Gordon Wetzstein. pi-gan: Periodic implicit generative
+adversarial networks for 3d-aware image synthesis. In Pro-
+ceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR), 2021. 2
+[9] Xu Chen, Tianjian Jiang, Jie Song, Jinlong Yang, Michael J
+Black, Andreas Geiger, and Otmar Hilliges.
+gdna: To-
+wards generative detailed neural avatars. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 20427–20437, 2022. 2
+[10] Yuedong Chen, Qianyi Wu, Chuanxia Zheng, Tat-Jen Cham,
+and Jianfei Cai. Sem2nerf: Converting single-view semantic
+masks to neural radiance ﬁelds. In ECCV, 2022. 2
+[11] Zhiqin Chen and Hao Zhang. Learning implicit ﬁelds for
+generative shape modeling. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 5939–5948, 2019. 3
+[12] Hang Dai, Nick Pears, William Smith, and Christian Dun-
+can. Statistical modeling of craniofacial shape and texture.
+International Journal of Computer Vision, 128(2):547–571,
+2020. 3
+[13] Yu Deng, Jiaolong Yang, Dong Chen, Fang Wen, and Tong
+Xin. Disentangled and controllable face image generation
+via 3d imitative-contrastive learning. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion (CVPR), 2020. 2, 3, 4, 5, 6
+[14] Yu Deng, Jiaolong Yang, Jianfeng Xiang, and Xin Tong.
+Gram: Generative radiance manifolds for 3d-aware image
+generation. arXiv:2112.08867, 2021. 2
+[15] Yu Deng, Jiaolong Yang, Sicheng Xu, Dong Chen, Yunde
+Jia, and Xin Tong.
+Accurate 3d face reconstruction with
+weakly-supervised learning: From single image to image set.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition Workshops, pages 0–0, 2019.
+5, 7, 13
+[16] Michail Christos Doukas, Stefanos Zafeiriou, and Viktoriia
+Sharmanska. Headgan: One-shot neural head synthesis and
+editing. In Proceedings of the IEEE/CVF International Con-
+ference on Computer Vision, pages 14398–14407, 2021. 2,
+3
+[17] Yao Feng, Haiwen Feng, Michael J Black, and Timo Bolkart.
+Learning an animatable detailed 3d face model from in-
+the-wild images.
+ACM Transactions on Graphics (ToG),
+40(4):1–13, 2021. 5, 13, 14
+[18] Ohad Fried, Ayush Tewari, Michael Zollh¨ofer, Adam Finkel-
+stein, Eli Shechtman, Dan B Goldman, Kyle Genova, Zeyu
+Jin, Christian Theobalt, and Maneesh Agrawala. Text-based
+editing of talking-head video. ACM Transactions on Graph-
+ics (TOG), 38(4):1–14, 2019. 3
+[19] Matheus Gadelha, Subhransu Maji, and Rui Wang. 3d shape
+induction from 2d views of multiple objects. In International
+Conference on 3D Vision (3DV), 2017. 2
+[20] Guy Gafni, Justus Thies, Michael Zollhofer, and Matthias
+Nießner. Dynamic neural radiance ﬁelds for monocular 4d
+facial avatar reconstruction. In Proceedings of the IEEE/CVF
+Conferfence on Computer Vision and Pattern Recognition,
+pages 8649–8658, 2021. 3
+[21] Rinon Gal, Or Patashnik, Haggai Maron, Amit H Bermano,
+Gal Chechik, and Daniel Cohen-Or. Stylegan-nada: Clip-
+guided domain adaptation of image generators. ACM Trans-
+actions on Graphics (TOG), 41(4):1–13, 2022. 8, 13, 14
+[22] Baris Gecer, Binod Bhattarai, Josef Kittler, and Tae-Kyun
+Kim. Semi-supervised adversarial learning to generate pho-
+torealistic face images of new identities from 3d morphable
+model. In Proceedings of the European conference on com-
+puter vision (ECCV), pages 217–234, 2018. 3
+[23] Baris Gecer, Stylianos Ploumpis, Irene Kotsia, and Stefanos
+Zafeiriou.
+Ganﬁt: Generative adversarial network ﬁtting
+for high ﬁdelity 3d face reconstruction. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, pages 1155–1164, 2019. 3
+[24] Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing
+Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and
+Yoshua Bengio. Generative adversarial nets. Advances in
+neural information processing systems, 27, 2014. 2
+[25] Philip-William Grassal,
+Malte Prinzler,
+Titus Leistner,
+Carsten Rother, Matthias Nießner, and Justus Thies. Neural
+head avatars from monocular rgb videos. In Proceedings of
+9
+
+
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 18653–18664, 2022. 3
+[26] Artur Grigorev, Karim Iskakov, Anastasia Ianina, Renat
+Bashirov, Ilya Zakharkin, Alexander Vakhitov, and Victor
+Lempitsky. Stylepeople: A generative model of fullbody hu-
+man avatars. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 5151–
+5160, 2021. 3
+[27] Jiatao Gu, Lingjie Liu, Peng Wang, and Christian Theobalt.
+Stylenerf:
+A style-based 3d-aware generator for high-
+resolution image synthesis. arXiv:2110.08985, 2021. 2, 5
+[28] Philipp Henzler, Niloy J Mitra, and Tobias Ritschel. Escap-
+ing plato’s cave: 3d shape from adversarial rendering. In
+Proceedings of the IEEE International Conference on Com-
+puter Vision (CVPR), 2019. 2
+[29] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner,
+Bernhard Nessler, and Sepp Hochreiter. Gans trained by a
+two time-scale update rule converge to a local nash equilib-
+rium. In Advances in Neural Information Processing Systems
+(NeurIPS), 2017. 7
+[30] Fangzhou Hong, Zhaoxi Chen, Yushi Lan, Liang Pan, and
+Ziwei Liu. Eva3d: Compositional 3d human generation from
+2d image collections.
+arXiv preprint arXiv:2210.04888,
+2022. 2
+[31] Yang Hong, Bo Peng, Haiyao Xiao, Ligang Liu, and Juy-
+ong Zhang.
+Headnerf: A real-time nerf-based parametric
+head model. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 20374–
+20384, 2022. 3
+[32] Angjoo Kanazawa, Shubham Tulsiani, Alexei A Efros, and
+Jitendra Malik. Learning category-speciﬁc mesh reconstruc-
+tion from image collections.
+In Proceedings of the Euro-
+pean Conference on Computer Vision (ECCV), pages 371–
+386, 2018. 3
+[33] Tero Karras, Samuli Laine, and Timo Aila. A style-based
+generator architecture for generative adversarial networks.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), pages 4401–4410, 2019. 5
+[34] Tero Karras, Samuli Laine, Miika Aittala, Janne Hellsten,
+Jaakko Lehtinen, and Timo Aila. Analyzing and improving
+the image quality of stylegan. In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition,
+2020. 4
+[35] Hyeongwoo Kim, Pablo Garrido, Ayush Tewari, Weipeng
+Xu, Justus Thies, Matthias Niessner, Patrick P´erez, Chris-
+tian Richardt, Michael Zollh¨ofer, and Christian Theobalt.
+Deep video portraits. ACM Transactions on Graphics (TOG),
+37(4):1–14, 2018. 2, 3, 5
+[36] Jeong-gi Kwak, Yuanming Li, Dongsik Yoon, Donghyeon
+Kim, David Han, and Hanseok Ko. Injecting 3d perception
+of controllable nerf-gan into stylegan for editable portrait im-
+age synthesis. In Proceedings of European Conference on
+Computer Vision (ECCV), 2022. 2
+[37] Henning Lange and J Nathan Kutz. Fc2t2: The fast contin-
+uous convolutional taylor transform with applications in vi-
+sion and graphics. arXiv preprint arXiv:2111.00110, 2021.
+3
+[38] Tianye Li, Timo Bolkart, Michael J Black, Hao Li, and Javier
+Romero. Learning a model of facial shape and expression
+from 4d scans. ACM Trans. Graph., 36(6):194–1, 2017. 3, 4
+[39] Connor Z Lin, David B Lindell, Eric R Chan, and Gordon
+Wetzstein. 3d gan inversion for controllable portrait image
+animation. arXiv preprint arXiv:2203.13441, 2022. 2, 7
+[40] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance ﬁelds for view
+synthesis.
+In European Conference on Computer Vision
+(ECCV), 2020. 3
+[41] Thu Nguyen-Phuoc, Chuan Li, Lucas Theis, Christian
+Richardt, and Yong-Liang Yang.
+Hologan: Unsupervised
+learning of 3d representations from natural images. In Pro-
+ceedings of the IEEE International Conference on Computer
+Vision, 2019. 2
+[42] Thu H Nguyen-Phuoc, Christian Richardt, Long Mai,
+Yongliang Yang, and Niloy Mitra.
+Blockgan: Learning
+3d object-aware scene representations from unlabelled im-
+ages. In Advances in Neural Information Processing Systems
+(NeurIPS), 2020. 2
+[43] Michael Niemeyer and Andreas Geiger. Giraffe: Represent-
+ing scenes as compositional generative neural feature ﬁelds.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), 2021. 2
+[44] Atsuhiro Noguchi, Xiao Sun, Stephen Lin, and Tatsuya
+Harada. Unsupervised learning of efﬁcient geometry-aware
+neural articulated representations. In Proceedings of Euro-
+pean Conference on Computer Vision (ECCV), 2022. 2
+[45] Michael Oechsle, Lars Mescheder, Michael Niemeyer, Thilo
+Strauss, and Andreas Geiger. Texture ﬁelds: Learning tex-
+ture representations in function space. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 4531–4540, 2019. 3
+[46] Roy
+Or-El,
+Xuan
+Luo,
+Mengyi
+Shan,
+Eli
+Shecht-
+man, Jeong Joon Park, and Ira Kemelmacher-Shlizerman.
+StyleSDF: High-Resolution 3D-Consistent Image and Ge-
+ometry Generation. arXiv:2112.11427, 2021. 2, 5
+[47] Xingang Pan, Xudong Xu, Chen Change Loy, Christian
+Theobalt, and Bo Dai.
+A shading-guided generative im-
+plicit model for shape-accurate 3d-aware image synthe-
+sis.
+Advances in Neural Information Processing Systems,
+34:20002–20013, 2021. 2
+[48] Jeong Joon Park, Peter Florence, Julian Straub, Richard
+Newcombe, and Steven Lovegrove. Deepsdf: Learning con-
+tinuous signed distance functions for shape representation.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), 2019. 3
+[49] Songyou Peng, Michael Niemeyer, Lars Mescheder, Marc
+Pollefeys, and Andreas Geiger.
+Convolutional occupancy
+networks.
+In European Conference on Computer Vision,
+pages 523–540. Springer, 2020. 3
+[50] Hanspeter Pﬁster, Matthias Zwicker, Jeroen Van Baar, and
+Markus Gross. Surfels: Surface elements as rendering primi-
+tives. In Proceedings of the 27th annual conference on Com-
+puter graphics and interactive techniques, pages 335–342,
+2000. 3
+10

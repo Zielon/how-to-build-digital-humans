@@ -1,0 +1,897 @@
+Title: Avatarrex: Real-time expressive full-body avatars
+
+AvatarReX: Real-time Expressive Full-body Avatars
+ZERONG ZHENG, Department of Automation, Tsinghua University, China
+XIAOCHEN ZHAO, Department of Automation, Tsinghua University and NNKosmos Technology, China
+HONGWEN ZHANG, Department of Automation, Tsinghua University, China
+BONING LIU, Department of Automation, Tsinghua University, China
+YEBIN LIU, Department of Automation, Tsinghua University, China
+Fig. 1. Example animation results produced by our method. Our method can learn photorealistic full-body avatars that provides full controllability over
+the body pose, hand genstrue and the face expression all together. Moreover, it can be rendered in real time without compromising image quality.
+We present AvatarReX, a new method for learning NeRF-based full-body
+avatars from video data. The learnt avatar not only provides expressive
+control of the body, hands and the face together, but also supports real-time
+animation and rendering. To this end, we propose a compositional avatar
+representation, where the body, hands and the face are separately modeled
+in a way that the structural prior from parametric mesh templates is properly
+utilized without compromising representation flexibility. Furthermore, we
+disentangle the geometry and appearance for each part. With these technical
+designs, we propose a dedicated deferred rendering pipeline, which can be
+executed at a real-time framerate to synthesize high-quality free-view images.
+The disentanglement of geometry and appearance also allows us to design
+a two-pass training strategy that combines volume rendering and surface
+rendering for network training. In this way, patch-level supervision can be
+applied to force the network to learn sharp appearance details on the basis
+Authors’ addresses: Zerong Zheng, Department of Automation, Tsinghua University,
+Beijing, China, zrzheng1995@foxmail.com; Xiaochen Zhao, Department of Automation,
+Tsinghua University and NNKosmos Technology, Beijing, China, zhaoxc19@mails.
+tsinghua.edu.cn; Hongwen Zhang, Department of Automation, Tsinghua University,
+Beijing, China, zhanghongwen@mail.tsinghua.edu.cn; Boning Liu, Department of
+Automation, Tsinghua University, Beijing, China, liuboning@mail.tsinghua.edu.cn;
+Yebin Liu, Department of Automation, Tsinghua University, Beijing, China, liuyebin@
+mail.tsinghua.edu.cn.
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission
+and/or a fee. Request permissions from permissions@acm.org.
+© 2023 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+0730-0301/2023/8-ART $15.00
+https://doi.org/10.1145/3592101
+of geometry estimation. Overall, our method enables automatic construction
+of expressive full-body avatars with real-time rendering capability, and can
+generate photo-realistic images with dynamic details for novel body motions
+and facial expressions.
+CCS Concepts: • Computing methodologies →Computer vision; Ren-
+dering.
+Additional Key Words and Phrases: full-body avatars, real-time rendering,
+neural radiance fields
+ACM Reference Format:
+Zerong Zheng, Xiaochen Zhao, Hongwen Zhang, Boning Liu, and Yebin
+Liu. 2023. AvatarReX: Real-time Expressive Full-body Avatars. ACM Trans.
+Graph. 42, 4 (August 2023), 19 pages. https://doi.org/10.1145/3592101
+1
+INTRODUCTION
+Animatable human avatar modeling, as an important topic in special
+effects industry, can be applied in many applications such as con-
+tent creation and immersive entertainment. Virtual characters are
+believed to have the potential to open up a new way for people to
+interact with others or intelligent machines in AR/VR settings [Chu
+et al. 2020]. Unfortunately, the traditional pipeline for creating 3D
+human avatars involves tedious procedures, including scanning,
+meshing, rigging and many more. Furthermore, such a pipeline re-
+quires expert knowledge and sophisticated capture systems, limiting
+its access and increasing its cost [Alexander et al. 2010].
+In order to lower the entry barrier for novices and automate the
+workflow of experienced artists, researchers have devoted great
+efforts in learning 3D human body avatars from images or videos
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+arXiv:2305.04789v1  [cs.CV]  8 May 2023
+
+
+2
+•
+Zerong Zheng, Xiaochen Zhao, Hongwen Zhang, Boning Liu, and Yebin Liu
+of real humans. Building upon explicit meshes [Bagautdinov et al.
+2021; Habermann et al. 2021; Xiang et al. 2021], implicit radiance
+fields [Peng et al. 2021a; Su et al. 2021; Wang et al. 2022b; Weng
+et al. 2022; Zheng et al. 2022b] or both [Liu et al. 2021a; Lombardi
+et al. 2021; Remelli et al. 2022], current approaches are able to syn-
+thesize realistic human motions under free-view points. Despite the
+plethora of these systems, most of them only model the torsos and
+the limbs, without combining other fine-grained body parts like
+faces and hands. However, an expressive human avatar demands
+for full controllability of the body, hands and the face together, as
+the essential nuance of human behaviors is conveyed through a
+concert of body movements, hand gestures and facial expressions.
+Up to now, only research works from industrial labs are able to
+achieve this goal [Bagautdinov et al. 2021; Remelli et al. 2022; Xiang
+et al. 2022, 2021]. Unfortunately, their methods rely on video data
+captured from dense-view camera rigs, which are not accessible for
+most individuals and academic organizations.
+Apart from expressiveness, another unsolved challenge lies in
+the rendering speed. In many applications, the avatars are expected
+to interact with users as real human-beings, which emphasizes the
+need for real-time animation and rendering. However, the most
+recent approaches [Liu et al. 2021a; Peng et al. 2021a; Su et al. 2021;
+Wang et al. 2022b; Zheng et al. 2022b] in this field are typically built
+upon neural radiance fields (NeRF) [Mildenhall et al. 2020], which
+densely samples the 3D space and queries the network millions
+of times for volume rendering. Consequently, they are difficult to
+render a dynamic avatar at a real-time framerate, preventing them
+from being adopted in interactive scenarios.
+In this work, we present Real-time eXpressive Avatar (Avatar-
+ReX), a novel system that simultaneously achieves expressive con-
+trol and real-time animation of full-body human avatars. To this
+end, we propose a compositional representation that models the
+face, hands and the body with independent implicit fields (Section 3).
+Such a compositional design allows us to adopt the most suitable
+technique for each part according to its characteristics in shape
+and texture variations. In our method, all part representations rely
+on the corresponding parametric templates, i.e., SMPL-X [Pavlakos
+et al. 2019] for the body, MANO [Romero et al. 2022] for the hands
+and Faceverse [Wang et al. 2022a] for the face, but the prior in these
+templates is leveraged in totally different manners. For example,
+we employ structured local radiance fields [Zheng et al. 2022b] for
+clothed body representation in order to eliminate the reliance on
+the SMPL-X topology, and, in contrast, directly build the the radi-
+ance fields of hands on top of the MANO geometry model. This
+is because clothes vary in topology, while the shape variation of
+hands is rather limited. To enhance the expressiveness of our avatar,
+we introduce several novel techniques for the body and face parts.
+Specifically, to capture the rich dynamic details like cloth wrinkles
+exhibited in the body part, we propose explicit feature patches to
+facilitate the learning of these appearance details. Meanwhile, as
+the face part contains many subtle yet important details relating
+to different expressions, we utilize convolution networks to extract
+distinctive features from the expression space of Faceverse, which
+is a better condition for high-fidelity facial rendering. Overall, each
+part representation in our avatar is carefully designed, ensuring
+that the 3D prior of the parametric templates is properly utilized
+without sacrificing representation power and model flexibility.
+With these building blocks at hand, we can now derive the fi-
+nal expressive avatar by assembling the face, hands and the body
+into one holistic model. However, it remains a challenge to train
+an avatar with sharp appearance details and render it efficiently at
+test time. To resolve these problems, we further improve our avatar
+representation by disentangling the geometry and appearance for
+each part and using the signed distance function (SDF) as the com-
+mon geometric representation. These technical designs enable us to
+develop a real-time rendering pipeline based on deferred rendering
+(Section 4). The core of our pipeline is to take advantage of the
+implicit surface definition in SDF for surface rendering. Compared
+to volume rendering in most NeRF-based methods [Mildenhall et al.
+2020], surface rendering avoids the need for expensive sampling
+along camera rays, leading to a significant speedup. We further
+accelerate this process with a dedicated deferred shading scheme,
+where the geometry model is firstly reconstructed in the form of an
+explicit SDF volume, enabling fast surface location for the later color
+evaluation step. As a result, our method successfully accelerates
+the avatar rendering process by two orders of magnitude without
+compromising the quality.
+In addition to testing acceleration, the disentanglement of geom-
+etry and appearance can also benefit network training. To this end,
+we combine deferred surface rendering with volume rendering to
+form a two-pass training strategy (Section 5). On one hand, volume
+rendering allows the geometry networks to learn various cloth shape
+from scratch with sparse pixel supervision. On the other, when the
+surface reconstruction is available, surface rendering minimizes
+network queries, making it possible to apply perceptual supervision
+on image patches, which is essential to force the color network to
+learn high-quality appearance. With our disentangled design, we
+can combine the merits from both worlds into two training passes,
+and consequently obtain an avatar with sharp appearance details.
+In summary, our system is able to create expressive full-body
+avatars with high-quality appearance details, and the avatars can
+be animated and rendered in real time. The training data for our
+avatar is multi-view videos of approximately 2000 frames in length,
+captured from 22 cameras (16 for the body and hands and 6 for
+the face). After data collection, our method can automatically learn
+the avatar representation without the need for pre-scanning efforts
+or other manual intervention. Moreover, the learned avatar can be
+driven in real-time given new body poses, hand gestures and facial
+expressions. Experimental results clearly demonstrate the potential
+of applying our method in interactive applications.
+2
+RELATED WORK
+Body Avatars. In the last decade, many efforts have been made
+to achieve animatable human avatars. Pioneer works in this field
+resort to statistical mesh templates [Joo et al. 2018; Loper et al.
+2015; Osman et al. 2020; Pavlakos et al. 2019] to model minimally
+clothed bodies. To handle the varying shape of clothing, recent
+methods explore more flexible representations such as implicit fields
+to model the shapes of clothed humans [Chen et al. 2021; Li et al.
+2022b; Lin et al. 2022; Mihajlovic et al. 2021; Saito et al. 2021; Tiwari
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+
+
+AvatarReX: Real-time Expressive Full-body Avatars
+•
+3
+et al. 2021; Zhang et al. 2023a]. For instance, Neural-GIF [Tiwari
+et al. 2021] factorizes human motion into articulation and non-
+rigid deformation, and learns to map every point in the space to a
+canonical pose using backward skinning. LEAP [Mihajlovic et al.
+2021] and SCANimate [Saito et al. 2021] learn the forward and
+backward skinning fields with neural networks and regularize the
+cycle consistency between them. For better generalization to unseen
+poses, SNARF [Chen et al. 2021] proposes a differentiable forward
+skinning model based on iterative root finding, which finds the
+canonical correspondences of any query point in the posed space.
+To acquire animatable characters with color, traditional pipelines
+typically reconstruct a subject-specific textured mesh in advance,
+and then generate its motions using physics simulation [Guan et al.
+2012; Stoll et al. 2010], database retrieval and blending [Xu et al.
+2011], or deformation space modeling [Habermann et al. 2021; Joo
+et al. 2018]. With accurate tracking of the underlying geometry,
+Bagautdinov et al. [2021] model high-fidelity avatars by decoding
+dynamic geometry and appearance from disentangled driving sig-
+nals. This approach is further extended in [Xiang et al. 2022, 2021]
+by representing the clothing as a separate layer in order to recover
+sharper garment boundaries. Their reliance on pre-scanning subject-
+specific templates can be eliminated via deforming a general body
+template. For instance, several works proposed to directly learn this
+deformation from geometric data [Ma et al. 2020, 2021b; Pons-Moll
+et al. 2017] or RGB videos [Alldieck et al. 2018a,b; Burov et al. 2021].
+The texture map and the rasterization step in these methods are later
+replaced with neural texture maps and image decoders [Hu et al.
+2022; Liu et al. 2021b, 2019b; Prokudin et al. 2021; Raj et al. 2021;
+Shysheya et al. 2019] to achieve more photo-realistic rendering.
+In the past three years, neural volumetric representations have
+demonstrated impressive results on novel view synthesis of static
+scenes [Mildenhall et al. 2020] or dynamic scenes [Lombardi et al.
+2019]. Since then, great efforts have been made to extend these neu-
+ral representations to human avatars. For example, Neural Body [Peng
+et al. 2021b] uses SMPL [Loper et al. 2015] to establish correspon-
+dences across different frames and trains a sparse convolution net-
+work to convert the SMPL vertices into a radiance volume. It sup-
+ports high-quality view synthesis, but can only playback the training
+sequences. To achieve better pose generalization, recent works adopt
+a disentangled representation, which maps the points in different
+poses to a canonical radiance field using inverse skinning [Li et al.
+2022a, 2023; Peng et al. 2021a; Su et al. 2021; Wang et al. 2022b;
+Weng et al. 2022]. For modeling the dynamic appearance details,
+Neural Actors [Liu et al. 2021a] introduces a texture map as an ad-
+ditional condition. In contrast to them, Zheng et al. [2022b] present
+a structured local representation, where the radiance field of dy-
+namic characters is assembled by a set of local ones, similarly to
+MVP [Lombardi et al. 2021]. DANBO [Su et al. 2022] employs a
+part-based volumetric representation defined by the skeleton struc-
+ture using graph neural networks. Recently, Remelli et al. [2022]
+combine localized volumetric primitives with the dense signal from
+image observations, allowing faithful synthesis of appearance de-
+tails like cloth wrinkles. However, their avatars can only be driven
+by the same person in the same attire due to its requirement of
+driving views. In contrast, our method takes as input solely the pose
+parameters and the expression coefficients no matter where they
+come from, thus our avatar can be driven by another person or other
+signal sources. Concurrent to us, TotalSelfScan [Dong et al. 2022b]
+reconstructs a full-body model from self-portrait videos of faces,
+hands, and bodies, but it can only produce articulated body motions
+and fails to synthesize photo-realistic dynamic appearance.
+Face Avatars. Similar to human bodies, face avatar techniques
+have also undergone significant advancements. The seminal work
+dating back to 1999 built the first 3D morphable model, enabling
+representation of facial shapes by embedding different identities
+and expressions into low-dimensional PCA spaces [Blanz and Vetter
+1999]. To model complex deformations and textures, researchers
+have exploited more advanced modeling tools, such as multi-linear
+models [Cao et al. 2014; Vlasic et al. 2006], nonlinear models [Guo
+et al. 2021a; Zheng et al. 2022c] and the articulated control of expres-
+sion [Li et al. 2017]. Recent methods further recover high-frequency
+deformations of expressions by learning additional displacement
+maps on top of the base mesh model [Danecek et al. 2022; Feng
+et al. 2021; Grassal et al. 2022]. Moreover, some researchers propose
+reconstructing facial avatars with remarkable quality for immersive
+telepresence based on dense multiview capture systems [Chu et al.
+2020; Lombardi et al. 2018; Ma et al. 2021a; Wang et al. 2023].
+Since the debut of implicit representations like DeepSDF [Park
+et al. 2019] or NeRF [Mildenhall et al. 2020], it becomes an growing
+trend to model 3D faces or heads in an implicit fashion. Building
+upon neural implicit functions, Yenamandra et al. [2021] developed
+the first deep implicit 3D morphable model of full heads including
+faces and hairs. Similarly, Hong et al. [2021] adopt NeRF to create a
+parametric head model that supports high-fidelity head image ren-
+dering in real-time. However, these models focus on learning generic
+head models using data from multiple subjects, often lacking per-
+sonalized appearance details. To address this issue, NeRFace [Gafni
+et al. 2021] proposes a personalized head avatar by taking expres-
+sion coefficients as the additional inputs for the head NeRF, and
+demonstrates state-of-the-art reenactment and rendering results.
+IMAvatar [Zheng et al. 2022a] incorporates skinning fields with
+an implicit morphing-based model, which allows better geometry
+reconstruction and stronger generalization capability for novel ex-
+pressions. Gao et al. [2022] bridge traditional mesh blendshapes with
+voxel-based implicit fields, enabling fast construction of personal-
+ized head NeRF models from monocular videos. These methods
+typically require dense images or videos as input, and efforts have
+been made to alleviate the reliance on large amounts of data [2022;
+2023a; 2023b; 2022]. Some recent research works also propose to
+replace the expression coefficients with other driving signals, such
+as audio [Guo et al. 2021b] and gaze [Richard et al. 2021].
+NeRF Acceleration. Numerous works have emerged with the
+purpose of speeding up static NeRF using explicit data structures in-
+cluding feature maps, voxels and tensors. For instance, DVGO [Sun
+et al. 2022b] achieves fast convergence through an explicit repre-
+sentation of a density voxel grid and a feature voxel grid. Plenox-
+els [Fridovich-Keil et al. 2022] and PlenOctree [Yu et al. 2021] model
+a scene through a hierarchical 3D grid with spherical harmonics,
+which can realize an optimization with two orders of magnitude
+faster than NeRF. DIVeR [Wu et al. 2022] accelerates volumetric
+rendering by limiting ray marching to a fixed number of hits on the
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+
+
+4
+•
+Zerong Zheng, Xiaochen Zhao, Hongwen Zhang, Boning Liu, and Yebin Liu
+Fig. 2. Illustration of our compositional avatar representation. Our expressive avatar is composed of three parts, namely the major body, the hands and
+the face. For clarity, we only illustrate the body representation here, and leave the other two in Figure 3 and Figure 4. The core of our body representation is a
+set of structured local implicit fields, and we enhance their detail representation power by introducing an explicit dynamic feture patch for each field.
+voxel grid. Hashing encoding [Müller et al. 2022] and tensor decom-
+position [Chen et al. 2022b] are also used as compact representations
+for NeRF acceleration. Similar techniques have also been applied
+for dynamic scene rendering. For example, DeVRF [Liu et al. 2022]
+enables fast non-rigid neural rendering with both 3D volumetric
+and 4D voxel fields. TiNeuVox [Fang et al. 2022] represents scenes
+with optimizable explicit data structures and accelerates radiance
+fields modeling, while Wang et al. [2022d] extended PlenOctree
+into free-view video rendering. Despite demonstrating significant
+speedup in NeRF training and testing, most of these works can only
+render static scenes or playback a dynamic sequence, making them
+unsuitable for character animation settings.
+In this paper, we propose a novel real-time rendering pipeline
+based on deferred surface rendering. The philosophy behind our
+design is similar to MobileNeRF [Chen et al. 2022a], which also
+computes the pixel color in the image space rather than volume
+rendering. However, MobileNeRF only works for static scenes be-
+cause it represents the scene as a fixed triangle mesh. In contrast,
+the topology of our avatar varies from pose to pose, and cannot be
+modeled with a stationary mesh. Therefore, we extract the pose-
+dependent geometry model on the fly via taking advantage of the
+SDF definition and the parallelism in our representation. We further
+disentangle geometry and appearance to reduce the computational
+burden in geometry reconstruction. Although disentangling geom-
+etry and appearance has been proposed for multi-view geometry
+reconstruction [Yariv et al. 2020], we are the first to employ it for
+real-time rendering. This requires us to accelerate the expensive
+operation of sphere tracing, and we achieve this goal by caching
+SDF values in an explicit volumetric grid.
+3
+AVATAR REPRESENTATION
+This section discusses how we represent our expressive avatar. The
+avatar is composed of three parts, namely the body, the hands and
+the face. Considering their different characteristics in shape and
+texture variations, we design different neural implicit representa-
+tions for them. They all rely on the corresponding parametric mesh
+templates, i.e., SMPL-X for the body [Pavlakos et al. 2019], MANO
+for the hands [Romero et al. 2022] and Faceverse for the face [Wang
+et al. 2022a], but these templates is leveraged in totally different
+manners, as we will discuss in Section 3.1, 3.2 and 3.3. Finally, we
+introduce the technique for combining all the parts into one final
+avatar model in Section 3.4.
+Notation. In the following text, we denote the part representation
+with A∗(𝑠), where𝑠is the driving signal and the subscript “∗” can be
+{“B”, “H”, “F”}, representing “body”, “hand” and “face”, respectively.
+Accordingly, the driving signal 𝑠comes from body poses 𝜽, hand
+poses 𝝓or facial expressions 𝝍. Each part representation consists of
+two components, namely a geometry field G∗and a view-dependent
+color field C∗:
+A∗(𝑠) = {G∗(𝒑|𝑠), C∗(𝒑, 𝒗|𝑠)},
+(1)
+where 𝒑and 𝒗are the 3D point position and the viewing direction,
+respectively. For ease of notation, we drop the dependency on view
+directions when discussing the color fields in the upcoming sections.
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+
+
+AvatarReX: Real-time Expressive Full-body Avatars
+•
+5
+In our method, we represent the geometry field as a signed dis-
+tance function (SDF), where the true surface is embedded as its
+zero-level set {𝒑∈R3|G∗(𝒑|𝑠) = 0}. Note that we do not follow the
+vanilla NeRF [Mildenhall et al. 2020] and most NeRF-based avatar
+works [Peng et al. 2021a; Zheng et al. 2022b] that use one network
+to simultaneously model the geometry (density) field and the color
+field. Instead, we model them in a disentangled fashion and use
+smaller network size for the geometry fields. Such a design is for the
+purpose of real-time implementation as well as two-pass training,
+as we will discussed in Section 4 & 5 .
+3.1
+Body Representation
+We adopt structured local radiance fields [Zheng et al. 2022b] as
+the representation of our body geometry field. Here we briefly
+review its construction for completeness. Specifically, we pre-define
+a set of nodes {¯𝒏𝑖}𝑁
+𝑖=1 on the SMPL-X model [Pavlakos et al. 2019]
+via farthest point sampling. Since the nodes are sampled from the
+SMPL-X model, each of them has associated skinning weights, thus
+can be driven by the skeleton. Furthermore, we allow the nodes to
+have their own residual movements Δ𝒏𝑖to represent the non-rigid
+deformation of garments.
+Around each node, we construct a local implicit field centered at
+it. Take the geometry field GB as an example. For each node, we
+define a function G𝑖in a local space around it, and use a tiny MLP to
+represent this function. This MLP takes as input a coordinate in the
+local space of node 𝑖and outputs a high-dimensional feature vector,
+which will be blended with the outputs from other local MLPs and
+finally decoded into an SDF value. Formally, given any point 𝒑∈R3
+in the posed space of pose 𝜽, we first calculate its coordinate in the
+local space of node 𝑖as:
+𝒑𝑖= T−1𝒑−(¯𝒏𝑖+ Δ𝒏𝑖) ,
+(2)
+where T is the skinning matrix computed from the pose parameter
+𝜽using linear blending skinning and 𝒏𝑖is the position of node 𝑖in
+the posed space. After that, we feed it into the local network G𝑖and
+blend the feature vectors produced by all the local MLPs:
+𝒇=
+Í𝑤𝑖G𝑖(𝒑𝑖, 𝒆𝑖)
+Í𝑤𝑖
+,
+(3)
+where 𝒆𝑖is a dynamic detail embedding predicted from the pose
+parameters and models the fine-grain deformations that cannot
+be represented by node movements. The blending weight 𝑤𝑖is
+calculated as:
+𝑤𝑖= max
+(
+exp
+ 
+−∥𝒑−𝒏𝑖∥2
+2
+2𝜎2
+!
+−𝜖, 0
+)
+,
+(4)
+where 𝜎and 𝜖are hyperparameters controlling the influence radius
+of the local networks. The blended feature 𝒇is fed into an additional
+MLP Gblending to compute the SDF value of 𝒑𝑖:
+GB(𝒑|𝜽) = Gblending(𝒇).
+(5)
+Dynamic Feature Patch. The color field of our body representa-
+tion can be modeled in a similar way to the geometry field, i.e., with a
+set of local MLPs {C𝑖} and a blending MLP Cblending. However, due
+to the low-frequency bias [Tancik et al. 2020], the local MLPs {C𝑖}
+are not powerful enough to represent the high-frequency details like
+the cloth wrinkles and texture patterns. To address this limitation,
+Fig. 3. Hand representation. We directly use the SDF from the parametric
+template as the geometry field of our hand representation, and learn an
+MLP to model the color field in the canonical space.
+we introduce a dynamic feature patch for each local function of the
+body color field. Compared to purely implicit representation, an ex-
+plicit feature patch contains more spatial information and provides
+stronger capability to store the information about high-frequency
+local details [Liu et al. 2021a]. The feature patch, denoted as F𝑖, is
+regressed by a tiny convolution network from the dynamic detail
+embedding 𝒆𝑖and a 2D learnable positional encoding, as illustrated
+in Figure 2. Given the local point position 𝒑𝑖, we project it onto the
+feature patch:
+𝒖𝑖= Π𝑖𝒑𝑖,
+(6)
+where Π𝑖∈R2×3 is the projection matrix used for projecting 3D
+points along a specific direction. Here we pre-compute the project-
+ing direction by averaging the normal orientations of the SMPL-X
+vertices that locate nearby node 𝑖. After that, we query for the
+feature vector at 𝒖𝑖through bilinear interpolation:
+𝒇𝑖= Bilinear(F𝑖, 𝒖𝑖).
+(7)
+The interpolated feature vector is finally taken as an additional input
+by the local function C𝑖to produce the final color value:
+𝒇
+′ =
+Í𝑤𝑖C𝑖(𝒑𝑖, 𝒆𝑖,𝒇𝑖)
+Í𝑤𝑖
+,
+CB(𝒑|𝜽) = Cblending(𝒇
+′).
+(8)
+As shown in Section 6.3, the proposed dynamic feature patches
+allow our color networks to learn more appearance details for the
+major body.
+3.2
+Hand Representation
+Unlike the major body with clothing, hands show limited variations
+in shape and topology. Therefore, we directly use the surface of a
+parametric hand template to construct the geometry field of the
+hand, thus alleviating the need for learning complex articulated
+motion of fingers. Here we use MANO [Romero et al. 2022] as the
+base hand representation. For any spatial point 𝒑∈R3 in hand
+pose 𝝓, we project it onto the MANO mesh by first calculating its
+barycentric projection on each triangle face of the MANO surface
+and then finding the nearest one. Mathematically, this procedure
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+
+
+6
+•
+Zerong Zheng, Xiaochen Zhao, Hongwen Zhang, Boning Liu, and Yebin Liu
+can be formulated as:
+(𝑢∗, 𝑣∗,𝑤∗, F∗) = arg min
+𝑢,𝑣,𝑤,F ||𝒑−Barycentric(F,𝑢, 𝑣,𝑤)||2
+2,
+𝑠.𝑡.,
+0 ≤𝑢, 𝑣,𝑤≤1,
+𝑢+ 𝑣+ 𝑤= 1
+(9)
+where F is a triangle of the MANO mesh and Barycentric(. . .) is
+the barycentric interpolation function. Using the barycentric coor-
+dinates (𝑢∗, 𝑣∗,𝑤∗) and the interpolation function, we determine
+the nearest point of 𝒑on the MANO mesh, which we denoted as
+𝒎np. Similarly, we can compute its normal direction 𝒏np through
+barycentric interpolation. The SDF value of 𝒑can be finally calcu-
+lated as:
+GH(𝒑|𝝓) =
+
+||𝒑−𝒎np||2,
+𝒏⊤np
+ 𝒑−𝒎np
+ ≥0
+−||𝒑−𝒎np||2,
+𝒏⊤np
+ 𝒑−𝒎np
+ < 0
+.
+(10)
+To model the color field of the hand, we turn to a neural per-
+spective. We first calculate the canonical position of 𝒎np via in-
+terpolating the position of F in the canonical pose according to
+the barycentric coordinate. The interpolated result ¯𝒎np, together
+with the normal direction in posed space 𝒏np, the signed distance
+SDF(𝒑) and the hand pose 𝝓, is fed into an MLP to produce the
+color value:
+CH(𝒑|𝝓) = C
+′
+H
+ ¯𝒎np, 𝒏np, SDF(𝒑), 𝝓 ,
+(11)
+where C
+′
+H denotes the MLP network. In this way, our method is
+able to model the pose-dependent appearance of hands without the
+burden of learning complex hand motions. Figure 3 illustrates our
+hand representation.
+3.3
+Face Representation
+Compared to the body and the hands, representing the face is more
+challenging as humans are social animals that rely on facial expres-
+sions to read and convey emotions. As a result, we need to achieve
+both photo-realistic synthesis and accurate expression control in
+order to overcome the well-known uncanny valley. To this end, we
+propose to combine the the rendering power of NeRF and the prior
+knowledge from the facial morphable model [Wang et al. 2022a].
+Given the expression coefficients 𝝍, we first compute the corre-
+sponding 3D facial model. The model is an extremely coarse approx-
+imation of the real face, but it provides structural information about
+the specific expression. To utilize this structural knowledge in an
+efficient manner, we take inspiration from EG3D [Chan et al. 2022]
+and propose to learn a triplane-alike facial avatar representation.
+Specifically, we render the model from its front view and two side
+views using orthogonal projection, as illustrated in Figure 4. The
+rendered images are passed through three convolutional neural en-
+coders, which extract the corresponding feature tri-planes denoted
+as {Ffront, Fleft, Fright}. Given a spatial point 𝒑∈R3, we project
+it onto the feature tri-planes and retrieve its pixel-aligned feature
+vectors through bilinear interpolation:
+𝒇𝑣= Bilinear(F𝑣, Π𝑣(𝒑)),
+(12)
+where Π𝑣∈R2×3 is the projection matrix and the subscript 𝑣∈
+{“front”, “left”, “right”} denotes the projection direction. The fea-
+ture vectors, together with the point coordinate, are fed into an MLP
+Fig. 4. Face representation. We condition NeRF on the orthogonal views
+of a 3D morphable model, which provides structural prior of the face and
+controllability over expressions.
+to produce the sign distance of 𝒑:
+GF(𝒑|𝝍) = G
+′
+F(𝒑,𝒇front,𝒇left,𝒇right),
+(13)
+where G
+′
+F is an MLP network. The color of 𝒑is predicted in a similar
+way using another set of convolutional encoders and another MLP.
+Previous works on NeRF-based facial avatar typically use pure
+MLPs as the network architecture and take the global expression
+coefficients as the network condition [Gafni et al. 2021; Zheng et al.
+2022a]. Compared to them, the explicit feature tri-planes allow us to
+keep the MLP decoder as light-weight as possible, thus reducing the
+computational cost of neural rendering. Furthermore, the feature
+tri-planes provide spatially varying conditioning for the 3D space,
+which has stronger power in representing appearance details than
+a global expression condition.
+3.4
+Composition
+With all the necessary building blocks at hand, we can now introduce
+how we combine different body parts into an expressive avatar.
+There are two key technical designs that assist us towards this goal.
+One is the usage of SDF, which has a unified, unambiguous definition
+across different parts. The other one is that our hand representation
+and face representation are tightly coupled with their underlying
+parametric templates, which provide correspondences for us to
+assemble them with the body. Using these correspondences, we
+pre-compute the transformation between the body space and the
+hand/face space. We also pre-define the blending weights on the
+SMPL-X mesh, as shown in Figure 2. Given a point 𝒑in the body
+posed space, we first project it onto the SMPL-X mesh and query
+the blending weight 𝜔. Without loss of generality, let’s say the point
+falls on the left hand. Then we query its SDF value and color in
+both the body representation and face representation, which we
+denote as 𝑠B, 𝒄B, 𝑠H and 𝒄H. The final SDF value and color for 𝒑is
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+
+
+AvatarReX: Real-time Expressive Full-body Avatars
+•
+7
+Fig. 5. Illustration of our real-time rendering pipeline. Our rendering pipeline firstly reconstructs the geometry model in the form of an SDF volume,
+from which we render a point map to query the pixel colors given a specific viewpoint.
+computed as:
+𝑠=
+ 𝜔𝑠H + (1 −𝜔)𝑠B,
+if −0.05 < 𝑠H < 0.025
+𝑠B,
+otherwise
+.
+(14)
+𝒄=
+ 𝜔𝒄H + (1 −𝜔)𝒄B,
+if −0.05 < 𝑠H < 0.025
+𝒄B,
+otherwise
+.
+(15)
+In this way, we can obtain the final avatar given some specific body
+poses, hand poses and facial expressions.
+4
+REAL-TIME ANIMATION AND RENDERING
+Since our avatar representation is based on NeRF rather than meshes,
+it cannot be sent to traditional graphics pipelines for efficient ren-
+dering. In fact, efficient rendering of NeRF is a difficult problem
+on its own, and has attracted significant research interest since the
+debut of NeRF [Chen et al. 2022a; Liu et al. 2022; Müller et al. 2022;
+Reiser et al. 2021; Yu et al. 2021]. However, current NeRF accelera-
+tion techniques mostly focus on static scenes or dynamic sequence
+playback, and rely on specific data structures that cannot be easily
+adapted for avatar animation. Therefore, we design a dedicated de-
+ferred surface rendering pipeline for our avatar representation. Our
+deferred surface rendering consists of three steps, namely geometry
+reconstruction, point map rendering and pixel shading, as illustrated
+in Figure 5 and described in the following.
+Step I. Geometry Reconstruction. In the first step of our de-
+ferred rendering pipeline, we reconstruct the complete geometry
+model in the form of an SDF volume. Note that this step is agnostic
+to the viewing camera. For the reason of computational efficiency,
+we do not directly infer a high-resolution SDF volume using the full
+geometry field in Equantion (14). Instead, we follow a coarse-to-fine
+scheme: we firstly infer only the body geometry field with a low-
+resolution volume, and then update the hands and the face in the
+upsampled one.
+Specifically, we first compute the bounding box from the node
+positions in the body representation. At the center of the bounding
+box, we create a volume grid with a resolution of 128×128×128,
+where the side length of each voxel is 2 cm. Such a resolution is
+not fine enough for representing thin structures like fingers, but
+sufficient for other major body parts. Recall that in our body repre-
+sentation in Section 3.1, a local network G𝑖only influences a small
+local space around node 𝑖. Based on this property, we directly collect
+the voxels that fall into the influence space of each node, and pass
+them through the corresponding local networks in parallel. Since
+the influence radiuses of all local networks are identical, the voxel
+numbers assigned to the local networks are similar, which is benefi-
+cial for maximizing parallelism. The outputs of the local networks
+are then gathered and blended following Equation (3), and finally
+decoded to SDF values.
+After that, we upsample the SDF volume by a factor of 4, and
+refine the hands and the face. To this end, we firstly compute the
+bounding boxes for both hands and the face, and collect the voxels
+that locate inside the boxes. Then we query the hand geometry
+field or the face geometry field for these voxels, depending on the
+bounding boxes they belong to. The final SDF values of these voxels
+is obtained using the method described in Section 3.4.
+Step II. Point Map Rendering. The second step of our render-
+ing pipeline is to raycast the SDF volume to extract views of the
+implicit surface [Izadi et al. 2011]. Given the camera origin and view-
+ing direction, the raycasting operation traverses the SDF volume
+along camera rays and extracts the intersection between the rays
+and the zero-crossing surface for each pixel. The intersection point
+is then recorded as a 2D point map for next step.
+Step III. Pixel Shading. In the final step of our rendering pipeline,
+we compute the pixel colors of the point map to obtain the final
+rendering results. Similar to geometry reconstruction, we first query
+the body color field for all the points in the point map and utilize the
+“local influence” property of the local MLPs to parallelize network
+queries. After that, we query the face color field and the hand color
+field to update the pixels of the hands and the face, as described
+in Section 3.4. This produces the final image that corresponds to
+the given body pose, hand pose, facial expression and view point,
+marking the end of our rendering pipeline.
+Most NeRF-based methods synthesize images through volume
+rendering, which samples millions of points along camera rays for
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+
+
+8
+•
+Zerong Zheng, Xiaochen Zhao, Hongwen Zhang, Boning Liu, and Yebin Liu
+network evaluation. In contrast, we design a deferred surface ren-
+dering pipeline by taking advantage of the implicit surface defini-
+tion and the disentanglement of geometry and appearance [Sun
+et al. 2022a]. Our pipeline first stores geometry reconstruction in
+an explicit grid and then use it to cull unnecessary points for color
+inference as much as possible. In this way, we significantly speed up
+the rendering process of our expressive avatar and finally achieve
+real-time performance using custom CUDA kernels and modern
+inference engines like NVIDIA TensorRT. Note that this is only
+possible when the surface prediction is reliable. In the next section,
+we will discuss how we train the network from scratch to acquire
+the surface, and how we use surface rendering to boost network
+learning.
+5
+MODEL TRAINING
+In this section, we provide technical details about how we train
+our expressive avatars. We first present our novel two-pass training
+strategy in Section 5.1. We then shortly describe our capture setup
+and the data pre-processing pipeline, followed by the full training
+procedure (Section 5.2)
+5.1
+Network Training Strategy
+Similar to other NeRF-based methods, we can train our networks by
+sampling image pixels, shooting camera rays, performing volume
+rendering and penalizing the error between the rendered colors and
+the ground-truth ones [Mildenhall et al. 2020]. However, we empiri-
+cally find that the results produced by such a training strategy are
+not satisfactory enough: the networks trained with this scheme tend
+to synthesize over-smoothed images and fail to recover dynamic
+appearance details like the texture patterns on the garments. This is
+mainly because volume rendering relies on dense network evalua-
+tion along camera rays, which limits the number of pixel queries in
+one forward pass. Consequently, we could only apply pixel-wise su-
+pervision on sparse pixels during network training. In addition, this
+training strategy is based on volume rendering, rather than surface
+rendering that we use for real-time animation. The gap between
+training and testing further deteriorates the rendering quality of our
+real-time system. To address these issues, we propose a two-pass
+training strategy. It consists of two stages, namely topology-free
+training and topology-based finetuning, as illustrated in Figure 6
+and elaborated in the following.
+Pass I. Topology-free training. In this stage we assume no
+prior knowledge about the avatar topology and directly train the
+full network with volume rendering. To this end, we follow the
+practice of [Yariv et al. 2021] and convert the SDF into a density
+function using:
+𝜎(𝒑) = 1
+𝛾Φ𝛾(−G∗(𝒑)),
+(16)
+where Φ𝛾(·) is the Cumulative Distribution Function (CDF) of the
+Laplace distribution with zero mean, and its scale 𝛾is a learnable
+hyperparameter. This transformation links the density in neural
+radiance fields with our geometry definition, allowing us to optimize
+the avatar SDF using neural volume rendering. At each iteration of
+network optimization, we randomly fetch a batch of frames, from
+which we randomly sample a fixed number of pixels to construct
+(a) Topology-free training.
+(b) Topology-based finetuning.
+Fig. 6. Illustration of the two-pass training strategy. In the topology-
+free training stage, the networks learn the avatar geometry from scratch
+with volume rendering on sparse pixels. Then the topology-based finetuning
+stage utilizes the learned geometry to increase the number of pixel evalua-
+tions in one forward pass, allowing us to apply structural supervision with
+a patch-level perceptual loss.
+the training loss. The loss is defined as:
+LI =Lrgb + 𝜆maskLmask + 𝜆EikonalLEikonal+
+𝜆nodeLnode + 𝜆ebdLebd + 𝜆KLLKL,
+(17)
+where Lrgb measures the MSE between the rendered and true pixel
+colors, Lmask is an MAE loss supervising the occupancy values of
+the rendered pixels, LEikonal is the Eikonal loss encouraging the ge-
+ometry fields to approximate a true signed distance function [Yariv
+et al. 2021], Lnode, Lebd and LKL are the regularization losses in-
+herited from [Zheng et al. 2022b]. To stabilize network training
+and obtain consistent performance for different subjects, we do not
+optimize 𝛾in Equation (16) during the training process. Instead, we
+manually set its value as:
+𝛾(𝑛) = 𝛾0 + 𝛾1 · max{0, (1 −𝑛/𝑁)},
+(18)
+where 𝑛is the iteration steps, while 𝛾0 = 5 × 10−4, 𝛾0 = 0.02
+and 𝑁= 100000 are hyperparameters controlling how 𝛾varies as
+training iterates.
+Pass II. Topology-based finetuning. After the first stage of
+training, we observe the estimate of the avatar shape is sufficiently
+reliable although the texture is not clear enough. Based on this
+observation, we design a topology-based finetuning strategy to
+finetune the color fields in our avatar while keeping the geometry
+branches fixed. Specifically, we sample a set of patches with the
+size of 𝐻× 𝐻on a training frame, and compute the corresponding
+camera locations and ray directions. Then we leverage ray marching
+to locate the nearest surface intersection between the rays and the
+underlying implicit surface, similar to the first two steps in our
+real-time rendering pipeline. The intersection points are sent to the
+color networks to query their RGB values, which we take as the
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+
+
+AvatarReX: Real-time Expressive Full-body Avatars
+•
+9
+pixel color prediction to construct the training loss. Different from
+the first stage, the training loss in this stage is defined as:
+LII = LMSE + 𝜆LPIPSLLPIPS,
+(19)
+where LMSE is a simple L2 loss to match pixel-wise appearance
+with the ground-truth and LLPIPS is a perceptual loss applied on
+patch level, which provides stronger supervision on high-frequency
+appearance details as shown in Figure 17. We choose VGG as the
+backbone of LPIPS loss.
+Note that we only apply the training loss on the ray-surface inter-
+section points; we do not back-propagate the loss gradient through
+the ray marching process. Compared to the previous stage where
+dense point samples are required for pixel color computation, the
+topology-based finetuning stage predicts pixel colors with a much
+smaller number of points to be evaluated. This advantage increases
+the maximum number of pixel evaluations in one forward pass, thus
+enabling perceptual supervision on image patches. Furthermore,
+this finetuning stage is built upon surface rendering, similar to the
+real-time animation system in Section 4. As a result, it closes the
+gap between training and testing.
+One may ask why not apply perceptual loss in the first training
+pass based on volume rendering. In fact, this is possible, as done in
+HumanNeRF [Weng et al. 2022]. However, due to the complexity of
+our network and the memory limits of GPUs, we can only render 400
+pixels in one forward pass with volume rendering. Consequently,
+the patch-level supervision can only be applied on a small patch
+with a resolution around 20×20, which we found too small to con-
+tain any structural information. In contrast, topology-based surface
+rendering allows us to render a larger patch at 128×128 resolution,
+enabling stronger supervision on structural accuracy.
+5.2
+Data Capture and Processing
+5.2.1
+Data Capture. We use two multi-camera capture systems in
+this work, one for the full body and the other for the face. The body
+capture system consists of 16 synchronized cameras, each capable
+of producing 1500×2048 images. The cameras are evenly distributed
+around the yaw axis in order to cover the 360-degree view point
+of the body. For the face capture system, we use 6 synchronized
+cameras that focus on the frontal face, spanning about 130 degrees
+horizontally. The image resolution of our face capture system is also
+1500×2048.
+We collect data from 4 subjects, two males and one female in
+two sets of clothing. For each subject, we use the full-body capture
+system to collect video data of some casual motions with neutral
+face expression, which will be used to train the body avatar and the
+hand avatar. Each captured sequence is about 2000 frames in length.
+To collect training data for face avatar, we use the face system to
+capture sequences of 1500-2000 frames in length, which include a
+range of expressions and natural reading sequences. Note that we do
+not rely on either pre-scanned templates or non-rigid mesh tracking
+to learn the avatar geometry, which is a departure from existing
+work [Bagautdinov et al. 2021; Habermann et al. 2021; Remelli et al.
+2022]
+Fig. 7. Effect of fitting refinement. Compared to the initial results (left),
+the refinement step can produce better alignment between the SMPL-X’s
+arms and their image observations (right).
+(a) Without tone mapping.
+(b) With tone mapping.
+Fig. 8. Effects of the tone mapping network. Our tone mapping net-
+works addresses the skin tone difference between body data and face data,
+and successfully harmonizes the composition results.
+5.2.2
+Data Pre-processing. To train our networks, we need to obtain
+SMPL-X fitting for every frame of the full-body sequence and Face-
+verse fitting for both the full-body sequence and the face sequence.
+For the former purpose, we directly use off-the-shelf tools [Pavlakos
+et al. 2019; Zhang et al. 2023b]. However, the fitting results obtained
+using such a method are not accurate enough due to the sparseness
+of keypoints and inevitable detection errors. Therefore, we regard
+the results as the initial fitting and design a refinement step based on
+inverse rendering. Specifically, we use Background Matting v2 [Lin
+et al. 2021] to extract the foreground body segmentation and render
+the silhouette of SMPL-X model with a differentiable rasterizer [Liu
+et al. 2019a]. Then we penalize the inconsistency between them
+to optimize both the shape and pose parameters for SMPL-X. As
+shown in Figure 7, the refinement step leads to better alignment
+between the SMPL-X model and the image observation. Please see
+the appendix for more details.
+To register Faceverse, we directly utilize the open-sourced tool
+provided by Wang et al. [2022a]. We also apply Background Matting
+V2 [Lin et al. 2021] for foreground segmentation.
+5.2.3
+Full training procedure. After collecting the training data for
+a specific person, we first use the face data to train the networks
+for face representation with our two-pass training strategy. Then
+we fix the face networks, and jointly train the body and the hand
+networks using the body data. This training step also follows the
+two-pass strategy. To address the color tone difference between the
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.
+
+
+10
+•
+Zerong Zheng, Xiaochen Zhao, Hongwen Zhang, Boning Liu, and Yebin Liu
+Fig. 9. Qualitative results on novel pose synthesis. We train our network for four identities and show the novel pose synthesis results, where two different
+subjects perform the same motions and expressions.
+ACM Trans. Graph., Vol. 42, No. 4, Article . Publication date: August 2023.

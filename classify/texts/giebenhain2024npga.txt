@@ -1,0 +1,986 @@
+Title: Npga: Neural parametric gaussian avatars
+
+NPGA: Neural Parametric Gaussian Avatars
+SIMON GIEBENHAIN, Technical University of Munich, Germany
+TOBIAS KIRSCHSTEIN, Technical University of Munich, Germany
+MARTIN RÜNZ, Synthesia, Germany
+LOURDES AGAPITO, University College London, United Kingdom
+MATTHIAS NIESSNER, Technical University of Munich, Germany
+Fig. 1. NPGA: We utilize the rich expression space of Neural Parametric Head Models to create high-fidelity avatars with fine-grained expression control. Our
+avatars consist of a dynamics module and a canonical Gaussian point cloud, which is augmented with per-primitive features that encode valuable semantic
+information, as indicated on the left. On the right, we demonstrate a highly detailed cross-reenactment using the inset image as a driving expression.
+The creation of high-fidelity, digital versions of human heads is an important
+stepping stone in the process of further integrating virtual components
+into our everyday lives. Constructing such avatars is a challenging research
+problem, due to a high demand for photo-realism and real-time rendering
+performance. In this work, we propose Neural Parametric Gaussian Avatars
+(NPGA), a data-driven approach to create high-fidelity, controllable avatars
+from multi-view video recordings. We build our method around 3D Gaussian
+splatting for its highly efficient rendering and to inherit the topological
+flexibility of point clouds. In contrast to previous work, we condition our
+avatars’ dynamics on the rich expression space of neural parametric head
+models (NPHM), instead of mesh-based 3DMMs. To this end, we distill
+the backward deformation field of our underlying NPHM into forward
+deformations which are compatible with rasterization-based rendering. All
+remaining fine-scale, expression-dependent details are learned from the
+multi-view videos. For increased representational capacity of our avatars,
+we propose per-Gaussian latent features that condition each primitives
+dynamic behavior. To regularize this increased dynamic expressivity, we
+propose Laplacian terms on the latent features and predicted dynamics. We
+evaluate our method on the public NeRSemble dataset, demonstrating that
+NPGA significantly outperforms the previous state-of-the-art avatars on the
+self-reenactment task by ≈2.6 PSNR. Furthermore, we demonstrate accurate
+animation capabilities from real-world monocular videos.
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+© 2024 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-1131-2/24/12.
+https://doi.org/10.1145/3680528.3687689
+CCS Concepts: • Computing methodologies →Tracking; Motion cap-
+ture.
+Additional Key Words and Phrases: Virtual avatars, 3D Gaussian splatting,
+Data-driven animation, 3d morphable models
+ACM Reference Format:
+Simon Giebenhain, Tobias Kirschstein, Martin Rünz, Lourdes Agapito,
+and Matthias Nießner. 2024. NPGA: Neural Parametric Gaussian Avatars.
+In SIGGRAPH Asia 2024 Conference Papers (SA Conference Papers ’24), De-
+cember 3–6, 2024, Tokyo, Japan. ACM, New York, NY, USA, 11 pages. https:
+//doi.org/10.1145/3680528.3687689
+1
+INTRODUCTION
+Creating photo-realistic 3D avatars is one of the core challenges
+in computer graphics and includes a wide range of applications
+such as movies, games, AR/VR teleconferencing, and the metaverse.
+In particular, there is a strong motivation to reconstruct digital
+avatars from real-world captures, such as multi-view recordings,
+to obtain a digital copy of a specific real person. The resulting
+digital avatars can then be animated and rendered from arbitrary
+viewpoints while expecting high visual fidelity; e.g., with respect to
+photo-realistic colors and details, preservation of identity, and the
+adoption of person-specific mannerisms. At the same time, many
+avatar applications demand real-time rendering capabilities without
+compromising visual quality.
+Project Website: https://simongiebenhain.github.io/NPGA/
+1
+arXiv:2405.19331v2  [cs.CV]  13 Sep 2024
+
+
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+Simon Giebenhain, Tobias Kirschstein, Martin Rünz, Lourdes Agapito, and Matthias Nießner
+Recent advances at the intersection of computer graphics and
+vision research have steadily improved methods to digitally re-
+construct 3D objects with photo-realistic rendering quality [Kerbl
+et al. 2023a; Mildenhall et al. 2021; Müller et al. 2022]. In partic-
+ular, 3D Gaussian Splatting (3DGS) [Kerbl et al. 2023a] has been
+quickly adopted in recent work on digital humans, e.g. [Li et al. 2024;
+Zielonka et al. 2023] and virtual head avatars, e.g., [Qian et al. 2023;
+Xu et al. 2024], due to its efficient rendering and photo-realistic re-
+constructions. At the same time recent publicly available multi-view
+datasets [Işık et al. 2023; Kirschstein et al. 2023b; Pan et al. 2024; Wuu
+et al. 2022], offer an ever more exciting basis for avatar research. A
+central question is how controllability can be achieved. The most
+prominent approach for heads is to utilize a 3D morphable model
+(3DMM), which offers compact descriptions of faces using disentan-
+gled parametric spaces for identity and facial expressions. When
+utilizing the expressions of an underlying 3DMM, e.g., [Gafni et al.
+2021; Grassal et al. 2022; Qian et al. 2023; Xu et al. 2024; Zielonka
+et al. 2022], the avatar is optimized to follow a generalized expres-
+sion space which enables expression transfer or animation through
+tracking in monocular videos [Thies et al. 2016]. While 3DMMs offer
+a compact parameterization, their linear nature inherently limits the
+fidelity of represented expressions. At the same time, we argue that
+the underlying expression space plays a crucial role in determining
+the quality of the created avatars. It not only influences the con-
+trollability of the resulting avatars but it also limits the sharpness
+of details. If the stream of input expression codes is insufficiently
+correlated with the observed images, the optimization problem can
+become fundamentally ill-posed and lead to overfitting.
+To this end, we propose NPGA, a new avatar representation that
+leverages a learned deformation representation while ensuring that
+the predicted facial dynamics stay close to the prior of an underly-
+ing neural parametric head model (NPHM) [Giebenhain et al. 2023,
+2024]. NPHM provides our avatars with more fine-grained expres-
+sion control compared to classical, public 3DMMs [Li et al. 2017;
+Paysan et al. 2009], which were previously used for avatar creation.
+In another line of work Cao et al. [2022] explore a learned neural
+prior over faces, that helps to map baked uv-space information from
+a monocular video into a volumetric avatar representation.
+NPGA consists of a canonical Gaussian point cloud, that can be
+forward-deformed using an expression code and rendered using
+3DGS, similar to previous work [Qian et al. 2023; Xu et al. 2024;
+Zielonka et al. 2023]. As a rasterization-based approach, 3DGS can-
+not be efficiently combined with the backward deformation field of
+MonoNPHM. Therefore, we propose a distillation strategy to invert
+the deformation direction of MonoNPHM’s expression prior using
+a cycle consistency loss, similar to SCANimate [Saito et al. 2021].
+The resulting forward deformation field becomes compatible with
+the rasterization-based rendering of 3DGS. To increase the overall
+dynamic expressivity of our avatars, we further propose to augment
+our canonical Gaussian with per-Gaussian latent features similar
+to GaussianHeadAvatar [Xu et al. 2024] and HeadGAS [Dhamo
+et al. 2023]. Compared to these works, we allow these features to
+influence the movement of Gaussians instead of only influencing
+dynamic changes in appearance. This enables our deformation mod-
+ule to operate in a higher dimensional space, that can describe
+facial dynamics more effectively. We show that this added expres-
+sivity results in higher-fidelity image synthesis, but is required to
+be appropriately regularized to achieve artifact-free renderings. To
+this end, we formulate Laplacian smoothness terms on the latent
+features and predicted dynamics, based on the k-nearest neighbor
+graph in canonical space. Furthermore, we modify the adaptive
+density control (ADC) strategy of 3DGS for more detailed avatar
+reconstructions.
+To summarize, our contributions are the following:
+• To leverage MonoNPHM’s rich expression prior for fine-
+grained animation control and effective optimization, we
+utilize a cycle-consistency-based distillation strategy.
+• We condition our deformation network on per-Gaussian la-
+tent features for increased dynamic capacity, use Laplacian
+regularization, and adjust the ADC for a dynamic setting.
+• We outperform the previous state-of-the-art by 2.6 PSNR and
+0.021 SSIM. Furthermore, we demonstrate accurate avatar
+re-animation from monocular RGB sequences.
+2
+RELATED WORK
+2.1
+Dynamic Scene Representations
+Since humans are inherently dynamic, and subject to topological
+variation when for example opening and closing the mouth, general
+dynamic scene representations aim to solve a set of similar problems
+with the exemption of controllability. Implicit approaches based on
+Neural Radiance Fields [Mildenhall et al. 2021] provide such flexi-
+bility and can be extended to deformable scenes. This extension is
+either achieved by modeling temporal changes via a deformation
+field that accompanies a canonical frame [Park et al. 2021a,b], by
+adding time as a conditioning variable [Li et al. 2022], or directly de-
+composing the 4D scene volume into a computationally manageable
+representation [Attal et al. 2023; Song et al. 2023]. The extensive
+use of MLPs in neural radiance fields entails a high computational
+burden, however, and still proves costly after improvements such as
+hash encodings [Müller et al. 2022], triplanes [Chan et al. 2022] or
+other low-rank approximations [Shao et al. 2023]. MVP [Lombardi
+et al. 2021] uses a CNN for amortized decoding of small primitives
+that can be compared to the Gaussians in 3DGS [Kerbl et al. 2023a],
+but typically at lower sharpness. One approach to extend 3DGS
+to dynamic scenes is to optimize parameters like positions over
+time [Luiten et al. 2024], resulting in a representation that is hard to
+control. This limitation can be overcome by animating a canonical
+3DGS representation with a deformation field [Yang et al. 2023],
+similar to the Nerfies [Park et al. 2021a] approach. NPGA adopts
+this paradigm too.
+2.2
+3D Morphable Models
+Traditional morphable models [Blanz and Vetter 1999; Paysan et al.
+2009] learn a representation of body geometry via PCA. They are
+one of the primary tools to drive human animation and are heavily
+used in industry applications, making them a core building block for
+work on virtual avatars. While some models are dedicated to specific
+regions like the face [Paysan et al. 2009] and head [Li et al. 2017],
+some variants include the neck [Zhang et al. 2023] or even the entire
+body [Pavlakos et al. 2019]. More recently, neural equivalents of
+2
+
+
+NPGA: Neural Parametric Gaussian Avatars
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+Rendering
+b) Cycle-Consistency Distillation
+c) Neural Parametric Gaussian Avatars
+a) NPHM Tracking
+: per Gaussian features
+: Gaussian center
+d) Dynamics
+CNN
+3DGS
+CNN
+Time
+Canonical Space
+Canonical Gaussians
+Deformed Gaussians
+Fig. 2. Method Overview: The basis of our avatar optimization are multi-view video recordings alongside a MonoNPHM tracking thereof, see (a). Next, we
+extract a forward-deformation prior F from MonoNPHM’s backward deformation field B using a cycle-consistency loss, see (b). Our avatars consist of a
+canonical Gaussian point cloud (c), which is warped into posed space using our dynamics module D, consisting of the coarse pre-trained component F and a
+detail network G. We condition both networks on per Gaussian features, which dictate each primitive’s behavior. After rendering the avatar with 3DGS, we
+employ a screen-space CNN to suppress small-scale artifacts.
+3DMMs, such as i3DMM [Yenamandra et al. 2021], ImFace [Zheng
+et al. 2022a] or NPHM [Giebenhain et al. 2023, 2024], have improved
+upon the expression fidelity compared to classical PCA-based mod-
+els. They encode a canonical representation of the geometry via
+a signed distance functions (SDF), which can be mapped to arbi-
+trary expressions via a deformation field. NPGA utilizes NPHM as
+it offers several beneficial characteristics: It models the face densely
+including eyes, hair, and teeth, it captures local details well and it
+disentangles shape from expressions.
+Instead of replacing mesh-based 3DMMs altogether, several ap-
+proaches have been proposed to model details on top of an under-
+lying PCA-driven mesh [Cao et al. 2022; Wang et al. 2022; Yang
+et al. 2020]. Specifically, Cao et al. [2022] leverage high-frequency
+information from tracked UV texture maps to create and animate
+avatars, using a high-detailed, learned expression space.
+2.3
+Human Head Reconstruction and Animation
+Existing approaches for animating avatars mainly differ in two fun-
+damental aspects: first, the utilized 3D representation in combina-
+tion with its rendering mechanism, and second, how the expression
+codes are transferred into scene dynamics. Existing work has ex-
+plored, among others, meshes in combination with deferred neural
+rendering [Grassal et al. 2022; Kim et al. 2018], neural radiance fields
+[Gafni et al. 2021; Zhao et al. 2023; Zielonka et al. 2022], and CNNs
+in combination with primitive-based volume rendering [Cao et al.
+2022; Lombardi et al. 2019, 2021]. Recently, there has been a lot of
+interest in point-based representations and rendering [Dhamo et al.
+2023; Qian et al. 2023; Xu et al. 2024; Zheng et al. 2023], especially
+since Kerbl et al. [2023a] proposed 3D Gaussian Splatting.While
+some approaches choose to explain the face’s movement explic-
+itly through the underlying mesh of a 3DMM, e.g., [Athar et al.
+2022; Qian et al. 2023; Zielonka et al. 2022], others choose the op-
+posing extreme of a more data-driven approach by freely learning
+the face movement using a neural component, which is directly
+conditioned on the expression codes [Gafni et al. 2021; Lombardi
+et al. 2021; Xu et al. 2024]. For NPGA we adopt the latter idea but
+replace the 3DMM with a neural parametric model, anticipating that
+the improved tracking quality translates to higher fidelity avatar
+reconstructions and animations.
+3
+PRELIMINARIES
+3.1
+3D Gaussian Splatting (3DGS)
+3DGS uses a point-based scene representation, where each point
+represents a Gaussian primitive that is described by a position 𝜇,
+rotation q, scale S, opacity 𝛼and spherical harmonics coefficients
+SH. In the following, we let the following notation
+A = {𝜇, q, S, 𝛼, SH} ,
+𝐼= 3dGS  A, 𝜋𝐾,𝐸
+
+(1)
+denote the set of attributes A composing the Gaussian point cloud,
+and its tile-based differentiable rasterization into an image 𝐼under
+the camera projection described by intrinsic and extrinsic parame-
+ters 𝐾and 𝐸respectively.
+3.2
+Neural Parametric Head Models
+3DMMs describe the geometry (and appearance) of faces (or heads)
+using disentangled parametric spaces for identity and expression
+variations. NPHM is a special case of a 3DMM, which represents a
+person’s head geometry using a neural SDF and deformation field
+3
+
+
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+Simon Giebenhain, Tobias Kirschstein, Martin Rünz, Lourdes Agapito, and Matthias Nießner
+conditioned on identity latent codes zid and expression codes zexp,
+respectively. In particular, our work builds on top of MonoNPHM
+formulation, which describes expressions using a neural backward
+deformation field
+𝑥𝑐= B(𝑥𝑝; zid, zexp)
+(2)
+that warps points 𝑥𝑝in posed space into canonical space 𝑥𝑐.
+4
+METHOD
+Fig. 2 shows an overview of our proposed representation and method-
+ology to build our Neural Parametric Gaussian Avatars (NPGA). As
+described in Section 4.1, our avatars are composed of two key compo-
+nents: a canonical Gaussian point cloud A𝑐and a dynamics module
+D which deforms the Gaussians when provided with an expression
+code, similar to recent work [Dhamo et al. 2023; Qian et al. 2023;
+Xu et al. 2024]. In Section 4.2 we describe our distillation strategy
+that allows NPGA to leverage the rich latent expression space and
+detailed motion prior of MonoNPHM [Giebenhain et al. 2024]. Given
+multi-view video recordings alongside tracked MonoNPHM expres-
+sion codes, we jointly optimize for our canonical Gaussians and
+dynamics module, as described in Section 4.3.
+4.1
+Neural Parametric Gaussian Avatars
+4.1.1
+Canonical Representation. Compared to the default scene rep-
+resentation of 3DGS, outlined in Eq. (1), we augment our canonical
+Gaussian point cloud
+A𝑐= {𝜇, q, S, 𝛼, SH, } ∪{f}
+(3)
+with per-Gaussian features f ∈R𝑁×8. While these features are
+static themselves, they provide crucial semantic information to de-
+scribe the dynamic behavior of the respective primitives. In some
+sense, our per-Gaussian features serve a similar purpose as posi-
+tional encodings [Mildenhall et al. 2021; Müller et al. 2022], which
+are uncorrelated with spatial coordinates, have infinite spatial res-
+olution and do not require additional data structures. The idea of
+per-Gaussian features has been previously proposed in [Dhamo
+et al. 2023; Xu et al. 2024]. Crucially, however, both works do not
+utilize these features to better predict the movement of Gaussians,
+which we ablate in Section 5.5. [Dhamo et al. 2023] goes beyond
+static per-primitive features by dynamically blending them with
+expression codes. In the formulation of [Xu et al. 2024] and ours, this
+happens implicitly inside the MLP introduced in the next paragraph.
+4.1.2
+Dynamics Module. We model facial expressions using a dy-
+namics model D which is decomposed into two Multi-Layer Per-
+ceptrons (MLPs), a coarse prior-based network F and a network
+G responsible for modeling all remaining details. Our prior-guided
+forward deformation field
+𝛿F
+𝜇= F (𝜇, f; zexp) ∈R3
+(4)
+is optimized to act as the inverse of MonoNPHM’s backward defor-
+mations B, as we describe later in Section 4.2. F is a coordinate-
+based network which predicts offsets 𝛿F𝜇to the Gaussian centers 𝜇
+and is conditioned on spatial coordinates 𝜇, features f and expres-
+sion code zexp. Note, that F acts independently on each primitive,
+which we omit in Eq. (4) and below for clarity.
+To represent dynamics beyond NPHM’s prior, such as fine-scaled
+expression-dependent wrinkles, and appearance changes, e.g. due
+to ambient occlusions and changes in blood flow concentration, we
+rely on a second MLP
+𝛿G
+𝑎= G𝑎(𝜇, f; zexp)
+(∀𝑎∈A𝑐),
+(5)
+which predicts offsets for all canonical Gaussian attributes 𝑎. We use
+the same architecture for G as for F , besides having more output
+channels due to the increased number of attribute offsets. In total,
+given an expression code zexp ∈R100 we obtain the Gaussian point
+cloud in posed space A𝑝by adding 𝛿F and 𝛿G to their respective
+canonical attributes, which we denote as
+A𝑝= D(A𝑐; zexp).
+(6)
+4.1.3
+Screen-Space Refinement. Finally, after rendering the posed
+Gaussians A𝑝using the differentiable rasterizer from Kerbl et al.
+[2023b], we apply a screen-space CNN network [Xu et al. 2023]:
+[ˆ𝐼rgb, 𝐼h] = 3dGS(A𝑝; 𝜋𝐾,𝐸),
+ˆ𝐼cnn = CNN([ˆ𝐼rgb, 𝐼h]),
+(7)
+where the ˆ𝐼rgb denotes rendered RGB colors. 𝐼ℎis a latent image
+used for the CNN refinement module, which is obtained by rendering
+h + 𝛿G
+h , where h are latent CNN features which we additionally
+include in A𝑐. We took inspiration from Xu et al. [2024], to include
+a screen-space CNN, but note that we decided against performing
+super-resolution.
+4.2
+Cycle-Consistency Distillation
+One of our core ideas is to leverage MonoNPHM’s motion prior and
+expression space. However, since it utilizes a backward deformation
+field B, which warps points into canonical space, we cannot directly
+incorporate this deformation prior in our pipeline. Instead, we need
+forward deformations, which warp points into posed space, such that
+they can be directly rasterized. While it is possible to numerically
+approximate the inverse of B using iterative root-finding [Chen et al.
+2023, 2021], we search for a more computationally efficient method.
+To this end we resort to a cycle consistency loss, similar to [Saito
+et al. 2021] and follow-ups [Dhamo et al. 2023; Yang et al. 2022]
+which optimize for volumetric skinning weights used for animation
+via linear blend skinning.
+We propose to directly distill a forward deformation network F
+as the inverse of B (see Fig. 2, using a cycle consistency loss
+Lcyc(𝑥𝑐) = ∥B (F (𝑥𝑐, f(𝑥𝑐))) −𝑥𝑐∥2
+2 .
+(8)
+Using Eq. (8) we can directly supervise F with the knowledge of
+B for arbitrarily sampled points 𝑥𝑐∈R3 in canonical space and
+expression codes zexp. Note, that in Eq. (8) we omit the dependence
+on expression codes zexp for clarity. During this stage, the canonical
+space is not yet discretized into a set of Gaussian primitives. Hence,
+we utilize a feature field
+f(𝑥𝑐) = TriPlane(𝑥𝑐)
+(9)
+represented as low-resolution 64x64 triplanes [Chan et al. 2022;
+Peng et al. 2020], which can be evaluated at arbitrary points 𝑥𝑐in
+canonical space. For convenience, we train F once, using all six
+identities from the NeRSemble dataset [Kirschstein et al. 2023b] that
+we perform experiments with.
+4
+
+
+NPGA: Neural Parametric Gaussian Avatars
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+During training, each person has their own TriPlane, which we
+regularize using a total variation loss. Furthermore, we regularize
+the norm of predicted offsets ∥F (𝑥𝑐, f(𝑥𝑐)∥2 to be small. Note that
+distilling F separately results in insignificant performance changes.
+4.3
+Avatar Optimization Strategy
+After obtaining a forward deformation field F using our cycle-
+consistency distillation strategy, we aim to jointly optimize for the
+canonical parameters A𝑐and MLP G to minimize a photometric
+energy term. To initialize the canonical Gaussians centers 𝜇we
+sample 50.000 points uniformly on the iso-surface of the tracked
+MonoNPHM model. The per Gaussian features are initialized by
+querying TriPlane(𝜇) at the sampled Gaussian centers. All remain-
+ing attributes are initialized using the default 3DGS procedure. In
+practice, we observed that keeping F frozen results in sub-optimal
+performance, which is likely caused through topological issues dur-
+ing distillation in the mouth region. Hence, we decide to further
+optimize F alongside G and A𝑐, however, using a significantly
+smaller learning rate and a warm-up schedule that encourages the
+preservation of the distilled prior.
+Our optimization strives to minimize the photometric data term
+L = ∥𝐼−ˆ𝐼rgb∥1 + 𝜆
+
+1−SSIM(𝐼, ˆ𝐼rgb)
+
++ 𝜆
+
+1−SSIM(𝐼, ˆ𝐼cnn)
+
+,
+(10)
+where 𝐼denotes a randomly sample ground truth image from the
+NeRSemble dataset with corresponding expression codes zexp.
+4.3.1
+Regularization. We find that regularizing both our canonical
+representation A𝑐, as well as our dynamics module D is crucial to
+avoid overfitting to the training expressions. To regularize NPGA
+we utilize a Laplacian smoothness term based on the 𝑘NN graph of
+canonical Gaussian centers. To this end let
+Rlap(𝑥) =
+
+1
+|N𝑖|
+©­
+«
+∑︁
+𝑗∈N𝑗
+𝑥𝑗ª®
+¬
+−𝑥𝑖
+
+2
+2
+©­
+«
+𝑥∈{f} ∪
+Ø
+𝑎∈A𝑐
+𝛿G
+𝑎ª®
+¬
+,
+(11)
+denote a Laplacian smoothness term, which we use to regularize
+the per Gaussian features f, as well as, the offset predictions 𝛿G
+𝑎for
+all attributes 𝑎∈A𝑐. Note, that whenever the number of canonical
+Gaussians changes due to densification or pruning, we recompute
+the 𝑘NN graph.
+In addition to these smoothness terms, we encourage F and G
+to predict small offsets
+R𝛿= 𝜆F
+𝜇∥𝛿F
+𝜇∥2
+2 +
+∑︁
+𝑎∈A
+𝜆G
+𝑎∥𝛿G
+𝑎−e𝑎∥2
+2,
+(12)
+where e𝑎denotes the neutral element for the group operation act-
+ing on attribute 𝑎. Similarly, we impose regularization on the per
+Gaussian attributes Rf = ∥f∥2
+2 to remain small, and utilize the scale
+regularization loss of [Saito et al. 2024], which punishes scales 𝑆
+lying outside of a well-behaved range.
+4.3.2
+Adaptive Density Control (ADC). A central ingredient to the
+success of 3DGS is its strategy to adaptively add and prune Gaussians
+in areas where they are needed or redundant, based on a set of simple
+yet effective heuristics that are periodically invoked. The rules of
+ADC have been designed with static scenes in mind and we find
+the default settings to be suboptimal for our avatar creation. In the
+dynamic scenario, there can be areas that remain hidden for large
+parts of the training sequence, such as the mouth interior. Therefore,
+we adjust the ADC by employing a generalized mean
+𝑀𝑒
+𝑖=
+ 
+1
+𝑁
+∑︁
+𝑡∈𝑇
+𝜏𝑒
+t
+!1/𝑒
+(13)
+to aggregate the view-space gradients 𝜏𝑡of the 𝑖-th primitive of
+all frames 𝑇between invocations of the ADC mechanism. Note,
+that 𝑒= 1 results in the default 3DGS settings. By increasing the
+exponent 𝑒the aggregation 𝑀𝑒
+𝑖becomes closer to a maximum func-
+tion. Therefore, a few visible frames can be sufficient for the ADC
+to trigger densification, which is especially important for regions
+like the teeth and mouth interior. We find that 𝑒= 2 already re-
+sults in an increased number of Gaussians, leading to more detailed
+reconstruction, especially in the mouth interior.
+Furthermore, we replace the hard opacity reset mechanism of
+3DGS, which we find to be harmful to our optimization, with a
+softer variant proposed in [Bulò et al. 2024]. Instead of infrequently
+setting the 𝛼values to be almost transparent, the opacities get
+reduced frequently for a small amount only, i.e. in our experiments
+by 0.01.
+4.4
+Differences to GaussianHeadAvatar (GHA)
+In general our avatar formulation shares large parts with that of
+GHA [Xu et al. 2024]. A major difference is our use of MonoNPHM
+as underlying 3DMM, which we enabled through our distillation
+strategy. Furthermore, we utilize the per-Gaussian features to also
+influence the prediction of 𝛿𝜇, we add a Laplacian regularization, do
+not rely on screen-space super resolution or perceptual losses, and
+modify the ADC strategy instead of resorting to a fixed number of
+Gaussians as Xu et al. [2024].
+5
+RESULTS
+For our experiments, we use the state-of-the-art, public multi-view
+video NeRSemble dataset [Kirschstein et al. 2023b], from which we
+choose a diverse set of six subjects performing challenging facial
+expressions. After providing additional details on the performed
+experiments and baseline methods in Sections 5.1 and 5.2, we present
+our main results on the tasks of self- and cross-reenactment in
+Sections 5.3 and 5.4, respectively. Finally, in Section 5.5 we ablate a
+series of experiments validating our proposed model components.
+We highly encourage the reader to consult our supplemental video
+for complete results including temporal information.
+5.1
+Experimental Setup
+The NeRSemble dataset provides 16 synchronized and calibrated
+videos, from which we choose 15 cameras for training and the
+frontal camera for evaluation. Furthermore, we train our avatars on
+all sequences, except for the "FREE"-sequence which we keep as a
+held-out evaluation sequence for the self-reenactment task.
+5.1.1
+Baselines.
+GaussianAvatars (GA) [Qian et al. 2023]: GaussianAvatars is a
+recent method that creates 3DGS-based avatars, by binding them
+5
+
+
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+Simon Giebenhain, Tobias Kirschstein, Martin Rünz, Lourdes Agapito, and Matthias Nießner
+MVP
+GaussianAvatars
+GHA
+Ours
+Ground Truth
+Fig. 3. Self-Reenactment: Qualitative comparison of different methods on the held-out sequence.
+6
+
+
+NPGA: Neural Parametric Gaussian Avatars
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+to the FLAME 3DMM model [Li et al. 2017]. Therefore, GaussianA-
+vatars can be extremely efficiently animated, since there is no need
+to evaluate a costly neural component. On the downside, GaussianA-
+vatars are limited to the facial movements lying inside the FLAME
+expression space.
+GaussianHeadAvatar (GHA) [Xu et al. 2024]: GHA is another
+recent 3DGS-based avatar method, which also learns deformation
+fields from multi-view video and is controlled through their cus-
+tom multi-view BFM [Paysan et al. 2009] tracking. In general, our
+approach is similar to GHA. Thus we list the major differences in
+Section 4.4. Furthermore, we add a version of GHA which is condi-
+tioned on our tracked MonoNPHM expression codes, indicated as
+GHANPHM.
+Mixture of Volumetric Primitives (MVP) [Lombardi et al. 2021]:
+MVP utilizes a combination of volume rendering and a head-geometry
+aware CNN that creates a volumetric payload in an amortized fash-
+ion. In contrast to our method and the other baselines, MVP utilizes
+a Variational Auto-Encoder (VAE) [Kingma and Welling 2014] to
+learn a latent expression encoding based on their 3DMM tracking.
+Note, however, that we do not provide MVP with view-average
+textures to obtain a more comparable evaluation setting.
+Table 1. Quantitative Comparison: We compare against our baselines
+on self-reenactment using a held-out sequence. For completeness we also
+report metrics on the held-out camera of the training sequences, denoted
+as novel-view synthesis (NVS).
+Method
+NVS
+Self-Reenactment
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+MVP
+33,42
+0,957
+0,083
+27.19
+0.919
+0.114
+GA
+32,95
+0,956
+0,080
+27.77
+0.926
+0.104
+GHA
+33,92
+0,953
+0,045
+26.81
+0.914
+0.077
+Ours
+36,84
+0,971
+0,034
+30.26
+0.934
+0.055
+GHANPHM
+33,09
+0,952
+0,049
+26.60
+0.911
+0.078
+OursBFM
+34,97
+0,962
+0,052
+28.82
+0.924
+0.076
+5.1.2
+Metrics. To evaluate the self-reenactment task we use the
+Peak Signal-to-Noise Ratio (PSNR), structural similarity index mea-
+sure (SSIM), and perceptual LPIPS [Zhang et al. 2018] metrics. For
+the sake of completeness, we also report numbers for a dynamic
+novel view synthesis (NVS) scenario, where we compare all meth-
+ods on the held-out camera view of the training sequences. We
+focus our evaluation on the facial region, since neck and torso are
+not accurately explained by NPHM and the underlying 3DMMs of
+our baselines. To this end, we leverage segmentation masks from
+Facer [Zheng et al. 2022b] to mask out the neck and torso before
+computing the metrics. Furthermore, we compute metrics at a resolu-
+tion of 550x802. Since we train GHA on 1024x1024 we downsample
+and crop the generated images accordingly.
+5.2
+Implementation Details
+Hyper-Parameters. For both our deformation networks F and G
+we use 6-layer MLPs with a hidden dimensionality of 256. In order
+to preserve the prior that F obtained in our distillation procedure,
+we set its learning rate to 4𝑒−5, while G is equipped with a much
+higher learning rate of 2𝑒−3. Additionally, we freeze the network
+parameters of F for the first 5.000 optimization steps. We decay both
+learning rates twice by a factor of 2 during the course of 800.000
+optimization steps. Furthermore, we employ weight decay on F
+and G, using a weight of 0.1 as an additional regularization measure.
+We perform an ADC step every 5.000 iterations, and multiply the
+gradient threshold for the densification by a factor of 2, to accom-
+modate for the fact that our loss combines the losses of the RGB
+rendering and CNN-refined predictions.
+Runtime. While we do not focus on efficient training, animation,
+or rendering of avatars, we acknowledge the importance of fast
+animation and rendering. In our unoptimized implementation, we
+can render images at 31 frames per second (FPS) for 550x802 and
+18 FPS at 1100x1604 on an NVIDIA RTX3080 graphics card, which
+includes deformation, rendering, and CNN. When omitting the CNN
+the speed increases to 43 and 38 FPS, respectively. As a comparison,
+GHA runs at 22 FPS at 1024x1024 on the same machine. Fig. 8
+indicates the number of Gaussians during training, which we limit
+to a maximum of 250k. We train all our avatars, and baselines, until
+convergence, which roughly takes 7 hours for GA (on an RTX2080),
+30 hours (on an RTX3090) for GHA and our method, and 60 hours
+(on an RTX2080) for MVP.
+Data Preparation. We obtain MonoNPHM trackings on the NeRSem-
+ble dataset using a purely geometric constraint between the MonoN-
+PHM’s predicted surface and a point cloud reconstructed using
+COLMAP [Schönberger and Frahm 2016]. We utilize the same track-
+ing algorithm that has been previously used in [Aneja et al. 2024;
+Kirschstein et al. 2023a]. For training and quantitative evaluation,
+we use a resolution of 550x802, the same as we use for MVP and GA.
+For our qualitative results, we fine-tune our avatars on 1100x1604
+resolution for another 5 hours of training time. Furthermore, we
+mask out the torso, since it is neither contained in NPHM’s expres-
+sion space nor the focus of our work.
+5.3
+Self-Reenactment
+Our main evaluation is concerned with the self-reenactment task.
+For this purpose, all avatars are trained on a set of 21 training
+sequences alongside their respective tracking results. To evaluate the
+avatars, they are animated using the tracked expressions from a held-
+out test sequence. We present qualitative and quantitative results
+in Fig. 3 and Table 1, respectively, and recommend the reader to
+consider the supplemental video for temporal results. Our predicted
+self-reenactments portray the unseen expression more accurately
+and contain sharper details in relatively static areas like the hair
+region.
+Importance of the Underlying Tracking. Interestingly, GHANPHM
+performs slightly worse than GHA, indicating that MonoNPHM ex-
+pression codes alone do not immediately boost performance. Instead,
+we hypothesize that without NPHM’s motion prior as initialization,
+NPHM’s latent expression distribution might provide a more com-
+plicated training signal compared to the linear blendshapes of BFM.
+Additionally, we train our avatars, but utilize the BFM tracking from
+7
+
+
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+Simon Giebenhain, Tobias Kirschstein, Martin Rünz, Lourdes Agapito, and Matthias Nießner
+Driving Expression
+MVP
+GaussianAvatars
+GHA
+Ours
+Fig. 4. Cross-Reenactment: Qualitative comparison of transferring a driving expression from a different identity (left) to an avatar.
+GHA, denoted as Ours𝐵𝐹𝑀. Indicating that our overall framework
+still slightly outperforms GHA when using the same tracked expres-
+sion codes. In Fig. 7 we show that the learned dynamics can still
+result in accurate self-reenactments, despite flaws in the tracking
+as long as there is sufficient correlation the associated latent codes.
+5.4
+Cross-Reenactment
+Another crucial task is cross-reenactment, where driving expres-
+sions from another person are transferred to the avatar. Since a
+ground truth for cross-reenactment does not exist, we only re-
+port a qualitative comparison, which is presented in Fig. 4. We
+observe that all methods successfully disentangle identity and ex-
+pression information, allowing for effective cross-reenactment. Our
+avatars, however, preserve the most details from the driving ex-
+pressions. To demonstrate real-world applicability, Fig. 6 depicts
+cross-reenactment animations of our avatars using monocular RGB
+videos from a commodity camera under real-world circumstances.
+To this end, we utilize the monocular MonoNPHM tracker proposed
+by Giebenhain et al. [2024].
+5.5
+Ablations Study
+In order to verify several important components of NPGA, we per-
+form ablation experiments using three subjects. Quantitative and
+qualitative results of our ablations can be found in Table 2 and Fig. 5,
+respectively. First, we run a "vanilla" version of NPGA that serves as
+a baseline. This version does not utilize per Gaussian features, the
+CNN, Laplacian smoothness terms, and uses 𝑒= 1 in Eq. (13) for the
+ADC. This model fails to produce sharp renderings for fine-scale
+details, and areas that are complicated due to frequent occlusions
+and reflections, like the bottom teeth and eyes.
+Per-Gaussian Features. When adding per-Gaussian features to the
+vanilla model, denoted as "+p.G.F.", the increased representational
+capacity results in sharper reconstructions. At the same time, we
+occasionally observe artifacts of "free-floating" primitives, as high-
+lighted in the second column of Fig. 5. These artifacts can be largely
+removed using our proposed Laplacian smoothness terms. Table 2 in-
+dicates that using this regularization significantly shrinks the gener-
+alization gap between training (NVS) and testing (self-reenactment)
+sequences. Compared to this model, "Ours" also includes a CNN,
+8
+
+
+NPGA: Neural Parametric Gaussian Avatars
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+Vanilla
++ p.G.F
++ Lap. smoothness
+Ours
+Ours - ADC
+Ground Truth
+Fig. 5. Ablation Study: Without utilizing per Gaussians features ("Vanilla"), the avatars fail to represent fine expression details and complicated regions
+like the eyes and bottom teeth. Adding per Gaussian features (p.G.F.) results in significantly sharper reconstructions but is prone to artifacts under extreme
+expressions. Adding our Laplacian regularization ("+Lap. smoothness") and a screen-space CNN ("Ours") finally resolves all artifacts. Furthermore, "Ours-ADC"
+demonstrates that the default densification strategy inhibits detailed reconstructions.
+Table 2. Ablations: We perform our ablation experiments on a subset of
+three subjects. We report Novel-View Synthesis (NVS) for completeness.
+Method
+NVS
+Self-Reenactment
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+Vanilla
+35.80
+0.965
+0.048
+30.16
+0.927
+0.067
++PGF
+37.04
+0.970
+0.037
+30.54
+0.929
+0.059
++Lap.smooth
+36.85
+0.969
+0.038
+30.56
+0.928
+0.059
+Ours(+CNN)
+37.23
+0.972
+0.033
+30.65
+0.933
+0.053
+Ours-ADC
+36.12
+0.967
+0.045
+30,49
+0,933
+0.070
+Ours-𝛿𝜇
+36.73
+0.968
+0.040
+30,44
+0,931
+0.059
+which further boosts metrics and visual quality. Additionally, we
+ablate the importance of letting per-Gaussian features influence
+the predicting of position offsets, since recent work [Dhamo et al.
+2023; Xu et al. 2024] does not allow such interactions. In Table 2
+"Ours-𝛿𝜇" denotes a version of NPGA that disables such an influence,
+indicating the benefits of our formulation.
+Adaptive Density Control. Finally, we show the importance of
+using an adjusted ADC strategy. Surprisingly, using the default
+ADC settings with a densification interval of 5000 steps and an
+opacity reset interval of 50.000 steps almost completely diminishes
+the improvements of our other contributions. While we do not
+claim that using 𝑒= 2 in Eq. (13) is necessary for great performance,
+we simply note that finding a setting that lets enough Gaussians
+appear is important, especially for fine-scaled wrinkles and teeth.
+The progress of the number of Gaussian during the optimization is
+illustrated in Fig. 8.
+Driving
+Expression
+Cross-Reenactments
+Fig. 6. Real-World Application: We utilize the monocular RGB tracking
+from MonoNPHM to animate our high-fidelity avatars, demonstrating the
+applicability of our avatars outside of multi-view capture studios.
+6
+LIMITATIONS AND FUTURE WORK
+In our experiments, we show that NPGA can create controllable and
+high-fidelity virtual head avatars from multi-view video data. How-
+ever, both controllability and reconstruction quality of our avatars
+are fundamentally restricted to what the underlying 3DMM can
+explain. Therefore, regions like the neck, torso, tongue, and eyeball
+rotation, which are not explained by NPHM’s expression codes,
+cannot be animated as reliably or might even lead to artifacts due
+to overfitting. Possible solutions are extensions of the underlying
+3DMM to provide a more complete description of a person’s state,
+e.g. the inclusion of the neck [Zhang et al. 2023] or even torso and
+complete bodies [Pavlakos et al. 2019].
+9
+
+
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+Simon Giebenhain, Tobias Kirschstein, Martin Rünz, Lourdes Agapito, and Matthias Nießner
+(i) MonoNPHM
+(ii) Overlay
+(iii) G.T.
+(iv) Our Avatar
+Fig. 7. Tracking Failure: While our MonoNPHM-based tracking occasion-
+ally fails for extreme facial expressions (see normals (i) and overlay (ii)),
+NPGA still produces good animations for held-out expressions (see (iv)) due
+to the smooth nature of expression latent space.
+Fig. 8. Number of Gaussians: We illustrate the growing number of Gaus-
+sians for each of our avatars, where PID denotes the personal identifiers in
+the Nersemble dataset. We limit the maximum number to 250k.
+Furthermore, as a data-driven approach to avatar creation, our
+method is limited, to some degree, to the available training data per
+person. We believe that recent large-scale multi-view video dataset
+of human heads [Kirschstein et al. 2023b; Pan et al. 2024] open up
+opportunities to learn a generalized head model, such as [Cao et al.
+2022], with much higher fidelity than NPHM and other available
+3DMMs, through the use of photometric optimization and efficient
+rendering, like 3DGS.
+7
+ETHICAL CONSIDERATIONS
+The creation of photo-realistic avatars has potential for a wide range
+of malevolent activities, e.g. privacy violation, identity theft and
+spreading of deceptive content through deepfakes. We condemn
+any malicious or unauthorized uses of such technology, and em-
+phasize the need for reliable detection methods that maintain the
+authenticity of media content and advert negative societal impact.
+8
+CONCLUSION
+In this work, we have proposed Neural Parametric Gaussian Avatars
+(NPGA), a method for creating accurately controllable and high-
+fidelity virtual head avatars. The main focus of our work is the
+usage of MonoNPHM’s rich expression space and motion prior. To
+this end, we leverage a cycle-consistency strategy to distill a for-
+ward deformation field from MonoNPHM, such that it becomes
+compatible with 3D Gaussian Splatting. We proposed an effective
+regularization strategy and adjust the adaptive density control strat-
+egy, both of which are important for ideal avatar quality. We show
+that utilizing per-Gaussian features to conditioning the complete
+dynamics module helps, compared to limiting the influence to ap-
+pearance changes. In our experiments, we significantly outperform
+the previous state-of-the-art avatars on self-reenactment. Finally,
+we showed the applicability of our avatars beyond a controlled
+multi-view set-up by animating them from monocular RGB video
+trackings.
+Acknowledgements. This work was funded by Synthesia and sup-
+ported by the ERC Starting Grant Scan2CAD (804724), the German
+Research Foundation (DFG) Research Unit “Learning and Simulation
+in Visual Computing”. We would like to thank our research assistant
+Mohak Mansharamani, and Angela Dai for the video voice-over.
+REFERENCES
+Shivangi Aneja, Justus Thies, Angela Dai, and Matthias Nießner. 2024.
+Fac-
+eTalk: Audio-Driven Motion Diffusion for Neural Parametric Head Models.
+arXiv:2312.08459 [cs.CV]
+ShahRukh Athar, Zexiang Xu, Kalyan Sunkavalli, Eli Shechtman, and Zhixin Shu. 2022.
+RigNeRF: Fully Controllable Neural 3D Portraits. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR). 20364–20373.
+Benjamin Attal, Jia-Bin Huang, Christian Richardt, Michael Zollhoefer, Johannes Kopf,
+Matthew O’Toole, and Changil Kim. 2023. HyperReel: High-Fidelity 6-DoF Video
+with Ray-Conditioned Sampling. In Conference on Computer Vision and Pattern
+Recognition (CVPR).
+Volker Blanz and Thomas Vetter. 1999. A morphable model for the synthesis of 3D faces.
+In Proceedings of the 26th annual conference on Computer graphics and interactive
+techniques. 187–194.
+Samuel Rota Bulò, Lorenzo Porzi, and Peter Kontschieder. 2024. Revising Densification
+in Gaussian Splatting. arXiv:2404.06109 [cs.CV]
+Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz, Michael Zollhoefer, Shun-Suke
+Saito, Stephen Lombardi, Shih-En Wei, Danielle Belko, Shoou-I Yu, Yaser Sheikh, and
+Jason Saragih. 2022. Authentic Volumetric Avatars from a Phone Scan. ACM Trans.
+Graph. 41, 4, Article 163 (jul 2022), 19 pages. https://doi.org/10.1145/3528223.3530143
+Eric R. Chan, Connor Z. Lin, Matthew A. Chan, Koki Nagano, Boxiao Pan, Shalini De
+Mello, Orazio Gallo, Leonidas Guibas, Jonathan Tremblay, Sameh Khamis, Tero
+Karras, and Gordon Wetzstein. 2022. Efficient Geometry-aware 3D Generative
+Adversarial Networks. In CVPR.
+Xu Chen, Tianjian Jiang, Jie Song, Max Rietmann, Andreas Geiger, Michael J. Black,
+and Otmar Hilliges. 2023. Fast-SNARF: A Fast Deformer for Articulated Neural
+Fields. Pattern Analysis and Machine Intelligence (PAMI) (2023).
+Xu Chen, Yufeng Zheng, Michael J Black, Otmar Hilliges, and Andreas Geiger. 2021.
+SNARF: Differentiable Forward Skinning for Animating Non-Rigid Neural Implicit
+Shapes. In International Conference on Computer Vision (ICCV).
+Helisa Dhamo, Yinyu Nie, Arthur Moreau, Jifei Song, Richard Shaw, Yiren Zhou, and
+Eduardo Pérez-Pellitero. 2023. HeadGaS: Real-Time Animatable Head Avatars via
+3D Gaussian Splatting. arXiv:2312.02902 [cs.CV] https://arxiv.org/abs/2312.02902
+Guy Gafni, Justus Thies, Michael Zollhöfer, and Matthias Nießner. 2021. Dynamic Neural
+Radiance Fields for Monocular 4D Facial Avatar Reconstruction. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). 8649–8658.
+Simon Giebenhain, Tobias Kirschstein, Markos Georgopoulos, Martin Rünz, Lourdes
+Agapito, and Matthias Nießner. 2023. Learning Neural Parametric Head Models. In
+Proc. IEEE Conf. on Computer Vision and Pattern Recognition (CVPR).
+Simon Giebenhain, Tobias Kirschstein, Markos Georgopoulos, Martin Rünz, Lourdes
+Agapito, and Matthias Nießner. 2024. MonoNPHM: Dynamic Head Reconstruc-
+tion from Monocular Videos. In Proc. IEEE Conf. on Computer Vision and Pattern
+Recognition (CVPR).
+Philip-William Grassal, Malte Prinzler, Titus Leistner, Carsten Rother, Matthias Nießner,
+and Justus Thies. 2022. Neural head avatars from monocular RGB videos. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+18653–18664.
+Mustafa Işık, Martin Rünz, Markos Georgopoulos, Taras Khakhulin, Jonathan Starck,
+Lourdes Agapito, and Matthias Nießner. 2023. Humanrf: High-fidelity neural radi-
+ance fields for humans in motion. arXiv preprint arXiv:2305.06356 (2023).
+Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George Drettakis. 2023a.
+3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Transactions on
+Graphics 42, 4 (July 2023). https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/
+Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George Drettakis. 2023b.
+3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Transactions on
+10

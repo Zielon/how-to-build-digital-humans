@@ -1,0 +1,958 @@
+Title: GarmentDreamer: 3DGS Guided Garment Synthesis with Diverse Geometry and Texture Details
+
+GarmentDreamer: 3DGS Guided Garment Synthesis with Diverse
+Geometry and Texture Details
+BOQIAN LI1,2∗, XUAN LI1∗, YING JIANG1,3∗, TIANYI XIE1, FENG GAO4, HUAMIN WANG5, YIN YANG2,
+and CHENFANFU JIANG1
+a blue denim
+sleeveless tee
+a blue denim skirt
+an Ironman
+upperbody armor
+a silver metal
+armored trousers
+a traditional royal style
+dress made of blue silk
+an American Western
+cowboy style jumpsuit 
+made of orange leather
+Fig. 1. GarmentDreamer is a garment synthesis framework for customizing simulation-ready high-quality textured garment meshes from text prompts.
+Traditional 3D garment creation is labor-intensive, involving sketching,
+modeling, UV mapping, and texturing, which are time-consuming and costly.
+Recent advances in diffusion-based generative models have enabled new
+possibilities for 3D garment generation from text prompts, images, and
+videos. However, existing methods either suffer from inconsistencies among
+multi-view images or require additional processes to separate cloth from
+the underlying human model. In this paper, we propose GarmentDreamer, a
+novel method that leverages 3D Gaussian Splatting (GS) as guidance to gen-
+erate wearable, simulation-ready 3D garment meshes from text prompts. In
+contrast to using multi-view images directly predicted by generative models
+as guidance, our 3DGS guidance ensures consistent optimization in both
+garment deformation and texture synthesis. Our method introduces a novel
+garment augmentation module, guided by normal and RGBA information,
+and employs implicit Neural Texture Fields (NeTF) combined with Varia-
+tional Score Distillation (VSD) to generate diverse geometric and texture
+details. We validate the effectiveness of our approach through comprehensive
+qualitative and quantitative experiments, showcasing the superior perfor-
+mance of GarmentDreamer over state-of-the-art alternatives. Our project
+page is available at https://xuan-li.github.io/GarmentDreamerDemo/.
+1
+INTRODUCTION
+The creation of 3D digital garments is crucial in graphics and vision,
+driven by their extensive applications in fashion design, virtual try-
+on, gaming, animation, virtual reality, and robotics. Nevertheless,
+the conventional pipeline for 3D garment creation which encom-
+passes sketching and modeling, followed by UV mapping, texturing,
+* indicates equal contributions.
+Affiliations: 1UCLA, 2Utah, 3HKU, 4Amazon (This work is not related to F. Gao’s
+position at Amazon.), 5Style3D Research
+shading and simulation using commercial software [11, 36, 54] de-
+mands substantial manual effort. This process results in significant
+time and labor costs.
+With the advancement of diffusion-based generative models [34,
+42], 3D garment generation from text and images has flourished.
+Two primary methods have emerged. The first method, as explored
+in prior works [16, 33], starts by reconstructing 2D sewing patterns
+and subsequently generating 3D garments from these patterns. The
+second method involves generative models that directly predict the
+distribution of 3D target shapes based on image and text inputs,
+without relying on 2D sewing patterns [47, 53, 56, 67]. However, the
+former approach necessitates a vast amount of paired training data
+between sewing patterns and corresponding text or images [33].
+The latter approach, while simpler, encounters issues such as multi-
+view inconsistency [47] and a lack of high-fidelity details, which
+often require additional post-processing for downstream simulation
+tasks [25, 29, 30, 66]. Thus, generating simulation-ready, textured
+garments with high-fidelity details remains challenging.
+Recognizing the advantages and limitations of both traditional
+pipeline and modern generative models, our goal is to create high-
+fidelity, simulation-ready textured garments with appropriately
+placed openings for the head, arms, and legs. We aim to achieve
+details comparable to that of the traditional pipeline. In this paper,
+we focus on full-piece garment generation without relying on 2D
+sewing patterns, which is sufficient for many graphics applications.
+To achieve our goals, we leverage image/text-conditioned diffu-
+sion models. Several challenges revealed by prior methods must be
+addressed: (1) Many avatar generators [20, 31, 63] directly produce
+fused cloth-human models with watertight meshes. They require
+separation from humans and complex modifications to introduce
+arXiv:2405.12420v1  [cs.CV]  20 May 2024
+
+
+2
+•
+Boqian Li, et al.
+openings for the head, arms, and legs for downstream tasks. (2)
+While some high-quality non-watertight garments are generated
+by deforming template meshes guided by multi-view images [47],
+predicting unsigned distance fields (UDF) via diffusion models [67],
+or optimizing meshes through differentiable simulators [30], these
+approaches often lack detailed and realistic geometrical features
+or complex textures. This limitation stems from the inherent chal-
+lenges in 3D shape diffusion. (3) Deforming garment geometry solely
+based on multi-view images predicted by diffusion models can lead
+to inconsistency [8]. Additionally, refining textures in UV space can
+result in over-saturated, blocky artifacts [5, 56].
+To address these challenges, we introduce GarmentDreamer, a
+3DGS [22] guided garment synthesis method for simulation-ready,
+non-watertight garments featuring diverse geometry and intricate
+textures. We first leverage diffusion models and physical simulations
+to obtain a smooth garment template and generate corresponding
+Gaussian kernels via Score Distillation Sampling (SDS) loss [56].
+Subsequently, we exploit the estimated normal map and RGBA in-
+formation from 3DGS as guidance in our garment augmentation
+module to deform meshes using a coarse-to-fine optimization ap-
+proach. In the coarse stage, we refine garment contour together
+with neck, arm, waist, and leg openings, and then in the fine stage,
+multi-scale details are created under the proposed guidance. Com-
+pared with guidance from generated multi-view images, multi-view
+consistent guidance extracted by Gaussian kernels creates more
+high-quality geometry and texture details. An implicit Neural Tex-
+ture Field (NeTF) is then reconstructed and subsequently augmented
+by Variational Score Distillation (VSD) loss to offer high-quality gar-
+ment textures. Compared with baking Gaussian kernels into a UV
+map directly, our texture extraction strategy offers more consistent
+results. Our contributions include:
+• We introduce a novel 3D garment synthesis method using dif-
+fusion models with 3DGS as a reference to generate simulation-
+ready garments from text prompts.
+• We propose a new garment deformer module using normal-based
+and RGBA-based guidance in course-to-fine garment mesh re-
+finement stages to generate diverse, high-quality garments with
+complex geometrical details.
+• We show implicit Neural Texture Fields (NeTF) can be recon-
+structed and be fine tuned by VSD loss to generate high-quality
+garment textures.
+• We conduct comprehensive qualitative and quantitative experi-
+ments to evaluate the superior performance of GarmentDreamer
+as compared to prior methods.
+2
+RELATED WORK
+Our work focuses on generating realistic and diverse wearable
+simulation-ready 3D garment meshes from text prompts.
+Diffusion-based 3D Generation. For 3D generation, many work
+distill 2D pre-trained diffusion models via SDS loss [42, 71] and
+Variational Score Distillation (VSD) [60, 69], or exploit 3D diffusion
+models to directly generate 3D representations such as point cloud
+[35], Neural Radiance Fields (NeRF) [18, 51], mesh [34, 43], SDF
+[10, 50], Unsigned Distance Field (UDF) [67], DMTets [48], and
+3DGaussian Splatting (GS) [56, 64]. To capture rich surface details
+and high-fidelity geometry of generated 3D shapes, normal maps
+[20, 28, 32, 34], depth maps [44], pose priors [68], skinned shape
+priors [23] have been adopted as guidance modules for 3D digital
+avatar [21, 30, 63], garment [16, 47], and scene synthesis tasks [26,
+55, 57].
+3D Garment Synthesis. Traditional 3D garment creation usually
+begins with 2D sewing patterns in commercial fashion design soft-
+ware, necessitating significant labor and time costs [47]. To auto-
+mate 3D garment generation, learning-based methods have been
+employed to infer garment shapes from text prompts, images, and
+videos [4, 6, 12, 16, 17, 30, 33, 47, 49, 53, 62, 67, 70]. However, many
+methods focused on clothed human synthesis [6, 19, 58, 62, 70] typ-
+ically generate garments fused together with digital human models,
+which restricts them to basic skinning-based animations and re-
+quires nontrivial work to separate the garments from the human
+body. In contrast, our work focuses on separately wearable geome-
+try. Other closely related work include [30] which also generates
+high-quality simulation-ready clothes at the expense of creating
+clothing templates by artists and precise point clouds by scanners.
+Some recent methods [16, 33] generate non-watertight garments
+with sewing patterns, while ours generates a one-piece cloth simi-
+larly to Sarafianos et al. [47]. Although one-piece 3D clothing is not
+suitable for manufacturing, it is still sufficient for many graphics
+downstream tasks. Note that [47] develops methods to improve
+multi-view consistency in image generation similarly to [34], while
+our method mitigates this challenge through a novel 3DGS guidance.
+Garment Refinement. Garment refinement involves diversification
+[23], draping [12], wrinkle generation [7, 38], stylization [47] and
+other techniques to enhance diversity and realism. Traditional meth-
+ods optimize energy or geometric constraints to directly edit meshes
+[3, 52]. Recent learning-based approaches modify latent geometry
+and textures, potentially with conditioned diffusion [12, 16, 23, 53],
+and decode latent features to generate refined meshes. To modify
+garment meshes from text prompts, Textdeformer [14] represents
+mesh deformation through Jacobians and exploits global CLIP fea-
+tures as guidance. Garment3DGen [47] deforms garment geometry
+using 2D image guidance. However, these RGB-based or CLIP-based
+methods have a tendency to prefer modifying 2D textures over 3D
+geometric structures. On the other hand, Surf-D [67] edits garment
+geometry with sketch conditions but lacks texture synthesis. Kim
+et al. [23] utilize normal maps as references to carve clothed hu-
+mans. Worchel et al. [61] exploit neural deferred shading results
+to modify mesh surfaces. Inspired by these works [23, 61], our ap-
+proach explores both normal maps and RGBA image features with
+neural deferred shading to guide mesh deformation, creating realis-
+tic garment geometry and textures that can be directly applied to
+downstream simulation and animation tasks.
+3
+METHOD
+Fig. 2 overviews our method. Given text T, GarmentDreamer gen-
+erates wearable textured garment meshes F𝑔with neck, arm, waist,
+and leg openings. Starting with T, we first generate garment tem-
+plate F𝑡based on predicted UDFs in § 3.1. Then we optimize a 3DGS
+representation in § 3.2 based on T and F𝑡. Leveraging 3DGS guid-
+ance, we design a two-stage training in § 3.3 to refine F𝑡into the
+
+
+GarmentDreamer: 3DGS Guided Garment Synthesis with Diverse Geometry and Texture Details
+•
+3
+2D Diﬀusion
+Fiing
+Simulation
+GS
+Render
+SDS
+Mesh Diﬀusion
+Model
+an Ironman 
+upperbody armor
+2D Diﬀusion
+Implicit Texture Field
+VSD
+Diﬀerentiable
+Rasterizer
+Diﬀerentiable
+Rasterizer
+coarse stage
+ﬁne stage
+Gaussian 
+Splaing
+an Ironman 
+upperbody armor
+Baking 
+Texture
+Fig. 2. Starting with text prompts, we generate a garment template mesh using a diffusion model. We then optimize a 3DGS from the template and text.
+Using RGBA, normal maps, and masks, we guide a two-stage deformation to refine the mesh into the final shape. Finally, we reconstruct and optimize an
+implicit texture field via VSD, producing high-quality textured garment meshes that can be applied to downstream simulation/animation tasks.
+final garment shape F𝑔. Finally, we generate high-quality textures
+by optimizing an implicit Neural Texture Field (NeTF) Φ augmented
+with variational SDS loss in § 3.4.
+3.1
+Garment Template Mesh Generation
+Human clothing generation can utilize strong inductive biases, as
+garments within the same category tend to have similar topology
+and overall orientation. Thus, it is reasonable to warm-start our
+optimization using a template and modify it. The starting point is
+to generate a template mesh F𝑡from text T. We use the meshes
+from Cloth3D [1] and SewFactory [33] as our dataset to train a mesh
+diffusion model. Leveraging the efficiency and effectiveness of gen-
+eration in latent space [46], we represent the geometry information
+of the garment mesh in a compact vector form by extracting its
+latent code.
+Simulation-based Preprocessing. A straightforward approach to
+obtaining the garment latent space is to train an autoencoder with
+high-quality garment meshes [67]. However, through experiments,
+we found that the autoencoder struggles to capture high-frequency
+geometric details, such as overly dense wrinkles. Additionally, some
+meshes in the dataset exhibit self-intersections due to these noisy
+details, resulting in unsatisfactory reconstruction. We believe these
+high-frequency details are not only challenging for the autoencoder
+to learn but also redundant for the purpose of template generation.
+Recognizing that we only need a warm-start template and will
+obtain geometric details in later phases, we propose a simulation-
+based data preprocessing step that involves smoothing the garment
+meshes using a physics-based cloth simulator. Specifically, we set
+the rest bending angle between every two adjacent triangles to zero.
+By minimizing the bending energy in quasi-static Finite Element
+Method (FEM) simulation steps [27] together with a Neo-Hookean
+stretching energy, each garment mesh transforms to a rest state
+with minimal high-frequency wrinkles, without altering the overall
+characteristic shape.
+Garment Latent Space. To encode the 3D garment template meshes
+F𝑡into latent space, we utilize the Dynamic Graph CNN (DGCNN)
+[59], producing a 64-dimensional garment latent code 𝛾. To recon-
+struct the garment geometry from the latent code, we employ a
+Multilayer Perceptron (MLP) with Conditional Batch Normalization
+[13] as the decoder. This decoder processes the latent code alongside
+a set of query points, which are sampled from the input meshes
+and their surroundings during training, and randomly sampled in a
+canonicalized space during testing. The decoder then predicts the
+UDF values for these points. We use both distance loss and gradient
+loss as suggested by De Luigi et al. [12] in training the autoencoder.
+Latent Diffusion. Building upon the garment latent space, we train
+a latent diffusion model to predict the latent code 𝛾conditioned
+on the garment category specified in the text prompt T, such as
+a skirt or T-shirt. Using the garment decoder alongside a set of
+query points, we obtain the garment UDF field. Finally, the desired
+garment template mesh F𝑡is extracted from the predicted UDF
+using MeshUDF [15].
+3.2
+3D Gaussian Generation
+Given a generated template mesh that is smooth and relatively
+generic, our next step is to generate proper guidance models to
+enhance it with details. While prior work has utilized multi-view
+image generators, they suffer from risks of inconsistency [8]. We
+turn to 3D radiance field representations to completely mitigate
+potential multi-view inconsistency risks.
+To this end we adopt 3DGS [22], which exploits 3D anisotropic
+Gaussian kernels to reconstruct 3D scenes with learnable mean 𝜇,
+opacity 𝜎, covariance Σ, and spherical harmonic coefficients S. We
+utilize the garment template mesh F𝑡with the same text prompt
+T offering color, material, and pattern descriptions to generate
+3D Gaussian kernels for further guiding geometry refinement and
+texture generation. Similar to the query points used in the garment
+latent code decoder, the initial 3D Gaussians are randomly sampled
+
+
+4
+•
+Boqian Li, et al.
+at the surroundings of the template mesh surface. Following Yi
+et al. [64], we optimize Gaussian kernels using SDS loss [42] with
+a frozen 2D diffusion model 𝜙conditioning on text prompts T.
+The rendered image is produced by a differentiable renderer 𝑔with
+the parameters of 3DGS 𝜃, notated as x = 𝑔(𝜃). The formula for
+computing the gradient to guide the updating direction of 𝜃is:
+∇𝜃LSDS(𝜙, x = 𝑔(𝜃)) ≜E𝑡,𝜖
+h
+𝑤(𝑡)
+
+ˆ𝜖𝜙(z𝑡; T,𝑡) −𝜖
+
+𝜕x
+𝜕𝜃
+i
+, where
+ˆ𝜖𝜙(z𝑡; T,𝑡) is the score estimation function, predicting the sampled
+noise ˆ𝜖given the noisy image z𝑡, text prompt T, and noise level 𝑡;
+𝑤(𝑡) is a weighting function.
+To render a view, the 3D Gaussian kernels are projected to 2D
+screen space based on their 𝑧-depth. Each pixel color 𝐶𝑝is com-
+puted by 𝛼-blending these 2D Gaussians from near to far: 𝐶𝑝=
+Í
+𝑖∈𝑁𝑝𝑖𝛼𝑖
+Î𝑖−1
+𝑗=1(1 −𝛼𝑗), where 𝑝𝑖is the evaluated color by spheri-
+cal harmonics viewed from the camera to the kernel’s mean; 𝛼𝑖is
+the product of the kernel’s opacity and 2D Gaussian weight eval-
+uated at the pixel coordinate. We render RGB images and masks
+of Gaussian kernels from 24 views for the next stage. The masks
+are generated using a step function with an empirical threshold 𝜗
+applied to the opacity 𝜎∈[0, 1] of each Gaussian kernel.
+3.3
+Garment Geometry Deformer
+We propose a two-stage training process to optimize the geometry
+of a garment to match the multi-view guidance generated from
+3DGS. The first coarse stage utilizes masks to optimize the contour
+of the garment’s geometry. The second fine stage employs RGB
+renderings and normal maps to enrich local details. Additionally,
+we use the mesh generated in the coarse stage to detect hole regions
+and maintain garment openings for wearability.
+3.3.1
+Coarse Stage. Given the template mesh F𝑡and a camera view
+𝐶𝑖, we use a differentiable rasterizer to generate the current mask.
+We use the following mask loss to guide the contour optimization:
+LM(𝒗) =
+1
+|I|
+∑︁
+𝑖∈I
+MSE(𝑅𝑀(F𝑡,𝐶𝑖), 𝑀𝑖),
+(1)
+where the optimization variable 𝒗is the concatenation of all vertex
+positions, I is the set of camera views, 𝑅𝑀is the differentiable
+contour rasterizer empowered by Nvdiffrast [24], and {𝑀𝑖} is the
+ground truth mask guidance.
+Optimization under merely LM is stochastic and unstable. One
+reason is that the vertices inside the masks can move freely without
+changing the output mask. Considering that the template mesh is
+smooth, we can maintain the smooth surface and stabilize the defor-
+mation process during the coarse stage by imposing constraints on
+the surface curvature. This is achieved through a normal-consistency
+loss LNC and a Laplacian loss LL as in Worchel et al. [61]:
+LNC(𝒗) = 1
+𝑁
+∑︁
+𝑗∼𝑘
+(1 −𝒏𝑗· 𝒏𝑘)2, LL(𝒗) = 1
+𝑀
+∑︁
+𝑗∼𝑘
+𝑤𝑗𝑘∥𝒗𝑗−𝒗𝑘∥2, (2)
+where 𝒏𝑖, 𝒏𝑗are adjacent face normals, 𝑁is the number of adjacent
+face pairs, 𝒗𝑖, 𝒗𝑗are adjacent vertex positions, 𝑀is the number of
+adjacent vertex pairs, and {𝑤𝑗𝑘} are the Laplacian edge weights.
+In summary, the loss function for the coarse stage is the weighted
+sum of these losses. During our implementation, we found that
+without any additional constraints to be applied other than the
+aforementioned losses, hole regions can be preserved during the
+deformation process and follow the deformation of the mesh sur-
+face. Furthermore, the boundaries of the hole regions coincide with
+the boundaries of the garment rendered by Gaussian rendering.
+This provides us with good intermediate results. By utilizing the
+deformed hole regions, we can continue to preserve the openings
+and the garment’s wearability in the next deformation stage.
+3.3.2
+Fine Stage. While contour mask guidance can optimize the
+garment mesh to match the overall shape of the generated 3DGS, it
+does not encourage the generation of local geometric details char-
+acterized by local displacement variations, which are invisible to
+masks. On the other hand, RGB renderings do not provide sufficient
+geometric information since shading effects can be baked into tex-
+tures without changing the geometry. This is also a limitation of
+3DGS, where the geometric distribution of Gaussian kernels may
+not align with the actual objects.
+However, the RGB renderings of 3DGS provide rich visual infor-
+mation, which encapsulates a wealth of geometric details, allowing
+for a possible understanding of the underlying geometry structure.
+To utilize the RGB information to enrich geometry details, we use
+the neural shader module from Worchel et al. [61], which is an
+implicit shading field 𝑆(𝒙, 𝒏, 𝒅) that maps a query position along
+with its normal and view direction to an RGB colour. The module is
+combined with the same differentiable rasterizer 𝑅to render RGB
+images. Given a camera view𝐶𝑖with the camera center 𝒄𝑖, we jointly
+optimize the shader’s parameters 𝜃and garment vertices 𝒗using
+the following RGB loss:
+LRGB(𝒗,𝜃) =
+1
+|I|
+∑︁
+𝑖∈I
+L1(𝑆( ˜𝒗𝑗𝑘, ˜𝒏𝑗𝑘, ˜𝒗𝑗𝑘−𝒄𝑖), (𝐼𝑖)𝑗𝑘),
+(3)
+where {𝐼𝑖} is the ground truth RGB images rendered from the gen-
+erated 3DGS, ˜𝒏= 𝑅({𝒏𝑗}, F𝑡,𝐶𝑖) and ˜𝒗= 𝑅({𝒗𝑗}, F𝑡,𝐶𝑖) are raster-
+ized vertex normals and positions, respectively.
+Simultaneously, we observed that the neural shader sometimes
+brings noise and artifacts, like protrusions and indentations, into
+geometry. To address this issue, we need to maintain the necessary
+geometry details like wrinkles while removing the noise. We pro-
+pose using normal estimation models to obtain estimated normal
+maps used for additional guidance, which can capture wrinkles and
+the overall normal information of the garment. The ground truth
+normal maps {𝑁𝑖} are inferred from the rendered RGB images from
+the generated 3DGS by a pre-trained normal estimator, Metric3D
+[65]. We then use the following normal loss to guide the geometry
+optimization:
+LN(𝒗) =
+1
+|I|
+∑︁
+𝑖∈I
+L1(𝑅({𝒏𝑗}, F𝑡,𝐶𝑖), 𝑁𝑖),
+(4)
+where {𝒏𝑗} is the set of vertex normals.
+Furthermore, the normals at the garment hole regions are not
+reliable since the renderings from the 3DGS at these regions are
+blurry and directly applying the normal map at the hole regions
+to the mesh deform process can result in the closure of the origi-
+nal openings. We propose using the coarse-stage mesh as the hole
+guidance to maintain the openings. we detect the hole region by
+checking the dot product between the garment surface normal and
+the camera direction. Specifically, the hole region mask within a
+
+
+GarmentDreamer: 3DGS Guided Garment Synthesis with Diverse Geometry and Texture Details
+•
+5
+rendered image is defined as
+( ˜𝑀𝐻
+𝑖)𝑗𝑘= ˜𝒏𝑗𝑘· ( ˜𝒗𝑗𝑘−𝒄𝑖) > 0.
+(5)
+We use the following hole loss to maintain the holes initially present
+in the template mesh after the coarse stage:
+L𝐻(𝒗) =
+1
+|I|
+∑︁
+𝑖∈𝐼
+MSE( ˜𝑀𝐻
+𝑖, 𝑀𝐻
+𝑖),
+(6)
+where 𝑀𝐻
+𝑖
+is the hole mask at the beginning of the fine stage. How-
+ever, the mask values are boolean, which are not differentiable. We
+manually skip the gradient of the binarization by letting
+𝜕L𝐻
+𝜕{ ˜𝒏𝑗𝑘· ( ˜𝒗𝑗𝑘−𝑐𝑖)} =
+𝜕L𝐻
+𝜕( ˜𝑀𝐻
+𝑖)𝑖,𝑗
+,
+(7)
+which can provide correct gradient directions.
+In summary, the loss function for the fine stage is the weighted
+sum of LM, LNC, LL, LN, LH, LRGB. These losses will align the
+geometry with the 3DGS appearance but also maintain the openings
+of the garment to ensure it is wearable and simulation-ready.
+3.4
+Texture Synthesis
+The final step of GarmentDreamer is to generate detailed textures
+for garment meshes. Since our goal is to synthesize simulation-ready
+garments with high-fidelity, high-quality textures, simply using the
+neural shader previously mentioned to extract vertex colors cannot
+achieve this with a limited number of mesh vertices. Notably, the
+RGB guidance from the 3DGS retain the original high-quality texture
+information in the form of multiple images. Following Instant-NGP
+[40], we propose using an implicit Neural Texture Field (NeTF) Φ(𝒙)
+to reconstruct these multiview images into high-quality textures,
+which can then be easily extracted onto a UV map. The functionality
+is equivalent to the aforementioned neural shader without depen-
+dency on surface normals and view directions, which maps a query
+position 𝒙to its color. We optimize NeTF using the following loss
+function:
+LT(𝜔) =
+1
+|I|
+∑︁
+𝑖∈I
+L1(Φ( ˜𝒗𝑗𝑘), (𝐼𝑖)𝑗𝑘),
+(8)
+where 𝜔is the parameters of the NeTF Φ and ˜𝒗is the rasterized
+template mesh vertex positions. Note that this texture reconstruction
+step does not require a large number of mesh vertices, allowing us
+to achieve both high-quality UV textures and maintain the mesh’s
+simulation-ready property without any extra post-process.
+For better visual quality and enhanced texture details, we utilize
+Variational Score Distillation (VSD) [60] to fine-tune the implicit
+texture fields. This process involves forwarding the NeTF to project
+a 2D image from a random view and feeding this projected image
+into the VSD framework to compute a perceptual loss. By backprop-
+agating this loss, we optimize the parameters of NeTF implicitly and
+improve the overall texture quality.
+After reconstruction and fine-tuning, we can easily query the
+color of any mesh point 𝒑, which is baked onto a texture map.
+3.5
+Garment Simulation
+We use the SMPL-X model [41] as the articulated human base to
+simulate garment dynamics. Initially, we manually adjust the gar-
+ment on the human template by scaling, translating, and altering the
+human pose. This rough fitting often results in numerous penetra-
+tions. To address this, we employ Position-Based Dynamics (PBD)
+[39] to push the garment mesh outside the human body. During
+this process, the garments are equipped with high stretching and
+bending stiffness to preserve the initial shape. Subsequently, we
+apply Codimensional Incremental Potential Contact (CIPC) [27] to
+simulate the garments on a human motion sequence, using man-
+ually selected physical parameters. The human mesh is treated as
+a moving boundary condition. We use CIPC because it can ensure
+penetration-free results, which is essential for accurate garment
+simulations. Note that the state generated by PBD is merely an
+initial feasible state for CIPC. The rest pose of the garment remains
+as originally generated, though adjustments in the scale of the pose
+can be made to modify the tightness of the fit.
+4
+EXPERIMENTS
+In this section, we conduct a thorough evaluation of Garment-
+Dreamer across various garment categories, providing both quanti-
+tative and qualitative comparisons with other state-of-the-art 3D
+generation methods. We also present ablation studies to highlight
+the effectiveness of the key components in our pipeline.
+4.1
+Showcases
+We visualize a range of 3D textured garment meshes generated by
+GarmentDreamer, encompassing diverse categories such as dresses,
+trousers, shirts, skirts, tees, and jumpsuits. GarmentDreamer not
+only produces intricate geometric details that align with pattern
+descriptions but also generates a variety of high-quality textures
+based on material descriptions. As shown in Fig. 3, GarmentDreamer
+successfully creates skirts and tees with consistent denim textures.
+Additionally, the generated non-watertight wearable garments are
+ready for direct application in simulations and animations. We show-
+case four dancing sequences in Fig. 1. Human motion are generated
+by Mixamo1. The animation sequences are in Fig. 4.
+4.2
+Comparison
+We compare GarmentDreamer against several state-of-the-art 3D
+generation methods: Text2Mesh [37], TextDeformer [14], and Won-
+der3D [34]. Text2Mesh and TextDeformer aim to optimize and de-
+form an initial mesh to the desired shape indicated in the text prompt.
+We use the same template mesh for GarmentDreamer and these
+deformation-based methods to ensure fairness. To compare our
+method with Wonder3D, which reconstructs 3D meshes from single-
+view images, we use DALLE-3 [2] to generate the images from text
+prompts as its input. To comprehensively compare GarmentDreamer
+with these three methods, we generate 21 distinct types of garments
+with each method, including shirts, dresses, skirts, and pants.
+4.2.1
+Quantitative Comparison. In the absence of a standardized
+metric for 3D generation quality, we focus on measuring the consis-
+tency between the generated garments and their text prompt inputs.
+We render each garment from 36 different views and compute the
+average CLIP similarity score between these rendered images and
+the corresponding text prompts. Given that TextDeformer does not
+handle textures, we render its results using a default color. Typically,
+1https://www.mixamo.com/
+
+
+6
+•
+Boqian Li, et al.
+“a black leather strapless dress”
+“a plain blue short sleeve full dress”
+“a traditional royal style dress made of blue and gold”
+“a American western cowboy style jumpsuit”
+“an Iron man upper body armor”
+“a silver metal armored trousers”
+“a blue denim skirt”
+“an orange leather skirt”
+“a yellow leather skirt”
+“a blue denim shirt”
+“a Spiderman shirt”
+“a yellow leather tee”
+“a pair of flared jeans”
+“a black tight leather pants”
+“a brown leather pants”
+“a blue denim sleeveless tee”
+“a Spiderman sleeveless armor”
+“a sleeveless tee made of brown leather”
+Fig. 3. Garment Gallery. We showcase a gallery of textured garment meshes of different clothing categories generated by GarmentDreamer. We refer to the
+supplementary material for closer observations of these garments and more generation results.
+text-to-2D/3D works utilize the vanilla CLIP model [45] for evalu-
+ating text-to-image alignment. However, this model is optimized
+for general subjects and lacks specificity for garment evaluation. To
+address this, we employ FashionCLIP [9], a model similar to CLIP
+but fine-tuned on a fashion dataset, making it more appropriate for
+our purposes.
+We report the comparison results in Table. 1, including both the
+FashionCLIP Similarity Score (FCSS) and the CLIP Similarity Score
+(CSS). Our method, which is specifically designed for 3D garments,
+outperforms all baselines in terms of text-garment alignment. Fur-
+thermore, our approach demonstrates faster performance compared
+to the two deformation-based baselines. Unlike joint optimization
+between CLIP-based guidance and mesh deformation, our method
+Table 1. Quantitative Comparisons. Our approach outperforms
+deformation-based and generative methods on both FashionCLIP similarity
+score (FCSS) which is pretrained on fashion datasets and vanilla OpenAI
+CLIP similarly score (CSS), supports generating openings on clothing as
+well as textures, and runs faster than prior deformation-based methods.
+Methods
+FCSS
+CSS
+Wearable
+Texture
+Runtime
+Text2Mesh
+0.3396
+0.2655
+✓
+✓
+∼20 mins
+TextDeformer 0.2367
+0.1657
+✓
+∼35 mins
+Wonder3D
+0.3402
+0.2509
+✓
+∼4 mins
+Ours
+0.3413
+0.2731
+✓
+✓
+∼15mins
+benefits from a decoupled and efficient 3DGS step followed by the
+mesh optimization step.
+4.2.2
+Qualitative Evaluation. GarmentDreamer ensures that the
+garment meshes maintain their geometric integrity and exhibit rich,
+
+
+GarmentDreamer: 3DGS Guided Garment Synthesis with Diverse Geometry and Texture Details
+•
+7
+Fig. 4. We use the SMPL-X mesh sequence to drive the dynamics of our generated garments. The utilization of CIPC resolves frictional collisions and
+self-collisions effectively and guarantees non-penetrative results in garment simulations.
+“an Iron man upper body armor”
+“a black leather dress”
+“black tight leather pants”
+Ours
+Text2Mesh
+Text
+Deformer
+Wonder3D
+Fig. 5. Normal Comparisons. We visualize the normal maps for a better comparison of garment geometry between GarmentDreamer and other methods.
+Our proposed method generates visually plausible garment meshes, featuring finer geometric details such as natural wrinkles and smooth boundaries.
+detailed textures, making them suitable for high-quality visual appli-
+cations. We visualize results of GarmentDreamer and other baselines
+in Fig. 6 and Fig. 5. The meshes produced by Text2Mesh often appear
+distorted with spiky artifacts due to the direct optimization of all
+vertex coordinates. TextDeformer alleviates this issue by parameter-
+izing deformation as Jacobians, but it tends to miss high-frequency
+details, resulting in overly smooth geometry. Wonder3D relies heav-
+ily on input images and frequently generates garments with closed
+sleeves or necklines due to limited garment-specific knowledge. In
+contrast, our method produces non-watertight, simulation-ready
+garments with realistic textures, enabling seamless downstream
+tasks like animation and virtual try-on.
+We further compare with Garment3DGen [47] and WordRobe
+[53] using the same text prompts; see Fig. 7. Cargo shorts generated
+by [53] have fewer details in grain lines, hemline, seam allowance,
+and side seams than ours. Armor created by Garment3DGen [47]
+aligns textures with image guidance, while ours generate detailed
+high-quality geometric structures.
+4.3
+Ablation
+In Fig. 8, we conduct ablation for key components in Garment-
+Dreamer, using the same 21 generated garments in § 4.2.
+Hole Loss. We first examine the effectiveness of the proposed
+hole loss L𝐻, a crucial component of our proposed 3DGS-guided
+mesh deformer, which ensures the openings stay non-closed during
+optimization. Without this, mesh deformation tends to enclose the
+arm and head holes, resulting in unwearable garment meshes.
+Normal Loss. Normal loss L𝑁ensures noise-free meshes. For the
+spiderman shirt example in Fig. 8, the garment surface without nor-
+mal loss guidance tends to be messy and noisy, and incorrectly rep-
+resents Spiderman texture as geometry structures, which is against
+fabric design in the real world.
+NeTF Enhancement. Our proposed NeTF enhancement via VSD
+facilitates better capture of fabrication attributes. As shown in Fig. 8,
+it could be observed that without NeTF enhancement, the pocket
+of the shirt and the waistband are blurry. In contrast, texture en-
+hancement leads to high-quality fabrication details, such as fold
+
+
+8
+•
+Boqian Li, et al.
+“a blue denim shirt”
+“a yellow leather skirt”
+“a traditional royal style dress made of blue silk”
+Ours
+Text2
+Mesh
+Text
+Deformer
+Wonder3D
+Fig. 6. Qualitative Comparisons. While baseline methods either produce unrealistic geometric artifacts, e.g. spikes and excessive smoothness, or non-garment
+textures, GarmentDreamer excels in generating high-quality, simulation-ready non-watertight garments with detailed textures and fine wrinkle details.
+“a medieval armor, highly detailed” 
+“blue denim cargo shorts” 
+Ours
+Garment3DGen
+Ours
+WordRobe
+Fig. 7. We compare with images from Garment3DGen [47] and WordRobe [53]. Ours show high-quality details.
+lines, grain lines, the seam allowance of the shirt, and clear fly piece,
+hemline, seam allowance, and side seam of the jumpsuit, which are
+crucial in traditional garment design.
+5
+LIMITATIONS AND FUTURE WORK
+There are several avenues for future research. Firstly, our method
+takes minutes rather than seconds for each generation process. Im-
+proving its efficiency and scalability is essential for its application to
+large-scale garment collections. Secondly, integrating differentiable
+physics-based dynamic simulations during the generation process
+may provide additional important physical guidance to improve the
+realism of the generated garments. Furthermore, parameterizing
+the geometry with 2D sewing patterns could offer multiple ben-
+efits: they facilitate a seamless connection to the manufacturing
+process, ensure a closer match between real and simulated cloth-
+ing, and provide a more intuitive design workflow for traditional
+fashion designers. Lastly, similar to other SDS-based 3D generation
+approaches, our method currently bakes some lighting effects such
+as specular highlights and shadows into the color map. Separating
+these effects via learning Physically-Based Rendering (PBR) materi-
+als would likely improve the quality and realism of the results.
+REFERENCES
+[1] Hugo Bertiche, Meysam Madadi, and Sergio Escalera. 2020. Cloth3d: clothed 3d
+humans. In European Conference on Computer Vision. Springer, 344–359.
+[2] James Betker, Gabriel Goh, Li Jing, Tim Brooks, Jianfeng Wang, Linjie Li, Long
+Ouyang, Juntang Zhuang, Joyce Lee, Yufei Guo, et al. 2023. Improving image gen-
+eration with better captions. Computer Science. https://cdn. openai. com/papers/dall-
+e-3. pdf 2, 3 (2023), 8.
+[3] Mario Botsch and Olga Sorkine. 2007. On linear variational surface deformation
+methods. IEEE transactions on visualization and computer graphics 14, 1 (2007),
+
+
+GarmentDreamer: 3DGS Guided Garment Synthesis with Diverse Geometry and Texture Details
+•
+9
+“a blue denim shirt”
+“a Spiderman shirt”
+“a pair of flared jeans”
+w/o hole loss ℒ𝐻𝐻: incorrect opening 
+w/o normal loss ℒ𝑁𝑁: texture mislead as geometry 
+w/o normal loss ℒ𝑁𝑁: texture mislead as geometry 
+final mesh ℱ𝑔𝑔
+w/o texture enhancement
+w/ texture enhancement
+Fig. 8. Ablation Study. From top to bottom are results of GarmentDreamer without hole loss L𝐻, normal loss L𝑁, final mesh without texture, texture
+without refinement, and final textured mesh respectively. Hole loss L𝐻, normal loss L𝑁offers clear openings, noise-free surface of the generated garment
+mesh. Texture enhancement provides high-quality details in hemline, seam allowance, grain line and wrinkles.
+213–230.
+[4] Andrés Casado-Elvira, Marc Comino Trinidad, and Dan Casas. 2022. PERGAMO:
+Personalized 3d garments from monocular video. In Computer Graphics Forum,
+Vol. 41. Wiley Online Library, 293–304.
+[5] Dave Zhenyu Chen, Yawar Siddiqui, Hsin-Ying Lee, Sergey Tulyakov, and
+Matthias Nießner. 2023. Text2tex: Text-driven texture synthesis via diffusion
+models. In Proceedings of the IEEE/CVF International Conference on Computer
+Vision. 18558–18568.
+[6] Jianchuan Chen, Wentao Yi, Liqian Ma, Xu Jia, and Huchuan Lu. 2023. GM-NeRF:
+Learning generalizable model-based Neural Radiance Fields from multi-view
+images. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition. 20648–20658.
+[7] Lan Chen, Lin Gao, Jie Yang, Shibiao Xu, Juntao Ye, Xiaopeng Zhang, and Yu-Kun
+Lai. 2023. Deep deformation detail synthesis for thin shell models. In Computer
+Graphics Forum, Vol. 42. Wiley Online Library, e14903.
+[8] Zilong Chen, Yikai Wang, Feng Wang, Zhengyi Wang, and Huaping Liu. 2024. V3d:
+Video diffusion models are effective 3d generators. arXiv preprint arXiv:2403.06738
+(2024).
+[9] Patrick John Chia, Giuseppe Attanasio, Federico Bianchi, Silvia Terragni, Ana Rita
+Magalhães, Diogo Goncalves, Ciro Greco, and Jacopo Tagliabue. 2022. Contrastive
+language and vision learning of general fashion concepts. Scientific Reports 12, 1
+(2022), 18958.
+[10] Gene Chou, Yuval Bahat, and Felix Heide. 2023. Diffusion-sdf: Conditional gen-
+erative modeling of signed distance functions. In Proceedings of the IEEE/CVF
+
+
+10
+•
+Boqian Li, et al.
+International Conference on Computer Vision. 2262–2272.
+[11] CLO3D. 2024. CLO3D garment design software. https://www.clo3d.com
+[12] Luca De Luigi, Ren Li, Benoît Guillard, Mathieu Salzmann, and Pascal Fua. 2023.
+Drapenet: Garment generation and self-supervised draping. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition. 1451–1460.
+[13] Harm De Vries, Florian Strub, Jérémie Mary, Hugo Larochelle, Olivier Pietquin,
+and Aaron C Courville. 2017. Modulating early visual processing by language.
+Advances in neural information processing systems 30 (2017).
+[14] William Gao, Noam Aigerman, Thibault Groueix, Vova Kim, and Rana Hanocka.
+2023. Textdeformer: Geometry manipulation using text guidance. In ACM SIG-
+GRAPH 2023 Conference Proceedings. 1–11.
+[15] Benoit Guillard, Federico Stella, and Pascal Fua. 2022. Meshudf: Fast and differen-
+tiable meshing of unsigned distance field networks. In European conference on
+computer vision. Springer, 576–592.
+[16] Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu, and Lan Xu. 2024. Dress-
+Code: Autoregressively Sewing and Generating Garments from Text Guidance.
+arXiv preprint arXiv:2401.16465 (2024).
+[17] Yi He, Haoran Xie, and Kazunori Miyata. 2023. Sketch2Cloth: Sketch-based 3D
+garment generation with unsigned distance fields. In 2023 Nicograph International
+(NicoInt). IEEE, 38–45.
+[18] Yicong Hong, Kai Zhang, Jiuxiang Gu, Sai Bi, Yang Zhou, Difan Liu, Feng Liu,
+Kalyan Sunkavalli, Trung Bui, and Hao Tan. 2023. Lrm: Large reconstruction
+model for single image to 3d. arXiv preprint arXiv:2311.04400 (2023).
+[19] Shuo Huang, Zongxin Yang, Liangting Li, Yi Yang, and Jia Jia. 2023. AvatarFusion:
+Zero-shot Generation of Clothing-Decoupled 3D Avatars Using 2D Diffusion.
+(2023), 5734–5745.
+[20] Xin Huang, Ruizhi Shao, Qi Zhang, Hongwen Zhang, Ying Feng, Yebin Liu, and
+Qing Wang. 2023. Humannorm: Learning normal diffusion model for high-quality
+and realistic 3d human generation. arXiv preprint arXiv:2310.01406 (2023).
+[21] Suyi Jiang, Haimin Luo, Haoran Jiang, Ziyu Wang, Jingyi Yu, and Lan Xu. 2023.
+MVHuman: Tailoring 2D Diffusion with Multi-view Sampling For Realistic 3D
+Human Generation. arXiv preprint arXiv:2312.10120 (2023).
+[22] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George Drettakis.
+2023. 3d gaussian splatting for real-time radiance field rendering. ACM Transac-
+tions on Graphics 42, 4 (2023), 1–14.
+[23] Byungjun Kim, Patrick Kwon, Kwangho Lee, Myunggi Lee, Sookwan Han, Daesik
+Kim, and Hanbyul Joo. 2023. Chupa: Carving 3d clothed humans from skinned
+shape priors using 2d diffusion probabilistic models. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision. 15965–15976.
+[24] Samuli Laine, Janne Hellsten, Tero Karras, Yeongho Seol, Jaakko Lehtinen, and
+Timo Aila. 2020. Modular Primitives for High-Performance Differentiable Ren-
+dering. ACM Transactions on Graphics 39, 6 (2020).
+[25] Lei Lan, Zixuan Lu, Jingyi Long, Chun Yuan, Xuan Li, Xiaowei He, Huamin
+Wang, Chenfanfu Jiang, and Yin Yang. 2024. Mil2: Efficient Cloth Simulation
+Using Non-distance Barriers and Subspace Reuse. arXiv preprint arXiv:2403.19272
+(2024).
+[26] Jumin Lee, Sebin Lee, Changho Jo, Woobin Im, Juhyeong Seon, and Sung-Eui
+Yoon. 2024. SemCity: Semantic Scene Generation with Triplane Diffusion. arXiv
+preprint arXiv:2403.07773 (2024).
+[27] Minchen Li, Danny M Kaufman, and Chenfanfu Jiang. 2021. Codimensional
+incremental potential contact. ACM Transactions on Graphics (TOG) 40, 4 (2021),
+1–24.
+[28] Weiyu Li, Rui Chen, Xuelin Chen, and Ping Tan. 2023. Sweetdreamer: Align-
+ing geometric priors in 2d diffusion for consistent text-to-3d. arXiv preprint
+arXiv:2310.02596 (2023).
+[29] Xuan Li, Yu Fang, Lei Lan, Huamin Wang, Yin Yang, Minchen Li, and Chenfanfu
+Jiang. 2023. Subspace-Preconditioned GPU Projective Dynamics with Contact
+for Cloth Simulation. In SIGGRAPH Asia 2023 Conference Papers. 1–12.
+[30] Yifei Li, Hsiao-yu Chen, Egor Larionov, Nikolaos Sarafianos, Wojciech Matusik,
+and Tuur Stuyck. 2023. DiffAvatar: Simulation-Ready Garment Optimization with
+Differentiable Simulation. arXiv preprint arXiv:2311.12194 (2023).
+[31] Tingting Liao, Hongwei Yi, Yuliang Xiu, Jiaxaing Tang, Yangyi Huang, Justus
+Thies, and Michael J Black. 2023. Tada! text to animatable digital avatars. arXiv
+preprint arXiv:2308.10899 (2023).
+[32] Fangfu Liu, Diankun Wu, Yi Wei, Yongming Rao, and Yueqi Duan. 2023. Sherpa3D:
+Boosting High-Fidelity Text-to-3D Generation via Coarse 3D Prior. arXiv preprint
+arXiv:2312.06655 (2023).
+[33] Lijuan Liu, Xiangyu Xu, Zhijie Lin, Jiabin Liang, and Shuicheng Yan. 2023. To-
+wards garment sewing pattern reconstruction from a single image. ACM Trans-
+actions on Graphics (TOG) 42, 6 (2023), 1–15.
+[34] Xiaoxiao Long, Yuan-Chen Guo, Cheng Lin, Yuan Liu, Zhiyang Dou, Lingjie
+Liu, Yuexin Ma, Song-Hai Zhang, Marc Habermann, Christian Theobalt, et al.
+2023. Wonder3d: Single image to 3d using cross-domain diffusion. arXiv preprint
+arXiv:2310.15008 (2023).
+[35] Shitong Luo and Wei Hu. 2021. Diffusion probabilistic models for 3d point cloud
+generation. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition. 2837–2845.
+[36] Maya. 2024. Autodesk Maya. https://www.autodesk.com/products/maya/
+[37] Oscar Michel, Roi Bar-On, Richard Liu, Sagie Benaim, and Rana Hanocka. 2022.
+Text2mesh: Text-driven neural stylization for meshes. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition. 13492–13502.
+[38] Matthias Müller and Nuttapong Chentanez. 2010. Wrinkle Meshes.. In Symposium
+on Computer Animation, Vol. 16. Madrid, Spain.
+[39] Matthias Müller, Bruno Heidelberger, Marcus Hennix, and John Ratcliff. 2007. Po-
+sition based dynamics. Journal of Visual Communication and Image Representation
+18, 2 (2007), 109–118.
+[40] Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller. 2022. In-
+stant neural graphics primitives with a multiresolution hash encoding. ACM
+transactions on graphics (TOG) 41, 4 (2022), 1–15.
+[41] Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani, Timo Bolkart, Ahmed AA
+Osman, Dimitrios Tzionas, and Michael J Black. 2019. Expressive body capture:
+3d hands, face, and body from a single image. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition. 10975–10985.
+[42] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Mildenhall. 2022. Dreamfusion:
+Text-to-3d using 2d diffusion. arXiv preprint arXiv:2209.14988 (2022).
+[43] Guocheng Qian, Jinjie Mai, Abdullah Hamdi, Jian Ren, Aliaksandr Siarohin, Bing
+Li, Hsin-Ying Lee, Ivan Skorokhodov, Peter Wonka, Sergey Tulyakov, et al. 2023.
+Magic123: One image to high-quality 3d object generation using both 2d and 3d
+diffusion priors. arXiv preprint arXiv:2306.17843 (2023).
+[44] Lingteng Qiu, Guanying Chen, Xiaodong Gu, Qi Zuo, Mutian Xu, Yushuang Wu,
+Weihao Yuan, Zilong Dong, Liefeng Bo, and Xiaoguang Han. 2023. Richdreamer:
+A generalizable normal-depth diffusion model for detail richness in text-to-3d.
+arXiv preprint arXiv:2311.16918 (2023).
+[45] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sand-
+hini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al.
+2021. Learning transferable visual models from natural language supervision. In
+International conference on machine learning. PMLR, 8748–8763.
+[46] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn
+Ommer. 2022. High-resolution image synthesis with latent diffusion models. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition.
+10684–10695.
+[47] Nikolaos Sarafianos, Tuur Stuyck, Xiaoyu Xiang, Yilei Li, Jovan Popovic, and
+Rakesh Ranjan. 2024. Garment3DGen: 3D Garment Stylization and Texture
+Generation. arXiv preprint arXiv:2403.18816 (2024).
+[48] Tianchang Shen, Jun Gao, Kangxue Yin, Ming-Yu Liu, and Sanja Fidler. 2021.
+Deep marching tetrahedra: a hybrid representation for high-resolution 3d shape
+synthesis. Advances in Neural Information Processing Systems 34 (2021), 6087–
+6101.
+[49] Yu Shen, Junbang Liang, and Ming C Lin. 2020. Gan-based garment generation
+using sewing pattern images. In Computer Vision–ECCV 2020: 16th European
+Conference, Glasgow, UK, August 23–28, 2020, Proceedings, Part XVIII 16. Springer,
+225–247.
+[50] Jaehyeok Shim, Changwoo Kang, and Kyungdon Joo. 2023. Diffusion-based signed
+distance fields for 3d shape generation. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition. 20887–20897.
+[51] J Ryan Shue, Eric Ryan Chan, Ryan Po, Zachary Ankner, Jiajun Wu, and Gordon
+Wetzstein. 2023. 3d neural field generation using triplane diffusion. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 20875–
+20886.
+[52] Olga Sorkine, Daniel Cohen-Or, Yaron Lipman, Marc Alexa, Christian Rössl, and
+H-P Seidel. 2004. Laplacian surface editing. In Proceedings of the 2004 Eurograph-
+ics/ACM SIGGRAPH symposium on Geometry processing. 175–184.
+[53] Astitva Srivastava, Pranav Manu, Amit Raj, Varun Jampani, and Avinash Sharma.
+2024. WordRobe: Text-Guided Generation of Textured 3D Garments. arXiv
+preprint arXiv:2403.17541 (2024).
+[54] Style3D. 2024. Style3D digital fashion solution. https://www.linctex.com
+[55] Jiapeng Tang, Yinyu Nie, Lev Markhasin, Angela Dai, Justus Thies, and Matthias
+Nießner. 2023. Diffuscene: Scene graph denoising diffusion probabilistic model
+for generative indoor scene synthesis. arXiv preprint arXiv:2303.14207 (2023).
+[56] Jiaxiang Tang, Jiawei Ren, Hang Zhou, Ziwei Liu, and Gang Zeng. 2023. Dream-
+gaussian: Generative gaussian splatting for efficient 3d content creation. arXiv
+preprint arXiv:2309.16653 (2023).
+[57] An Dinh Vuong, Minh Nhat Vu, Toan Nguyen, Baoru Huang, Dzung Nguyen,
+Thieu Vo, and Anh Nguyen. 2024. Language-driven Scene Synthesis using Multi-
+conditional Diffusion Model. Advances in Neural Information Processing Systems
+36 (2024).
+[58] Jionghao Wang, Yuan Liu, Zhiyang Dou, Zhengming Yu, Yongqing Liang, Xin
+Li, Wenping Wang, Rong Xie, and Li Song. 2023. Disentangled Clothed Avatar
+Generation from Text Descriptions. (2023). arXiv:2312.05295 [cs.CV]
+[59] Yue Wang, Yongbin Sun, Ziwei Liu, Sanjay E Sarma, Michael M Bronstein, and
+Justin M Solomon. 2019. Dynamic graph cnn for learning on point clouds. ACM
+Transactions on Graphics (tog) 38, 5 (2019), 1–12.

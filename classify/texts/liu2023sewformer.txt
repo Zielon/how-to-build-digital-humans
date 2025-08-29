@@ -1,0 +1,1143 @@
+Title: Towards garment sewing pattern reconstruction from a single image
+
+Towards Garment Sewing Pattern Reconstruction from a Single Image
+LIJUAN LIU∗, Sea AI Lab, Singapore
+XIANGYU XU∗†, Xi’an Jiaotong University, China and Sea AI Lab, Singapore
+ZHIJIE LIN∗, Sea AI Lab, Singapore
+JIABIN LIANG∗, Sea AI Lab, Singapore
+SHUICHENG YAN‡, Sea AI Lab, Singapore
+(a) RGB image
+(b) Sewing pattern
+(c) Reproduction
+(d) Texture editing
+(e) Shape editing
+(f) Pose editing
+Fig. 1. Given a single RGB image of a clothed human (a), the proposed algorithm can accurately recover the underlying garment sewing pattern (b), leading to
+wide applications in virtual/augmented reality, for example, 3D garment mesh reconstruction (c) and 3D garment editing in terms of garment texture (d),
+human shape (e), and human pose (f).
+Garment sewing pattern represents the intrinsic rest shape of a garment,
+and is the core for many applications like fashion design, virtual try-on,
+and digital avatars. In this work, we explore the challenging problem of
+recovering garment sewing patterns from daily photos for augmenting these
+applications. To solve the problem, we first synthesize a versatile dataset,
+named SewFactory, which consists of around 1M images and ground-truth
+sewing patterns for model training and quantitative evaluation. SewFactory
+covers a wide range of human poses, body shapes, and sewing patterns,
+and possesses realistic appearances thanks to the proposed human texture
+synthesis network. Then, we propose a two-level Transformer network
+called Sewformer, which significantly improves the sewing pattern predic-
+tion performance. Extensive experiments demonstrate that the proposed
+framework is effective in recovering sewing patterns and well generalizes
+to casually-taken human photos. Code, dataset, and pre-trained models are
+available at: https://sewformer.github.io.
+CCS Concepts: • Computing methodologies →Reconstruction; Shape
+representations; Shape inference; Shape analysis.
+Additional Key Words and Phrases: Garment Reconstruction, Sewing Pat-
+terns, Transformer
+∗Joint first authors.
+†Work done at Sea AI Lab.
+‡Corresponding author.
+Authors’ addresses: Lijuan Liu, Sea AI Lab, Singapore, liulj@sea.com; Xiangyu Xu, Xi’an
+Jiaotong University, China and Sea AI Lab, Singapore, xuxiangyu2014@gmail.com;
+Zhijie Lin, Sea AI Lab, Singapore, jiewinchester@gmail.com; Jiabin Liang, Sea AI Lab,
+Singapore, liangjb@sea.com; Shuicheng Yan, Sea AI Lab, Singapore, shuicheng.yan@
+gmail.com.
+This paper is published under the Creative Commons Attribution 4.0 International
+(CC-BY 4.0) license. Authors reserve their rights to disseminate the work on their
+personal and corporate Web sites with the appropriate attribution.
+© 2023 IW3C2 (International World Wide Web Conference Committee), published
+under Creative Commons CC-BY 4.0 License.
+0730-0301/2023/12-ART198
+https://doi.org/10.1145/3618319
+ACM Reference Format:
+Lijuan Liu, Xiangyu Xu, Zhijie Lin, Jiabin Liang, and Shuicheng Yan. 2023.
+Towards Garment Sewing Pattern Reconstruction from a Single Image. ACM
+Trans. Graph. 42, 6, Article 198 (December 2023), 15 pages. https://doi.org/
+10.1145/3618319
+1
+INTRODUCTION
+In this paper, we study the problem of estimating garment sewing
+patterns from a single RGB image (Fig. 1). A garment sewing pat-
+tern [Bang et al. 2021; Korosteleva and Lee 2021, 2022] is a collection
+of 2D polygons called panels that can be stitched together to form a
+garment. It represents the intrinsic rest shape of a garment disentan-
+gled from the undesirable complicacy induced by extrinsic factors,
+such as external physical forces, collisions, and fabric properties.
+Moreover, it is parametric and thus allows direct and interpretable
+control over the garment design.
+Existing works on sewing pattern reconstruction mainly rely on
+rich 3D information as input, such as high-quality 3D scans [Bang
+et al. 2021] or point clouds [Korosteleva and Lee 2022] which are
+not accessible for general users, limiting their applications in many
+practical scenarios. In this work, we focus on a more challenging
+task: estimating sewing patterns from a single image, which can
+be obtained with only a regular camera or from monocular human
+photos on the Internet. The estimated sewing pattern enables more
+accessible garment manipulation, such as clothes draping on novel
+body poses, and flexible editing of the shape of a captured garment,
+and further benefits many downstream applications in metaverse,
+such as virtual try-on, garment design, and avatar creation. However,
+this problem is very challenging and is still less explored due to
+both the inherent ill-posedness of 2D-to-3D conversion and the
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+arXiv:2311.04218v1  [cs.CV]  7 Nov 2023
+
+
+198:2
+•
+Lijuan Liu, Xiangyu Xu, Zhijie Lin, Jiabin Liang, and Shuicheng Yan
+complicacy of real-world conditions, such as varied camera views,
+challenging human poses, and occlusions.
+Currently, among the few works in this direction, most of them
+adopt optimization-based approaches for sewing pattern recon-
+struction from images [Jeong et al. 2015; Yang et al. 2018]. Though
+achieving good results by imposing heuristic rules and priors, these
+methods are typically slow in inference due to the time-consuming
+optimization process, less user-friendly due to the difficulty of hyper-
+parameter tuning for different images, and susceptible to real-world
+inputs where the manually-designed rules could be violated. Re-
+cently, Chen et al. [2022a] propose a deep neural network for recov-
+ering sewing patterns. Nevertheless, this method does not consider
+the variations in garment types, human poses, and textures of real-
+world photos, and thereby cannot generalize well to in-the-wild
+data.
+In this work, we target a data-driven framework for efficient and
+generalizable sewing pattern reconstruction using a single image.
+There are two major challenges for building such a framework.
+First, there is a lack of suitable training data. Existing garment
+datasets either do not have sewing pattern annotations [Zhu et al.
+2020] or are insufficiently diverse and realistic in terms of clothes
+appearances and human poses [Korosteleva and Lee 2021]. To close
+this gap, we synthesize a new large-scale dataset, called SewFactory.
+SewFactory consists of one million image-and-sewing-pattern pairs
+with diverse garments under a wide range of human shapes and
+poses, facilitating more effective model training and evaluation. In
+order to synthesize such a dataset, a common challenge faced by
+many recent datasets [Bertiche et al. 2020; Korosteleva and Lee
+2021] is that the rendered human body lacks photorealistic textures.
+A simple solution to this problem is to directly apply pre-scanned
+human textures [Varol et al. 2017] onto human meshes. However,
+this approach often leads to low-quality appearances and artifacts
+due to poor scan quality, low human diversity, and 3D discontinuity
+in UV mapping. To address this issue, we develop a novel neural
+network for textured human synthesis, which enhances our dataset
+by adding more realistic skin, faces, and hair. Besides, SewFactory
+has abundant high-quality annotations, including depth maps, 3D
+human shapes and poses, garment meshes and textures, and 3D
+semantic segmentation labels, which could potentially benefit other
+tasks in Metaverse beyond this work.
+The second challenge is that the data structures of sewing pat-
+terns are highly irregular and vary significantly across different
+samples. Specifically, different garments may consist of different
+numbers of panels, and different panels may be enclosed by differ-
+ent numbers of edges. Moreover, estimating the stitch information,
+i.e., how individual edges of panels are connected to each other,
+further complicates the problem. To handle this issue, we propose
+a two-level Transformer network, called Sewformer, which aligns
+more closely with the data structure of sewing patterns. It sepa-
+rately learns the panel and edge representation in a hierarchical
+manner and thereby achieves higher-quality results than the exist-
+ing baseline models. In addition, we propose a new panel shape loss
+as well as an SMPL-based regularization loss for network training,
+which helps the proposed Sewformer learn from the large amount
+of training data more effectively.
+To summarize, our contributions are as follows:
+3D human 
+shape and pose
+Depth
+ Garment 
+mesh
+Normal
+Segmentation 
+map
+Densepose
+RGB
+Sewing 
+pattern
+Fig. 2. Annotations of the SewFactory dataset. We generate around one
+million RGB images where each is annotated with diverse ground-truth
+labels in the figure, supporting a wide variety of tasks in computer vision
+and graphics.
+• We study the challenging problem of sewing pattern recon-
+struction from a single unconstrained human image. We
+make early explorations to solve this problem and introduce
+Sewformer, a novel two-level Transformer network, which
+achieves high-quality results for sewing pattern reconstruc-
+tion from an image.
+• To facilitate effective model training and evaluation, we present
+SewFactory, a versatile and realistic dataset comprising ap-
+proximately one million image-and-sewing-pattern pairs. This
+dataset offers diverse clothing styles and human poses, en-
+abling improved model performance.
+• To improve the quality of our data, we develop a novel method
+for human texture synthesis. This method generates diverse
+and photorealistic human images under challenging poses,
+contributing to the realism and diversity of our dataset.
+• We propose new loss functions that improve the training of
+Sewformer, further enhancing the quality of the reconstructed
+garment panels.
+2
+RELATED WORK
+2.1
+Garment Sewing Pattern Reconstruction
+Existing works for garment sewing pattern reconstruction can be
+roughly categorized into 3D-based [Bang et al. 2021; Chen et al. 2015;
+Goto and Umetani 2021; Hasler et al. 2007; Korosteleva and Lee 2022;
+Liu et al. 2018] and image-based approaches [Chen et al. 2022a; Jeong
+et al. 2015; Wang et al. 2018a; Yang et al. 2018], depending on their
+input type.
+3D-based sewing pattern reconstruction. Early approaches in this
+direction use either template matching [Chen et al. 2015; Hasler
+et al. 2007] or surface flattening [Bang et al. 2021; Sharp and Crane
+2018] for sewing pattern reconstruction from point clouds or 3D
+meshes of dressed humans. More recently, some researchers have
+explored data-driven methods for recovering sewing patterns from
+3D data [Goto and Umetani 2021; Korosteleva and Lee 2022]. Goto
+and Umetani [2021] propose a deep convolutional neural network
+(CNN) [Isola et al. 2017] together with exponential map [Schmidt
+et al. 2006] for garment panel reconstruction. Korosteleva and Lee
+[2022] propose NeuralTailor, which employs a hybrid network archi-
+tecture for recovering the garment panels and stitching information
+from point clouds. While these methods have achieved good results,
+their reliance on high-quality 3D input data limits their usage in
+many applications where 3D sensors are not accessible.
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+
+
+Towards Garment Sewing Pattern Reconstruction from a Single Image
+•
+198:3
+Table 1. Comparison of the proposed SewFactory dataset with existing datasets. SewFactory is the first large-scale dataset that provides sewing pattern
+annotations along with high pose variation and realistic garment and human textures. “#Garment” denotes the number of garment instances. “Pose Var”
+indicates the level of pose variation exhibited in the dataset, with “None” denoting that all human is in a fixed T-pose. “G-Texture Var” and “H-Texture Var”
+represent garment texture and human texture variations, respectively.
+Dataset
+Real/Syn
+#Garment
+Pose Var
+Sewing Pattern
+G-Texture Var
+H-Texture Var
+MGN [Bhatnagar et al. 2019]
+Real
+712
+Low
+✘
+Low
+Low
+DeepFasion3D [Zhu et al. 2020]
+Real
+563
+Low
+✘
+Low
+None
+3DPeople [Pumarola et al. 2019]
+Syn
+80
+High
+✘
+Low
+Low
+Cloth3D [Bertiche et al. 2020]
+Syn
+11.3k
+High
+✘
+High
+Low
+Wang et al. [Wang et al. 2018a]
+Syn
+8k
+None
+✔
+Low
+None
+Korosteleva and Lee [Korosteleva and Lee 2021]
+Syn
+22.5k
+None
+✔
+Low
+None
+SewFactory
+Syn
+19.1k
+High
+✔
+High
+High
+Image-based sewing pattern reconstruction. Due to the intrinsic
+difficulties of sewing pattern reconstruction from 2D data, there
+are only a limited number of studies in this area [Chen et al. 2022a;
+Jeong et al. 2015; Wang et al. 2018a; Yang et al. 2018]. Jeong et al.
+[2015] estimate sewing patterns from a single image by predicting
+the garment type and the primary body sizes via searching in a pre-
+defined database. However, this method is less efficient due to the
+exhaustive search process and does not generalize well for poses that
+are not in the database. Yang et al. [2018] recover sewing patterns by
+estimating panel parameters with iterative optimization [Kennedy
+and Eberhart 1995]. Nevertheless, this method requires different
+templates for different garment types and relies on tedious prepro-
+cessing and registration steps, which can be both computationally
+intensive and error-prone. Wang et al. [2018a] propose an encoder-
+decoder network for sewing pattern recovery from sketch images.
+However, this approach requires training separate models for differ-
+ent garments, making it less practical for handling a wide range of
+garment types in real-world scenarios. In addition, it is primarily
+designed for sketch images and cannot be easily applied to natural
+human photos. More recently, Chen et al. [2022a] propose a CNN-
+based model that can predict garment panels from a single image
+for multiple garment types. To handle the irregular data structure
+of various garment panels, this method employs PCA to simplify
+the panel data structure. However, this approach is only designed
+for predefined panel groups, restricting the output garment space.
+Moreover, due to the limitation of existing garment datasets, it only
+works well for human images in a standard T-pose, and its per-
+formance degenerates significantly for in-the-wild images that are
+captured under unconstrained poses. Unlike the above methods, we
+propose a new model called Sewformer, which together with the
+proposed SewFactory dataset, can effectively handle the irregular
+structures of various garment panels without PCA compression and
+generate high-quality results for unconstrained human images with
+diverse shapes and poses.
+3D garment mesh reconstruction from images. This work is also
+related to recent works on image-based 3D garment mesh recon-
+struction [Moon et al. 2022; Patel et al. 2020; Saito et al. 2019, 2020;
+Tiwari and Bhowmick 2021; Wang et al. 2018b; Zhao et al. 2021;
+Zhu et al. 2020]. These methods mainly train deep neural networks
+to directly regress the garment mesh from images, which can well
+reconstruct the coarse garment shape but struggle to produce real-
+istic geometry details. Moreover, most of these works suffer from
+over-smoothing artifacts in the areas invisible to the camera. In
+contrast, our work provides a new paradigm for image-based 3D
+garment mesh reconstruction, which first recovers sewing patterns
+from the image and then generates 3D garment mesh with the re-
+covered patterns using an off-the-shelf simulation engine. This new
+paradigm is closer to the real physical process of constructing a
+posed garment. Therefore, it can achieve higher-quality 3D garment
+reconstruction with realistic geometry details and produce physi-
+cally plausible results even for the occluded areas. This paradigm is
+also highly flexible for garment editing and character animation.
+2.2
+Garment Datasets
+Garment data plays a key role in building data-driven models for
+sewing pattern recovery. There are mainly two types of garment
+datasets: 3D scanning and physical simulation. The first type is con-
+structed by capturing real garments with 3D scanners [Bhatnagar
+et al. 2019; Ma et al. 2020; Tiwari et al. 2020; Zhang et al. 2017; Zhu
+et al. 2020]. While possessing realistic appearances and dynamics,
+these datasets are limited in size due to the high cost of 3D scanning.
+For example, a typical dataset of this kind, DeepFasion3D [Zhu et al.
+2020], comprises only 563 scanned garments, which is relatively
+small for training generalizable deep neural networks. The second
+type of garment datasets uses physical simulation engines for data
+synthesis [Bertiche et al. 2020; Hewitt et al. 2023; Jiang et al. 2020;
+Pumarola et al. 2019], which overcomes the limitations of 3D-scan-
+based datasets and allows for the generation of larger amounts of
+garment data at a much lower cost. Nevertheless, most of these
+datasets lack sewing pattern labels and thus are not suitable for
+our task. Among the few existing datasets that do provide sewing
+patterns, [Narain et al. 2012] and [Wang et al. 2018a] do not have
+a diverse range of garment panels; although [Korosteleva and Lee
+2021] provides various panel templates with different topologies, it
+does not consider the complex textures and materials of real-world
+garments and only simulates the garments on a fixed T-pose human
+model without a realistic human texture, which leads to a significant
+domain gap with real-world images, hindering the generalization
+ability of trained models.
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+
+
+198:4
+•
+Lijuan Liu, Xiangyu Xu, Zhijie Lin, Jiabin Liang, and Shuicheng Yan
+To address these issues, we contribute a new synthetic garment
+dataset by sampling more sewing patterns and simulating the gar-
+ments on a wide range of human shapes and poses. We augment the
+dataset by adding realistic garment textures and material properties
+to mimic daily human photographs. We also introduce a human
+texture synthesis network to generate diverse and realistic human
+appearances, which further improves the quality of our data. The
+proposed dataset provides various high-quality ground-truth labels,
+such as sewing patterns, segmentation masks, 3D human shape and
+pose, and garment meshes, making it useful for a wide variety of
+applications in fashion research and industry.
+2.3
+Textured Human Synthesis
+As mentioned above, we propose a human texture synthesis network
+to generate photorealistic human images for our garment dataset.
+Since generating realistic textures plays an important role in many
+applications, such as human avatar creation, it has attracted great
+interest in recent years [Albahar et al. 2021; Fu et al. 2022; Lassner
+et al. 2017; Sarkar et al. 2021a,b, 2020; Wang et al. 2019; Weng et al.
+2020; Xian et al. 2018; Xiang et al. 2022; Zhang et al. 2020].
+Some works for this problem aim to generate realistic textured hu-
+man with clothed human images as exemplars based on the full-body
+sketch, segmentation mask, or pose-aware representations [Albahar
+et al. 2021; Sarkar et al. 2021a, 2020; Xian et al. 2018; Zhang et al.
+2020]. Meanwhile, another line of work synthesizes textured human
+from some pre-defined attributes [Weng et al. 2020] or from ran-
+domly sampled noise with GAN architecture [Fu et al. 2022; Sarkar
+et al. 2021b].
+Recently, some works focus on generating texture maps that are
+3D-aware or can be directly utilized on 3D human meshes [Alldieck
+et al. 2019; Bhatnagar et al. 2019; Chaudhuri et al. 2021; Chen et al.
+2022b; Grigorev et al. 2021; Han et al. 2019; Huang et al. 2020; La-
+zova et al. 2019; Saito et al. 2020; Xu and Loy 2021; Yang et al.
+2022; Zhao et al. 2020]. Among them, reconstruction-based meth-
+ods [Alldieck et al. 2019; Bhatnagar et al. 2019; Huang et al. 2020;
+Lazova et al. 2019; Saito et al. 2020; Zhao et al. 2020] aim to predict
+the 3D geometry (e.g. normal) from RGB images. Some methods
+instead generate 3D-aware textures [Han et al. 2019] or full-body
+textured humans [Grigorev et al. 2021; Yang et al. 2022] by using
+garment templates or body shape and pose.
+A major difference between these methods and our work is that
+to build the garment dataset, we are supposed to keep the simulated
+garments unchanged while synthesizing the human textures for
+the target pose. This introduces additional challenges, as we need
+to generate humans with realistic skin and hair while maintaining
+challenging or even out-of-distribution poses without altering their
+corresponding garments. To fulfill these requirements, we devise a
+novel human texture synthesis network that introduces a learnable
+texture encoding, which facilitates effective texture extraction and
+warping.
+3
+SEWFACTORY DATASET
+We present a new dataset, SewFactory, for sewing pattern recovery
+from a single image. A comprehensive comparison between Sew-
+Factory and other existing garment datasets can be found in Table 1.
+Simulator
+Human texture 
+synthesis
+Z
+Texture
+3D human
+Pz
+~
+Sewing pattern
+Fabric
+AMASS
+θ, β
+~
+Simulated garment
+Clothed human
+Garment parameter
+SMPL
+Fig. 3. Overview of the proposed data synthesis pipeline. We first
+generate high-quality garments under different human shapes and poses
+with physical simulation and then synthesize realistic human body textures
+with a novel neural network.
+Notably, SewFactory possesses high pose variability and a diverse
+range of garments and human textures, which effectively closes the
+domain gap with real-world inputs. Moreover, SewFactory provides
+abundant ground-truth labels as shown in Fig. 2, which could poten-
+tially benefit many applications even beyond the task in this work.
+The whole pipeline for dataset generation is shown in Fig. 3, which
+consists of two main steps: garment simulation and human texture
+synthesis.
+3.1
+Garment Simulation
+In this step, we start by sampling a set of garment parameters,
+including sewing patterns, textures, and fabrics, as well as human
+body parameters. These parameters are then used to synthesize
+garments with a physical simulator [Choi and Ko 2002].
+We use the templates in [Korosteleva and Lee 2021] to generate
+the sewing patterns, which cover a wide range of garment shapes
+and topologies. We first uniformly sample template parameters such
+as the sleeve length and hem width, and then generate the sewing
+pattern of each garment with the templates similar to [Korosteleva
+and Lee 2021]. A sewing pattern is composed of two parts: a group of
+𝑁𝑃panels {𝑃𝑖}𝑁𝑃
+𝑖=1 and their stitching information 𝑆. Each panel 𝑃𝑖
+is a closed 2D polygon encompassed by a list of 𝑁𝑖edges {𝐸𝑖,𝑗}𝑁𝑖
+𝑗=1.
+Each edge 𝐸is a Bezier curve that can be represented by four scalars
+𝑥,𝑦,𝑐𝑥,𝑐𝑦, where (𝑥,𝑦) is the 2D vector from the start to the end
+of the edge, and (𝑐𝑥,𝑐𝑦) is the control point of the Bezier curve
+defined in a local coordinate system. In addition, each panel 𝑃𝑖is
+associated with a 3D rotation 𝑅𝑖∈SO(3) and a translation 𝑇𝑖∈R3,
+which describe the relative pose and position between the panel 𝑃𝑖
+and the human body. 𝑅𝑖and 𝑇𝑖are used in the physical simulation
+process of cloth draping. The stitching information 𝑆is defined by
+pairs of edges {(𝑖, 𝑗), (𝑖′, 𝑗′)} indicating that the 𝑖-th panel’s 𝑗-th
+edge is sewn with the 𝑖′-th panel’s 𝑗′-th edge.
+To simulate a diverse range of garment data, we assign a unique
+set of material parameters to each sample, corresponding to a unique
+fabric object and textile image. We utilize three commonly-used
+fabric presets, namely cotton, silk, and velvet, as the basic fabric
+types. Each fabric encompasses various properties specific to that
+fabric type, and we introduce random perturbations to the property
+values to simulate garments with different levels of shininess, elas-
+ticity, and other fabric-specific characteristics. In order to enhance
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+
+
+Towards Garment Sewing Pattern Reconstruction from a Single Image
+•
+198:5
+the appearance diversity of the simulated garments, we curate a col-
+lection of approximately 600 textile images with free license. These
+images serve as the source texture, to which we apply random aug-
+mentations, such as scaling and color jittering, to expand the range
+of visual appearances.
+We use the Qualoth simulator [Choi and Ko 2002] to simulate
+the garment dynamics. During the simulation, we randomly pair up
+the top and bottom garments, such as T-shirts and pants, to form
+garment sets, and then drape each garment set onto a unique 3D hu-
+man model. The 3D human model is parameterized by SMPL [Loper
+et al. 2015], which uses two parameters 𝛽∈R10 and 𝜃∈R24×3 to
+control the 3D human shape and pose. To ensure a sufficient amount
+of variation in pose, we sample 13.7k poses from the AMASS dataset
+[Mahmood et al. 2019] which are further interpolated into more
+poses using Maya [Autodesk, INC. 2019]. For each pose, we ran-
+domly sample a shape parameter 𝛽from a uniform distribution
+within the range of [-1.5, 1.5]. This is in sharp contrast to exist-
+ing datasets [Korosteleva and Lee 2021; Wang et al. 2018a] that
+only consider garments under a fixed T-pose template, leading to a
+significant domain gap with real-world photos.
+For each simulated garment, we render 24 views from cameras
+uniformly distributed around the human body using Arnold ren-
+derer [Georgiev et al. 2018]. In some rare cases, the simulator pro-
+duces inappropriate simulation results, such as with wrong sizes
+or self-intersection, which are manually removed. Overall, the gar-
+ment simulation leads to around one million RGB images with paired
+sewing pattern labels, where 85k images are used for testing, and
+the remaining is used for training. Our data splitting ensures no
+garment or pose is repeated in training and testing.
+3.2
+Human Texture Synthesis
+While the proposed simulation system is able to produce high-
+quality garments and sewing patterns, the generated images still
+suffer from an important shortcoming that the rendered human
+body lacks photorealistic textures (Fig. 4 (a)). Note that this is a com-
+mon challenge faced by many recent datasets [Bertiche et al. 2020;
+Korosteleva and Lee 2021]. A simple solution to this problem is to di-
+rectly apply pre-scanned human textures, e.g., SURREAL [Varol et al.
+2017], onto human meshes. However, this approach often leads to
+low-quality results (Fig. 4 (b)) due to noise and artifacts in scanning,
+limited human diversity, and 3D discontinuities in UV mapping. To
+address this issue, we develop a deep neural network for human tex-
+ture synthesis, which enhances our dataset by adding more realistic
+skin, faces, and hair. As shown in Fig. 4 (c), this network allows us
+to greatly improve the realism and overall quality of the generated
+images. Instead of creating human textures from scratch, we utilize
+images of real humans [Liu et al. 2016] as a reference. This simplifies
+our task by reducing it to transferring the texture of a real human
+(Fig. 4 (e)) to the target pose (Fig. 4 (f)). Specifically, given a refer-
+ence image 𝑅img ∈R3×𝐻×𝑊where 𝐻and 𝑊are the height and
+width of the image, we aim to extract the appearance information
+of 𝑅img and then apply it to the target pose 𝑇pose ∈R3×𝐻×𝑊. We
+use Densepose [Güler et al. 2018] to represent the target pose, as
+we find it better represents the semantic information of different
+pixels of the human body.
+(b) SURREAL
+(a) w/o texture
+(c) Ours
+(d) Ours w/o diff
+(e) Reference (f) Target pose
+Fig. 4. Comparison of different human textures. (a) Original simulation
+output that does not have human texture; (b) textured human by using
+pre-scanned SURREAL texture [Varol et al. 2017]; (c) our result; (d) our result
+without diffusion editing. Instead of creating human textures from scratch,
+we synthesize textured human by transferring the texture of a reference
+image (e) to the target pose (f).
+One straightforward approach to this texture transfer task is to
+directly concatenate 𝑅img and 𝑇pose and then feed the concatenated
+input into a deep CNN to generate the desired human image. How-
+ever, this method has a major drawback in that it cannot accurately
+preserve the target pose, resulting in artifacts due to mismatch with
+the simulated garment. Moreover, it tends to overfit training poses
+and degenerates severely on out-of-distribution poses in test data.
+To address this issue, we propose to first extract the texture map of
+the human body and then warp the texture to the target pose. An
+overview of the proposed framework for textured human synthesis
+is shown in Fig. 5, which is comprised of three stages as below.
+3.2.1
+Neural texture extraction. At the core of the texture extraction
+stage is the texture extractor in Fig. 5. It maps a texture encoding
+𝑇enc ∈R𝐷×𝑁p×𝐻tex×𝑊tex to a texture map 𝑇tex ∈R𝐷×𝑁p×𝐻tex×𝑊tex
+by aggregating the information from the reference image 𝑅img,
+where 𝐻tex,𝑊tex, 𝐷are the height, width, and number of channels
+of the texture map, and 𝑁p is the number of body parts defined in
+Densepose [Güler et al. 2018].𝑇tex can be seen as a generalization of
+the UV map in [Xu and Loy 2021], which describes the 3D textures
+of different body parts. 𝑇enc is a learnable encoding tensor that is
+randomly initialized and shared across different samples. Similar
+to [Xu and Loy 2021], we first use a deep CNN encoder to convert
+𝑅img into feature space. Then texture extractor exploits the cross
+attention mechanism to non-locally distribute the information of
+𝑅img into 𝑇tex. Next, we warp the learned texture features 𝑇tex to
+the target pose 𝑇pose with bilinear sampling, which generates the
+warped features 𝑇warp ∈R𝐷×𝐻×𝑊. Our neural texture extraction
+approach ensures the synthesized human body always conforms to
+the target pose, resulting in a proper fit for the simulated garment.
+In addition, as the texture extractor is decoupled from the target
+pose, our method is less susceptible to out-of-distribution test poses.
+3.2.2
+Human synthesis. While one can use𝑇warp as the final output
+(by setting 𝐷= 3), it often leads to low-quality head regions as the
+Densepose is not capable of precisely depicting the human head.
+Instead, we generate the textured human 𝑇human with another deep
+CNN (“Texture synthesis” in Fig. 5) under the guidance of the head
+part of the reference image, denoted by 𝑅head. We adopt the U-Net
+architecture [Ronneberger et al. 2015] for the texture synthesis CNN,
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+
+
+198:6
+•
+Lijuan Liu, Xiangyu Xu, Zhijie Lin, Jiabin Liang, and Shuicheng Yan
+Encoder
+Texture
+extractor
+Texture
+warping
+Texture
+synthesis
+Mask
+fusion
+Diffusion
+editing
+Reference image 
+Texture encoding 
+Learned texture 
+Target pose 
+Reference head 
+Simulated garment 
+Synthesized image 
+Final output 
+Neural texture extraction
+Human synthesis
+Post-processing
+Fig. 5. Overview of the proposed framework for human texture synthesis. First, we use a shared texture encoding 𝑇enc to extract texture features 𝑇tex
+from the reference image 𝑅img and then warp these features to the target pose 𝑇pose. Next, we generate textured human 𝑇gen by first mapping the warped
+features 𝑇warp to RGB human textures 𝑇human and then fusing 𝑇human with the simulated garment 𝑇garment with mask fusion. Finally, we employ a diffusion
+editing module to further refine the synthesized result.
+and the guidance information of 𝑅head is injected with the adaptive
+normalization of StyleGAN [Karras et al. 2019]. With the synthesized
+human body𝑇human, we can generate the clothed human image with
+mask fusion:
+𝑇gen = 𝑇human · (1 −Mask) +𝑇garment · Mask,
+where𝑇garment and Mask are the garment texture and mask obtained
+from the simulation system.
+We train our network with a combination of pixel-wise loss,
+perceptual loss [Johnson et al. 2016], feature-matching loss [Xu et al.
+2017], and adversarial loss [Goodfellow et al. 2020].
+3.2.3
+Post-processing. As shown in Fig. 4 (d), the direct output𝑇gen
+from the human synthesis network still contains a considerable
+amount of artifacts and distortions. To further improve the quality
+of the generated human, we employ diffusion models [Rombach et al.
+2022] as a powerful image prior for post-processing. Specifically,
+we follow the SDEdit framework [Meng et al. 2021] to refine the
+human images. We first perturb the synthesized image 𝑇gen with a
+moderate ratio of Gaussian noise and then progressively remove
+the noise with a denoising network, which effectively improves
+the realism of the final output 𝑇out (Fig. 4 (c)) and closes the gap
+with real human photos. Eventually, the proposed data generation
+pipeline enables highly diversified results with various poses and
+realistic appearances as shown in Fig. 6.
+4
+SEWING PATTERN RECONSTRUCTION
+As introduced in Section 3.1, the sewing pattern in our SewFactory
+dataset has a highly irregular data structure, making it unsuitable
+for the commonly-used deep CNNs that are primarily designed for
+regular data structures. Instead, we propose a new model, called
+Sewformer, to better accommodate this data. We also propose new
+loss functions to facilitate training of Sewformer.
+4.1
+Architecture
+An overview of Sewformer is shown in Fig. 7. It consists of three
+main components: (a) a visual encoder to learn sequential visual
+representations from the input image, (b) a two-level Transformer
+Fig. 6. Example results of human texture synthesis. The proposed algo-
+rithm generalizes well to various challenging poses in the black boxes.
+decoder to obtain the sewing pattern in a hierarchical manner, and
+(c) a stitch prediction module that recovers how different panels are
+stitched together to form a garment.
+One of the key designs of our work is the two-level structure of
+the Transformer decoder. It provides a simple yet effective way to
+handle garment sewing patterns. This design is novel and has not
+been previously applied to the task of garment reconstruction.
+4.1.1
+Visual encoder. To use Transformers for sewing pattern re-
+construction, we employ the visual encoder to convert the input
+image into sequential data. Specifically, we first generate a low-
+resolution feature map 𝐹∈R𝐶×𝐻𝐹×𝑊𝐹from the input image with
+a CNN backbone (ResNet-50 [He et al. 2016] in our experiments).
+Then we serialize 𝐹by reshaping it into𝐶× 𝐻𝐹𝑊𝐹where the spatial
+dimensions are flattened in 1D. These serialized features are sub-
+sequently processed by a Transformer encoder to learn the visual
+tokens 𝐹vis ∈R𝐶×𝐻𝐹𝑊𝐹, where each encoder layer consists of a
+standard multi-head self-attention module and an MLP similar to
+[Vaswani et al. 2017].
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+
+
+Towards Garment Sewing Pattern Reconstruction from a Single Image
+•
+198:7
+Transformer
+Encoder
+Panel
+Decoder
+Edge
+Decoder
+…
+Panel 
+queries
+…
+Expand
+…
+Edge 
+queries
+CNN
++
+…
+Panels
+Stitch 
+Prediction
+Input image
+Image
+features
+Visual 
+tokens
+Panel 
+tokens
+…
+Rotation &
+Translation 
+Reconstructed
+garment
+Expanded 
+tokens
+…
+Edge 
+Tokens
+Similarity 
+Matrix
+Stitch
+Prediction
+…
+…
+…
+Predicted
+Edges
+Sewing
+Pattern
+(a)
+(c)
+(b)
+Fig. 7. Overview of the proposed Sewformer. We first send the input image into a visual encoder (a) to generate a sequence of visual tokens. Then the
+visual tokens are fed into a two-level Transformer decoder (b) to produce panel-level and edge-level feature tokens, which are subsequently used to recover the
+garment panels. The edge features are also used to estimate the stitching relations via the stitch prediction module (c).
+4.1.2
+Two-level Transformer decoder. Based on the learned visual
+tokens 𝐹vis, we propose a two-level Transformer decoder to recover
+the garment panels {𝑃𝑖}𝑁𝑃
+𝑖=1 that are introduced in Section 3.1. As
+shown in Fig. 7, the first level (panel decoder) is designed to ex-
+tract the overall information of the panels; the second level (edge
+decoder) is dedicated to learning the specific shapes of the panels by
+recovering the edge information. As will be shown in Section 5, com-
+pared to normal Transformers that only have a one-level decoder,
+the proposed Sewformer considers the two-level (panel and edge)
+characteristics of sewing patterns and is able to more effectively
+recover the garments in a coarse-to-fine manner.
+For the panel decoder, we first randomly initialize 𝑁𝑃panel
+queries {𝑄𝑖
+P}𝑁𝑃
+𝑖=1 with Gaussian distribution. These panel queries
+are trained using backpropagation along with the whole model. We
+predict the panel tokens {𝐹𝑖
+𝑃}𝑁𝑃
+𝑖=1 by applying a multi-head cross-
+attention layer between the queries 𝑄𝑖
+𝑃and the visual tokens 𝐹vis:
+𝐹𝑖
+𝑃= CrossAttention(𝑄𝑖
+P, 𝐹vis).
+(1)
+Then we can use an MLP to predict the 3D rotation and translation
+of the panels, i.e., 𝑅𝑖,𝑇𝑖= MLP(𝐹𝑖
+𝑃).
+Similar to the panel decoder, we initialize a set of random query
+embeddings for all the panel edges in the edge decoder which are
+learned in training. We use a maximum number of panel and edge
+queries and remove invalid predictions during inference (edges with
+lengths near zero and panels with fewer than three edges). Then
+we combine each edge query with its corresponding panel feature
+using element-wise sum and pass the combined embeddings into an
+MLP to obtain the final edge queries. In this way, the edge queries
+belonging to the same panel share the same panel feature, which
+facilitates producing consistent edges.
+Furthermore, the coarse-to-fine learning process, which progresses
+from panel to edge, effectively alleviates the difficulties in training,
+while directly learning a large number of edges could be overwhelm-
+ing and lead to undesirable local minimums.
+Similar to Eq. 1, we feed the edge queries and visual tokens into a
+cross-attention layer to generate each edge token 𝐹𝑖𝑗
+𝐸(corresponding
+to the 𝑗-th edge of the 𝑖-th panel). The edge tokens are then used in
+an MLP to predict the Bezier edge parameter 𝐸𝑖,𝑗= MLP(𝐹𝑖𝑗
+𝐸).
+4.1.3
+Stitch prediction. Our stitch prediction module is similar to
+that of NeuralTailor [Korosteleva and Lee 2022]. As introduced in
+Section 3.1, the stitches are defined by pairs of edges from different
+panels. Since stitched two edges typically have similar features, such
+as orientations and spatial locations, we predict whether two edges
+form a stitch based on the similarity between the edge features. As
+shown in Fig. 7, we first construct the similarity matrix between
+all pairs of edges in the predicted sewing pattern using the learned
+edge tokens as stitch tags and then obtain the stitch predictions by
+iteratively finding the maximum values in the matrix. Specifically,
+since the similarity matrix is symmetric, we first remove its lower
+triangular part. We identify the maximum value of the remaining
+entries and then eliminate the corresponding row and column. This
+process is iterated until all the stitches are determined.
+4.2
+Loss Function
+Our training objective is composed of three parts: a panel prediction
+loss, a stitch prediction loss, and an SMPL-based regularization term:
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+
+
+198:8
+•
+Lijuan Liu, Xiangyu Xu, Zhijie Lin, Jiabin Liang, and Shuicheng Yan
+Ltotal = 𝜆1Lpanel + 𝜆2Lstitch + 𝜆3LSMPL,
+(2)
+where 𝜆1, 𝜆2, 𝜆3 are hyperparameters to balance each term. We use
+a stitch prediction loss Lstitch similar to [Korosteleva and Lee 2022],
+and the other two terms are explained below.
+4.2.1
+Panel prediction loss. The panel prediction loss consists of
+three terms: 1) the shape loss Lshape to encourage high-fidelity
+shapes of the reconstructed panels; 2) the loop loss Lloop to en-
+force that the edges of a panel form a closed loop; 3) the rotation
+and translation loss LRT to encourage accurate 3D rotation and
+translation predictions:
+Lpanel = Lshape + Lloop + LRT,
+(3)
+where Lloop and LRT are defined the same way as NeuralTailor [Ko-
+rosteleva and Lee 2022].
+For the shape loss, a straightforward choice is to use the one
+in NeuralTailor [Korosteleva and Lee 2022] as well, which directly
+penalizes the L2 distance between the predicted edge and the ground-
+truth edge (solid blue lines in Fig. 8(a)). Nevertheless, we find that
+this is not always an adequate measure of shape discrepancy be-
+tween different panels. For instance, despite the shape of Prediction-
+1 in Fig. 8(b) being closer to the ground truth in Fig. 8(a) than
+Prediction-2 in Fig. 8(c), the two predictions yield the same value
+for the per-edge loss Lshape-NT.
+An important cause for this problem is that the per-edge loss
+only provides 1D comparisons (lines) between the prediction and
+the ground truth, resulting in sparse and implicit supervision of
+the 2D shapes. To explicitly enforce shape similarity in 2D, a better
+solution is to convert the panel edges into binary 2D masks and
+penalize the discrepancy between these masks. However, this con-
+version involves rasterization operations that are non-differentiable,
+resulting in difficulties in training.
+To address this issue, we propose a novel shape loss Lshape to
+approximate the 2D mask loss, as illustrated in Fig. 8(d). We start
+by collecting a set of vertices on the panel edges and sampling
+support vectors on the panel by connecting each pair of vertices.
+Our shape loss Lshape is then defined as the L2 error between the
+support vectors in the predicted panels and those in the ground-truth
+panels. Lshape can be seen as a densified version of the per-edge
+loss Lshape-NT, which better encourages 2D shape similarity with
+the ground truth. As expected, the more support vectors that are
+sampled, the better our shape loss approximates the 2D mask loss.
+In our implementation, we use the endpoints and midpoints of the
+panel edges as the vertices for simplicity.
+To more intuitively understand why sampling more vectors on
+the panel leads to a better shape loss, we provide a toy example of
+two edge vectors on the panel, i.e., 𝑣1 and 𝑣2 in Fig. 8(b). Denoting
+the ground-truth vectors as ˆ𝑣1 and ˆ𝑣2, the per-edge loss could be
+written as:
+∥𝑣1 −ˆ𝑣1∥+ ∥𝑣2 −ˆ𝑣2∥= ∥Δ𝑣1∥+ ∥Δ𝑣2∥,
+(4)
+(a) Ground Truth
+(b) Prediction-1
+(c) Prediction-2
+(d) 
+∆ǚ1
+∆ǚ2
+∆ǚ1 + ∆ǚ2
+ح1
+ح2
+(e) Analysis of 
+ǚ1
+ǚ2
+ǚ1 + ǚ2
+Fig. 8. Illustration of the proposed panel shape loss. (a) depicts a ground
+truth panel. (b) Each edge of Prediction-1 is slightly shorter than the cor-
+responding edge in the ground truth. (c) While most edges of Prediction-2
+match the ground truth exactly, the two right-side edges exhibit significant
+errors. Overall, (b) and (c) have the same per-edge loss Lshape-NT [Korostel-
+eva and Lee 2022]. (d) shows the support vectors connecting vertices on
+the edges, including the endpoints (green) and midpoints (orange). We only
+show the support vectors emanating from the dark green vertex and omit
+others for clarity. (e) provides an intuitive analysis of Lshape, showing how
+it encourages more evenly distributed errors among edges of the panel.
+where we define Δ𝑣= 𝑣−ˆ𝑣, and ∥· ∥represents the L2 norm.
+Correspondingly, the proposed Lshape becomes:
+∥𝑣1 −ˆ𝑣1∥+ ∥𝑣2 −ˆ𝑣2∥+ ∥(𝑣1 + 𝑣2) −(ˆ𝑣1 + ˆ𝑣2)∥
+=∥Δ𝑣1∥+ ∥Δ𝑣2∥+ ∥Δ𝑣1 + Δ𝑣2∥
+=(1 + cos𝛼1)∥Δ𝑣1∥+ (1 + cos𝛼2)∥Δ𝑣2∥,
+(5)
+where 𝑣1 + 𝑣2 is the newly-added support vector in Fig. 8(b), and
+the angles 𝛼1 and 𝛼2 are defined in Fig. 8(e). By comparing Eq. 4
+and 5, we can see that the proportion between the two errors ∥Δ𝑣1∥
+and ∥Δ𝑣2∥are adjusted by the proposed shape loss. Suppose that
+the prediction of 𝑣1 has a larger error than 𝑣2, i.e., ∥Δ𝑣1∥> ∥Δ𝑣2∥,
+then we have (1 + cos𝛼1)/(1 + cos𝛼2) > 1, implying that larger
+errors are more heavily penalized in Eq. 5. In other words, Lshape
+encourages more evenly distributed errors among all edges, and
+thereby the prediction in Fig. 8(b) is preferred over Fig. 8(c).
+For simplicity of the explanation, we assume the predicted edges
+are lines instead of Bezier curves in Eq. 4. However, the underlying
+concept remains valid, as curves can be effectively approximated by
+piece-wise lines.
+4.2.2
+SMPL-based regularization loss. To further improve the es-
+timation of 3D garment panels, a good understanding of the 3D
+human pose in the input image could be beneficial. As the garment
+panels are typically closely related to the shape and movement of
+the body, the 3D human pose that describes the position and orien-
+tation of body parts can provide vital information to infer the shape
+and location of the garment panels in 3D space, even when they are
+partially visible or occluded in the input image.
+Motivated by this idea, we introduce an SMPL-based regulariza-
+tion loss term in Eq. 2 to guide the training process of Sewformer.
+Specifically, we add an extra set of pose queries to the panel queries
+in Fig. 7(b), which leads to an additional output of 3D human pose
+𝜃after the panel decoder. Then the regularization term LSMPL is
+defined as the mean squared error between the predicted 3D hu-
+man pose and the ground truth. As the learned pose features are
+adaptively blended into panel tokens by the attention mechanism
+in the panel decoder, LSMPL essentially facilitates garment panel
+reconstruction with human pose information. Note that we did not
+supervise the human shape 𝛽as we empirically find no benefits in
+our experiments. Thanks to the abundant labels provided by the
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+
+
+Towards Garment Sewing Pattern Reconstruction from a Single Image
+•
+198:9
+SewFactory dataset, we can easily apply the SMPL regularization
+term in a supervised manner.
+4.3
+Relationship with NeuralTailor
+The proposed Sewformer is related to NeuralTailor [Korosteleva
+and Lee 2022], as both designs share similar elements such as the
+loop and RT losses in Eq. 3. Nevertheless, Sewformer introduces
+several fundamental improvements and contributions that distin-
+guish it from NeuralTailor. First, Sewformer utilizes a new two-level
+Transformer model, which effectively handles the complex data
+structure of sewing patterns. This design is a significant departure
+from the hybrid architecture of EdgeCNN, attention-MLP, and LSTM
+used in NeuralTailor. While being much simpler, it results in better
+accuracy in high-quality sewing pattern reconstruction. Second,
+we introduce two novel loss functions, Lshape and LSMPL, which
+significantly improve the training process. In addition, different
+from prior methods [Chen et al. 2022a; Korosteleva and Lee 2022]
+that only handle one garment at a time (upper or lower clothes),
+the proposed Sewformer is capable of predicting the panels for the
+entire clothing set in a single model run. To separate the recovered
+panels into upper and lower garments, we leverage the predicted
+stitching relations and group connected panels into the same clothes
+piece. Lastly, empowered by the SewFactory dataset, our proposed
+algorithm is capable of effectively handling casual human photos
+captured in unconstrained poses, while NeuralTailor is limited to
+T-pose inputs, restricting its applicability in real-world scenarios.
+5
+EXPERIMENTS
+We first describe the implementation details of the proposed Sew-
+former. Then we provide qualitative and quantitative evaluations of
+our algorithm on both synthetic and real-world images.
+5.1
+Implementation Details
+Dataset. We use the SewFactory dataset to train and evaluate our
+proposed Sewformer. We group panels of different garment types
+based on their spatial attributes, such as top front, top back, sleeve
+left front, etc., resulting in 24 semantic panel classes. For efficient
+training, we align all garment parameters and ensure that they have
+the same dimension by applying zero padding.
+Training. During training, we apply random rotation, affine, and
+perspective augmentations to the input images, followed by resizing
+to a fixed size of 384×384. We use the AdamW optimizer. We set the
+initial learning rate of the Transformer to 10−4, the initial learning
+rate of the CNN backbone to 10−5, and the weight decay to 10−4.
+The backbone is initialized with pre-trained weights from ImageNet,
+while the rest of the model is initialized randomly. We train the
+models for 40 epochs using 8 A100 GPUs with a total batch size of
+512. To balance the different loss terms in the objective function
+(Eq. 2), we set the hyperparameters as 𝜆1 = 10, 𝜆2 = 0.5, and 𝜆3 = 1.
+5.2
+Comparison with the State of the Art
+We compare the proposed algorithm against NeuralTailor [Korostel-
+eva and Lee 2022], the state-of-the-art method for recovering gar-
+ment sewing patterns. Since NeuralTailor is designed for 3D point
+clouds, we adapt it to our task by replacing the original graph-based
+encoder with a ResNet-50 architecture for feature extraction. The
+extracted image features are spatially flattened and treated as point
+features in the subsequent modules of NeuralTailor. As NeuralTailor
+is originally trained on the dataset of [Korosteleva and Lee 2021],
+it is only suitable for fixed T-pose garments and cannot handle
+diverse human poses captured in everyday photos. For a more com-
+prehensive comparison, we retrain NeuralTailor on our proposed
+SewFactory dataset.
+Evaluation metrics. We use the same evaluation metrics as [Ko-
+rosteleva and Lee 2022]: 1) Panel L2: the L2 distance between the
+edge parameters of the predicted and ground-truth panels, measur-
+ing the quality of shape predictions; 2) Rot L2 and Trans L2: the L2
+error of the predicted rotations 𝑅and translations 𝑇compared to
+their ground truth; 3) #Panel: the accuracy of the predicted number
+of panels within each garment pattern; 4) #Edges: the accuracy of
+the number of edges within each correctly-predicted panel; 5) the
+precision, recall, and F1 score of the stitches, evaluating the quality
+of recovered stitching relations.
+Quantitative evaluation. As shown in Table 2, our Sewformer
+demonstrates superior performance compared to NeuralTailor across
+multiple evaluation metrics. In particular, our method achieves a
+relative decrease of 19% in Panel L2 error, a relative decrease of
+32% in Rot L2 error, a relative decrease of 34% in Trans L2 error,
+an absolute increase of 5.1% in #Panel accuracy, and an absolute
+increase of 11.2% in F1 score, showing the effectiveness of our algo-
+rithm. Meanwhile, our method exhibits a slightly lower accuracy in
+#Edges compared to NeuralTailor. This discrepancy arises due to the
+fact that our approach well recovers more panels than NeuralTai-
+lor, including panels that consist of particularly challenging edges.
+Consequently, these challenging edges contribute to the increased
+complexity of edge estimation in our #Edges results.
+Furthermore, it is worth mentioning that Sewformer and Neural-
+Tailor are trained using different loss functions. To emphasize the
+efficacy of the architecture of Sewformer, we also retrain Neural-
+Tailor using our proposed loss functions (denoted as NeuralTailor∗
+in Table 2). Although NeuralTailor∗demonstrates improvements
+across most metrics compared to the baseline, it still clearly falls
+short of the performance of Sewformer.
+Qualitative evaluation. We present qualitative evaluations in Fig. 9.
+It is evident that our proposed model outperforms NeuralTailor by a
+substantial margin. Particularly, the results obtained from NeuralTai-
+lor exhibit significant deficiencies in terms of fidelity and accuracy.
+For instance, the skirt appears distorted, and the waistband takes
+on an irregular polygonal form, deviating from the ground-truth
+rectangular shape. In contrast, Sewformer produces more precise
+details, such as the length of the skirts and pants.
+Comparing with NSM.. We further compare the proposed Sew-
+former with NSM [Chen et al. 2022a]. Since the code for NSM is
+not publicly available, we directly use the reconstructed garment
+mesh provided by the original authors for comparison. As shown
+in Fig. 10, our method produces high-quality results, while the re-
+sults of NSM suffer from low fidelity and artifacts. Moreover, these
+artifacts make it problematic to simulate the garment of NSM for
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.
+
+
+198:10
+•
+Lijuan Liu, Xiangyu Xu, Zhijie Lin, Jiabin Liang, and Shuicheng Yan
+Input
+NeuralTailor*
+Sewformer†
+Sewformer
+Ground Truth
+Fig. 9. Qualitative evaluation of panel predictions by different methods on our dataset. For each method, the two columns represent the front view
+and back view results, respectively. Major errors of the baseline approaches are highlighted with red edges. In the last row, the display order for the 4-panel
+skirt is left-front-right-back. Please see the caption of Table 2 for the explanations of the baseline methods.
+Table 2. Quantitative evaluation on the SewFactory dataset. The evaluation metrics are introduced in Section 5.2. Sewformer† is a variant of our model
+with a one-level Transformer decoder. NeuralTailor∗is the NeuralTailor model [Korosteleva and Lee 2022] trained with our proposed loss functions. ↑: the
+higher the better; ↓: the lower the better.
+Model
+Panel L2 ↓
+Rot L2 ↓
+Trans L2 ↓
+#Panel ↑
+#Edges ↑
+Precision ↑
+Recall ↑
+F1 score ↑
+Sewformer
+3.57
+0.0205
+0.693
+88.7%
+97.5%
+96.1%
+95.4%
+95.7%
+Sewformer†
+3.91
+0.0322
+0.979
+87.5%
+95.6%
+82.8%
+98.9%
+90.1%
+NeuralTailor∗
+4.15
+0.0347
+0.995
+83.8%
+97.5%
+76.8%
+99.6%
+86.7%
+NeuralTailor
+4.41
+0.0300
+1.050
+83.6%
+97.8%
+81.5%
+87.8%
+84.5%
+Table 3. Effectiveness of the proposed loss functions. “w/o Lshape”
+represents the model trained with Lshape-NT.
+Model
+Panel L2 ↓
+Rot L2 ↓
+Trans L2 ↓
+#Panel ↑
+#Edges ↑
+full model
+3.57
+0.0205
+0.693
+88.7%
+97.5%
+w/o Lshape
+3.71
+0.0260
+0.966
+88.2%
+97.8%
+w/o LSMPL
+3.63
+0.0243
+0.897
+86.1%
+97.9%
+different poses, while our results can be conveniently manipulated
+and edited as elaborated in Section 5.4.
+5.3
+Ablation Study
+Effectiveness of the two-level architecture. In Section 4.1, we pro-
+pose a two-level Transformer decoder to handle the hierarchical
+Input
+NSM
+Sewformer
+Fig. 10. Comparison with NSM [Chen et al. 2022a]. The proposed algo-
+rithm achieves higher-quality garment reconstruction.
+structure of sewing patterns. To investigate the impact of this de-
+sign, we train a variant of the Sewformer with a one-level decoder
+(denoted as Sewformer†), which relies on the panel tokens to query
+the garment information from the visual encoder and predicts the
+final edge vectors with a subsequent MLP. As shown in Table 2,
+ACM Trans. Graph., Vol. 42, No. 6, Article 198. Publication date: December 2023.

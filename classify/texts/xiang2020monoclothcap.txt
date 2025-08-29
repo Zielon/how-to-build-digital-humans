@@ -1,0 +1,1161 @@
+Title: Monoclothcap: Towards temporally coherent clothing capture from monocular rgb video
+
+MonoClothCap: Towards Temporally Coherent Clothing Capture
+from Monocular RGB Video
+Donglai Xiang1*
+Fabian Prada2
+Chenglei Wu2
+Jessica Hodgins1,3
+1Carnegie Mellon University
+2Facebook Reality Labs Research
+3Facebook AI Research
+{donglaix,jkh}@cs.cmu.edu
+{fabianprada,chenglei}@fb.com
+SMPL
+Output
+Input
+SMPL
+Output
+Input
+Figure 1: Given a monocular RGB video as input, our proposed method captures temporally coherent dynamic clothing
+deformation that cannot be explained by a bare human body model. From left to right, we show the input frame, body
+capture results using the SMPL model [28], and our clothing capture results.
+Abstract
+We present a method to capture temporally coherent dy-
+namic clothing deformation from a monocular RGB video
+input. In contrast to the existing literature, our method does
+not require a pre-scanned personalized mesh template, and
+thus can be applied to in-the-wild videos. To constrain the
+output to a valid deformation space, we build statistical de-
+formation models for three types of clothing: T-shirt, short
+pants and long pants. A differentiable renderer is utilized
+to align our captured shapes to the input frames by mini-
+mizing the difference in both silhouette, segmentation, and
+texture. We develop a UV texture growing method which ex-
+pands the visible texture region of the clothing sequentially
+in order to minimize drift in deformation tracking. We also
+extract ﬁne-grained wrinkle detail from the input videos by
+ﬁtting the clothed surface to the normal maps estimated by
+a convolutional neural network. Our method produces tem-
+porally coherent reconstruction of body and clothing from
+monocular video. We demonstrate successful clothing cap-
+ture results from a variety of challenging videos. Exten-
+sive quantitative experiments demonstrate the effectiveness
+of our method on metrics including body pose error and
+surface reconstruction error of the clothing.
+*Work partly done during internship at Facebook AI Research.
+1. Introduction
+Dynamic capture of detailed human geometry and mo-
+tion from monocular images and videos is attracting in-
+creasing attention in the computer vision and computer
+graphics community. High-quality human capture would
+enable applications in virtual and augmented reality, games,
+and movies. In recent years, great progress has been made
+on the estimation of general body shape from a single image
+or a monocular video [22, 54, 34, 37]. However, capturing
+the detailed deformation of clothing as it moves on the hu-
+man body is still far from a solved problem.
+Capturing a temporally coherent shape for clothing from
+monocular RGB imagery is an extremely challenging task,
+due to the fundamental ambiguity of single-view 3D recon-
+struction and the large deformation space of clothing. Previ-
+ous work [53, 16, 17] utilizes a 3D personalized actor model
+as a shape prior to track the dynamic clothing deformation.
+This model is acquired by multi-view reconstruction on an
+additional video of the same actor wearing the same cloth-
+ing and rotating in a T-pose. However, such a model is gen-
+erally unavailable for in-the-wild videos. The need for a
+pre-scanned template model limits the applicability of these
+approaches.
+With the development of deep neural networks, other
+efforts have been made to regress a clothed human shape
+directly from a single input image with supervised learn-
+ing [48, 33, 43, 47, 59, 4, 44].
+These methods produce
+1
+arXiv:2009.10711v2  [cs.CV]  23 Nov 2020
+
+
+plausible results for individual input images of common
+human poses. However, it is difﬁcult to extend them to
+capture temporally coherent dynamic clothing deformation
+from monocular videos for the following reasons.
+First,
+these methods are not robust to the variety of human motion
+due to the limited diversity of training data. They can easily
+produce incomplete geometry that is difﬁcult to ﬁx via post-
+processing. Second, it is non-trivial to estimate the temporal
+correspondence from the output of individual frames due to
+the data representation used (voxel [48, 59], depth map [47]
+or implicit function [48, 33, 43, 47, 59, 4, 44]). This lim-
+its the application of these methods in scenarios that require
+correspondence, such as clothing retargeting or image edit-
+ing.
+In this work, we present a novel method to capture dy-
+namic clothing deformation from a monocular RGB video
+in a temporally coherent manner, as illustrated by Fig. 1.
+To the best of our knowledge, it is the ﬁrst attempt to solve
+this challenging problem without the prerequisite of a pre-
+scanned personalized template [53, 16, 17].
+Our method is based on the following observations.
+First, a deformation model of the clothing that provides a
+statistical shape prior is key to solving the problem. It not
+only reduces the ambiguity of single-view 3D reconstruc-
+tion, but also helps to estimate temporal correspondence
+across frames. While clothing models have been investi-
+gated in the existing literature [55, 30] for the purpose of
+clothing shape generation, our work is the ﬁrst study that
+fully demonstrates the value of a clothing model for RGB-
+based clothing capture1. Second, to solve the clothing cap-
+ture problem, we make use of human appearance informa-
+tion including silhouette, segmentation, texture and surface
+normal. We present a novel method to integrate all those im-
+age measurements using a differentiable renderer [27, 12].
+Our method captures the realistic dynamic of clothing in a
+temporally coherent manner including ﬁne-grained wrinkle
+details from various videos.
+Our Contributions.
+(1) We present the ﬁrst approach
+for temporally coherent clothing capture from a monocu-
+lar RGB video without using a pre-scanned template of the
+subject. (2) We propose a novel method to capture cloth-
+ing deformation by ﬁtting statistical clothing models to im-
+age measurements including silhouette, segmentation, tex-
+ture and surface normal with a differentiable renderer.
+2. Related Work
+Single-Image Human Pose and Shape Estimation. Most
+previous work in human pose estimation focuses on the
+position of body keypoints in 2D [50, 11, 10] and 3D
+[60, 38, 46].
+Because estimating 3D pose from single
+1Due to the limitation in types of available clothing data to train our
+model, in this paper, we assume that the subject to be captured wears a
+T-shirt on the upper body and shorts or pants on the lower body.
+images is highly ill-posed, deformable human models in-
+cluding SMPL [28], SMPL-X [36] and Adam [21] are
+used to help with the problem by ﬁtting the models to im-
+ages [8, 36, 52]. These models not only provide a strong
+prior for body pose, but also enable estimation of 3D body
+shape from single images. Deformable human models can
+be further integrated in deep neural network architectures
+[22, 34, 37, 54]. These networks are usually trained in a
+weakly-supervised manner without full 3D supervision.
+Because deformable human models are not able to ex-
+press clothing shape, all the work above only estimates
+body shapes with minimal clothing. Detailed clothing shape
+has been largely ignored in the previous literature, except a
+few papers [48, 33, 43, 59, 47, 13]. These methods use
+deep neural networks to infer dense clothed human shapes
+in various data representation including voxels [48, 59],
+depth maps [47], point clouds [13] and implicit functions
+[33, 43, 44, 19], all with supervised learning. However, be-
+cause the amount of available training data is very limited,
+these methods are not robust to human motion. In addition,
+it is non-trivial to estimate correspondence across frames re-
+quired for clothing capture due to their data representation.
+Our method achieves temporally coherent body and cloth-
+ing capture in terms of both geometry and correspondence
+with the help of a statistical clothing model.
+Garment Modeling and Reconstruction. Human cloth-
+ing, especially physically based simulation of garments
+[6, 9, 49, 45, 26], has been extensively studied due to its
+important role in animation. Recently, there is growing in-
+terest in modeling garments in a data-driven manner. Pons-
+Moll et al. [39] proposes a method to automatically segment
+4D clothed human scans into different garment pieces, and
+track the deformation of each piece over time. The cap-
+tured clothing data can be further used to train a deformable
+model, either a linear model [55] or a deep neural network
+[30]. In those methods, the clothing models are primarily
+used for shape generation, while we use the model to track
+clothing deformation from a monocular video.
+Another line of work reconstructs clothing shape from
+images by allowing per-vertex deformation on top of the
+SMPL body model. Alldieck et al. [3, 2] builds clothed
+human avatar from videos of a person slowly rotating in A-
+pose. This is further improved to use only images of several
+different views [1, 7] or even a single image [4]. However,
+these methods reconstruct clothing as static objects without
+considering the temporal dynamics. By contrast, in this pa-
+per, we address the challenging problem of capturing cloth-
+ing dynamics from a monocular video.
+Monocular Human Performance Capture. Motion cap-
+ture and performance capture refer to the capture of space-
+time coherent human motion sequences in the form of
+sparse 3D joints and surface geometry respectively. Many
+approaches have been developed to enable motion and per-
+
+
+Body Estimation 
+(Sec 5.1)
+Clothing Capture 
+(Sec 5.2)
+Wrinkle Extraction 
+(Sec 5.3)
+Input Frame
+Figure 2: An overview of our clothing capture pipeline.
+formance capture from multi-view inputs [40, 42, 41, 18].
+Here we focus on monocular-based capture methods. Mehta
+et al. [32, 31] proposes systems to capture body skeleton
+motion from a single RGB video in real time. Some per-
+formance capture methods [56, 57] are proposed to capture
+dense human body and clothing geometry from a monocu-
+lar RGB-D video using a double-layer representation. Most
+relevant to our work are performance capture methods from
+monocular RGB videos [53, 16]. These methods, however,
+require a pre-scanned mesh template of the subject, which
+restricts the applications where they can be used. Haber-
+mann et al. [17] further proposes to train a deep neural
+network to deform a pre-scanned mesh template to match
+the surface deformation in the video. This method, requires
+the mesh template and multi-view images of the subject for
+network training. Our method relaxes the constraint to sce-
+narios such as in-the-wild videos where neither pre-scanned
+templates nor multi-view images are available.
+3. Method Overview
+In this section, we present an overview of our approach.
+Our goal is to capture the dynamic deformation of three
+types of garments, T-shirt, shorts and pants, along with
+the underlying body shape from a monocular video. Our
+method takes as input a sequence of images, denoted as
+{Ii}F
+i=1, where F is the number of frames in the sequence.
+The subject is assumed to be wearing a T-shirt for the upper
+body. The clothing for the lower body is manually identi-
+ﬁed as either short pants or long pants. Our method out-
+puts a sequence of mesh pairs {Mb
+i, Mc
+i}F
+i=1, where Mb
+i
+denotes the body mesh and Mc
+i denotes the clothed mesh.
+{Mb
+i}F
+i=1 and {Mc
+i}F
+i=1 are both temporally coherent with
+ﬁxed topology across time. Mb
+i and Mc
+i share the same
+vertex positions except for the clothing region.
+Our method makes use of linear clothing deformation
+models deﬁned in the canonical pose. We brieﬂy describe
+our model formulation and model building procedure in
+Section 4. Our pipeline to capture clothing from a monoc-
+ular video consists of four stages, explained in Section 5.
+First, we estimate the underlying body pose and shape of
+subject (Section 5.1). Then, we run sequential tracking of
+the clothing using our linear clothing models. This step
+is followed by a batch optimization stage including all the
+frames to produce temporally coherent dynamic clothing
+deformation (Section 5.2). In the ﬁnal stage, we add ﬁne-
+grained wrinkle detail to our results (Section 5.3). A visu-
+alization of this pipeline is shown in Fig. 2.
+4. Statistical Clothing Deformation Model
+Statistical models of clothing have been investigated for
+clothing shape generation in the previous literature [55, 30],
+but have yet to be exploited for capturing clothing from a
+monocular video. In this section we give the mathematical
+formulation of our clothing deformation models and brieﬂy
+describe the procedure to learn these models from data.
+4.1. Model Formulation
+Our clothing models are built on top of the SMPL body
+model [28]. SMPL is controlled by a set of model param-
+eters (β, θ), where β ∈R10 is the shape coefﬁcients and
+θ ∈R72 is the joint angles that control body pose. We
+denote the set of nv = 6890 output vertices by M(β, θ).
+Then formally,
+M(β, θ) = W(T(β, θ), J(β), θ, W),
+(1)
+where W is the Linear Blend Skinning (LBS) function;
+T(β, θ) is the rest pose body shape; J(β) is the locations of
+24 kinematic joints; W is the blend weights. In particular,
+the unposed shape T(β, θ) is deﬁned as the sum of template
+shape T, shape dependent deformation BS(β) and pose de-
+pendent deformation BP (θ),
+T(β, θ) = T + BS(β) + BP (θ)
+(2)
+On top of the SMPL model, an extra additive offset ﬁeld
+D is introduced to account for clothing deformation in rest
+pose, i.e.,
+T c = T(β, θ) + D.
+(3)
+D includes a number of nv per-vertex offsets, each denoted
+by Dj ∈R3, where 1 ≤j ≤nv. Here we decompose
+D into offsets from the upper clothing Du and offsets from
+the lower clothing Dl. Du and Dl share the same dimen-
+sionality as D. They take non-zero values if the respective
+garments cover body vertex j; for an exposed skin vertex
+we have Du
+j = Dl
+j = 0. Notice that some body vertices
+might be covered by both upper and lower clothing, for ex-
+ample, around the waist. To account for this phenomenon,
+we merge Du and Dl into a single offset ﬁeld D by
+Dj =
+(
+Du
+j
+if ∥Du
+j ∥≥∥Dl
+j∥,
+Dl
+j
+otherwise.
+(4)
+
+
+T
+T(β, θ)
+T(β, θ) + Du(zu)
+T(β, θ) + Dl(zl)
+T(β, θ) + D(z)
+M c(β, θ, z)
+Figure 3: A visualization of our clothing model formulation. From left to right, we show (1) the mean SMPL template,
+(2) personalized body shape with pose dependent deformation, (3) upper clothing offsets, (4) lower clothing offsets, (5)
+combined clothing offsets, and (6) posed clothing output.
+The dimensions of Du and Dl are very high (3nv), so we
+use PCA dimension reduction to enable control with low-
+dimensional parameters zu, zl ∈Rnz. Formally,
+Dk(zk) = Akzk + dk, k ∈{u, l}
+(5)
+where Ak ∈R3nv×nz is the matrix of PCA bases and dk
+is the mean value vector. We use the skinning function W
+of SMPL to transform the clothed shape from rest pose to
+target pose. Finally, our clothing model is formulated as
+M c(β, θ, z) = W(T c(β, θ, z), J(β), θ, W),
+(6)
+T c(β, θ, z) = T(β, θ) + D(z),
+(7)
+where z = {zu, zl} is the collection of clothing parameters.
+A visual illustration of our clothing model formulation is
+shown in Figure 3.
+4.2. Model Building
+We build our models from the BUFF dataset [58], a col-
+lection of high-resolution 4D people scan. We build a model
+for each of the three garment types in the dataset, T-shirts,
+shorts and pants. For each garment type k, we need to train
+the model parameters {Ak, dk} from a collection of cloth-
+ing offsets, denoted by Xk ∈R3nv×nk, where nk is the
+number of samples for garment type k in the dataset. To
+obtain each sample in the collection, we follow [58, 39] to
+register the raw scan with SMPL model. This operation not
+only brings the raw scan data into the same topology, but
+also “unposes” the human shape with clothing into the rest
+pose, denoted by Xc. We also follow [58] to estimate the
+underlying body shape of the subject in rest pose, denoted
+by Xb. In addition, we obtain a per-vertex binary mask σk
+that has value 1 for the region of garment type k and 0 for
+any other regions (skin and other clothing types) by ren-
+dering the meshes to images and applying a state-of-the-art
+clothing segmentation algorithm [14]. Then we obtain the
+clothing offset data Xk for garment type k by
+Xk = (Xc −Xb) ⊙σk,
+(8)
+where ⊙denotes the element-wise multiplication. We use
+a standard PCA training algorithm based on Singular Value
+Decomposition (SVD), leaving nz = 50 bases in our model.
+We refer readers to the original papers [58, 39] for details
+on scan registration and underlying body shape estimation.
+5. Monocular Clothing Capture
+Given the pre-trained clothing models, we now present
+our approach for temporally coherent clothing capture from
+only a monocular video.
+5.1. Body Motion Estimation
+In the ﬁrst stage, we estimate underlying body motion
+in 3D with the SMPL body model. We estimate per-frame
+SMPL pose parameters θi and global translation ti ∈R3,
+together with SMPL shape parameters β across the whole
+sequence. Meanwhile, we estimate the camera intrinsics K
+of a full perspective projection model for all the frames. In
+order to achieve good robustness under different in-the-wild
+scenarios, we integrate a variety of different image measure-
+ments into an energy optimization problem. Formally, we
+solve the following minimization problem:
+min
+β,{θi,ti}F
+i=1,K Eb = Eb
+2d + Eb
+dp + Eb
+sil + Eb
+pof + Eb
+reg. (9)
+In particular, Eb
+2d is the squared L2 error between projected
+SMPL joints and 2D keypoint detection from OpenPose
+[50, 11, 10]. Eb
+dp, also used in Guler et al. [15], is an energy
+term for dense correspondence estimation from DensePose
+[5]. Speciﬁcally, for any pixel p in the image with Dense-
+Pose prediction, we identify the corresponding SMPL ver-
+tex index j(p) and optimize an energy term deﬁned as
+Eb
+dp = 1
+F
+F
+X
+i=1
+X
+p
+∥Π(Mj(p)(β, θi) + ti; K) −p∥2,
+(10)
+where Π denotes the projection function determined by the
+camera intrinsics K. Eb
+sil is the silhouette matching term.
+
+
+We extract silhouettes Si of our SMPL body mesh with a
+differentiable renderer [27], and obtain the target silhouette
+ˆSi from a clothing segmentation algorithm [14]. We use an
+Intersection-over-Union error [27]
+Eb
+sil = 1
+F
+F
+X
+i=1
+ 
+1 −
+∥Si ⊙ˆSi∥1
+∥Si + ˆSi −Si ⊙ˆSi∥1
+!
+.
+(11)
+Eb
+pof is an error term based on 3D orientation between ad-
+jacent joints in the body skeleton hierarchy. We match the
+spatial orientation of SMPL body joints to the prediction
+of Part Orientation Field (POF) similar to [52]. We refer
+readers to the original papers [52, 29] for details. We also
+apply regularization on our estimation, denoted by Eb
+reg,
+which consists of a Mixture of Gaussian prior for body pose
+{θi}F
+i=1 [8], L2 regularization on the shape parameters β,
+and temporal smoothness terms to reduce motion jitters.
+After solving the energy optimization, we obtain a tem-
+porally consistent body mesh for every frame by Mb
+i =
+M(β, θi). We ﬁx the SMPL parameters β, {θi, ti}F
+i=1 and
+camera parameters K during later stages of our pipeline.
+The estimated body meshes provide a strong guidance for
+the subsequent estimation of clothing deformation.
+5.2. Clothing Deformation Capture
+We now illustrate our proposed method to capture cloth-
+ing deformation. Compared to previous work [53, 16, 17]
+where a pre-scanned template of the subject is assumed, this
+problem is signiﬁcantly more challenging due to the lack of
+strong shape prior to resolve the single-view 3D ambigu-
+ity, and the lack of a pre-deﬁned personalized texture that
+provides correspondence for surface tracking. To solve this
+problem, we (1) exploit the deformation space learned in
+our clothing models and (2) progressively extract a person-
+alized texture from the input image sequence to enable sur-
+face tracking across time and reduce drifting.
+We perform clothing capture in a sequential manner. For
+each frame i, we estimate per-frame clothing parameters for
+clothing on the upper and lower body zi = {zu
+i , zl
+i} given
+the input image Ii, initializing from the result of the previ-
+ous frame zi−1. We formulate the task as solving an energy
+optimization problem, formally,
+min
+zi Ec = Ec
+sil + Ec
+seg + Ec
+photo + Ec
+reg.
+(12)
+Now we explain each cost term individually. An illustration
+of the different cost terms is shown in Fig. 4.
+Silhouette matching term Ec
+sil: Similar to Eb
+sil in the ﬁrst
+stage, we use a differentiable renderer to match the sil-
+houette of our rendering output with a target silhouette ex-
+tracted from the original image. Differently, here what we
+compare with target silhouette is the silhoutte of human
+shape with clothing M c(β, θi, zi), instead of bare body
+shape M(β, θi) in the previous stage.
+geometry
+texture
+mask
+M c(zi)
+Ti
+T′
+i
+texture
+silhouette
+offset
+Ii
+ˆSi
+ˆSk
+i
+Ec
+photo
+Ec
+sil
+Ec
+seg
+photometric 
+term
+silhouette 
+term
+segmentation 
+term
+R(·)
+Figure 4: Explanation of the energy terms used for cloth-
+ing capture.
+We obtain the rendered texture, silhouette
+and clothing offset with a differentiable renderer, which are
+compared with target images using different energy terms.
+Clothing segmentation term Ec
+seg: Clothing segmentation
+[14] provides not only the overall silhouette of the person,
+but also the boundary between different garment regions
+and exposed skin in the image. We utilize this information
+by penalizing the clothing offset on vertices whose projec-
+tion falls outside the segmentation region. Concretely, the
+differentiable renderer is used to render the per-vertex offset
+ﬁelds Du(zu
+i ), Dl(zl
+i) on the clothed mesh M c(zi)2; we de-
+note the output by R
+ Dk(zk
+i )
+
+, where k represents either
+u for upper clothing or l for lower clothing. In addition,
+we denote the segmentation masks for the clothing region
+k ∈{u, l} by ˆSk
+i . Then we have
+Ec
+seg =
+X
+k∈{u,l}
+X
+p
+(1 −ˆSk
+i ) ⊙
+R
+ Dk(zk
+i )
+2 ,
+(13)
+where p iterates over all pixels in the image. Effectively,
+for each clothing type we penalize the clothing offset out-
+side the corresponding clothing region, where ˆSk
+i is 0. The
+gradient in the image domain is propagated to the mesh by
+the differentiable renderer R.
+Photometric tracking term Ec
+photo: This term is introduced
+to estimate temporal correspondence more accurately, es-
+pecially when the garments we capture have high-contrast
+texture. We progressively build a personalized RGB texture
+image Ti in a pre-deﬁned UV space of SMPL model, along
+with a binary mask T′
+i that indicates texels where RGB val-
+ues in Ti have been identiﬁed. The photometric tracking
+term is deﬁned to compare the rendered output of our cloth-
+ing models using Ti with the input image. For this purpose
+2SMPL body parameters β, θi and ti are ﬁxed in this stage thus omit-
+ted here.
+
+
+we use a differential renderer that works with UV texture
+[12, 20], and denotes the rendered output as R (Ti). We
+also render the mesh with T′
+i to indicate pixels where tex-
+ture from Ti is available. Formally, we have
+Ec
+photo =
+X
+p
+∥R (Ti) −Ii∥2 ⊙R (T′
+i) ,
+(14)
+where the summation is taken over the pixels in the image.
+After the optimization in Eq. 12 is solved for frame i, we
+update Ti, T′
+i to obtain Ti+1, T′
+i+1, which will be used for
+solving optimization for frame i + 1. To achieve this, we
+project Ii to the mesh surface and ﬁll in new RGB values to
+UV texels in Ti where no previous values have been iden-
+tiﬁed, indicated by 0s in T′
+i. Corresponding texels in T′
+i
+are also set to 1 to obtain T′
+i+1. This process is initialized
+by setting T1 and T′
+1 to 0; in other words, the photomet-
+ric tracking term takes no effect for the ﬁrst frame in the
+sequence, since no texture has been extracted.
+Regularization term Ec
+reg: Our clothing deformation mod-
+els are PCA-based linear models. They may produce unrea-
+sonable shapes when the parameters z are large. Therefore
+we apply regularization on the cloth parameters using an
+adaptive cost function ρ that penalizes large input values:
+Ec
+reg = ρ
+ ∥zi∥2
+.
+(15)
+The sequential tracking stage is then followed by a batch
+optimization stage that optimize for all F frames in the se-
+quence together. The energy function we use is the same as
+the previous stage (Eq. 12) with an additional term that pe-
+nalizes too drastic temporal change of clothing parameters,
+which helps to produce temporally stable results. This term
+is deﬁned as
+Ec
+temp =
+1
+F −1
+F −1
+X
+i=1
+∥zi+1 −zi∥2.
+(16)
+The output of batch optimization stage is a sequence of cap-
+ture results with clothing {Mc
+i = M c(β, θi, zi)}F
+i=1.
+5.3. Wrinkle Detail Extraction
+Up to the batch optimization stage, we can capture large
+clothing deformation. However, the results are limited by
+low mesh resolution and unable to capture the ﬁne-grained
+wrinkles on the clothing. Therefore, the last stage of our ap-
+proach is to extract wrinkle details from the original images
+and apply them to our coarsely tracked meshes.
+Traditionally, such wrinkle details are captured with
+Shape from Shading (SfS) [51, 2]. For in-the-wild monocu-
+lar clothing capture, we empirically ﬁnd it difﬁcult to extract
+wrinkles reliably by SfS due to complex garment albedo,
+large variation of lighting conditions and self-shadowing.
+Recently, we observed the success of learning-based ap-
+proaches in estimating accurate surface normal for human
+appearance using neural networks [47, 44]. The estimated
+surface normal provides strong and direct clues on how the
+wrinkles should be added to our clothing capture results in
+order to match the original images.
+Formally, let us denote the output of a surface normal es-
+timation network for frame i to be In
+i , a 3-channel normal
+map for each pixel in the original image. We ﬁrst subdivide
+the mesh Mc
+i with Loop subdivision to increase the spatial
+resolution, with the subdivided mesh denoted by Ms
+i. Then,
+we solve for a deformed mesh Oi whose rendered normal
+map matches the estimated normal map In
+i in the garment
+region. We denote the rendered normal output by Rn(Oi),
+where Rn is the differential renderer. We solve the follow-
+ing optimization problem for each frame i individually:
+min
+Oi Ew = Ew
+normal + Ew
+reg + Ew
+lpl,
+(17)
+Ew
+normal =
+X
+p∈ˆSc
+i
+∥∇Rn(Oi) −∇In
+i ∥2,
+(18)
+Ew
+reg = ∥Oi −Ms
+i∥2, Ew
+lpl = ∥LOi∥2 .
+(19)
+where ∇denotes the image gradient operator, and L de-
+notes the mesh Laplacian operator, ˆSc
+i = ˆSu
+i
+S ˆSl
+i is the
+union of all pixels in the clothing segmentation masks. Here
+we penalize the difference between normal maps in the im-
+age gradient domain to be more tolerant to error in absolute
+normal direction from the neural network. We also restrict
+the deformation of Oi from Ms
+i be in the direction of the
+camera rays. Here, we use the implementation of differen-
+tiable renderer in [12, 20] and surface normal network in
+[44]. The ﬁnal results are the deformed meshes {Oi}F
+i=1.
+6. Quantitative Evaluation
+In this section, we present the results of quantitative eval-
+uation. We use a benchmark sequence from the MonoPerf-
+Cap dataset [53] and video sequences rendered from BUFF
+dataset [58] to test the performance of our method.
+6.1. Evaluation on MonoPerfCap Dataset
+Experiment Setting. We follow previous work [53] to use
+the Pablo sequence in their dataset to perform quantitative
+comparison. Surface meshes and 3D joints obtained by a
+multi-view performance capture method [42] are provided
+as the ground truth in the dataset. We compare our method
+with a state-of-the-art template-based performance capture
+method [53]3 and single-image human reconstruction meth-
+ods [59, 43, 44, 4, 61]. Body pose is not estimated in [4], so
+we apply our estimated body pose to their T-pose results.
+Evaluation of Clothing Surface Reconstruction. We ﬁrst
+evaluate our method using a surface reconstruction metric.
+3Monocular capture results are provided by the author.
+
+
+Input
+Ours 
+Front
+Ours 
+Side
+Unavailable
+Unavailable
+GT 
+Front
+GT 
+Side
+Figure 5: Visualization of experiment results on the Pablo
+sequence. From top to bottom we show original images, our
+results from the front and side views, and ground truth from
+the front and side views. The ground truth mesh for the last
+frame is not provided in the dataset.
+Due to the intrinsic depth-scale ambiguity of single-view re-
+construction, we compute a global scaling factor from our
+result to the ground truth, which is applied to our result be-
+fore comparison. Following [53] we align our results to the
+ground truth with a translation to eliminate the global depth
+offsets. We compute the average point-to-surface distance
+from all the ground truth vertices in the clothing region to
+the output mesh as the evaluation metric. The clothing re-
+gion (the T-shirt and shorts) is obtained by manual segmen-
+tation on the ground truth surface mesh. The same proce-
+dure is applied to all the methods under evaluation. A visu-
+alization of our results is shown in Fig. 5.
+We report the mean surface error averaged across all
+frames in the middle column of Table 1. For the visual-
+ization of per-frame error curves please refer to our sup-
+plementary material. Our method achieves a signiﬁcantly
+lower surface error compared to all previous single-image
+surface reconstruction methods.
+Our performance even
+comes close to the template-based tracking method [53]
+which requires a pre-scanned personalized template that
+provides strong prior information about the body and cloth-
+ing shape of the subject. By contrast, our method does not
+require a pre-processed template, and therefore can be ap-
+plied to a wider range of videos.
+Methods
+Surface Error
+Joint Error
+MonoPerfCap* [53]
+14.6
+118.7
+HMD [61]
+31.9
+-
+Tex2Shape [4]
+27.7
+-
+DeepHuman [59]
+24.2
+-
+PIFu [43]
+30.5
+-
+PIFuHD [44]
+26.5
+-
+Ours
+17.9
+77.3
+Table 1: Quantitative comparison with previous work on
+Pablo sequence using mean point-to-surface error and mean
+joint error across frames. All numbers are in mm. The
+method annotated with ‘*’ uses a pre-scanned personalized
+template that provides a strong shape prior. Please see our
+supplementary material for per-frame error.
+Front View
+Front-left View
+Left View
+Figure 6: Visualization of three viewpoints in the BUFF
+evaluation. In each view we show the input image, body
+estimation result, and clothing capture result.
+Evaluation of 3D Pose Estimation. Although body pose
+estimation is not a focus of this paper, we follow [53] to
+validate our method on the metric of 3D joint error on the
+Pablo sequence. Average per-joint 3D position error after
+alignment with translation is reported in Table 1 (right). Our
+method achieves an error of 77.3 mm, signiﬁcantly lower
+than 118.7 mm in [53]. This veriﬁes the effectiveness of
+our body pose initialization that utilizes various image mea-
+surements including 2D joints, dense correspondences, sil-
+houette, etc.
+6.2. Evaluation on BUFF Dataset
+Experiment Setting. BUFF [58] is a dataset of high-
+resolution 4D textured scan sequences of ﬁve people. In
+this experiment, we sample a test sequence from the BUFF
+dataset (00096-shortlong hips, ﬁrst 200 frames) and train
+a pair of upper and lower clothing models with the data
+of four other people. We render the sequence from three
+views: front, left and front-left, as visualized in Fig. 6. We
+evaluate our method in four stages: body initialization, se-
+quential tracking, batch optimization and wrinkle extrac-
+tion The evaluation protocol is the same as Section 6.1: we
+rigidly align the estimated and ground truth meshes with
+a global scaling and translation, and compute average dis-
+tance from ground truth clothing vertices to our results.
+Results.
+The quantitative results are shown in Table 2.
+First, from all three viewpoints, results with clothing con-
+
+
+Figure 7: Examples of our clothing capture results. In each example, we show the input image, capture results from the front
+view and the side view. Please see our supplementary video for complete results.
+Front
+Front-left
+Left
+Body only
+29.4
+30.3
+29.2
+Clothed w/o batch
+26.8
+25.5
+24.7
+Clothed w/ batch
+26.7
+25.3
+24.7
+Clothed w/ wrinkle
+26.8
+25.5
+24.9
+Table 2: Quantitative ablation study of different stages
+of our method on the rendered BUFF dataset using mean
+point-to-surface error. All numbers are in mm. Please see
+our supplementary material for per-frame error.
+sistently achieve lower reconstruction error than body only.
+This veriﬁes that our method captures clothing shape that
+cannot be explained by the SMPL body shape space. Sec-
+ond, we can see that temporal smoothing and wrinkle ex-
+traction, which improve the visual quality as shown in qual-
+itative results, have little inﬂuence on the reconstruction er-
+ror. Third, our results show similar range of error in the
+clothing region across different views, implying that our
+method is not very sensitive to the viewpoint variation.
+7. Qualitative Evaluation
+We qualitatively evaluate our method on various videos
+including public benchmark and in-the-wild videos where
+no pre-scanned template is available. Example results are
+shown in Figure 7. Please see our supplementary video for
+full results and qualitative comparison with other work.
+As shown in the supplementary video, our result not only
+demonstrates better temporal robustness than the single-
+image 3D human reconstruction methods in terms of recon-
+structed surfaces, but also provides 3D temporal correspon-
+dences effectively shown by the re-rendering of our output
+mesh with a consistent texture map. This is hard to obtain
+by methods that regress 3D shape in voxels [48, 59], depth
+maps [47] or implicit functions [33, 43, 44].
+Template-
+based monocular performance capture methods [53, 16]
+rely heavily on non-rigid surface regularization such as
+As-Rigid-As-Possible (ARAP), which often prevents those
+methods from capturing natural dynamics of the clothing
+deformation. In comparison, our method is able to capture
+more realistic dynamics of the garment with regularization
+provided by the clothing models.
+In addition, we perform extensive ablation studies on
+various loss terms used in our pipeline. Please refer to our
+supplementary document for the results.
+8. Conclusion and Future Work
+In this paper, we have presented a method to capture tem-
+porally coherent dynamic deformation of clothing from a
+monocular video. To the best of our knowledge, we have
+shown the ﬁrst result of temporally coherent clothing cap-
+ture from a monocular RGB video without using a pre-
+scanned template. Our results on various in-the-wild videos
+endorse the effectiveness and robustness of our method.
+Our method is limited by the types of garments in the
+available training data. We have demonstrated results on
+several types of tight clothing. Treatment of free-ﬂowing
+garments like skirts requires collection of more data and ad-
+ditional design of the clothing model. Our method is con-
+strained in the ability to capture drastically changing defor-
+mations due to the limited expressiveness of our models,
+which may be addressed by using higher-capacity models
+like a deep neural network. We also would like to further
+incorporate physics into the clothing models to enable more
+physically realistic clothing capture.
+Acknowledgements. We would like to thank Eric Yu for
+his help with the rendering of our results using Blender.
+
+
+References
+[1] T. Alldieck, M. Magnor, B. L. Bhatnagar, C. Theobalt, and
+G. Pons-Moll.
+Learning to reconstruct people in clothing
+from a single rgb camera. In Proceedings of the IEEE Con-
+ference on Computer Vision and Pattern Recognition, pages
+1175–1186, 2019. 2
+[2] T. Alldieck, M. Magnor, W. Xu, C. Theobalt, and G. Pons-
+Moll. Detailed human avatars from monocular video. In
+2018 International Conference on 3D Vision (3DV), pages
+98–109. IEEE, 2018. 2, 6
+[3] T. Alldieck, M. Magnor, W. Xu, C. Theobalt, and G. Pons-
+Moll. Video based reconstruction of 3d people models. In
+Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition, pages 8387–8397, 2018. 2
+[4] T. Alldieck, G. Pons-Moll, C. Theobalt, and M. Magnor.
+Tex2shape: Detailed full human body geometry from a sin-
+gle image. In Proceedings of the IEEE International Confer-
+ence on Computer Vision, pages 2293–2303, 2019. 1, 2, 6,
+7
+[5] R. Alp G¨uler, N. Neverova, and I. Kokkinos. Densepose:
+Dense human pose estimation in the wild. In Proceedings
+of the IEEE Conference on Computer Vision and Pattern
+Recognition, pages 7297–7306, 2018. 4
+[6] D. Baraff and A. Witkin. Large steps in cloth simulation.
+In Proceedings of the 25th annual conference on Computer
+graphics and interactive techniques, pages 43–54, 1998. 2
+[7] B. L. Bhatnagar, G. Tiwari, C. Theobalt, and G. Pons-Moll.
+Multi-garment net: Learning to dress 3d people from im-
+ages. In IEEE International Conference on Computer Vision
+(ICCV). IEEE, oct 2019. 2
+[8] F. Bogo, A. Kanazawa, C. Lassner, P. Gehler, J. Romero,
+and M. J. Black. Keep it smpl: Automatic estimation of 3d
+human pose and shape from a single image. In European
+Conference on Computer Vision, pages 561–578. Springer,
+2016. 2, 5
+[9] R. Bridson, S. Marino, and R. Fedkiw. Simulation of cloth-
+ing with folds and wrinkles. In Proceedings of the 2003 ACM
+SIGGRAPH/Eurographics symposium on Computer anima-
+tion, pages 28–36, 2003. 2
+[10] Z. Cao, G. H. Martinez, T. Simon, S.-E. Wei, and Y. A.
+Sheikh. Openpose: Realtime multi-person 2d pose estima-
+tion using part afﬁnity ﬁelds. IEEE Transactions on Pattern
+Analysis and Machine Intelligence, 2019. 2, 4
+[11] Z. Cao, T. Simon, S.-E. Wei, and Y. Sheikh. Realtime multi-
+person 2d pose estimation using part afﬁnity ﬁelds. In Pro-
+ceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, pages 7291–7299, 2017. 2, 4
+[12] W. Chen, H. Ling, J. Gao, E. Smith, J. Lehtinen, A. Jacob-
+son, and S. Fidler. Learning to predict 3d objects with an
+interpolation-based differentiable renderer. In Advances in
+Neural Information Processing Systems, pages 9605–9616,
+2019. 2, 6
+[13] V. Gabeur, J.-S. Franco, X. Martin, C. Schmid, and G. Ro-
+gez. Moulding humans: Non-parametric 3d human shape
+estimation from single images. In Proceedings of the IEEE
+International Conference on Computer Vision, pages 2232–
+2241, 2019. 2
+[14] K. Gong, Y. Gao, X. Liang, X. Shen, M. Wang, and L. Lin.
+Graphonomy: Universal human parsing via graph transfer
+learning. In Proceedings of the IEEE Conference on Com-
+puter Vision and Pattern Recognition, pages 7450–7459,
+2019. 4, 5
+[15] R. A. Guler and I. Kokkinos. Holopose: Holistic 3d human
+reconstruction in-the-wild. In Proceedings of the IEEE Con-
+ference on Computer Vision and Pattern Recognition, pages
+10884–10894, 2019. 4, 13
+[16] M. Habermann, W. Xu, M. Zollhoefer, G. Pons-Moll, and
+C. Theobalt. Livecap: Real-time human performance cap-
+ture from monocular video. ACM Transactions on Graphics
+(TOG), 38(2):1–17, 2019. 1, 2, 3, 5, 8
+[17] M. Habermann, W. Xu, M. Zollhofer, G. Pons-Moll, and
+C. Theobalt.
+Deepcap:
+Monocular human performance
+capture using weak supervision.
+In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 5052–5063, 2020. 1, 2, 3, 5
+[18] Z. Huang, T. Li, W. Chen, Y. Zhao, J. Xing, C. LeGendre,
+L. Luo, C. Ma, and H. Li.
+Deep volumetric video from
+very sparse multi-view performance capture. In Proceedings
+of the European Conference on Computer Vision (ECCV),
+pages 336–354, 2018. 3
+[19] Z. Huang, Y. Xu, C. Lassner, H. Li, and T. Tung. Arch: Ani-
+matable reconstruction of clothed humans. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 3093–3102, 2020. 2
+[20] K. M. Jatavallabhula, E. Smith, J.-F. Laﬂeche, C. F. Tsang,
+A. Rozantsev, W. Chen, and T. Xiang. Kaolin: A pytorch
+library for accelerating 3d deep learning research.
+arXiv
+preprint arXiv:1911.05063, 2019. 6
+[21] H. Joo, T. Simon, and Y. Sheikh. Total capture: A 3d de-
+formation model for tracking faces, hands, and bodies. In
+Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 8320–8329, 2018. 2
+[22] A. Kanazawa, M. J. Black, D. W. Jacobs, and J. Malik. End-
+to-end recovery of human shape and pose. In Proceedings
+of the IEEE Conference on Computer Vision and Pattern
+Recognition, pages 7122–7131, 2018. 1, 2
+[23] A. Kanazawa, J. Y. Zhang, P. Felsen, and J. Malik. Learn-
+ing 3d human dynamics from video. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion, pages 5614–5623, 2019. 13
+[24] M. Kocabas, N. Athanasiou, and M. J. Black. Vibe: Video
+inference for human body pose and shape estimation. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 5253–5263, 2020. 13
+[25] N. Kolotouros, G. Pavlakos, M. J. Black, and K. Daniilidis.
+Learning to reconstruct 3d human pose and shape via model-
+ﬁtting in the loop. In Proceedings of the IEEE International
+Conference on Computer Vision, pages 2252–2261, 2019. 13
+[26] J. Li,
+G. Daviet,
+R. Narain,
+F. Bertails-Descoubes,
+M. Overby, G. E. Brown, and L. Boissieux.
+An implicit
+frictional contact solver for adaptive cloth simulation. ACM
+Transactions on Graphics (TOG), 37(4):1–15, 2018. 2
+[27] S. Liu, T. Li, W. Chen, and H. Li. Soft rasterizer: A dif-
+ferentiable renderer for image-based 3d reasoning. In Pro-
+
+
+ceedings of the IEEE International Conference on Computer
+Vision, pages 7708–7717, 2019. 2, 5
+[28] M. Loper, N. Mahmood, J. Romero, G. Pons-Moll, and M. J.
+Black. Smpl: A skinned multi-person linear model. ACM
+transactions on graphics (TOG), 34(6):1–16, 2015. 1, 2, 3
+[29] C. Luo, X. Chu, and A. Yuille. Orinet: A fully convolutional
+network for 3d human pose estimation. In BMVC, 2018. 5
+[30] Q. Ma, J. Yang, A. Ranjan, S. Pujades, G. Pons-Moll,
+S. Tang, and M. J. Black. Learning to dress 3d people in
+generative clothing. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, pages
+6469–6478, 2020. 2, 3
+[31] D. Mehta, O. Sotnychenko, F. Mueller, W. Xu, M. El-
+gharib, P. Fua, H.-P. Seidel, H. Rhodin, G. Pons-Moll, and
+C. Theobalt. Xnect: Real-time multi-person 3d motion cap-
+ture with a single rgb camera. ACM Transactions on Graph-
+ics (TOG), 39(4):82–1, 2020. 3
+[32] D. Mehta,
+S. Sridhar,
+O. Sotnychenko,
+H. Rhodin,
+M. Shaﬁei, H.-P. Seidel, W. Xu, D. Casas, and C. Theobalt.
+Vnect: Real-time 3d human pose estimation with a single rgb
+camera. ACM Transactions on Graphics (TOG), 36(4):1–14,
+2017. 3
+[33] R. Natsume, S. Saito, Z. Huang, W. Chen, C. Ma, H. Li,
+and S. Morishima. Siclope: Silhouette-based clothed people.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition, pages 4480–4490, 2019. 1, 2, 8
+[34] M. Omran, C. Lassner, G. Pons-Moll, P. Gehler, and
+B. Schiele. Neural body ﬁtting: Unifying deep learning and
+model based human pose and shape estimation. In 2018 in-
+ternational conference on 3D vision (3DV), pages 484–494.
+IEEE, 2018. 1, 2
+[35] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury,
+G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga,
+et al. Pytorch: An imperative style, high-performance deep
+learning library. In Advances in Neural Information Process-
+ing Systems, pages 8024–8035, 2019. 13
+[36] G. Pavlakos, V. Choutas, N. Ghorbani, T. Bolkart, A. A. Os-
+man, D. Tzionas, and M. J. Black. Expressive body capture:
+3d hands, face, and body from a single image. In Proceed-
+ings of the IEEE Conference on Computer Vision and Pattern
+Recognition, pages 10975–10985, 2019. 2
+[37] G. Pavlakos, N. Kolotouros, and K. Daniilidis.
+Texture-
+pose: Supervising human mesh estimation with texture con-
+sistency. In Proceedings of the IEEE International Confer-
+ence on Computer Vision, pages 803–812, 2019. 1, 2
+[38] G. Pavlakos, X. Zhou, K. G. Derpanis, and K. Daniilidis.
+Coarse-to-ﬁne volumetric prediction for single-image 3d hu-
+man pose. In Proceedings of the IEEE Conference on Com-
+puter Vision and Pattern Recognition, pages 7025–7034,
+2017. 2
+[39] G. Pons-Moll, S. Pujades, S. Hu, and M. J. Black. Clothcap:
+Seamless 4d clothing capture and retargeting. ACM Trans-
+actions on Graphics (TOG), 36(4):1–15, 2017. 2, 4
+[40] H. Rhodin, N. Robertini, D. Casas, C. Richardt, H.-P. Seidel,
+and C. Theobalt. General automatic human shape and motion
+capture using volumetric contour cues. In European confer-
+ence on computer vision, pages 509–526. Springer, 2016. 3
+[41] N. Robertini,
+F. Bernard,
+W. Xu,
+and C. Theobalt.
+Illumination-invariant robust multiview 3d human motion
+capture. In 2018 IEEE Winter Conference on Applications
+of Computer Vision (WACV), pages 1661–1670. IEEE, 2018.
+3
+[42] N. Robertini, D. Casas, H. Rhodin, H.-P. Seidel, and
+C. Theobalt. Model-based outdoor performance capture. In
+2016 Fourth International Conference on 3D Vision (3DV),
+pages 166–175. IEEE, 2016. 3, 6
+[43] S.
+Saito,
+Z.
+Huang,
+R.
+Natsume,
+S.
+Morishima,
+A. Kanazawa, and H. Li.
+Pifu:
+Pixel-aligned implicit
+function for high-resolution clothed human digitization.
+In Proceedings of the IEEE International Conference on
+Computer Vision, pages 2304–2314, 2019. 1, 2, 6, 7, 8
+[44] S. Saito, T. Simon, J. Saragih, and H. Joo. Pifuhd: Multi-
+level pixel-aligned implicit function for high-resolution 3d
+human digitization. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, pages
+84–93, 2020. 1, 2, 6, 7, 8
+[45] L. Sigal, M. Mahler, S. Diaz, K. McIntosh, E. Carter,
+T. Richards, and J. Hodgins. A perceptual control space for
+garment simulation. ACM Transactions on Graphics (TOG),
+34(4):1–10, 2015. 2
+[46] X. Sun, B. Xiao, F. Wei, S. Liang, and Y. Wei. Integral hu-
+man pose regression. In Proceedings of the European Con-
+ference on Computer Vision (ECCV), pages 529–545, 2018.
+2
+[47] S. Tang, F. Tan, K. Cheng, Z. Li, S. Zhu, and P. Tan. A neural
+network for detailed human depth estimation from a single
+image. In Proceedings of the IEEE International Conference
+on Computer Vision, pages 7750–7759, 2019. 1, 2, 6, 8
+[48] G. Varol, D. Ceylan, B. Russell, J. Yang, E. Yumer, I. Laptev,
+and C. Schmid. Bodynet: Volumetric inference of 3d human
+body shapes. In Proceedings of the European Conference on
+Computer Vision (ECCV), pages 20–36, 2018. 1, 2, 8
+[49] P. Volino, N. Magnenat-Thalmann, and F. Faure. A simple
+approach to nonlinear tensile stiffness for accurate cloth sim-
+ulation. ACM Transactions on Graphics (TOG), 28(4):1–16,
+2009. 2
+[50] S.-E. Wei, V. Ramakrishna, T. Kanade, and Y. Sheikh. Con-
+volutional pose machines. In Proceedings of the IEEE con-
+ference on Computer Vision and Pattern Recognition, pages
+4724–4732, 2016. 2, 4
+[51] C. Wu, C. Stoll, L. Valgaerts, and C. Theobalt. On-set perfor-
+mance capture of multiple actors with a stereo camera. ACM
+Transactions on Graphics (TOG), 32(6):1–11, 2013. 6
+[52] D. Xiang, H. Joo, and Y. Sheikh. Monocular total capture:
+Posing face, body, and hands in the wild. In Proceedings
+of the IEEE Conference on Computer Vision and Pattern
+Recognition, pages 10965–10974, 2019. 2, 5, 13
+[53] W. Xu, A. Chatterjee, M. Zollh¨ofer, H. Rhodin, D. Mehta,
+H.-P. Seidel, and C. Theobalt. Monoperfcap: Human perfor-
+mance capture from monocular video. ACM Transactions on
+Graphics (ToG), 37(2):1–15, 2018. 1, 2, 3, 5, 6, 7, 8
+[54] Y. Xu, S.-C. Zhu, and T. Tung.
+Denserac: Joint 3d pose
+and shape estimation by dense render-and-compare. In Pro-
+ceedings of the IEEE International Conference on Computer
+Vision, pages 7760–7770, 2019. 1, 2

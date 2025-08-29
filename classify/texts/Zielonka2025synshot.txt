@@ -1,0 +1,1021 @@
+Title: Synthetic Prior for Few-Shot Drivable Head Avatar Inversion
+
+Synthetic Prior for Few-Shot Drivable Head Avatar Inversion
+Wojciech Zielonka1, 2, 3*
+Stephan J. Garbin3
+Alexandros Lattas3
+George Kopanas3
+Paulo Gotardo3
+Thabo Beeler3
+Justus Thies1, 2
+Timo Bolkart3
+1Max Planck Institute for Intelligent Systems, T¨ubingen, Germany
+2Technical University of Darmstadt
+3Google
+https://zielon.github.io/synshot/
+Figure 1. Given a few input images (left), SynShot generates a personalized 3D Gaussian avatar that renders from new viewpoints and
+unseen expressions (right). To compensate for the missing information in the input images, we leverage a generative Gaussian head avatar
+trained on a diverse synthetic head dataset as a 3D prior.
+Abstract
+We present SynShot, a novel method for the few-shot
+inversion of a drivable head avatar based on a synthetic
+prior. We tackle three major challenges. First, training a
+controllable 3D generative network requires a large num-
+ber of diverse sequences, for which pairs of images and
+high-quality tracked meshes are not always available. Sec-
+ond, the use of real data is strictly regulated (e.g., under
+the General Data Protection Regulation, which mandates
+frequent deletion of models and data to accommodate a
+situation when participant’s consent is withdrawn). Syn-
+thetic data, free from these constraints, is an appealing al-
+ternative. Third, state-of-the-art monocular avatar models
+struggle to generalize to new views and expressions, lacking
+a strong prior and often overfitting to a specific viewpoint
+distribution. Inspired by machine learning models trained
+solely on synthetic data, we propose a method that learns a
+prior model from a large dataset of synthetic heads with di-
+verse identities, expressions, and viewpoints. With few input
+images, SynShot fine-tunes the pretrained synthetic prior
+to bridge the domain gap, modeling a photorealistic head
+∗Work done while WZ was interning at Google in Zurich, Switzerland
+avatar that generalizes to novel expressions and viewpoints.
+We model the head avatar using 3D Gaussian splatting and
+a convolutional encoder-decoder that outputs Gaussian pa-
+rameters in UV texture space. To account for the different
+modeling complexities over parts of the head (e.g., skin vs
+hair), we embed the prior with explicit control for upsam-
+pling the number of per-part primitives. Compared to SOTA
+monocular and GAN-based methods, SynShot significantly
+improves novel view and expression synthesis.
+1. Introduction
+The ability to build high-fidelity drivable digital avatars is a
+key enabler for virtual reality (VR) and mixed reality (MR)
+applications. However, creating photorealistic human head
+models [1, 58] using traditional rendering assets requires
+sophisticated data capture and significant manual cleanup,
+which is time-consuming and expensive.
+The recent advancements in learning-based methods and
+radiance fields [30, 45] have simplified the avatar creation
+process, leading to impressive progress in quality and de-
+mocratization of neural head avatars [19, 44, 67].
+Such
+progress is particularly noticeable in enhancing control
+1
+arXiv:2501.06903v3  [cs.CV]  31 Mar 2025
+
+
+through lightweight animation [50, 71, 88], and reducing
+training time to a few minutes [85]. These methods are
+trained on multi-view [44, 50, 67] or single-view videos
+[9, 19, 71, 85], typically requiring hundreds to thousands
+of video frames. Processing such datasets is complex and
+error-prone as most methods require tracking a coarse head
+mesh across all frames, which is typically done by fitting
+a 3D morphable model [40, 47] to the image. A further
+limitation of existing personalized head avatars is their poor
+generalization to facial expressions and camera viewpoints
+not captured in the set of input images.
+Another recent body of work addresses the problem of
+building 3D head avatars from one or few input images,
+[8, 11, 77]. However, their rendering quality and fidelity
+are typically lower than those of methods trained on large
+datasets (e.g., [50, 88]). To improve quality, some methods
+[75, 76, 81] first learn a multi-identity head model that is
+used as prior when optimizing for the personalized avatar.
+Training these head priors requires a large-scale multi-view
+image dataset that is expensive and time-consuming to cap-
+ture. Moreover, managing real data under protection laws
+like GDPR is cumbersome for experimentation and mainte-
+nance, as users must periodically (e.g., every 30 days) delete
+all dataset derivatives and trained models, allowing dataset
+participants to be removed from both if needed. Alterna-
+tively, the FFHQ dataset [29] may be employed, with 4D
+GAN-based methods [13, 61, 80] constructing an inversion
+prior from it. However, these approaches tend to exhibit
+artifacts during novel view synthesis and struggle with pre-
+serving identity. In summary, the expressive power of this
+prior is strongly influenced by: the training data diversity
+(e.g., ethnicity, age, facial features, expressions), the multi-
+view capture hardware setup (i.e., lighting, view-density,
+calibration quality, frame-rate), and the quality of the data
+pre-processing (e.g., mesh tracking, background masking).
+In contrast to the previous work that focuses on expen-
+sive and cumbersome real data, we overcome these limi-
+tations and propose SynShot, a new method that builds a
+prior solely on synthetic data and adapts to a real test sub-
+ject requiring only a few input images. Building on the
+success of ML models trained on synthetic data for tasks
+like 3D face regression [57], 2D landmark prediction [70],
+rigid face alignment [3], and few-shot head reconstruction
+[6, 68, 78], SynShot is trained solely on a large synthetic
+dataset generated from 3DMM samples and diverse assets.
+Synthetic data offers complete control over dataset creation
+to meet size and diversity needs for training an expressive
+head prior, eliminating the need for costly capture hard-
+ware and addressing privacy concerns with real subjects.
+The benefits brought by synthetic data come at the cost of
+having to handle the domain gap between the trained head
+prior and real images captured “in the wild”. To effectively
+bridge this gap, we first fit the synthetic prior to real images
+and then fine-tune the prior weights to the real data using
+the pivotal tuning strategy proposed in [52]. With as few
+as three input images, SynShot reconstructs a photorealistic
+head avatar that generalizes to novel expressions and cam-
+era viewpoints (Fig. 1). The results show that our method
+outperforms state-of-the-art personalized monocular meth-
+ods [59, 71, 85] trained on thousands of images each. Our
+method represents head avatars using 3D Gaussian primi-
+tives [30], where Gaussian parameters are generated by a
+convolutional architecture in UV space [41, 55, 88].
+In summary, our key contributions are:
+1. A generative method based on a convolutional encoder-
+decoder architecture that is trained on extensive syn-
+thetic data only to produce controllable 3D head avatars.
+2. A reconstruction scheme that adapts and fine-tunes a pre-
+trained generative model on a few real images to create
+a personalized, photorealistic 3D head avatar.
+2. Related Work
+Few-shot Head Avatars. 3D Morphable Models (3DMM)
+[4, 15, 40, 47] have long been used for creating facial
+avatars. When paired with generative models for textures
+[22, 37, 38, 43], 3DMMs can be optimized from in-the-
+wild images. Techniques such as inverse rendering [14],
+diffusion-based inpainting [46], and pivotal-tuning [39, 52]
+are used to disentangle appearance from identity. Neural
+radiance fields (NeRF) [45] and 3D Gaussian representa-
+tions (3DGS) [30] have also been widely used for avatar re-
+construction. EG3D [7] employs features on tri-planes, en-
+abling consistent 3D face generation and inversion from in-
+the-wild images. PanoHead [2] extends EG3D through tri-
+grids to achieve a full 360-degree generation of static human
+heads. Gaussian3Diff [36] further improves quality by re-
+placing neural features with 3D Gaussians. Rodin [68] and
+RodinHD [78] leverage an extensive dataset of synthetic hu-
+mans to train a triplane-based avatar generator used to invert
+in-the-wild images; however, the results remain confined to
+the synthetic domain and avatars are not drivable.
+Diner [48] incorporates depth information, while Preface
+[5] trains a volumetric prior on synthetic human data and fits
+it to a few input images to match a subject’s likeness. Cafca
+[6] extends Preface to better generalize to static but arbitrary
+facial expressions. In contrast, our method not only bridges
+the domain gap from synthetic to real but also produces an-
+imatable avatars. MofaNeRF [84] and NeRFace [19] condi-
+tion NeRFs on expression (and shape) codes, while Head-
+NeRF [26] similarly embeds NeRFs into parametric mod-
+els. Portrait4D [13] introduces one-shot 4D head synthesis
+using a transformer-based animatable triplane reconstructor
+built on the EG3D [7]. Next3D [61] employs GAN-based
+neural textures embedded on a parametric mesh; however, it
+suffers from inversion problems. InvertAvatar [80] tackles
+2
+
+
+Figure 2.
+Pipeline overview.
+Given an extracted texture xtex, rasterized position map xverts, and PCA expression deltas xexp
+our network utilized VQ-VAE to jointly optimize for two latent space zexpr and zid.
+The VQ-VAE decoders predict feature map
+Dfeat(q(zid), q(zexpr)) →ˆxfeat, identity and color maps Did(q(zid)) →{ˆxtex, ˆxverts}, and expression deltas Dexpr(q(zexpr)) →
+ˆxexpr. Finally, bilinearly sampled maps are passed to per-part regressors Rcolor and Rgauss to obtain primitives to rasterize.
+the shortcomings of Next3D and further refines avatar inver-
+sion using few-shot images. Despite relatively good frontal
+performance, these GAN-based methods often exhibit arti-
+facts, such as identity changes, in novel view synthesis.
+Recent methods by Xu et al. [76] are conceptually simi-
+lar to HeadNeRF and MofaNeRF; however, instead of em-
+bedding NeRF [45] on a mesh, they employ 3DGS [30].
+GPHM [76] uses a series of MLPs to generate Gaussian
+primitives attached to a parametric model, enabling ex-
+pression control and inversion, though it conditions only
+the avatar’s shape. GPHMv2 [75] extends GPHM with a
+dynamic module for improved reenactment control and a
+larger dataset, further enhancing quality. HeadGAP [81]
+also models avatars using MLPs, utilizing part-based fea-
+tures and additional color conditioning to improve quality.
+While these methods embed primitives directly on the mesh
+surface, our approach explicitly learns the primitive param-
+eters by modeling their distribution via a VQ-VAE [66],
+eliminating the need for a guiding mesh during the test time
+as the shape is captured within our latent space.
+Multi-view Personalized Avatars. Volumetric primitives,
+combined with multi-view training, are highly effective for
+modeling human heads [23, 28, 32, 55, 62, 63, 74, 88] as
+they capture intricate details like hair and subsurface scat-
+tering [56].VolTeMorph [21] embeds a NeRF within tetra-
+hedral cages that guide volumetric deformation. Qian et al.
+[50] attach Gaussian primitives to 3DMM triangles, whose
+local rotations and stretch deform the Gaussians without re-
+quiring neural networks.
+Xu et al. [74] and Giebenhain
+et al. [23] extend that work to further predict corrective
+fields over the Gaussians; rather than colors, they splat fea-
+tures that are translated into color by an image-space CNN
+[65]. Lombardi et al. [42] position 3D voxels with RGB
+and opacity values at the vertices of a head mesh, using
+ray tracing for volumetric integration. Saito et al. [55] im-
+prove quality by replacing voxel primitives with 3D Gaus-
+sians and applying rasterization.
+Our VQ-GAN training
+aligns with these principles for few-shot capture, as we su-
+pervise the process using a hybrid mesh-primitive approach
+to model the generative distribution.
+Monocular Personalized Avatars.
+Monocular methods
+often rely on a strong 3DMM prior, as recovering a 3D
+shape from a 2D image is an inherently under-constrained
+problem.
+Face2Face [64] was a seminal work that en-
+abled real-time reconstruction and animation of a para-
+metric model.
+However, it lacks detailed hair represen-
+tation and relies on low-frequency PCA texture models,
+which significantly affects quality.
+This limitation has
+led to the rise of neural avatars based on NeRF [10, 18–
+20, 67, 72, 73, 77, 82, 82, 83] and later on 3D Gaussian
+primitives [9, 33, 59, 71]. INSTA [85] applies triangle de-
+formation gradients [60] to each NeRF sample based on
+proximity to the nearest triangle, enabling avatar anima-
+tion. This approach has been adapted to 3D Gaussian Splat-
+ting (3DGS) by methods like Flash Avatar [71] or Splat-
+ting Avatar [59]. Unlike SynShot, these monocular meth-
+ods do not generalize well to novel views and expressions.
+Moreover, they require three orders of magnitude more real
+data to create a single avatar. SynShot overcomes this by
+leveraging a synthetic prior during few shot avatar inver-
+sion, achieving high-quality results.
+3. Method
+This section describes SynShot, how we train the synthetic
+prior to generate drivable 3D Gaussian head avatars, and
+how we use it for few-shot head avatar reconstruction.
+3
+
+
+3.1. Preliminaries
+We represent a base 3D mesh as S = ¯S + δBid + γBexpr,
+where ¯S is the average shape, B(id,expr) are the bases
+for identity and expression of a 3DMM, and δ, γ denote
+the corresponding coefficients. Additionally, we use linear
+blend skinning (LBS) for head rotation around the neck with
+pose corrective offsets, and to rotate the eyeballs.
+The head avatar is rendered via 3D Gaussian splatting,
+using the CUDA implementation of 3DGS [30]. The raster-
+izer is defined as R(G, K) →¯I, for a camera K and a set
+of n 3D Gaussians G ∈Rn×(11+16×3) := {ϕ,θ,σ,α,h},
+with position ϕ ∈Rn×3, rotation θ ∈Rn×3×3, scale
+σ ∈Rn×3, opacity α ∈Rn, and the (third-degree) spher-
+ical harmonics parameters h ∈Rn×16×3, where n is the
+number of Gaussians. See Kerbl et al. [30] for more details.
+3.2. Gaussian Prior Model
+Our prior is modeled as a generative convolutional network
+with additional lightweight regressors that output Gaussian
+2D maps, i.e. multichannel parameter textures. To sample
+a flexible number of Gaussian primitives, UV positions and
+features are bilinearly interpolated from intermediary fea-
+ture maps, before decoding the standard Gaussian attributes
+that are rendered using R(·). The architecture of the prior
+learned by SynShot is illustrated in Fig. 2.
+Drivable VQ-VAE. Our network has an encoder-decoder
+architecture based on the VQ-VAE [66]. We follow the ap-
+proach of Esser et al. [16], and use a transformer operat-
+ing in a quantized latent codebook space to better model
+long-range dependencies between encoded patches in im-
+ages. The input to the encoder consists of an RGB tex-
+ture map xtex ∈RH×W ×3, an XYZ vertex position map
+xverts = Ruv(δBid) ∈RH×W ×3 representing the raster-
+ized positions of the neutral mesh, and an expression map
+xexp = Ruv(γBexpr) ∈RH×W ×3 denoting rasterized ex-
+pression offsets from the neutral mesh, where Ruv(·) de-
+notes UV space rasterization. The encoder network con-
+sists of two parallel branches, one for identity and one for
+expression. This way we explicitly disentangle static com-
+ponents, such as face shape and appearance, from dynamic
+ones, such as wrinkles, and self-shadowing using two sepa-
+rate latent spaces. We denote them as Eid(xtex,xverts) →
+zid, where zid
+∈
+Rh×w×nid is the identity code and
+Eexpr(xexp) →zexpr with zexpr ∈Rh×w×nexpr represent-
+ing the expression code. The identity and expression latents
+undergo element-wise quantization q(·). For simplicity, we
+omit the subscript and let z ∈{zid,zexpr} denote identity
+and expression latent codes, with spatial codes zij ∈Rn,
+which we quantize by:
+q(z) :=
+
+arg min
+zk∈Z
+∥zij −zk∥
+
+,
+(1)
+with a learned discrete codebook Z
+= {zk}K
+k=1, with
+zk ∈Rn. The quantized latent codes are fed into the de-
+coder, which is implemented as three output branches: a
+feature map decoder, Dfeat(q(zid), q(zexpr)) →ˆxfeat ∈
+RH×W ×F with F-dimensional feature vectors per texel; an
+identity map decoder, Did(q(zid)) →{ˆxtex, ˆxverts}; and
+an expression decoder, Dexpr(q(zexpr)) →ˆxexpr. Given
+the output vertex position and expression maps, ˆxverts and
+ˆxexpr, the positions of the Gaussian primitives are then com-
+puted as ϕ = ˆxverts + ˆxexpr.
+Gaussian Primitives Regression.
+A common limitation
+of using CNNs to regress Gaussian maps is the fixed out-
+put resolution, which ties the number of primitives to the
+output dimensions. This restriction can significantly limit
+the quality of the reconstructed avatar (see Table 1). To
+address this issue, we use a part-based densification mech-
+anism.
+Similar to Kirschstein et al. [33], we use bilin-
+ear sampling, B(·, u, v) to sample the output of the de-
+coders at UV-positions (u, v). As different head regions
+r ∈{face, hair} have varying requirements for the den-
+sity of Gaussian primitives, we bilinearly sample separate
+parameter maps for the face and scalp region, rather than
+a single joint map. Thus, per-part map sampling acts as
+adaptive primitive densification for the individual regions
+to improve visual quality (Table 1).
+We define the primitive positions in the 3DMM space us-
+ing only shape and expression. Global rotation, translation,
+and linear blend skinning (LBS) are factored out and ap-
+plied to the primitives just before splatting to place them in
+the correct world space. We compute initial per-part Gaus-
+sian parameters for our primitives. Note that we do not use
+a fixed canonical space [23, 33, 88], as our initialization is
+derived from predicted position maps. We first obtain posi-
+tions by sampling ϕr = B(ϕ, ur, vr), for r ∈{face, hair}.
+Next, for each ϕr, we compute nearest neighbor distance
+and initialize scale as σr = minj̸=i ∥ϕri −ϕrj∥2. Initial
+opacity is set to α = 0.7. Finally, the per-part rotations
+are computed as θr =
+h
+T
+∥T∥
+B
+∥B∥
+N
+∥N∥
+i
+∈Rh×w×3×3,
+based on the image space gradient:
+T = ∂ϕr
+∂u ,
+B = ∂ϕr
+∂v ,
+N = T × B.
+(2)
+Following common practice [23, 33, 55, 74, 81, 87, 88], we
+predict a neural corrective field for all Gaussian parameters.
+For this, we use the regressed feature map ˆxfeat, sampling
+sr = B(ˆxfeat, ur, vr), and lightweight regressors composed
+of four stacked convolutional blocks with skip connections.
+Per region, we define two regressors:
+Rcolor(sr) →hr ∈Rh×w×16×3,
+(3)
+Rgauss(sr) →{δϕr, δθr, δσr, δαr},
+(4)
+where Rcolor regresses the spherical harmonics coeffi-
+cients hr, and Rgauss regresses additive parameter offsets
+4
+
+
+∆:= {δϕr, δθr, δσr, δαr} from the per-part Gaussian pa-
+rameters. Finally, we apply ∆to the primitives of the indi-
+vidual parts, concatenate them, and splat as R(G, K) →¯I,
+where ¯I is the final rendered image and G represents the
+combined Gaussian primitives.
+Training Objectives.
+We supervise the training of our
+model by minimizing the photometric loss:
+Lcolor = αLL1 + βLSSIM + γLLPIPS
+(5)
+between the pairs of input and output maps {xtex, ˆxtex},
+{xverts, ˆxverts}, and {xexp, ˆxexpr}, and between the pairs
+of target images and the final splatted images {I, ¯I}.
+Additionally, the position maps ˆxverts and expression
+maps ˆxexpr are supervised by Lgeom = δLL1. The final
+loss is defined as L = Lcolor + Lgeom. Moreover, we ap-
+ply L2 regularization on position, scale, opacity, and the FC
+(l >= 1) part of the spherical harmonics coefficients: The
+final loss is defined as L = Lphoto + Lreg. We train our
+network end-to-end using 8 GPUs Nvidia H100 with batch
+size 16 (2 per GPU). We optimize the network for 500K it-
+erations with the Adam optimizer [31] with lr=1.3e−5 and
+multi-step scheduler which decays the learning rate every
+milestone by gamma=0.66.
+3.3. Few-shot Avatar Reconstruction
+To bridge the gap between in-the-wild and synthetic avatars,
+we carefully designed a two-stage inversion process based
+on pivotal fine-tuning [52]. First, we optimize the encoder
+Eid while keeping the rest of the network fixed such that
+we recover zid. Note that Eexpr remains unchanged as it
+should model independent expressions. Once Eid is fine-
+tuned, we fix its predicted identity latent code zid, we fine-
+tune the decoders {Dfeat,Did,Dexpr} and the regressors
+{Rcolor,Rgauss} for the hair and face regions (Fig. 3).
+To make the problem tractable, we employ a few heuris-
+tics to aid the optimization. These include early stopping
+with a warmup phase and an exponential moving average on
+the loss to determine the stopping criteria. Additionally, we
+scale the number of optimization steps based on the num-
+ber of training frames, using a constant factor of 10 to in-
+crease the likelihood that each sample is seen at least once.
+As a training objective, in addition to our photometric term
+Lcolor (Eq. 5), we follow Lattas et al. [39] and, based on Ar-
+cFace [12], define two additional objectives: Lid and Larc.
+The final inversion loss is equal to L = Lcolor +Larc+Lid.
+For a number of views, up to 20, the optimization takes less
+than 10 minutes on a single Nvidia H100 which is compa-
+rable to INSTA [85]. The training time increases with the
+number of frames as we scale the iterations accordingly.
+3.4. Synthetic Dataset
+Our dataset consists of approximately 2,000 unique iden-
+tities, which we render with resolution 768 × 512 using
+Source
+Prior
+Final
+Source
+Prior
+Final
+Figure 3. Result of the pivotal tuning before (Prior) and after fine-
+tuning the model decoders and regressors (Final).
+Blender (Cycles) following Wood et al. [70], see Fig. 4. We
+positioned fourteen cameras in front of the subject and an
+additional fourteen cameras sampled from the upper hemi-
+sphere, centered on the scene. We randomly assign assets
+such as hairstyles and beards to these avatars. Addition-
+ally, we utilize high-quality face textures which are ran-
+domly distributed among the samples. By combining dif-
+ferent shapes and appearances, we augment the set of iden-
+tities, following practices in synthetic data [70] and 3D face
+reconstruction [14, 39, 46]. To incorporate tracked expres-
+sions from multi-view setups, we propagate them to the
+avatars during sequence rendering. We additionally com-
+pute a hair proxy from strands by voxelizing and fitting it
+to the scalp region; we apply the same approach for beards.
+Using a neutral mesh and its hair proxy, we backproject the
+images onto the texture map. During test time, we use a
+3DMM regressor and the input images to extract a texture,
+which is then used as an initialization for our method. In
+total, our dataset comprises 14 million images.
+Figure 4. Random samples of our synthetic dataset show a diverse
+range of identities, expressions, and hairstyles that would be chal-
+lenging to capture in an in-house studio with real subjects.
+4. Results
+We compare SynShot to two different types of meth-
+ods, state-of-the-art personalized monocular methods, and
+inversion-based general methods. The personalized monoc-
+ular methods are controlled by FLAME [40] meshes and
+include INSTA [85], Flash Avatar [71], and SplattingAvatar
+[59]. For monocular methods, we used an ensemble of four
+datasets [19, 25, 82, 88] processed using the face tracker
+from Zielonka et al. [86]. SplattingAvatar follows the ap-
+proach of Zheng et al. [82] and uses the monocular 3D face
+regressor DECA [17] for tracking. In our experiments, we
+adopted a similar approach, employing an in-house regres-
+sor, similar to DECA, to estimate 3DMM expression and
+pose parameters. While these methods produce photorealis-
+5
+
+
+Source
+Ours
+INSTA [85]
+SA [59]
+FA [71]
+Figure 5. Cross-reenactment comparison of SynShot inversion using only 3 views to state-of-the-art (SOTA) methods: INSTA [85], Flash
+Avatar (FA) [71], and Splatting Avatar (SA) [59], each of which was trained on an average of 3000 frames. It is evident that without a
+strong prior, these methods fail to generalize to novel expressions and views. Inversion input images are in the supplemental materials.
+Figure 6. Novel view evaluation of long hair and beard inversion
+using only three input images demonstrates the strong generaliza-
+tion capability of SynShot.
+tic avatars, they struggle with generalization to novel views
+and poses (see Figure 5). For inversion-based methods, we
+compare PanoHead [2], HeadNeRF [26], and MofaNeRF
+[84]. We also compare to concurrent works including Por-
+trait4D [13], Next3D [61], and InvertAvatar [80] (Figures 8
+and 9). We use three images for all inversion experiments
+see supp. material. Figure 6 presents a novel view evalu-
+ation of challenging long hair and beard inversion, demon-
+strating the generalization capabilities of SynShot.
+Evaluation. To measure the performance of SynShot with-
+out introducing bias, we selected training frames from
+{Fn}16
+n=1 = {1, . . . , 987}, where Fn denotes the Fibonacci
+sequence. For all experiments, we use progressive farthest
+point sampling [49] in the 3DMM expression space to select
+a specified number of frames from the training set. The self-
+reenactment sequences were evaluated using LPIPS and
+SSIM on the last 600 frames from the INSTA dataset [85].
+Monocular Avatar Self-Reenactment.
+Our combined
+Figure 7. We evaluated the reconstruction error with respect to
+the number of frames using LPIPS and SSIM metrics. For each
+frame count, we report the average error (left) and standard devi-
+ation (right) over 600 frames across 11 subjects, highlighting the
+importance of our synthetic prior.
+dataset consists of eleven monocular sequences (512 × 512
+resolution), many of which are in-the-wild videos with very
+limited head motion, resulting in a low error as the test se-
+quences closely resemble the training data, leaving limited
+room to assess diversity.
+To address this and accurately
+measure the effective error, we trained each method on a
+varying number of frames, corresponding to frames used in
+our inversion pipeline. The reconstruction error is evaluated
+on 600 test frames. Figure 7 demonstrates the effective-
+6
+
+
+Ground Truth
+Ours
+InvertAvatar [80]
+Portrait4D [13]
+Next3D [61]
+Figure 8. The GAN-based self-reenactment comparison again shows that SynShot better captures identity and synthesizes novel views,
+proving its usefulness as a synthetic prior and for pivotal fine-tuning in inversion. LPIPS scores: Ours (0.0236), InvertAvatar (0.0962),
+Portrait4D (0.0843), and Next3D (0.2274). Inversion input images can be found in the supplemental materials.
+Source
+Ours
+InvertAvatar [80]
+Portrait4D [13]
+Next3D [61]
+Figure 9. The GAN-based cross-reenactment comparison shows that our method better reconstructs the target subject’s appearance (iden-
+tity) and remains faithful to the source subject’s head poses and expressions, whereas the other methods suffer from artifacts.
+ness of our inversion, particularly with up to 233 training
+frames. Due to the lack of a strong prior, monocular meth-
+ods fail in low training frame regimes, and, even with larger
+training datasets, they do not perform well and produce ar-
+tifacts. Please note that to benefit from an increased num-
+ber of input frames, i.e., to ground the avatar reconstruction
+more on the input than the synthetic prior, it requires an
+increased number of optimization iterations during pivotal
+fine-tuning. The number of iteration steps affects the met-
+rics, causing LPIPS to vary non-monotonically.
+Monocular Avatar Cross-Reenactment. We would like to
+emphasize the importance of evaluating cross-reenactment,
+which often reveals issues with generalization and overfit-
+ting; however, these aspects are frequently underempha-
+sized, as evaluation sequences are commonly not suffi-
+ciently challenging. For instance, Figure 7 indicates that
+13 frames may be sufficient for monocular methods to per-
+form well on the test set. Despite achieving high-quality
+results, most monocular methods [19, 25, 59, 71, 85] strug-
+gle with cross-reenactment involving novel expressions and
+7
+
+
+views. In the supp. mat. we present a full evaluation. With-
+out a strong prior, these methods frequently exhibit artifacts
+when driven by out-of-distribution sequences. In contrast,
+our method, leveraging only three images and a synthetic
+prior with effective shape-expression disentanglement, is
+able to invert an avatar that significantly outperforms state-
+of-the-art models trained on thousands of frames. Figure 5
+demonstrates cross-reenactment, with the leftmost column
+serving as the source for expression and view. This shows
+that incorporating a strong prior enhances the visual quality.
+Architecture
+L1 ↓
+LPIPS ↓
+SSIM ↑
+PSNR ↑
+F = 128
+0.0356
+0.2686
+0.8189
+20.1536
+Tex. up-sampling
+0.0352
+0.2695
+0.8196
+20.1909
+Single Layer
+0.0369
+0.2702
+0.8177
+19.8871
+F = 32
+0.0375
+0.2732
+0.8146
+19.7002
+w/o VQ
+0.0396
+0.2747
+0.8122
+19.2861
+F = 64
+0.0400
+0.2765
+0.8104
+19.2731
+No Sampling
+0.0403
+0.2853
+0.8158
+19.9787
+256 × 256
+0.0365
+0.2865
+0.8194
+20.4010
+Table 1. We evaluated various configurations of our VQ-VAE.
+Each configuration uses the final textures of 512 × 512, unless
+stated otherwise. As our final model (F = 128) we selected the
+one which produces sharpest results in terms of LPIPS.
+GAN-based baselines. We compared SynShot to three ani-
+matable GAN-based methods. For our method and InvertA-
+vatar [80], we used three input images, whereas Portrait4D
+[13] and Next3D [61] are single-shot. Figure 8 presents
+qualitative self-reenactment results, with additional quanti-
+tative LPIPS scores: Ours (0.0236), InvertAvatar (0.0962),
+Portrait4D (0.0843), and Next3D (0.2274).
+Both results
+show that SynShot significantly outperforms the baselines.
+Moreover, Figure 9 presents expression transfer, where our
+method best captures the subject’s identity and is more sta-
+ble for novel views and expressions, whereas GAN-based
+methods tend to introduce artifacts in side views.
+VQ-VAE Architecture Ablation. Table 1 presents an ab-
+lation study of our VQ-VAE architecture. Each model was
+evaluated on 50 test actors excluded from the training set.
+Our best model, in terms of sharpness and quality, regresses
+a feature map ˆxfeat ∈RH×W ×F , where F = 128, at a reso-
+lution of 512×512. Regressing Gaussian primitives directly
+(No Sampling) suffers from lack of quality. Using a Single
+Layer instead of two (for hair + face) results in a lower num-
+ber of Gaussians, which also decreases the final quality. A
+key feature of our network is densification through texture
+sampling. In the (Tex. up-sampling) experiment, we predict
+feature maps at 256×256 resolution compared to 512×512
+and apply bilinear sampling to upscale the per-region sam-
+pled feature maps to 512 × 512. This approach achieves
+results that are almost on par while saving VQ-VAE com-
+putation and memory.Finally, using codebook quantization
+of latent space improves the final image quality (w/o VQ).
+Loss
+L1 ↓
+LPIPS ↓
+SSIM ↑
+PSNR ↑
+Lphoto + LV GG + LId + LArcF eat
+0.0229
+0.0776
+0.9073
+23.7474
+Lphoto + LV GG
+0.0244
+0.0839
+0.9058
+23.1191
+Lphoto + LV GG + LId
+0.0246
+0.0848
+0.9048
+23.1949
+Lphoto = LL1 + LSSIM
+0.0217
+0.0904
+0.9094
+23.7331
+Table 2. Ablation for our inversion losses.
+Inversion Ablation. Our inversion pipeline consists of sev-
+eral losses that help bridge the gap between synthetic and
+real images. This is an important step in our pipeline, as
+real subjects often have appearance and illumination con-
+ditions that differ significantly from our distribution. To
+address this, we rely on pixel-wise losses and, most impor-
+tantly, on perceptual losses, which have been shown to aid
+in effectively matching two distributions [5, 6, 27, 39, 79].
+Table 2 shows the inversion reconstruction error using dif-
+ferent combinations of losses. As can be seen, using only
+Lphoto is insufficient. The combination of LV GG, based on
+AlexNet [35], LID, and LArcF eat provides the best results.
+5. Discussion
+While significantly outperforming monocular methods,
+SynShot has certain limitations that we identify. A key chal-
+lenge is bridging the domain gap between synthetic and
+real data. There is considerable room for improvement in
+the generation of synthetic data. For example, all our syn-
+thetic subjects share the same teeth geometry and texture.
+As a consequence, teeth in our inverted head avatars often
+closely follow the prior and do not adapt easily. Further-
+more, our synthetic data lacks diverse expression-dependent
+wrinkles, affecting its overall visual quality. Additionally,
+our dataset was ray-traced with a single environment map,
+limiting generalization to varied lighting conditions.
+6. Conclusion
+We have proposed SynShot, a method for reconstructing a
+personalized 3D Gaussian head avatar from just a few im-
+ages. SynShot builds a generative head avatar purely from
+synthetic data and then utilizes this model as a prior in an
+inversion pipeline. This inversion pipeline follows a pivotal
+tuning strategy that successfully bridges the domain gap be-
+tween the prior and the real input images. We demonstrate
+that our personalized head avatars generalize better to un-
+seen expressions and viewpoints than SOTA head avatars.
+Acknowledgement The authors thank the International
+Max Planck Research School for Intelligent Systems
+(IMPRS-IS) for supporting WZ. JT was supported by the
+ERC Starting Grant LeMo (101162081). We also would
+like to thank Daoye Wang for assisting with synthetic asset
+generation, Mark Murphy for his help with using Google in-
+frastructure, and Menglei Chai for providing the hair proxy.
+8
+
+
+References
+[1] Oleg Alexander, Mike Rogers, William Lambeth, Matt Chi-
+ang, and Paul Debevec. The digital emily project: photoreal
+facial modeling and animation. In ACM SIGGRAPH 2009
+Courses. Association for Computing Machinery, 2009. 1
+[2] Sizhe An, Hongyi Xu, Yichun Shi, Guoxian Song, Umit Y.
+Ogras, and Linjie Luo. PanoHead: Geometry-aware 3D full-
+head synthesis in 360deg. In Conference on Computer Vision
+and Pattern Recognition (CVPR), pages 20950–20959, 2023.
+2, 6, 13, 21
+[3] Jan Bednar´ık, Erroll Wood, Vasileios Choutas, Timo Bolkart,
+Daoye Wang, Chenglei Wu, and Thabo Beeler.
+Learning
+to stabilize faces. Computer Graphics Forum (CGF), 43(2),
+2024. 2
+[4] Volker Blanz and Thomas Vetter. A morphable model for the
+synthesis of 3D faces. In SIGGRAPH, pages 187–194, 1999.
+2
+[5] Marcel C. Buehler, Kripasindhu Sarkar, Tanmay Shah,
+Gengyan Li, Daoye Wang, Leonhard Helminger, Ser-
+gio Orts-Escolano, Dmitry Lagun, Otmar Hilliges, Thabo
+Beeler, and Abhimitra Meka. Preface: A data-driven vol-
+umetric prior for few-shot ultra high-resolution face synthe-
+sis. In International Conference on Computer Vision (ICCV),
+2023. 2, 8, 13
+[6] Marcel C. Buehler, Gengyan Li, Erroll Wood, Leonhard
+Helminger, Xu Chen, Tanmay Shah, Daoye Wang, Stephan
+Garbin, Sergio Orts-Escolano, Otmar Hilliges, Dmitry La-
+gun, J´er´emy Riviere, Paulo Gotardo, Thabo Beeler, Abhim-
+itra Meka, and Kripasindhu Sarkar.
+Cafca: High-quality
+novel view synthesis of expressive faces from casual few-
+shot captures. In SIGGRAPH Asia Conference Papers (SA),
+2024. 2, 8
+[7] Eric R Chan, Connor Z Lin, Matthew A Chan, Koki Nagano,
+Boxiao Pan, Shalini De Mello, Orazio Gallo, Leonidas J
+Guibas, Jonathan Tremblay, Sameh Khamis, et al.
+Effi-
+cient geometry-aware 3d generative adversarial networks.
+In Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 16123–16133, 2022. 2
+[8] Xiyi Chen, Marko Mihajlovic, Shaofei Wang, Sergey
+Prokudin, and Siyu Tang.
+Morphable diffusion:
+3D-
+consistent diffusion for single-image avatar creation.
+In
+Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 10359–10370. IEEE, 2024. 2
+[9] Yufan Chen, Lizhen Wang, Qijing Li, Hongjiang Xiao,
+Shengping Zhang, Hongxun Yao, and Yebin Liu.
+Mono-
+GaussianAvatar:
+Monocular gaussian point-based head
+avatar.
+In SIGGRAPH Conference Papers (SA), page 58.
+ACM, 2024. 2, 3
+[10] Xuangeng Chu and Tatsuya Harada. Generalizable and ani-
+matable gaussian head avatar. In Advances in Neural Infor-
+mation Processing Systems (NeurIPS), 2024. 3
+[11] Xuangeng Chu and Tatsuya Harada. Generalizable and ani-
+matable gaussian head avatar, 2024. 2
+[12] Jiankang Deng, Jia Guo, Niannan Xue, and Stefanos
+Zafeiriou. Arcface: Additive angular margin loss for deep
+face recognition. In Conference on Computer Vision and Pat-
+tern Recognition (CVPR), pages 4690–4699, 2019. 5
+[13] Yu Deng, Duomin Wang, Xiaohang Ren, Xingyu Chen, and
+Baoyuan Wang.
+Portrait4d: Learning one-shot 4d head
+avatar synthesis using synthetic data. In IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition, 2024. 2,
+6, 7, 8
+[14] Abdallah Dib, Luiz Gustavo Hafemann, Emeline Got, Trevor
+Anderson, Amin Fadaeinejad, Rafael MO Cruz, and Marc-
+Andr´e Carbonneau.
+MoSAR: Monocular semi-supervised
+model for avatar reconstruction using differentiable shading.
+In Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 1770–1780, 2024. 2, 5
+[15] Bernhard Egger, William AP Smith, Ayush Tewari, Stefanie
+Wuhrer, Michael Zollhoefer, Thabo Beeler, Florian Bernard,
+Timo Bolkart, Adam Kortylewski, Sami Romdhani, et al. 3D
+morphable face models–past, present and future. Transac-
+tions on Graphics (TOG), 39(5):157:1–157:38, 2020. 2
+[16] Patrick Esser, Robin Rombach, and Bj¨orn Ommer. Taming
+transformers for high-resolution image synthesis. Transac-
+tions on Pattern Analysis and Machine Intelligence (TPAMI),
+2020. 4
+[17] Yao Feng, Haiwen Feng, Michael J. Black, and Timo
+Bolkart.
+Learning an animatable detailed 3D face model
+from in-the-wild images. Transactions on Graphics, (Proc.
+SIGGRAPH), 40(4):88:1–88:13, 2021. 5
+[18] Yao Feng, Weiyang Liu, Timo Bolkart, Jinlong Yang, Marc
+Pollefeys, and Michael J. Black.
+Learning disentangled
+avatars with hybrid 3D representations, 2023. 3
+[19] Guy Gafni, Justus Thies, Michael Zollh¨ofer, and Matthias
+Nießner. Dynamic neural radiance fields for monocular 4D
+facial avatar reconstruction.
+In Conference on Computer
+Vision and Pattern Recognition (CVPR), pages 8649–8658,
+2021. 1, 2, 5, 7
+[20] Xuan Gao, Chenglai Zhong, Jun Xiang, Yang Hong, Yudong
+Guo, and Juyong Zhang. Reconstructing personalized se-
+mantic facial nerf models from monocular video. Transac-
+tions on Graphics (TOG), 41(6):1–12, 2022. 3
+[21] Stephan
+Garbin,
+Marek
+Kowalski,
+Virginia
+Estellers,
+Stanislaw Szymanowicz, Shideh Rezaeifar, Jingjing Shen,
+Matthew Johnson, and Julien Valentin. VolTeMorph: Real-
+time, controllable and generalizable animation of volumetric
+representations. Computer Graphics Forum, 43, 2024. 3
+[22] Baris Gecer, Stylianos Ploumpis, Irene Kotsia, and Stefanos
+Zafeiriou. Ganfit: Generative adversarial network fitting for
+high fidelity 3d face reconstruction. In Conference on Com-
+puter Vision and Pattern Recognition (CVPR), pages 1155–
+1164, 2019. 2
+[23] Simon Giebenhain, Tobias Kirschstein, Martin R¨unz, Lour-
+des Agapito, and Matthias Nießner. NPGA: Neural paramet-
+ric gaussian avatars. In SIGGRAPH Conference Papers (SA),
+2024. 3, 4
+[24] Cindy M. Goral, Kenneth E. Torrance, Donald P. Greenberg,
+and Bennett Battaile. Modeling the interaction of light be-
+tween diffuse surfaces. SIGGRAPH, 1984. 14
+[25] Philip-William Grassal,
+Malte Prinzler,
+Titus Leistner,
+Carsten Rother, Matthias Nießner, and Justus Thies. Neu-
+ral head avatars from monocular RGB videos. In Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+18653–18664, 2022. 5, 7
+9
+
+
+[26] Yang Hong, Bo Peng, Haiyao Xiao, Ligang Liu, and Juy-
+ong Zhang. HeadNeRF: A real-time nerf-based parametric
+head model. In Conference on Computer Vision and Pattern
+Recognition (CVPR), 2022. 2, 6, 13, 21
+[27] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. Percep-
+tual losses for real-time style transfer and super-resolution.
+In European Conference on Computer Vision (ECCV), pages
+694–711. Springer, 2016. 8
+[28] Berna Kabadayi, Wojciech Zielonka, Bharat Lal Bhatnagar,
+Gerard Pons-Moll, and Justus Thies. GAN-Avatar: Control-
+lable personalized GAN-based human head avatar. In Inter-
+national Conference on 3D Vision (3DV), 2024. 3
+[29] Tero Karras, Samuli Laine, and Timo Aila. A style-based
+generator architecture for generative adversarial networks.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), 2019. 2
+[30] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis. 3D gaussian splatting for real-time
+radiance field rendering. Transactions on Graphics (TOG),
+42(4), 2023. 1, 2, 3, 4, 13
+[31] Diederik P. Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. International Conference on Learn-
+ing Representations (ICLR), 2015. 5
+[32] Tobias Kirschstein,
+Simon Giebenhain,
+and Matthias
+Nießner.
+DiffusionAvatars: Deferred diffusion for high-
+fidelity 3D head avatars. In Conference on Computer Vision
+and Pattern Recognition (CVPR), pages 5481–5492, 2024. 3
+[33] Tobias Kirschstein,
+Simon Giebenhain,
+Jiapeng Tang,
+Markos Georgopoulos, and Matthias Nießner.
+Gghead:
+Fast and generalizable 3d gaussian heads.
+arXiv preprint
+arXiv:2406.09377, 2024. 3, 4
+[34] Georgios Kopanas, Julien Philip, Thomas Leimk¨uhler, and
+George Drettakis.
+Point-based neural rendering with per-
+view optimization. Computer Graphics Forum (CGF), 40,
+2021. 13
+[35] Alex Krizhevsky, Ilya Sutskever, and Geoffrey E Hinton.
+Imagenet classification with deep convolutional neural net-
+works. In Advances in Neural Information Processing Sys-
+tems (NeurIPS), pages 1097–1105, 2012. 8
+[36] Yushi Lan, Feitong Tan, Di Qiu, Qiangeng Xu, Kyle Gen-
+ova, Zeng Huang, Sean Fanello, Rohit Pandey, Thomas
+Funkhouser, Chen Change Loy, et al.
+Gaussian3diff: 3d
+gaussian diffusion for 3d full head synthesis and editing.
+arXiv preprint arXiv:2312.03763, 2023. 2
+[37] Alexandros Lattas, Stylianos Moschoglou, Baris Gecer,
+Stylianos
+Ploumpis,
+Vasileios
+Triantafyllou,
+Abhijeet
+Ghosh, and Stefanos Zafeiriou. AvatarMe: Realistically ren-
+derable 3D facial reconstruction ”in-the-wild”. In Confer-
+ence on Computer Vision and Pattern Recognition (CVPR),
+pages 757–766, 2020. 2
+[38] Alexandros
+Lattas,
+Stylianos
+Moschoglou,
+Stylianos
+Ploumpis, Baris Gecer, Abhijeet Ghosh, and Stefanos P
+Zafeiriou. AvatarMe++: Facial shape and BRDF inference
+with photorealistic rendering-aware GANs. Transactions on
+Pattern Analysis and Machine Intelligence (TPAMI), 2021.
+2
+[39] Alexandros
+Lattas,
+Stylianos
+Moschoglou,
+Stylianos
+Ploumpis,
+Baris Gecer,
+Jiankang Deng,
+and Stefanos
+Zafeiriou. FitMe: Deep photorealistic 3D morphable model
+avatars.
+In Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 8629–8640, 2023. 2, 5, 8
+[40] Tianye Li, Timo Bolkart, Michael. J. Black, Hao Li, and
+Javier Romero. Learning a model of facial shape and ex-
+pression from 4D scans. Transactions on Graphics, (Proc.
+SIGGRAPH Asia), 36(6):194:1–194:17, 2017. 2, 5
+[41] Zhe Li, Zerong Zheng, Lizhen Wang, and Yebin Liu. Ani-
+matable Gaussians: Learning pose-dependent gaussian maps
+for high-fidelity human avatar modeling. In Conference on
+Computer Vision and Pattern Recognition (CVPR), 2024. 2
+[42] Stephen Lombardi,
+Tomas Simon,
+Gabriel Schwartz,
+Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. Mix-
+ture of volumetric primitives for efficient neural rendering.
+Transactions on Graphics (TOG), 40(4), 2021. 3
+[43] Huiwen Luo, Koki Nagano, Han-Wei Kung, Qingguo Xu,
+Zejian Wang, Lingyu Wei, Liwen Hu, and Hao Li.
+Nor-
+malized avatar synthesis using stylegan and perceptual re-
+finement. In Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 11662–11672, 2021. 2
+[44] Shugao Ma, Tomas Simon, Jason M. Saragih, Dawei Wang,
+Yuecheng Li, Fernando De la Torre, and Yaser Sheikh. Pixel
+codec avatars. In Conference on Computer Vision and Pat-
+tern Recognition (CVPR), pages 64–73. Computer Vision
+Foundation / IEEE, 2021. 1, 2
+[45] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik,
+Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. NeRF:
+Representing scenes as neural radiance fields for view
+synthesis.
+In European Conference on Computer Vision
+(ECCV), pages 405–421. Springer, 2020. 1, 2, 3, 13
+[46] Foivos Paraperas Papantoniou, Alexandros Lattas, Stylianos
+Moschoglou, and Stefanos Zafeiriou.
+Relightify:
+Re-
+lightable 3D faces from a single image via diffusion mod-
+els. In International Conference on Computer Vision (ICCV),
+pages 8806–8817, 2023. 2, 5
+[47] P. Paysan, R. Knothe, B. Amberg, S. Romdhani, and T. Vet-
+ter. A 3D face model for pose and illumination invariant face
+recognition.
+IEEE International Conference on Advanced
+Video and Signal based Surveillance (AVSS), 2009. 2
+[48] Malte Prinzler, Otmar Hilliges, and Justus Thies.
+Diner:
+Depth-aware image-based neural radiance fields. In Com-
+puter Vision and Pattern Recognition (CVPR), 2023. 2
+[49] Charles R. Qi, Li Yi, Hao Su, and Leonidas J. Guibas. Point-
+net++: Deep hierarchical feature learning on point sets in a
+metric space. In Advances in Neural Information Processing
+Systems, 2017. 6
+[50] Shenhan Qian, Tobias Kirschstein, Liam Schoneveld, Davide
+Davoli, Simon Giebenhain, and Matthias Nießner.
+Gaus-
+sianAvatars:
+Photorealistic head avatars with rigged 3D
+gaussians. In Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 20299–20309, 2024. 2, 3
+[51] Ravi Ramamoorthi and Pat Hanrahan. An efficient represen-
+tation for irradiance environment maps. SIGGRAPH, 2001.
+14
+[52] Daniel Roich, Ron Mokady, Amit H. Bermano, and Daniel
+Cohen-Or. Pivotal tuning for latent-based editing of real im-
+ages. Transactions on Graphics (TOG), 42(1), 2022. 2, 5
+10

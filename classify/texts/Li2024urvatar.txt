@@ -1,0 +1,1073 @@
+Title: URAvatar: Universal Relightable Gaussian Codec Avatars
+
+URAvatar: Universal Relightable Gaussian Codec Avatars
+JUNXUAN LI, Codec Avatars Lab, Meta, USA
+CHEN CAO, Codec Avatars Lab, Meta, USA
+GABRIEL SCHWARTZ, Codec Avatars Lab, Meta, USA
+RAWAL KHIRODKAR, Codec Avatars Lab, Meta, USA
+CHRISTIAN RICHARDT, Codec Avatars Lab, Meta, USA
+TOMAS SIMON, Codec Avatars Lab, Meta, USA
+YASER SHEIKH, Codec Avatars Lab, Meta, USA
+SHUNSUKE SAITO, Codec Avatars Lab, Meta, USA
+Target Expression + Lighting
+Rendered Avatars
+Phone Scan
+URAvatar
+Relightable Avatar
+Fig. 1. URAvatar. Our approach enables the creation of drivable and relightable photorealistic head avatars from a single phone scan (left). The reconstructed
+avatars can be driven consistently across identities under different illuminations in real time (right). https://junxuan-li.github.io/urgca-website/
+We present a new approach to creating photorealistic and relightable head
+avatars from a phone scan with unknown illumination. The reconstructed
+avatars can be animated and relit in real time with the global illumination
+of diverse environments. Unlike existing approaches that estimate para-
+metric reflectance parameters via inverse rendering, our approach directly
+models learnable radiance transfer that incorporates global light transport
+in an efficient manner for real-time rendering. However, learning such a
+complex light transport that can generalize across identities is non-trivial.
+A phone scan in a single environment lacks sufficient information to infer
+how the head would appear in general environments. To address this, we
+build a universal relightable avatar model represented by 3D Gaussians.
+Authors’ Contact Information: Junxuan Li, junxuanli@meta.com, Codec Avatars Lab,
+Meta, Pittsburgh, Pennsylvania, USA; Chen Cao, chencao@meta.com, Codec Avatars
+Lab, Meta, Pittsburgh, Pennsylvania, USA; Gabriel Schwartz, gbschwartz@meta.com,
+Codec Avatars Lab, Meta, Pittsburgh, Pennsylvania, USA; Rawal Khirodkar, rawalk@
+meta.com, Codec Avatars Lab, Meta, Pittsburgh, Pennsylvania, USA; Christian Richardt,
+crichardt@meta.com, Codec Avatars Lab, Meta, Pittsburgh, Pennsylvania, USA; Tomas
+Simon, tsimon@meta.com, Codec Avatars Lab, Meta, Pittsburgh, Pennsylvania, USA;
+Yaser Sheikh, yasers@meta.com, Codec Avatars Lab, Meta, Pittsburgh, Pennsylva-
+nia, USA; Shunsuke Saito, shunsuke.saito16@gmail.com, Codec Avatars Lab, Meta,
+Pittsburgh, Pennsylvania, USA.
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan
+© 2024 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-1131-2/24/12
+https://doi.org/10.1145/3680528.3687653
+We train on hundreds of high-quality multi-view human scans with con-
+trollable point lights. High-resolution geometric guidance further enhances
+the reconstruction accuracy and generalization. Once trained, we finetune
+the pretrained model on a phone scan using inverse rendering to obtain a
+personalized relightable avatar. Our experiments establish the efficacy of
+our design, outperforming existing approaches while retaining real-time
+rendering capability.
+CCS Concepts: • Computing methodologies →Reconstruction; Ani-
+mation.
+Additional Key Words and Phrases: 3D Avatar Creation, Neural Rendering
+ACM Reference Format:
+Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar, Christian Richardt,
+Tomas Simon, Yaser Sheikh, and Shunsuke Saito. 2024. URAvatar: Universal
+Relightable Gaussian Codec Avatars. In SIGGRAPH Asia 2024 Conference
+Papers (SA Conference Papers ’24), December 3–6, 2024, Tokyo, Japan. ACM,
+New York, NY, USA, 11 pages. https://doi.org/10.1145/3680528.3687653
+1
+INTRODUCTION
+Photorealistic head avatars are fundamental to enabling communi-
+cation in virtual environments [Lombardi et al. 2018; Ma et al. 2021].
+To establish coherent presence in such environments, avatars have
+to be illuminated to match the particular environment that they are
+in. Consider a virtual interaction in a room with natural light shin-
+ing in from a side window. If the avatars in the scene are uniformly
+lit, or lit as if they were in a room with ceiling fluorescent light,
+the incongruence between environment and avatars will interfere
+with–and likely break–the sense of presence.
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+arXiv:2410.24223v1  [cs.CV]  31 Oct 2024
+
+
+2
+•
+Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar, Christian Richardt, Tomas Simon, Yaser Sheikh, and Shunsuke Saito
+Neck Control
+Tracking/Unwrapping + Albedo Estimation
+𝒟
+ℰ𝑒𝑥𝑝
+a) Universal Relightable Prior Model Training (Section 3.2)
+345 Identities
+⨂
+⨂
+Fully/Partially Lit 90K Frames
+160 Views
+Mesh
+Rendered Avatar
+Mesh
+Albedo (uv)
+ℰ𝑖𝑑
+Identity Data (Average)
+Expression Data
+Universal Relightable Corpus
+Lights
+Loss (Eq. 15)
+Neck
+Gaze
+b) Personalized Fine-tuning for Unseen Identity (Section 3.3)
+c) Disentangled Light, Gaze and Neck Control
+Phone Scan
+𝒟
+ℰ𝑒𝑥𝑝
+Mesh
+Rendered Avatar
+Albedo (uv)
+ℰ𝑖𝑑
+Identity Data (Average)
+Expression Data
+Lights
+Neck
+Gaze
+Mesh
+Relighting
+Loss (Eq. 17)
+Gaze Control
+Fig. 2. Method Overview. (a) We employ a large relightable corpus of multi-view facial performances to train a cross-identity decoder D that can generate
+volumetric avatar representations. (b) Given a single phone scan of an unseen identity, we reconstruct the head pose, geometry, and albedo texture, and
+fine-tune our pretrained relightable prior model. (c) Our final model provides disentangled control over relighting, gaze and neck control.
+The challenge is that human heads are among the most complex
+objects to relight accurately. Light interacts with the head in varied
+ways, scattering in the skin, reflecting in the eyes and teeth, getting
+trapped in hair strands, and so on. This complexity is compounded
+by the diversity among human beings in facial structure, skin types,
+eye colors, accessories, and hair types. Traditionally, measuring
+scattering and reflectance properties to build authentic relightable
+avatars has required detailed scans in multi-light capture systems.
+[Bi et al. 2021; Debevec et al. 2000; Ghosh et al. 2011; Saito et al. 2024]
+Such capture systems are costly and require specialists to build. The
+scans themselves are time-consuming and inconvenient. To truly
+build virtual communities that the majority of people can access,
+we require the means to quickly and effortlessly create relightable
+avatars, across the span of human diversity.
+Recent approaches have attempted to drastically reduce the cap-
+ture data to as little as a single input image [Lattas et al. 2020;
+Yamaguchi et al. 2018] or a monocular video [Bharadwaj et al. 2023;
+Wang et al. 2023a]. Yet, there remains a clear fidelity gap between
+the studio-captured avatars and the ones from lightweight inputs.
+In this paper, our goal is to achieve comparable relightable quality
+to those studio-captured avatars from just a single phone scan.
+To close the quality gap, we introduce URAvatar (pronounced
+“your avatar”), a Universal Relightable Avatar prior learned from
+hundreds of individuals captured with a multi-view and multi-light
+capture system in an end-to-end manner. URAvatar uses a set of 3D
+Gaussians [Kerbl et al. 2023] to represent the intricate geometry of
+human heads and hair, and builds a prior on the joint distribution
+of identity, expressions, and illumination. This enables the model-
+ing of a relightable and drivable avatar with high-fidelity details
+from under-constrained input as shown in Fig. 1. Unlike existing
+approaches that learn priors based on parametric BDRFs [Lattas
+et al. 2021; Li et al. 2020; Smith et al. 2020; Yamaguchi et al. 2018], we
+build our relightable appearance prior based on learnable radiance
+transfer [Saito et al. 2024] that incorporates global light transport as
+a result of multi-bounce scattering and reflection. This way, we can
+efficiently relight avatars with global illumination under various
+environments without expensive ray tracing. Moreover, the model
+can be directly supervised to reproduce the ground-truth images
+without being restricted by the expressiveness of the chosen BRDF
+model. For consistent drivability across identities, we balance be-
+tween the explicitness of control and the scalability of training. In
+particular, we choose to explicitly model eye gaze and neck rotation
+in the form of linear blend skinning, as they can be reliably tracked.
+On the other hand, facial expressions, including complex tongue
+motions, are all learned as latent codes in a self-supervised manner
+[Lombardi et al. 2018; Xu et al. 2023].
+Once trained, we finetune the avatar with an input phone scan
+of a new person. We reduce the domain gap between the pretrained
+model and the phone scan by estimating the albedo in screen space
+and unwrapping it to UV space for identity conditioning. Then,
+we estimate illumination by regression and refine it via inverse
+rendering. Finally, the weights of the prior model are updated to best
+explain the phone scan via inverse rendering. Our carefully designed
+finetuning strategy ensures that the relightability is retained from
+the prior, while recovering essential person-specific details.
+To measure the fidelity of our approach, we collect ground-truth
+relighting data under various continuous illumination conditions
+with a capture dome that consists of multiple LED screens. This
+allows us to quantitatively compare the synthesis and real-world ob-
+servations given known natural illumination. Our experiments show
+that our approach outperforms prior methods by a large margin,
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+
+
+URAvatar: Universal Relightable Gaussian Codec Avatars
+•
+3
+and clearly demonstrates the efficacy of our prior-based relighting
+that accounts for global light transport in real time.
+Our principal contributions are:
+(1) We introduce a universal relightable avatar prior model learned
+from hundreds of dynamic performance captures with a multi-
+view and multi-light system.
+(2) We build a drivable head avatar from a phone scan that can
+be rendered and relit with global light transport in real-time.
+(3) A capture system and evaluation protocol to measure the
+accuracy of relighting under continuous illuminations.
+2
+RELATED WORK
+Authentic avatars for mass adoption must satisfy the following
+criteria: they must be drivable, relightable, and lightweight enough
+for anyone to create. In what follows, we discuss prior works based
+on these criteria.
+2.1
+Drivable Avatars
+In computer graphics, controlling facial expressions of avatars has
+been primarily driven by visual effects and games. To enable consis-
+tent control across identities, anatomically motivated FACS action
+units [Friesen and Ekman 1978] are widely used as the basis of blend-
+shapes [Lewis et al. 2014]. However, this basis is often insufficient to
+capture person-specific variations, and tends to require additional
+correctives [Li et al. 2013]. Data-driven approaches construct linear
+[Blanz and Vetter 2023; Pighin et al. 2006], multi-linear [Cao et al.
+2013; Vlasic et al. 2006], and non-linear [Ranjan et al. 2018; Tran and
+Liu 2018] bases from captured 3D data. The FLAME model [Li et al.
+2017] also incorporates linear blend skinning (LBS) for jaw and neck
+motions. These approaches lack fine-grained subtle expressions as
+well as tongue and eye motions. Deep appearance models [Lom-
+bardi et al. 2018] propose a self-supervised method to discover the
+expression latent space using variational autoencoders (VAEs). This
+approach allows the driving of authentic facial expressions of users
+in a fully data-driven manner. Later, LatentAvatar [Xu et al. 2023]
+shows that a similar construction is possible for less constrained
+setups. Cao et al. [2022] learn the latent expression space across
+multiple identities to enable semantically consistent driving while
+retaining person-specific expressions. While this approach works
+well for relatively small deformations, large deformations caused
+by articulations, such as neck or eye motions, lead to undesired
+artifacts. To address this, our work combines the latent expression
+codes with explicit eye models [Li et al. 2022; Schwartz et al. 2020]
+and neck articulations via LBS [Li et al. 2017], further enhancing
+the drivability and fidelity.
+2.2
+Lightweight Avatar Generation
+Early works on photorealistic human digitization required dedicated
+reconstruction pipelines and capture systems for individual compo-
+nents including hair [Echevarria et al. 2014; Luo et al. 2013; Nam et al.
+2019], face[Debevec et al. 2000; Ghosh et al. 2011], eyes [Bérard et al.
+2014], and inner mouth [Wu et al. 2016]. While these approaches
+are non-trivial to scale for large-scale identities, Ichim et al. [2015]
+show the promise of reconstructing personalized avatars from a
+phone scan. Follow-up works support more diverse hair styles [Cao
+et al. 2016] or enable reconstruction from a single image [Hu et al.
+2017; Nagano et al. 2018]. However, these approaches tend to lack
+photorealism due to the limited expressiveness of the underlying
+morphable models and/or mesh representations. More recently, neu-
+ral fields [Xie et al. 2022], including NeRF [Mildenhall et al. 2021],
+show remarkable progress on modeling complex geometry and
+appearance. This is also extended to avatar reconstructions from
+casually captured video data [Athar et al. 2023, 2022; Gafni et al.
+2021; Grassal et al. 2022; Zheng et al. 2021; Zielonka et al. 2023].
+While NeRF and its variants are slow to render, neural rendering
+approaches based on Mixture of Volumetric Primitives [Cao et al.
+2022; Lombardi et al. 2021] or Neural Deferred Rendering [Thies
+et al. 2019; Wang et al. 2023b] show the ability to render 3D avatars
+in real-time for interactive applications. Despite impressive progress
+on modeling authentic avatars from lightweight inputs, the common
+limitation of these approaches is that the illumination is baked into
+the appearance model and avatars cannot be relit under different
+environments.
+2.3
+Avatar Relighting
+Relighting is a critical property to enable photorealistic composition
+of avatars into a scene. Debevec et al. [2000] show that one-light-
+at-a-time (OLAT) capture can be used to recover reflectance fields.
+The follow-up work further supports dynamics relighting [Peers
+et al. 2007] and accelerates the acquisition process by leveraging
+spherical gradient illuminations [Fyffe et al. 2016; Ghosh et al. 2011;
+Ma et al. 2007]. Despite high-fidelity outputs, it remains non-trivial
+to widely adopt such a system. While the work by Sengupta et al.
+[2021] reduces the hardware requirement to a single camera and
+a single monitor, it supports neither reanimation nor novel-view
+synthesis. While portrait relighting approaches [Kim et al. 2024;
+Meka et al. 2019, 2020; Pandey et al. 2021; Sun et al. 2019; Tewari
+et al. 2020; Wang et al. 2020; Yeh et al. 2022; Zhang et al. 2021]
+support relighting in screen space, due to the lack of temporal or 3D
+information, they tend to produce flickering when changing view
+or expressions. Some approaches [Mei et al. 2024; Tan et al. 2022]
+use 3D-aware GANs to synthesize relightable faces, but they have
+limited animatability. Another common approach for relighting is
+to estimate skin reflectance properties such as albedo, roughness,
+and surface normals from multi-view images [Li et al. 2020; Liu et al.
+2022] or a single image [Chen et al. 2019; Lattas et al. 2020; Lin et al.
+2023; Yamaguchi et al. 2018]. Once estimated, the avatars can be relit
+with path tracing or real-time shaders. However, these approaches
+are limited to skin regions and non-trivial to unify for the entire
+head due to complex scattering/reflectance properties of different
+components including hair, eyes, teeth, and skin. Incorporating in-
+trinsic decomposition into the image formation process of GANs
+also achieves relighting in the wild [Deng et al. 2024; Ranjan et al.
+2023]. Optimization-based approaches from a phone scan demon-
+strate personalized relightable avatar reconstruction [Bharadwaj
+et al. 2023; Wang et al. 2023a; Zheng et al. 2023]. While they show
+promising results, fine-grained driving remains challenging and
+photorealism under novel illumination is still limited due to the
+limited prior knowledge about light transport. Recent neural relight-
+ing approaches show remarkable progress in terms of photorealism
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+
+
+4
+•
+Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar, Christian Richardt, Tomas Simon, Yaser Sheikh, and Shunsuke Saito
+[Bi et al. 2021; Saito et al. 2024; Xu et al. 2024; Yang et al. 2023].
+MEGANE [Li et al. 2023] learns a relightable appearance model
+across multiple identities. URHand [Chen et al. 2024] enables the in-
+stant personalization of a pretrained relightable hand prior. VRMM
+[Yang et al. 2024] concurrently proposes a multi-identity relightable
+avatar model based on MVP [Lombardi et al. 2021] and a linear
+lighting model [Yang et al. 2023]. However, it remains a challenge
+to faithfully capture geometric details as hair strands using mesh
+[Chen et al. 2024] or Mixture of Volumetric Primitives [Li et al. 2023;
+Lombardi et al. 2021; Yang et al. 2024]. In this work, we base our
+geometric and appearance representation on 3D Gaussians [Kerbl
+et al. 2023] and learnable radiance transfer [Saito et al. 2024; Sloan
+et al. 2002], respectively. Our approach enables, for the first time,
+the learning of a universal relightable prior that natively supports
+real-time relighting with global light transport under various illu-
+mination. In addition, our approach enables personalization from a
+phone capture with unknown illumination.
+3
+METHOD
+As our geometry and appearance representations are based on Re-
+lightable Gaussian Codec Avatars [Saito et al. 2024], we first describe
+the foundation of 3D Gaussians and learnable radiance transfer. We
+then discuss how we extend Gaussian Codec Avatars to build a
+universal relightable prior with multi-identity training data. Finally,
+we provide the details of our finetuning approach to create a per-
+sonalized relightable model from a phone scan using the universal
+relightable prior.
+3.1
+Preliminaries: Relightable 3D Gaussians
+Avatars are represented as a collection of 3D Gaussians, denoted as
+g𝑘= {t𝑘, q𝑘, s𝑘,𝑜𝑘, c𝑘}. The parameters include a translation vector
+t𝑘∈R3, rotation parameterized by a unit quaternion q𝑘∈R4,
+scale factors s𝑘∈R3+ along three orthogonal axis, an opacity value
+𝑜𝑘∈R+, and a color c𝑘∈R3+. Following 3D Gaussian Splatting
+[Kerbl et al. 2023], the Gaussians can be efficiently rendered at high
+resolution in real-time.
+We base our appearance model on learnable radiance transfer
+[Saito et al. 2024]. To model the appearance under different illumina-
+tions, precomputed radiance transfer (PRT) [Sloan et al. 2002; Wang
+et al. 2009] decomposes the integral of the rendering equation into
+the product of extrinsic illumination 𝐿(𝝎) and intrinsic radiance
+transfer𝑇(p, 𝝎, 𝝎𝑜). Saito et al. further extend PRT by directly learn-
+ing the parameters of the transfer function from multi-view and
+multi-light capture data, and decomposing 𝑇(p, 𝝎, 𝝎𝑜) into diffuse
+terms (independent of the viewing direction) and specular terms:
+c(p, 𝝎𝑜) =
+∫
+S2 𝐿(𝝎) · 𝑇(p, 𝝎, 𝝎𝑜)𝑑𝝎,
+=
+∫
+S2 𝐿(𝝎) ·
+
+𝑇diffuse(p, 𝝎) +𝑇specular(p, 𝝎, 𝝎𝑜)
+
+𝑑𝝎,
+(1)
+where c is the outgoing radiance at the position 𝑝along 𝝎𝑜, and
+𝐿incoming light. In particular, the outgoing radiance for each
+Gaussian c𝑘is decomposed into view-independent diffuse and view-
+dependent specular terms, represented as c𝑘= cdiffuse
+𝑘
++ cspecular
+𝑘
+.
+The diffuse color is calculated through the integration of the incom-
+ing radiance and the intrinsic radiance transfer, both of which are
+parameterized by spherical harmonics (SH) [Sloan et al. 2002]:
+cdiffuse
+𝑘
+= 𝝆𝑘⊙
+(𝑛+1)2
+∑︁
+𝑖=1
+L𝑖⊙d𝑖
+𝑘,
+(2)
+where L𝑖denotes the 𝑖-th element in 𝑛-th order spherical harmonics
+(SH) coefficients of the incident lights, d𝑖
+𝑘represents the 𝑖-th ele-
+ment in 𝑛-th order SH coefficients of the learnable radiance transfer
+function, and 𝝆𝑘is the base albedo color. These terms are modeled
+individually for RGB channels. Inspired by Wang et al. [2009], the
+specular reflection is represented as spherical Gaussians 𝐺𝑠(𝝎; a, 𝜎)
+with the central direction of the lobe a and roughness 𝜎:
+cspecular
+𝑘
+(𝝎𝑜
+𝑘) = 𝑣𝑘(𝝎𝑜
+𝑘)
+∫
+S2 L(𝝎)𝐺𝑠(𝝎; a𝑘, 𝜎𝑘)d𝝎,
+(3)
+a𝑘= 2(𝝎𝑜
+𝑘· n𝑘)n𝑘−𝝎𝑜
+𝑘.
+(4)
+Here, 𝑣𝑘(𝝎𝑜
+𝑘) ∈(0, 1) is a learnable view-dependent visibility term
+that accounts for Fresnel reflection, occlusion, and geometric atten-
+uation, 𝝎𝑜
+𝑘∈R3 is the viewing direction evaluated at the Gaussian
+center, and n𝑘is a view-dependent normal for each Gaussian.
+3.2
+Universal Relightable Prior Model
+Inspired by prior work [Cao et al. 2022], we employ an identity-
+conditioned hypernetwork [Ha et al. 2017] to generate person-
+specific avatars. In particular, the hypernetwork takes identity fea-
+tures as input, and produces a subset of person-specific network
+weights for each subject’s avatar decoder. This decoder produces re-
+lightable 3D Gaussians corresponding to the input head state (facial
+expression, gaze direction, and neck rotation), and input lighting
+environment and viewpoint. We show the overview in Fig. 2 (a).
+3.2.1
+Identity-conditioned Hypernetwork. To allow extraction of
+high-frequency person-specific details, our identity encoder Eid
+takes identity features in the form of a mean albedo texture map
+𝑻mean and a mean geometry map 𝑮mean unwrapped in a 10242 UV
+space as input, and produces ‘untied’ bias maps Θidg , Θid
+fi , Θid
+fv. These
+bias maps are injected at various levels of the decoding architecture,
+described below. Our hypernetwork also produces an expression-
+agnostic opacity {𝑜𝑘}𝑀
+𝑘=1 and albedo {𝝆𝑘}𝑀
+𝑘=1 for the 3D Gaussians.
+Formally, the identity encoder is defined as:
+Θid
+g , Θid
+fi , Θid
+fv, {𝑜𝑘, 𝝆𝑘}𝑀
+𝑘=1 = Eid(𝑻mean, 𝑮mean; Φid).
+(5)
+3.2.2
+Expression Encoder. We use a variational autoencoder to
+model a shared latent distribution of facial expressions across identi-
+ties. To avoid the domain shift between studio and phone-captured
+textures, our expression encoder Eexp takes only the difference of
+geometry maps as input, i.e., Δ𝑮exp = 𝑮exp −𝑮mean, where 𝑮exp
+is the current and 𝑮mean is the mean geometry. To preserve subtle
+facial expression details when using geometry-only inputs, we use
+high-quality tracking (Sec. 3.2.5) to generate these maps. We then
+generate a universal expression latent code z ∈R256 as follows:
+𝝁, 𝝈= Eexp(Δ𝑮exp; Φexp),
+(6)
+z = 𝝁+ 𝝈· N (0, 1),
+(7)
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+
+
+URAvatar: Universal Relightable Gaussian Codec Avatars
+•
+5
+Expression Data
+Mesh
+Albedo
+Identity Data (Average)
+Rendered Avatar
+Lights
+Down
+Down
+Down
+Up
+Up
+Up
+Down
+Down
+Down
+Up
+Up
+Up
+Up
+Up
+c
++
++
++
++
+c
++
+Down
+Down
+Down
+Up
+c
+ℰ𝑒𝑥𝑝
+ℰ𝑖𝑑
+T
+𝒟
++
++
+Up
++
+T
+Up
+Up
+. . .
+. . .
+. . .
+. . .
+. . .
+. . .
+. . .
+𝜇, 𝜎
++
+Noise
+Guide Mesh
+View-independent
+Neck
+Gaze
+View
+𝑧
+View-dependent
+Down
+Up
+T
+Conv(4,2)
+LeakyReLu
+LeakyReLu
+Conv(3,1)
+TConv(4,2)
+1024
+512
+4
+8
+8
+512
+1024
++
++
++
++
+T
+c
+Fig. 3. Network architecture. Our expression encoder, Eexp, takes a 1024x1024 positional map of face geometry as input and encodes it into an expression
+latent code with the map size of 4x4. Our downsampling block consists of a convolutional layer with a kernel size of 4 and stride of 2, followed by a leaky
+ReLU activation function. Similarly, our upsampling block is composed of a transposed convolutional layer with a kernel size of 4 and stride of 2, followed by
+a leaky ReLU activation function. Our identity encoder, Eid, is a U-Net-like architecture that takes the mean texture and geometry of a subject as input,
+producing a multi-scale feature pyramid as the ID conditioning data. The produced feature maps are then added to the corresponding layer of the decoder to
+produce the guide mesh and its Gaussian parameters. Our decoder consists of 7 upsampling blocks that take a map with a size of 4x4 as input and output
+1024x1024 Gaussian parameter maps.
+where N (0, 1) is the unit normal distribution. Since the expression
+latent code is trained in an end-to-end manner with multi-identity
+data, once the model is trained, the same expression code can be
+applied to different identities for driving.
+3.2.3
+Avatar Decoder. Building upon the foundations laid by previ-
+ous work [Cao et al. 2022; Li et al. 2017; Lombardi et al. 2021; Saito
+et al. 2024], we parameterize and anchor Gaussians on a guide mesh
+and model the facial expressions in a canonical space. We further
+expand the geometry to encompass the shoulder region and use pre-
+defined linear blend skinning to model neck rotations. A geometry
+decoder Dg produces the vertices {ˆt𝑘}𝑀
+𝑘=1 of this extended guide
+mesh:
+{ˆt𝑘}𝑀
+𝑘=1 = Dg(z, e{𝑙,𝑟}, rn; Θid
+g , Φg),
+(8)
+where z is the expression code, e{𝑙,𝑟} ∈R3 are eye gaze direction
+vectors, rn ∈R3 denotes the axis-angle neck rotation relative to the
+head, and Θidg is an identity-specific bias from Eq. (5).
+We split the appearance model into view-independent and view-
+dependent components. Our view-independent face relightable Gauss-
+ian decoder, Dfi, takes expression code, gaze vectors, and neck rota-
+tion as input. It is further conditioned with the identity ‘untied’ bias
+map Θid
+fi derived from the identity encoder, resulting in the output
+of view-independent attributes for each 3D Gaussian:
+{𝛿t𝑘, q𝑘, s𝑘, dc
+𝑘, dm
+𝑘, 𝜎𝑘}𝑀
+𝑘=1 = Dfi(z, e{𝑙,𝑟}, rn; Θid
+fi , Φfi).
+(9)
+Here, dc
+𝑘and dm
+𝑘are color and monochrome SH coefficients [Saito
+et al. 2024], respectively, and 𝜎𝑘is the roughness parameter defined
+in Eq. (3). Our view-dependent face relightable Gaussian decoders,
+Dfv, incorporates the view direction to the head center, 𝝎𝑜, as
+additional input, subsequently generating view-dependent delta
+normal and visibility terms for each Gaussian:
+{𝛿n𝑘, 𝑣𝑘}𝑀
+𝑘=1 = Dfv(z, e{𝑙,𝑟}, rn, 𝝎𝑜; Θid
+fv, Φfv).
+(10)
+Here, Φfi and Φfv represent the learnable parameters of each respec-
+tive decoder. The final Gaussian position is a composite of the guide
+mesh’s vertex positions, as derived from Eq. (8), and the delta posi-
+tion from Eq. (9), taking the form t𝑘= ˆt𝑘+𝛿t𝑘. The view-dependent
+surface normal of each Gaussian, n𝑘, is a composition of the mesh
+normal, derived from the guided mesh, and the delta normal decoded
+from Eq. (10), taking the form n𝑘= ˆn𝑘+ 𝛿n𝑘.
+3.2.4
+Universal Relightable Explicit Eye Model. We adapt previous
+works [Saito et al. 2024; Schwartz et al. 2020] for modeling the eye as
+a universal relightable explicit eye model. We use the same network
+architecture as the encoder Eid for each identity’s eye encoder Eeye,
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+
+
+6
+•
+Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar, Christian Richardt, Tomas Simon, Yaser Sheikh, and Shunsuke Saito
+defined as below:
+Θeye
+ei , Θeye
+ea = Eeye(𝑻eye, 𝑮eye; Φeye),
+(11)
+where 𝑻eye and 𝑮eye are the cropped eye regions from the mean tex-
+ture and mean geometry maps 𝑻mean and 𝑮mean. The output of this
+encoder is the ‘untied’ bias map of each level of the eye’s decoder.
+During the phone capture fine-tuning stage, we observed that
+the networks were unable to preserve the prior knowledge acquired
+during the pre-training stage and failed to reproduce eye glint af-
+ter fine-tuning, due to the limited observation of the eye regions
+from phone captures. Consequently, we propose a unified specu-
+lar visibility decoder Dev, which does not require any conditional
+information as input. This design is intended to encourage the net-
+work to learn an eye reflection model that can easily generalize to
+unseen identities. Therefore, our universal relightable eye decoder
+is defined as follows:
+{q𝑘, s𝑘,𝑜𝑘, dc
+𝑘, dm
+𝑘, 𝜎𝑘}𝑀𝑒
+𝑘=1 = Dei(e{𝑙,𝑟}; Θeye
+ei , Φei),
+(12)
+{𝝆𝑘}𝑀𝑒
+𝑘=1 = Dea(e{𝑙,𝑟}, 𝝎𝑜; Θeye
+ea , Φea),
+(13)
+{𝑣𝑘}𝑀𝑒
+𝑘=1 = Dev(e{𝑙,𝑟}, 𝝎𝑜; Φev).
+(14)
+3.2.5
+High-Quality Tracking Geometry. We first track each subject
+independently using a high-quality template head mesh. This mesh
+is subsequently used to supervise our geometry decoder’s output
+ˆt𝑘. We observed that this form of geometry supervision plays a
+crucial role in preventing 3D Gaussians from getting trapped in
+local minima during the early stages of universal relightable prior
+model training. To obtain this tracked mesh, we modify the Pixel
+Codec Avatar (PiCA) [Ma et al. 2021] architecture to extend coverage
+to the upper body, specifically the head, neck, and shoulders. For
+each identity in our training dataset, we therefore fit a personalized
+pixel codec avatar using inverse rendering to reconstruct all the
+fully-lit, multi-view input images. Subsequently, we extract the
+geometry for each frame from PiCA’s geometry branch. Leveraging
+the dense position map-based geometry representation and per-
+pixel color decoding, we can reconstruct high-quality geometry for
+each frame. For monocular phone scans, we follow a pipeline similar
+to Cao et al. [2022], but replace the coarse base geometry with the
+aforementioned high-resolution template mesh and photometric
+refinement [Ma et al. 2021].
+3.2.6
+Conditioning Albedo Texture Acquisition. We use an off-the-
+shelf portrait relighting method [Kim et al. 2024] to estimate the
+illumination and the albedo of input images of the face. The esti-
+mated illumination is used as an initialization for the environment
+light fitting in Sec. 3.3.1. To maximize dataset consistency, we use
+the same algorithm to extract albedo in both studio and phone
+settings. These albedo images are then unwrapped onto the high-
+quality tracked mesh to obtain the mean albedo texture 𝑻mean. This
+albedo texture is used as the conditioning input to the identity en-
+coder in Eq. (5). During experiments, we found that utilizing this
+mean albedo texture, in contrast to a simple color transformation
+[Cao et al. 2022], assists in more effectively de-lighting the face
+under varying illumination conditions and offers a more consistent
+conditional input for our identity encoder.
+Optimized environment light
+GT environment light
+Phone Capture
+Before Light Fitting
+After Light Fitting
+Fig. 4. Visualization of the effect of our fitted environment lights, and the
+comparison to the ground-truth environment lights.
+3.2.7
+Training Losses. Given multi-view video data of a person
+illuminated with known point light patterns, we follow previous
+works [Kerbl et al. 2023; Saito et al. 2024] to use the same loss
+functions to optimize all trainable network parameters Φ with the
+following loss function:
+L = Lrec + Lreg + 𝜆klLkl,
+(15)
+where Lrec is the reconstruction loss consists of L1 and SSIM on
+rendered images and L2 loss on the high quality tracking geometry,
+Lreg is the set of loss functions regularizing the scale of Gaussians,
+negative color values, and scale, opacity, and visibility of eye Gaus-
+sians. Lkl is the KL-divergence loss on expression code z. Except
+the geometry loss, where we use the relative weight of 0.1, we use
+the identical relative weights to Saito et al. [2024]. Please refer to
+Saito et al. [2024] for the details of each loss function.
+3.3
+Personalized Avatar from Phone Scan
+With the pre-trained universal relightable prior model, we further
+fine-tune it using phone capture data to generate a personalized
+relightable avatar. During the fine-tuning stage, we initially freeze
+the pre-trained encoders and decoder, optimizing the environment
+lights to achieve a low reconstruction loss on the face. Subsequently,
+we freeze the environment lights and fine-tune the encoders and
+decoders for a few iterations to improve the likeness of the captured
+subject. See Fig. 2 (b) for an overview. For preprocessing the phone
+capture data, we apply the geometry tracking method detailed in
+Sec. 3.2.5 and albedo texture acquisition in Sec. 3.2.6 to obtain the
+tracked template mesh and its corresponding unwrapped mean
+albedo texture for each phone capture.
+3.3.1
+Fitting Environment Lighting. We parameterize the environ-
+ment illumination at the time of phone capture as 𝑁point lights
+with position and RGB intensity, {lpos
+𝑖
+, lint
+𝑖}𝑁
+𝑖=1. In this paper, we
+use 𝑁= 512 distant point lights that we assume to be uniformly
+distributed on the sphere. During fine-tuning, we freeze the param-
+eters of the encoders and decoders, optimizing only the intensities
+{lint
+𝑖}𝑁
+𝑖=1 of the lights to minimize the L1 loss between the rendered
+image 𝐼𝑓and the ground truth ˆ𝐼𝑓in the face region:
+Lfit-light =
+𝐼𝑓−ˆ𝐼𝑓
+
+1 .
+(16)
+We show the optimized environment lights of our method in Fig. 4.
+Compared to the data captured by the phone, our refined light
+accurately reconstructs the primary light source within the space.
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+
+
+URAvatar: Universal Relightable Gaussian Codec Avatars
+•
+7
+Ground Truth
+Ours
+w/o Unified Spec. Decoder
+(a) Comparison on w vs. w/o using unified specular visibility decoder for eyes.
+Ground Truth
+Ours
+w/o HRGeo
+(b) Comparison on w vs. w/o using high-resolution tracked mesh (HRGeo).
+Fig. 5. Ablation study on unified eye specular visibility decoder and high-resolution tracked mesh.
+This adjustment brings the color space of the avatar more in line
+with the observed data.
+3.3.2
+Fine-tuning Encoders and Decoders. After fitting the environ-
+ment lights, we freeze them and finetune all the encoder and decoder
+parameters Φid, Φexp, Φg, Φfi, Φfv, Φeye, Φei, Φea, and Φev. The loss
+function employed during the fine-tuning stage mirrors that utilized
+in the pre-training stage, with the inclusion of two additional terms:
+Lfinetune = Lrec + Lreg + 𝜆klLkl + Lalpha + Lvgg,
+(17)
+where the Lalpha represents the alpha loss on the rendered Gaussian
+and the input images’ predicted alpha matting. Due to the blurriness
+inherent in the phone capture data, we incorporate the VGG loss
+[Johnson et al. 2016] between the rendered images and ground truth,
+denoted as Lvgg, during the fine-tuning stage to retain more details
+from the phone capture.
+3.4
+Training details
+We follow previous work [Cao et al. 2022] and use a network archi-
+tecture based on U-Net [Ronneberger et al. 2015] for our identity
+encoder. The ID encoder consists of a series of convolutional net-
+works that encode the identity conditional data into a set of feature
+maps, which are then added to each layer’s output in the decoder.
+Please refer to Fig. 3 for networks details.
+For the pre-training of the universal relightable prior model, we
+use the Adam optimizer [Kingma and Ba 2015] with a learning rate
+of 5 × 10−4. We use 64 NVIDIA A100 GPUs with a batch size of
+128 for 400k iterations, which takes 5 days to converge. For the
+personalized avatar finetuning stage, we set the learning rate as
+10−4 and finetune the pre-trained networks using 8 NVIDIA A100
+GPUs with a batch size of 16 for 13k iterations, where the first 3k
+iterations are for environment light fitting and the last 10k iterations
+are for encoder and decoder finetuning. Including the preprocessing
+stages, the personalization stage takes approximately 3 hours.
+4
+EXPERIMENTS
+4.1
+Datasets
+Studio Captures. Our studio capture setup is similar to the cap-
+ture system presented by Cao et al. [2022] and Saito et al. [2024],
+where we obtain calibrated and synchronized multi-view images at
+a resolution of 4,096×2,668 pixels through the use of 110 cameras
+and 460 white LED lights operating at 90 Hz. Participants are in-
+structed to perform a predetermined set of various facial expressions,
+sentences, and gaze motions for approximately 144,000 frames. To
+observe diverse illumination patterns while maintaining stable facial
+tracking, we employ time-multiplexed illumination [Bi et al. 2020].
+Specifically, full-on illumination is interleaved every third frame to
+facilitate tracking, while the remaining frames utilize either grouped
+or randomly selected sets of 5 lights. In total, this capture script was
+used to record data from 345 participants. Of these, 342 were used
+to train our universal relightable model, while the remaining three
+were reserved for evaluation.
+Phone Captures. We captured 10 people under five alternating
+illumination conditions via mobile phone. Each video duration is
+5–10 minutes per subject. Participants performed a series of actions,
+including head rotations, changing eye gaze, making various facial
+expressions, and regular daily speech. They were captured in an
+LED wall cylinder with a diameter of 4.7 m and a height of 3 m.
+The LED panels have a maximum brightness exceeding 1,500 cd/m2
+and a pixel pitch of 2.84 mm to realistically light the participants
+under multiple real-world lighting environments. To estimate the
+ground-truth environment map for each lighting condition, we first
+geometrically calibrate the pose of all LED panels, so that we can ray-
+trace environment maps at arbitrary positions in the capture volume,
+including the head’s center of mass. Additionally, we characterize
+the LED panels’ response using a Ricoh Theta Z1 360° camera placed
+at the center of the capture volume, such that we can predict how
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+
+
+8
+•
+Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar, Christian Richardt, Tomas Simon, Yaser Sheikh, and Shunsuke Saito
+Input Capture
+Ours
+FLARE
+Ground-Truth
+Fig. 6. Qualitative comparison of environment relighting between FLARE
+[Bharadwaj et al. 2023] and our approach in an unseen test environment.
+Table 1. Comparison of environment relighting for Phone captured identi-
+ties.
+Method
+MAE ↓
+MSE ↓
+SSIM ↑
+LPIPS ↓
+FLARE
+0.0327
+0.0068
+0.8849
+0.1722
+Ours
+0.0136
+0.0025
+0.9524
+0.0605
+a particular displayed lighting environment affects a participant
+in terms of incident illumination. For this, we display a ramp of
+red, green, blue and white lighting environments, one at a time,
+e.g. from 0% red (black) to 100% red, and capture a linear HDR
+image for each condition using a five-photo exposure bracket of
+raw images. The capture with white LED light is used only for
+validation. We further optimize a learnable per-camera 3×3 color
+correction matrix to account for differences in color spaces between
+cameras. For evaluation, we select one environment as input to
+build a personalized avatar for each subject. Note that we do not
+use the ground-truth illumination for our avatar reconstruction.
+We then relight the reconstructed avatar in other environments,
+and compare our rendered avatar with the ground-truth data. We
+randomly select 100 frames to cover sufficient variation of head
+rotation and expressions.
+4.2
+Comparisons
+In Tab. 1, we show the quantitative evaluation of our method com-
+pared to FLARE, the current state-of-the-art relightable avatar re-
+construction method from a phone scan [Bharadwaj et al. 2023].
+We report mean-absolute-error (MAE), mean-squared-error (MSE),
+SSIM and LPIPS as the metrics for the face region. Unlike our ap-
+proach, FLARE uses meshes as a shape representation and a para-
+metric BRDF model (i.e., Lambertian for diffuse, and Cook and Tor-
+rance [1982] for specular) with only the first bounce considered.
+With Albedo (uv)
+Without Albedo (uv)
+Relighting with single point light
+Relighting with environment light
+Input Capture
+Fig. 7. Comparison of w/ vs. w/o using albedo conditioning data.
+Our approach achieves significantly lower error, and the qualita-
+tive comparison in Fig. 6 further confirms the substantial quality
+improvement. This illustrates the efficacy of our geometry and ap-
+pearance representation as well as our universal relightable prior
+model.
+4.3
+Evaluation
+We evaluate our key design choice of using albedo as an identity
+feature instead of a simple color-transformed mean texture [Cao
+et al. 2022]. Figure 7 shows that illumination-agnostic albedo greatly
+reduces artifacts in the zero-shot reconstruction case. In contrast,
+the simple color transformation leads to more “baked-in” artifacts
+in the reconstructed avatar. We also conducted an ablation study on
+the unified eye specular visibility decoder, and the results are shown
+in Fig. 5a. While the baseline model loses glints due to overfitting
+to inaccurate ground-truth gaze, our unified decoder faithfully pre-
+serve eye glints. Furthermore, Fig. 5b illustrates the efficacy of the
+proposed high-resolution tracked mesh over a coarse mesh tracking
+used in prior work [Cao et al. 2022; Saito et al. 2024] on a novel
+identity. We also show additional qualitative results in Fig. 8. This
+shows that our approach generalizes to a wide range of identities,
+illuminations, and expressions.
+5
+DISCUSSION AND CONCLUSION
+The relighting quality of our work could be degraded in several
+cases. Our model relies on the universal prior learned from studio-
+captured data, and variations not covered by the training corpus
+may lead to suboptimal generalization. For example, as the captured
+subjects in the training data all wear gray T-shirts, the relighting of
+clothing is less accurate than for the head area (see the bottom row
+in Fig. 6). Also, while our light estimation is robust, any inaccuracy
+in the light estimation leads to ‘baked-in’ artifacts. In particular,
+estimating high-frequency illumination remains a challenge, which
+mainly affects the quality of eye relighting. Future work could ad-
+dress this by incorporating a strong illumination prior [Gardner et al.
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+
+
+URAvatar: Universal Relightable Gaussian Codec Avatars
+•
+9
+Input Images
+Fig. 8. Relighting results on multiple identities with different expressions.
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.
+
+
+10
+•
+Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar, Christian Richardt, Tomas Simon, Yaser Sheikh, and Shunsuke Saito
+2022; Lyu et al. 2023]. Last but not least, the current personalization
+process requires multiple preprocessing steps and test-time finetun-
+ing, and is hence not instant. Enabling instant personalization with
+full relighting capability remains exciting future work.
+We presented URAvatar, a novel framework to create photoreal-
+istic relightable head avatars driven by gaze, neck rotation, and a
+latent facial expression code in real-time, with faithful diffuse scat-
+tering and specular highlights. Our experiments show that building
+a strong generalizable prior of global light transport for dynamic
+facial expressions from multi-identity studio data is now possible
+with a sufficiently expressive geometric representation (3D Gaus-
+sians) and appearance representation (learnable radiance transfer).
+We also evaluated the fidelity of our reconstruction on unseen nat-
+ural illuminations by building a new virtual environment capture
+system consisting of LED display panels, and showed the efficacy of
+our method compared to prior works. Our work, for the first time,
+enables the faithful reconstruction of relightable avatars with global
+light transport from a single phone scan, unlocking the possibility
+of virtual teleportation with authentic avatars as a communication
+tool.
+REFERENCES
+ShahRukh Athar, Zhixin Shu, and Dimitris Samaras. 2023. FLAME-in-NeRF: Neural
+control of radiance fields for free view face animation. In International Conference
+on Automatic Face and Gesture Recognition (FG).
+ShahRukh Athar, Zexiang Xu, Kalyan Sunkavalli, Eli Shechtman, and Zhixin Shu. 2022.
+RigNeRF: Fully controllable neural 3D portraits. In Conference on Computer Vision
+and Pattern Recognition (CVPR). 20364–20373.
+Pascal Bérard, Derek Bradley, Maurizio Nitti, Thabo Beeler, and Markus H Gross. 2014.
+High-quality capture of eyes. Transactions on Graphics (TOG) 33, 6 (2014), 223:1–12.
+Shrisha Bharadwaj, Yufeng Zheng, Otmar Hilliges, Michael J. Black, and Victoria Fer-
+nandez Abrevaya. 2023. FLARE: Fast learning of Animatable and Relightable Mesh
+Avatars. Transactions on Graphics (TOG) 42, 6 (2023), 204:1–15.
+Sai Bi, Stephen Lombardi, Shunsuke Saito, Tomas Simon, Shih-En Wei, Kevyn Mcphail,
+Ravi Ramamoorthi, Yaser Sheikh, and Jason Saragih. 2021. Deep relightable ap-
+pearance models for animatable faces. Transactions on Graphics (TOG) 40, 4 (2021),
+89:1–15.
+Sai Bi, Zexiang Xu, Kalyan Sunkavalli, Miloš Hašan, Yannick Hold-Geoffroy, David
+Kriegman, and Ravi Ramamoorthi. 2020. Deep reflectance volumes: Relightable
+reconstructions from multi-view photometric images. In European Conference on
+Computer Vision (ECCV). 294–311.
+Volker Blanz and Thomas Vetter. 2023. A morphable model for the synthesis of 3D
+faces. In Seminal Graphics Papers: Pushing the Boundaries, Volume 2. 157–164.
+Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz, Michael Zollhoefer, Shun-Suke
+Saito, Stephen Lombardi, Shih-En Wei, Danielle Belko, Shoou-I Yu, Yaser Sheikh, and
+Jason Saragih. 2022. Authentic volumetric avatars from a phone scan. Transactions
+on Graphics (TOG) 41, 4 (2022), 163:1–19.
+Chen Cao, Yanlin Weng, Shun Zhou, Yiying Tong, and Kun Zhou. 2013. Faceware-
+House: A 3D facial expression database for visual computing. IEEE Transactions on
+Visualization and Computer Graphics 20, 3 (2013), 413–425.
+Chen Cao, Hongzhi Wu, Yanlin Weng, Tianjia Shao, and Kun Zhou. 2016. Real-time
+facial animation with image-based dynamic avatars. Transactions on Graphics (TOG)
+35, 4 (2016), 126:1–12.
+Anpei Chen, Zhang Chen, Guli Zhang, Kenny Mitchell, and Jingyi Yu. 2019. Photo-
+realistic facial details synthesis from single image. In International Conference on
+Computer Vision (ICCV). 9429–9439.
+Zhaoxi Chen, Gyeongsik Moon, Kaiwen Guo, Chen Cao, Stanislav Pidhorskyi, Tomas
+Simon, Rohan Joshi, Yuan Dong, Yichen Xu, Bernardo Pires, He Wen, Lucas Evans,
+Bo Peng, Julia Buffalini, Autumn Trimble, Kevyn McPhail, Melissa Schoeller, Shoou-I
+Yu, Javier Romero, Michael Zollhöfer, Yaser Sheikh, Ziwei Liu, and Shunsuke Saito.
+2024. URHand: Universal Relightable Hands. In Conference on Computer Vision and
+Pattern Recognition (CVPR).
+Robert L Cook and Kenneth E. Torrance. 1982. A reflectance model for computer
+graphics. Transactions on Graphics (TOG) 1, 1 (1982), 7–24.
+Paul Debevec, Tim Hawkins, Chris Tchou, Haarm-Pieter Duiker, Westley Sarokin, and
+Mark Sagar. 2000. Acquiring the reflectance field of a human face. In SIGGRAPH.
+145–156.
+Boyang Deng, Yifan Wang, and Gordon Wetzstein. 2024. LumiGAN: Unconditional
+Generation of Relightable 3D Human Faces. In International Conference on 3D Vision
+(3DV). 302–312.
+Jose I Echevarria, Derek Bradley, Diego Gutierrez, and Thabo Beeler. 2014. Capturing
+and stylizing hair for 3D fabrication. Transactions on Graphics (TOG) 33, 4 (2014),
+125:1–11.
+E Friesen and Paul Ekman. 1978. Facial action coding system: a technique for the
+measurement of facial movement. Palo Alto 3, 2 (1978), 5.
+Graham Fyffe, Paul Graham, Borom Tunwattanapong, Abhijeet Ghosh, and Paul De-
+bevec. 2016. Near-Instant Capture of High-Resolution Facial Geometry and Re-
+flectance. In Computer Graphics Forum, Vol. 35. 353–363.
+Guy Gafni, Justus Thies, Michael Zollhofer, and Matthias Nießner. 2021. Dynamic
+neural radiance fields for monocular 4D facial avatar reconstruction. In Conference
+on Computer Vision and Pattern Recognition (CVPR). 8649–8658.
+James Gardner, Bernhard Egger, and William Smith. 2022. Rotation-equivariant condi-
+tional spherical neural fields for learning a natural illumination prior. Advances in
+Neural Information Processing Systems 35 (2022), 26309–26323.
+Abhijeet Ghosh, Graham Fyffe, Borom Tunwattanapong, Jay Busch, Xueming Yu, and
+Paul Debevec. 2011. Multiview face capture using polarized spherical gradient
+illumination. Transactions on Graphics (TOG) 30, 6 (2011), 129:1–10.
+Philip-William Grassal, Malte Prinzler, Titus Leistner, Carsten Rother, Matthias Nießner,
+and Justus Thies. 2022. Neural head avatars from monocular RGB videos. In Confer-
+ence on Computer Vision and Pattern Recognition (CVPR). 18653–18664.
+David Ha, Andrew Dai, and Quoc V Le. 2017. Hypernetworks. In International Confer-
+ence on Learning Representations (ICLR).
+Liwen Hu, Shunsuke Saito, Lingyu Wei, Koki Nagano, Jaewoo Seo, Jens Fursund, Iman
+Sadeghi, Carrie Sun, Yen-Chun Chen, and Hao Li. 2017. Avatar digitization from a
+single image for real-time rendering. Transactions on Graphics (TOG) 36, 6 (2017),
+195:1–14.
+Alexandru Eugen Ichim, Sofien Bouaziz, and Mark Pauly. 2015. Dynamic 3D avatar
+creation from hand-held video input. Transactions on Graphics (TOG) 34, 4 (2015),
+45:1–14.
+Justin Johnson, Alexandre Alahi, and Li Fei-Fei. 2016. Perceptual losses for real-time
+style transfer and super-resolution. In European Conference on Computer Vision
+(ECCV). 694–711.
+Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George Drettakis. 2023. 3D
+Gaussian splatting for real-time radiance field rendering. Transactions on Graphics
+(TOG) 42, 4 (2023), 139:1–14.
+Hoon Kim, Minje Jang, Wonjun Yoon, Jisoo Lee, Donghyun Na, and Sanghyun Woo.
+2024. SwitchLight: Co-design of Physics-driven Architecture and Pre-training
+Framework for Human Portrait Relighting. In Conference on Computer Vision and
+Pattern Recognition (CVPR).
+Diederik P Kingma and Jimmy Ba. 2015. Adam: A method for stochastic optimization.
+In International Conference on Learning Representations (ICLR).
+Alexandros Lattas, Stylianos Moschoglou, Baris Gecer, Stylianos Ploumpis, Vasileios
+Triantafyllou, Abhijeet Ghosh, and Stefanos Zafeiriou. 2020. AvatarMe: Realistically
+Renderable 3D Facial Reconstruction “in-the-wild”. In Conference on Computer Vision
+and Pattern Recognition (CVPR). 760–769.
+Alexandros Lattas, Stylianos Moschoglou, Stylianos Ploumpis, Baris Gecer, Abhijeet
+Ghosh, and Stefanos Zafeiriou. 2021. AvatarMe++: Facial shape and BRDF inference
+with photorealistic rendering-aware GANs. IEEE Transactions on Pattern Analysis
+and Machine Intelligence 44, 12 (2021), 9269–9284.
+John P Lewis, Ken Anjyo, Taehyun Rhee, Mengjie Zhang, Frederic H Pighin, and
+Zhigang Deng. 2014. Practice and theory of blendshape facial models. Eurographics
+State-of-the-Art Reports 1, 8 (2014), 2.
+Gengyan Li, Abhimitra Meka, Franziska Mueller, Marcel C Buehler, Otmar Hilliges, and
+Thabo Beeler. 2022. EyeNeRF: a hybrid representation for photorealistic synthesis,
+animation and relighting of human eyes. Transactions on Graphics (TOG) 41, 4 (2022),
+166:1–16.
+Hao Li, Jihun Yu, Yuting Ye, and Chris Bregler. 2013. Realtime facial animation with
+on-the-fly correctives. Transactions on Graphics (TOG) 32, 4 (2013), 42:1–10.
+Junxuan Li, Shunsuke Saito, Tomas Simon, Stephen Lombardi, Hongdong Li, and Jason
+Saragih. 2023. MEGANE: Morphable Eyeglass and Avatar Network. In Conference
+on Computer Vision and Pattern Recognition (CVPR). 12769–12779.
+Ruilong Li, Kalle Bladin, Yajie Zhao, Chinmay Chinara, Owen Ingraham, Pengda Xiang,
+Xinglei Ren, Pratusha Bhuvana Prasad, Bipin Kishore, Jun Xing, and Hao Li. 2020.
+Learning Formation of Physically-Based Face Attributes. In Conference on Computer
+Vision and Pattern Recognition (CVPR). 3407–3416.
+Tianye Li, Timo Bolkart, Michael J Black, Hao Li, and Javier Romero. 2017. Learning
+a model of facial shape and expression from 4D scans. Transactions on Graphics
+(TOG) 36, 6 (2017), 194:1–17.
+Connor Lin, Koki Nagano, Jan Kautz, Eric Chan, Umar Iqbal, Leonidas Guibas, Gordon
+Wetzstein, and Sameh Khamis. 2023. Single-shot implicit morphable faces with
+consistent texture parameterization. In SIGGRAPH Conference Proceedings. 83:1–12.
+Shichen Liu, Yunxuan Cai, Haiwei Chen, Yichao Zhou, and Yajie Zhao. 2022. Rapid
+Face Asset Acquisition with Recurrent Feature Alignment. Transactions on Graphics
+SA Conference Papers ’24, December 3–6, 2024, Tokyo, Japan.

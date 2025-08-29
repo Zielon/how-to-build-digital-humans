@@ -1,0 +1,810 @@
+Title: Animatable gaussians: Learning pose-dependent gaussian maps for high-fidelity human avatar modeling
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+1
+Animatable and Relightable Gaussians
+for High-fidelity Human Avatar Modeling
+Zhe Li∗, Yipengjing Sun∗, Zerong Zheng, Lizhen Wang, Shengping Zhang and Yebin Liu, Member, IEEE
+https://animatable-gaussians.github.io/relight
+Abstract—Modeling animatable human avatars from RGB
+videos is a long-standing and challenging problem. Recent works
+usually adopt MLP-based neural radiance fields (NeRF) to
+represent 3D humans, but it remains difficult for pure MLPs
+to regress pose-dependent garment details. To this end, we
+introduce Animatable Gaussians, a new avatar representation
+that leverages powerful 2D CNNs and 3D Gaussian splatting
+to create high-fidelity avatars. To associate 3D Gaussians with
+the animatable avatar, we learn a parametric template from the
+input videos, and then parameterize the template on two front
+& back canonical Gaussian maps where each pixel represents a
+3D Gaussian. The learned template is adaptive to the wearing
+garments for modeling looser clothes like dresses. Such template-
+guided 2D parameterization enables us to employ a powerful
+StyleGAN-based CNN to learn the pose-dependent Gaussian
+maps for modeling detailed dynamic appearances. Furthermore,
+we introduce a pose projection strategy for better generalization
+given novel poses. To tackle the realistic relighting of animatable
+avatars, we introduce physically-based rendering into the avatar
+representation for decomposing avatar materials and environ-
+ment illumination. Overall, our method can create lifelike avatars
+with dynamic, realistic, generalized and relightable appearances.
+Experiments show that our method outperforms other state-of-
+the-art approaches.
+Index Terms—Animatable avatar, human reconstruction, view
+synthesis, animation, relighting.
+I. INTRODUCTION
+A
+NIMATABLE human avatar modeling, due to its poten-
+tial value in holoportation, Metaverse, game and movie
+industries, has been a popular topic in computer vision for
+decades. However, how to effectively represent the human
+avatar is still a challenging problem.
+Explicit representations, including both meshes and point
+clouds, are the prevailing choices, not just in human avatars but
+also throughout the entire 3D vision and graphics. However,
+previous explicit avatar representations [1]–[3] necessitate
+dense reconstructed meshes to model human geometry, thus
+limiting their applications in sparse-view video-based avatar
+modeling. In the past few years, with the rise of implicit
+representations, particularly neural radiance fields (NeRF) [4],
+many researchers tend to represent the 3D human as a pose-
+conditioned NeRF [5]–[8] to automatically learn a neural
+avatar from RGB videos. However, implicit representations
+∗indicates equal contribution.
+Zhe Li, Lizhen Wang and Yebin Liu are with Department of Automation,
+Tsinghua University, Beijing 100084, P.R.China. Yipengjing Sun and Sheng-
+ping Zhang are with the School of Computer Science and Technology, Harbin
+Institute of Technology, Weihai 264209, P.R. China. Zerong Zheng is with
+NNKosmos Technology, Hangzhou, P.R.China.
+Corresponding author: Yebin Liu and Shengping Zhang.
+require a coordinate-based MLP to regress a continuous field,
+suffering from the low-frequency spectral bias [9] of MLPs.
+Although many works aim to enhance the avatar representation
+by texture feature [6] or structured local NeRFs [7], they fail
+to produce satisfactory results because they still rely on an
+MLP to output the continuous implicit fields.
+Recently, 3D Gaussian splatting [10], an explicit and effi-
+cient point-based representation, has been proposed for both
+high-fidelity rendering quality and real-time rendering speed.
+In contrary to implicit representations, explicit point-based
+representations have the potential to be parameterized on
+2D maps [3], thus enabling us to employ more powerful
+2D networks for modeling higher-fidelity avatars. Based on
+this observation, we present Animatable Gaussians, a new
+avatar representation that leverages 3D Gaussian splatting and
+powerful 2D CNNs for realistic avatar modeling. The first
+challenge lies in modeling general garments including long
+dresses. Inspired by point-based geometric avatars [11], [12],
+we first reconstruct a parametric template from the input
+videos and inherit the parameters of SMPL [13] by diffusing
+the skinning weights [11]. The character-specific template
+models the basic shapes of the wearing garments, even for long
+dresses. This allows us to animate 3D Gaussians in accordance
+with the template motion while avoiding density control in
+standard Gaussians [10], thereby ensuring the maintenance
+of a temporally consistent structure for 3D Gaussians in the
+following 2D parameterization.
+For compatibility with 2D networks, it is necessary to
+parameterize the 3D template onto 2D maps. However, it
+remains challenging to unwrap the template with arbitrary
+topologies onto a unified and continuous UV space. Regarding
+that the front & back views almost cover the entire canonical
+human, we achieve the parameterization by orthogonally pro-
+jecting the canonical template to both views. In each view,
+we define every pixel within the template mask as a 3D
+Gaussian, represented by its position, covariance, opacity, and
+color attributes, resulting in two front & back Gaussian maps.
+Similarly, given the driving pose, we obtain two posed position
+maps that serve as the pose conditions. Such a template-guided
+parameterization enables predicting pose-dependent Gaussian
+maps from the pose conditions through a powerful StyleGAN-
+based [14]–[16] conditional generator, StyleUNet [17].
+Benefiting from the powerful 2D CNNs and explicit 3D
+Gaussian splatting, our method can faithfully reconstruct hu-
+man details under training poses. On the other hand, given
+novel poses, the generalization of animatable avatars has not
+been extensively explored. Due to the data-driven nature of
+arXiv:2311.16096v4  [cs.CV]  25 May 2024
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+2
+Fig. 1.
+Lifelike relightable and animatable avatars with highly dynamic, realistic and generalized details created by our method. We show synthesized results
+animated by the same pose under the capture environment and novel lights.
+learning-based avatar modeling, direct extrapolation to poses
+out of distribution will certainly yield unsatisfactory results.
+Therefore, we propose to employ Principal Component Anal-
+ysis (PCA) to project the driving pose signal, represented by
+the position maps, into the PCA space, facilitating reasonable
+interpolation within the distribution of training poses. Such a
+pose projection strategy realizes reasonable and high-quality
+synthesis for novel poses.
+A preliminary version of this work has been published
+in CVPR 2024 [18], in which we propose a novel avatar
+representation for modeling realistic animatable human avatars
+from multi-view videos. However, the preliminary work [18]
+can only animate the avatar under illumination from the cap-
+ture environment. In the current version, we further introduce
+physically-based rendering (PBR) [19], [20] into our avatar
+representation for creating both animatable and relightable
+human avatars. Specifically, besides the original attributes of
+3D Gaussians, our model also predicts albedo, roughness,
+and light visibility to decompose the avatar materials and
+illumination of the capture environment. As a result, our model
+can produce realistic animation under novel illumination.
+We extend the preliminary version [18] in the following
+ways. First, we introduce PBR into our avatar representation
+(Animatable Gaussians) for creating relightable human avatars.
+Second, we compare our method with concurrent works on 3D
+Gaussian splatting-based avatars, and our method outperforms
+them on the avatar quality. Third, we compare our method
+with other works on human performance relighting, and our
+method can produce more realistic human relighting.
+In summary, our technical contributions are:
+• Animatable Gaussians, a new avatar representation that
+introduces explicit 3D Gaussian splatting into avatar mod-
+eling to employ powerful 2D CNNs for creating lifelike
+avatars with high-fidelity pose-dependent dynamics.
+• Template-guided parameterization that learns a character-
+specific template for general clothes like dresses, and
+parameterizes 3D Gaussians onto front & back Gaussian
+maps for compatibility with 2D networks.
+• A simple yet effective pose projection strategy that
+employs PCA on the driving signal, promoting better
+generalization to novel poses.
+• We introduce physically-based rendering into Animatable
+Gaussians for photorealistic relighting under novel illu-
+mination.
+Overall, benefiting from these contributions, our method can
+create lifelike animatable and relightable avatars with highly
+dynamic, realistic and generalized appearances as shown in
+Fig. 1. The code is available at https://github.com/lizhe00/
+AnimatableGaussians, and earns more than 700 stars.
+II. RELATED WORK
+A. Mesh-based Human Avatars
+The polygon mesh is the most popular 3D representation for
+its compatibility with traditional rendering pipelines. To model
+animatable human avatars using meshes, early approaches
+propose to reconstruct a character-specific textured mesh and
+animate it by physical simulation [21], [22] or retrieval from
+a database [23]. Recently, researchers tend to utilize neural
+networks to model dynamic textures and motions. Bagautdinov
+et al. [1], Xiang et al. [2], [24] and Halimi et al. [25]
+reconstruct topology-consistent meshes from dense multi-view
+videos and learn the dynamic texture in a UV space. DDC [26]
+and HDHumans [27] learn the deformation parameterized by
+both skeletons and embedded graph [28] of a pre-scanned
+template. DELIFFAS [29] employs DDC as a deformable
+template and parameterizes the light field around the body
+onto double surfaces for fast synthesis. These mesh-based
+methods require dense reconstruction, non-rigid tracking, or
+pre-scanned templates for representing dynamic humans. Be-
+sides, some works optimize the non-rigid deformation upon
+SMPL [13] from a monocular RGB [30]–[32] or RGB-D [33],
+[34] video, but the avatar quality is limited by the SMPL+D
+representation.
+B. Implicit Function-based Human Avatars
+Implicit function is a coordinate-based function, usually
+represented by an MLP, that outputs a continuous field, e.g.,
+signed distance function (SDF) [35], [36], occupancy [37],
+and radiance (NeRF) [5] fields. In geometric avatar modeling,
+many works represent the human avatar as pose-conditioned
+SDF [38]–[42] or occupancy [37], [43]–[47] fields learned
+from human scans or depth sequences. In contrast, NeRF
+containing a density and color field is widely used in textured
+avatar modeling [48]–[56] because of its good differentiable
+property. Animatable NeRF [5] introduces SMPL deformation
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+3
+into NeRF for animatable human modeling. Neural Actor [6]
+and UV volumes [57] parameterize 3D humans on SMPL
+or DensePose [58] UV space, thus limiting modeling loose
+clothes far from the human body. SLRF [7] defines local
+NeRF around sampled nodes upon SMPL and learns the pose-
+dependent dynamics in the local space. TAVA [8] models the
+human or animal deformation using only 3D skeletons without
+the requirement of a parametric model. ARAH [59] represents
+the avatar geometry as SDF and adopts SDF-based volume
+rendering [60], [61] for learning more plausible geometry from
+RGB videos. DANBO [62] employs GNNs to learn the part-
+based pose feature. Li et al. [63] introduce a learnable pose
+vocabulary to learn higher-frequency pose conditions for the
+conditional NeRF. Besides the body avatar, TotalSelfScan [64],
+X-Avatar [65] and AvatarReX [66] propose compositional
+full-body avatars for expressive control of the human body,
+hands and face. However, the implicit function-based methods
+usually adopt pure MLPs to represent the human avatar,
+yielding smooth or blurry quality due to the low-frequency
+bias of MLPs [9]. What’s worse, the rendering speed of these
+methods is usually slow because rendering from implicit fields
+requires dense sampling along a ray.
+C. Point-based Human Avatars
+Point cloud is also a powerful and popular representation
+in human avatar modeling. Given 3D scans of a character,
+SCALE [67] and POP [3] learn the non-rigid deformation of
+dense points on SMPL UV maps to represent the dynamic
+garment wrinkles. FITE [11] and CloSET [68] extract pose
+features from projective maps or PointNet [69], [70] to avoid
+discontinuity on the UV map. SKiRT [12] and FITE learn a
+coarse template from the input scans and utilize learned or
+diffused skinning weights to animate loose clothes. Prokudin
+et al. [71] propose dynamic point fields for general dynamic
+reconstruction. This work and NPC [72] show results on
+avatars created from RGB videos using Point-NeRF [73].
+However, applying Point-NeRF to avatar modeling still relies
+on a low-frequency coordinate-based MLP, struggling with the
+same problems in Sec. II-B. On the other hand, point-based
+rendering via splatting [74]–[82] offers another probability for
+animatable avatar modeling. PointAvatar [83] learns a canon-
+ical point cloud and deformation field to model head avatars
+from a monocular video via PyTorch3D’s [84] differentiable
+point renderer.
+Recently, 3D Gaussian splatting [10] (3DGS), an efficient
+differentiable point-based rendering method, has been pro-
+posed for real-time photo-realistic scene rendering. Along
+with extending 3DGS to dynamic scene modeling [85]–[88],
+many researchers also introduced 3DGS into animatable hu-
+man avatars. Specifically, D3GA [89] leverages cage-based
+deformation to model the motion of 3D Gaussians. While other
+approaches like GART [90], 3DGS-Avatar [91], GauHuman
+[92] and HUGS [93] employ linear blend skinning (LBS) to
+model human motions and reconstruct a 3DGS-based animat-
+able avatar from monocular videos. However, these approaches
+cannot produce highly realistic and dynamic human appear-
+ances because they all represent the canonical 3D human using
+MLPs, facing the same low-frequency problem as NeRF-based
+approaches (Sec. II-B). We observe such an explicit point-
+based representation can be combined with 2D CNNs for high-
+quality avatar modeling. Concurrent works including ASH
+[94] and GaussianAvatar [95] parameterize the 3D character
+on a 2D UV map to predict Gaussian attributes using 2D
+CNNs, sharing similar ideas with our method. Differently, we
+parameterize the canonical 3D human on the front and back
+views by orthographic projection.
+D. Human Relighting
+Human relighting aims to manipulate the reflectance field
+of the human surface, thus enabling an immersive fusion with
+novel illumination. Conventional approaches [96]–[103] pro-
+pose capturing the reflectance characteristics of a human sub-
+ject through a LightStage arrangement. This setup entails con-
+trolled illumination systems and dense camera arrays, facili-
+tating the generation of photorealistic renderings under diverse
+lighting conditions. However, such configurations are both
+financially demanding to capture and not readily accessible
+to the public. With the advancement of neural implicit repre-
+sentations, recent methods [36], [104]–[108] necessitate solely
+multi-view or even monocular video recordings obtained un-
+der constant unknown illumination conditions to model both
+human motion and light transport properties. Relighting4D
+[104] employs NeuralBody [109] as the dynamic human model
+and utilizes neural inverse rendering to decompose it into
+a 3D reflectance field, enabling the estimation of materials
+and lighting properties. Building upon this framework, Sun
+et al. [106] apply LBS to transform the reflectance field
+from the canonical space to the observation space, facilitating
+animated sequences with relighting effects. However, this work
+does not address shadowing effects. RANA [105] pretrains
+an SMPL+D-based representation incorporating albedo and
+normal map refinement techniques. It utilizes a simplified
+spherical harmonics lighting model to achieve relighting ef-
+fects but lacks the capability to accurately model specular
+effects and shadows. Lin et al. [107] propose to estimate pose-
+aware light visibility through part-wise MLPs, demonstrating
+improved shadowing estimation when generalizing to unseen
+poses. Xu et al. [36] utilize Hierarchical Distance Queries
+(HDQ) via sphere tracing to calculate correct SDF values
+under arbitrary human poses and then incorporate distant field
+soft shadow (DFSS) for estimating reasonable soft visibility
+maps. IntrinsicAvatar [108] employs explicit Monte-Carlo
+ray tracing in canonical space to capture secondary shading
+effects, thereby enabling precise estimation of materials and
+environmental lighting. However, most previous methods rely
+on NeRF-based techniques, which inherently yield limited
+rendering quality. Thanks to the proposed powerful Gaussian
+representation, our method can achieve more vivid and realistic
+relighting results under novel poses.
+III. METHOD
+A. Preliminary: 3D Gaussian Splatting
+3D Gaussian splatting [10] is an explicit point-based 3D
+representation that consists of a set of 3D Gaussians. Each 3D
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+4
+Fig. 2.
+Illustration of the avatar modeling pipeline. It contains two main steps: 1) Reconstruct a character-specific template from multi-view images.
+2) Predict pose-dependent Gaussian and intrinsic maps through StyleUNets, and render the posed Gaussians by Gaussian splatting and physically-based
+rendering to learn both pose-dependent dynamics and avatar materials. Finally, given a novel environment light, we can animate the avatar with realistic
+dynamic appearances and shadow effects.
+Gaussian is parameterized by its position (mean) µ, covariance
+matrix Σ, opacity α and color c, and its probability density
+function is formulated as
+f(x|µ, Σ) = exp
+
+−1
+2(x −µ)⊤Σ−1(x −µ)
+
+,
+(1)
+where we omit the constant factor in Eq. 1. For rendering a 2D
+image, the 3D Gaussians are splatted onto 2D planes, resulting
+in 2D Gaussians. The pixel color C is computed by blending
+N ordered 2D Gaussians overlapping this pixel:
+C =
+N
+X
+i=1
+αi
+i−1
+Y
+j=1
+(1 −αj)ci,
+(2)
+where ci is the color of each 2D Gaussian, and αi is the
+blending weight derived from the learned opacity and 2D
+Gaussian distribution [75].
+B. Overview
+Given multi-view RGB videos of a character and the cor-
+responding SMPL-X [110] registrations about the per-frame
+pose and shared shape, our objective is to create a lifelike
+animatable avatar. As illustrated in Fig. 2, our method contains
+two main steps:
+1) Learning Parametric Template. We begin by selecting
+a frame with a near A-pose from the input videos,
+and then optimize a canonical SDF and color field
+to fit the multi-view images through SMPL skinning
+and SDF-based volume rendering [60]. The template
+mesh is subsequently extracted from the canonical SDF
+field using Marching Cubes [111]. We then diffuse the
+skinning weights from the SMPL vertices to the template
+surface, obtaining a deformable parametric template.
+2) Learning Pose-dependent Gaussian and Intrinsic
+Maps. Given a training pose, we first deform the tem-
+plate to the posed space via linear blend skinning (LBS)
+and render the posed vertex coordinates to canonical
+front & back views to obtain two position maps. The po-
+sition maps serve as the pose condition and are translated
+into front & back Gaussian and intrinsic maps through
+StyleUNets [17]. We then extract valid 3D Gaussians
+inside the template mask from the Gaussian map, and
+deform the canonical 3D Gaussians to the posed space
+by LBS. In one branch, we directly render the posed 3D
+Gaussians to a camera view using the observed colors
+on the Gaussian maps. On the other hand, we render
+the posed 3D Gaussians using the PBR color computed
+from the intrinsic maps. These two branches allow our
+method not only to learn pose-dependent animation but
+also to decompose the avatar appearance into materials
+and light conditions for relighting purposes.
+C. Avatar Representation
+1) Learning Parametric Template: Given the multi-view
+videos, we first select one frame in which the character is
+under a near A-pose. Our goal is to reconstruct a canonical
+geometric model as the template from the multi-view images.
+Specifically, we represent the canonical character as an SDF
+and color field instantiated by an MLP. To associate the
+canonical and posed spaces, we precompute a skinning weight
+volume W in the canonical space by diffusing the weights
+from the SMPL surface throughout the whole 3D volume
+along the surface normal [11]. For each point in the posed
+space, we search its canonical correspondence by root finding
+[44]:
+min
+xc ∥LBS(xc; Θ, W) −xp∥2
+2 ,
+(3)
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+5
+Fig. 3. Illustration of the posed position maps.
+where LBS(·) is a linear blend skinning function that trans-
+forms a canonical point xc to its posed position xp in
+accordance with the SMPL pose Θ. Then the canonical
+correspondence is fed into the MLP to query its SDF and
+color, which are used to render RGB images by SDF-based
+volume rendering [60]. The rendered images are compared
+with the ground truth for optimizing the canonical fields
+via differentiable volume rendering. Finally, we extract the
+geometric template from the SDF field and query the skinning
+weights for each vertex in the precomputed weight volume W,
+obtaining a deformable parametric template.
+2) Template-guided
+Parameterization:
+Previous
+human
+avatar representations in NeRF-based approaches [5]–[7] ne-
+cessitate the coordinate-based MLPs for the formulation of the
+implicit NeRF function. However, MLPs have demonstrated a
+low-frequency bias [9], hindering their ability to model high-
+frequency human dynamics. In light of this observation, we
+replace MLPs with more powerful 2D CNNs for creating
+higher-quality human avatars. To ensure compatibility with 2D
+networks, the 3D representation of the human avatar needs
+to be parameterized in 2D space. Therefore, we propose to
+parameterize the 3D Gaussians anchored on the canonical
+template onto front & back views via orthogonal projection.
+As illustrated in Fig. 3, given a driving pose Θ, we first
+deform the template to the posed space via LBS. Note that
+we do not consider the global transformation in this skinning
+process, because the global orientation and translation would
+not change the human dynamic details. Then we take the posed
+coordinate as the vertex color on the canonical template, and
+render it to both front & back views by orthogonal projection,
+obtaining posed position maps Pf(Θ) and Pb(Θ) that serve
+as pose conditions for the network.
+3) Pose-dependent Gaussian Maps: We employ a powerful
+StyleGAN-based CNN , StyleUNet [17] FG, to predict pose-
+dependent Gaussian maps from the pose conditions:
+Gf(Θ), Gb(Θ) ←FG(Pf(Θ), Pb(Θ), V),
+(4)
+where Gf(Θ) and Gb(Θ) are front and back pose-dependent
+Gaussian maps, respectively, and each pixel represents a 3D
+Gaussian [10] including a position, covariance, opacity and
+color. To ensure that the position attribute of predicted Gaus-
+sian maps approximates the canonical human body, we opt
+to predict an offset map ∆O(Θ) on the parametric template
+instead of a global position map. We also modulate the
+output color attributes on Gaussian maps with a view direction
+map V to model view-dependent variance like NeRF-based
+approaches [5]. We extract canonical 3D Gaussians inside the
+Fig. 4. Canonical 3D Gaussians on side regions and hands.
+template mask from the pose-dependent Gaussian maps. It is
+worth mentioning that despite utilizing only front and back
+views for parameterizing the 3D Gaussians, the resulting point
+clouds still cover the side regions and hands of the human body
+as demonstrated in Fig. 4. The reason is that the projection to
+front & back views is orthographic, thus there exist sufficient
+3D Gaussians to model these parts.
+4) LBS of 3D Gaussians: To render the synthesized avatar
+under the driving pose, we need to deform the canonical 3D
+Gaussians to the posed space. Specifically, given a canonical
+3D Gaussian, we transform its position pc and covariance Σc
+attributes:
+pp = Rpc + t,
+Σp = RΣcR⊤,
+(5)
+where R and t are the rotation matrix and translation vector
+calculated with the skinning weights of each 3D Gaussian.
+Finally, we render the posed 3D Gaussians to a desired camera
+view through splatting-based rasterization (Eq. 2).
+5) Pose-dependent Intrinsic Maps:
+The pose-dependent
+Gaussian maps only represent the human appearances under
+the illumination of the capture environment, limiting animation
+under novel lighting conditions. To disentangle the avatar
+geometry, material and lighting conditions, we leverage the
+classic rendering equation [112] to simulate the rendering
+process:
+Lo(x, ωo) =
+Z
+Ω
+Li(x, ω)f(x, ωi, ωo; α, γ, n)(ωi · n)dωi,
+(6)
+where Lo(x, ωo) and Li(x, ωi) are the outgoing and inci-
+dent radiance at a surface position x along direction ωo
+and ωi, respectively, and n is the normal vector at x.
+f(x, ωi, ωo; α, γ, n) is the Bidirectional Reflectance Distri-
+bution Function (BRDF) determined by the surface geometry
+(normal n) and material properties including albedo α and
+roughness γ. Considering the light visibility, the incident
+radiance is further formulated as
+Li(x, ωi) = V (x, ωi)Li(ωi),
+(7)
+where V (x, ωi) ∈{0, 1} indicates whether x is visible along
+the light direction ωi. The global light Li(ωi) is parametrized
+as learnable Spherical Harmonics (SH), which are optimized
+during the inverse rendering process.
+Based on the physically-based rendering process, we addi-
+tionally learn pose-dependent intrinsic maps including normal
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+6
+N(Θ), albedo A(Θ), and roughness γ(Θ) maps on the front
+and back canonical views:
+Nf(Θ), Nb(Θ) ←FN (Pf(Θ), Pb(Θ)),
+Af(Θ), Ab(Θ) ←FA(Pf(Θ), Pb(Θ)),
+γf(Θ), γb(Θ) ←Fγ(Pf(Θ), Pb(Θ)),
+(8)
+where FN , FA and Fγ are StyleUNet modules. More specif-
+ically, the learned normal map N(Θ) is an offset of the
+surface normal on the parametric template for better pose
+generalization. The light visibility V (x, ωi) can be computed
+from the posed 3D Gaussians by point-based ray tracing [20].
+However, as mentioned in [20], computing the light visibility
+during training is not preferred because of the computational
+complexity. Therefore, we train an additional network to
+predict light visibility and supervise the prediction by ran-
+domly sampling view directions. Specifically, we formulate
+the light-direction-dependent visibility as SH, and predict SH
+coefficient map K(Θ) using a StyleUNet FK:
+Kf(Θ), Kb(Θ) ←FK(Pf(Θ), Pb(Θ)).
+(9)
+Similar to the Gaussian maps, each pixel value on normal,
+albedo, roughness and light visibility maps is associated with
+a 3D Gaussian. Following Relightable 3D Gaussian [20], we
+sample N incident light directions over the hemisphere space,
+and calculate the PBR color of each 3D Gaussian by the
+discrete form of Eq. 6:
+Lo(µ, ωo) =
+X
+ωi
+Li(µ, ω)f(µ, ωi, ωo; αµ, γµ, nµ)(ωi · nµ)∆ωi,
+(10)
+where µ is the position of a 3D Gaussian, αµ, γµ and nµ
+is the corresponding albedo, roughness and normal attribute.
+Finally, the physically-based rendered image can be obtained
+by rasterization (Eq. 2).
+D. Training
+The optimizable parameters of the avatar model include the
+parameters of StyleUNets and an environment light map lenv.
+Our training loss consists of five parts: the reconstruction loss
+Lrecon, PBR loss LPBR, normal loss Lnormal, visibility loss Lvis
+and regularization loss Lreg:
+L = Lrecon + LPBR + λnormalLnormal + λvisLvis + Lreg.
+(11)
+1) Reconstruction Loss: The reconstruction loss aims to
+learn the geometry and the observed texture of the human
+avatar from the multi-view videos without considering the
+PBR process. We denote the rendered image using color
+attributes from the Gaussian maps as COBS. The reconstruction
+loss involves an L1 loss and a perceptual loss [113] between
+COBS and the ground-truth image CGT:
+Lrecon = L1(COBS, CGT) + λperceptualLperceptual(COBS, CGT).
+(12)
+2) PBR Loss: The PBR loss aims to disentangle the light
+condition and avatar materials from the multi-view observa-
+tions. We denote the rendered image by the PBR process (i.e.,
+Eq. 10) as CPBR. The PBR loss involves an L1 loss and a
+perceptual loss between CPBR and CGT:
+LPBR = L1(CPBR, CGT) + λperceptualLperceptual(CPBR, CGT).
+(13)
+3) Normal Loss: We employ a pretrained normal estimation
+network [114] to supervise our predicted normal. Specifically,
+we render a normal image with the predicted normal as
+additional channels by rasterization, and compare it with the
+estimated one by [114] using L1 loss.
+4) Visibility Loss: In each iteration, for each 3D Gaussian,
+we randomly sample a light direction over the hemisphere
+around its normal. We compute L1 loss between the predicted
+visibility of the sampled directions and the ground-truth one
+obtained by point-based ray tracing [20].
+5) Regularization Loss: For the stability and convergence
+of avatar training, we design several regularization losses on
+the geometry and materials. Specifically, the regularization
+losses involve a geometric regularization loss and smooth
+regularization losses on albedo and roughness:
+Lreg = λgeoLgeo + λalbedoLsmooth(IA) + λroughnessLsmooth(Iγ),
+(14)
+where Lgeo = ∥∆O∥2
+2 restrains the predicted offset map ∆O
+from being extremely large, and the smooth loss is a bilateral
+smoothness term [20] that constrains the material properties
+to change continuously in areas with smooth colors:
+Lsmooth(I) = ∥∇I∥exp(−∥∇CGT∥),
+(15)
+where I is the rendered albedo or roughness map (IA or Iγ)
+via splatting-based rasterization.
+E. Animation and Relighting
+1) Pose Projection Strategy: Benefiting from the effective
+avatar representation, our method can reconstruct detailed
+human appearances under the training poses. However, given
+the inherently data-driven nature of learning-based avatars,
+addressing generalization to novel poses is also necessary
+and important. RAM-Avatar [115] trains a VAE to transform
+the testing pose into an in-distribution one. In this work, we
+propose to utilize Principal Component Analysis (PCA) to
+project a novel driving pose signal into the distribution of seen
+training poses for better generalization. Specifically, given a
+pose condition represented by posed position maps, we extract
+valid points and concatenate them as a vector xt ∈R3M
+(M is the point number). The vector of each training frame
+composes a matrix X = [x1, · · · , xT ], where T is the number
+of training frames. We perform PCA on X, producing N
+principal components S = [s1, · · · , sN] ∈R3M×N and
+standard deviation of each component σi. Given position maps
+derived by a novel driving pose, we project the corresponding
+vector x into the PCA space by
+β = S⊤· (x −¯x),
+(16)
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+7
+Fig. 5. Example animatable avatars with high-fidelity dynamic appearances created by our method.
+where ¯x is the mean of X. Then we reconstruct the positions
+from the low-dimensional coefficient β by
+xrecon = S · β + ¯x,
+(17)
+then we reshape xrecon into a M × 3 tensor, and scatter it
+onto the position maps. To constrain the reconstructed position
+maps to lie in the distribution of training poses, we clip each
+component of β within the bound of [−2σi, 2σi]. Overall,
+the pose projection strategy ensures reasonable interpolation
+within the distribution of training poses, enabling better gen-
+eralization to novel poses as shown in Fig. 14.
+2) Relighting: Thanks to the introduction of PBR into
+the avatar representation, our method is able to relight the
+avatar under novel illumination. Specifically, given a novel
+pose, we first feed it into the avatar networks to predict
+Gaussian, normal, albedo and roughness maps. Note that we
+do not predict light visibility maps during testing because
+we empirically find it cannot accurately generalize to novel
+poses. We hypothesize the reasons are that the visibility is
+heavily determined by global self-occlusions, and the variety
+of training poses is limited. To this end, we directly calculate
+the visibility of posed 3D Gaussians via point-based ray
+tracing [20]. Then, given a novel environment map, we inject
+it with the predicted normal, abledo, and roughness as well as
+calculated visibility into the PBR equation (Eq. 10) to compute
+the PBR color of each 3D Gaussian. Finally, the relit image
+is obtained by splatting-based rasterization. As illustrated in
+Fig. 7, our method can produce photorealistic animation under
+novel illumination.
+IV. EXPERIMENTS
+A. Results
+1) Animation: As shown in Fig. 1 and Fig. 5, our method
+can create realistic avatars with high-fidelity dynamic details
+from multi-view videos. We also show results animated by
+challenging out-of-distribution poses from AMASS dataset
+[116] in Fig. 6. Thanks to the effective avatar representation
+and pose projection strategy, our method can produce ani-
+mation results with highly dynamic, realistic and generalized
+appearances.
+2) Relighting: In addition to animation, our method extends
+support to relighting applications. By naturally incorporat-
+ing physically-based inverse rendering techniques into our
+powerful avatar representation, we achieve accurate intrinsic
+decomposition and vivid relighting results, as demonstrated in
+Fig. 1 and Fig. 7.
+Please refer to the supplementary video for more sequential
+animation and relighting results.
+B. Dataset and Metric
+We mainly utilize three public datasets for the experiments,
+including 3 sequences with 24 views from THuman4.0 dataset
+[7], 3 sequences with 16 views from AvatarReX dataset [66]
+and 5 sequences with 160 views from ActorsHQ dataset
+[117] (we only use 47 full-body views for avatar modeling).
+THuman4.0 and AvatarReX datasets also provide the SMPL-
+X [110] registrations. We fit SMPL-X for ActorsHQ dataset
+using the method proposed by Zhang et al. [118]. We split
+each sequence as training and testing chunks, and the training
+chunk contains 1500 ∼3000 frames.
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+8
+Fig. 6. Example sequential animation results by our method. Each row is an animation sequence involving 3 subjects. Our method can generate realistic
+and reasonable dynamic details even under novel poses from the AMASS dataset [116].
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+9
+Albedo
+Roughness
+Normal
+Visibility
+Intrinsic Decomposition
+Relighting
+Synthetic Point Light
+Real Environment Map
+Fig. 7.
+Example intrinsic decomposition and relighting results under novel poses by our method. The first four columns display the decomposition
+results of material and geometry. The fifth column showcases the relighting outcomes with a directional point light, whereas the remaining columns are relit
+using real environment maps.
+We adopt Peak Signal-to-Noise Ratio (PSNR), Structure
+Similarity Index Measure (SSIM) [119], Learned Perceptual
+Image Patch Similarity (LPIPS) [113] and Fr´echet Inception
+Distance (FID) [120] for quantitative experiments. PSNR
+and SSIM are computed on the entire image at the original
+resolution, while LPIPS and FID are computed on the cropped
+minimal square that covers the human body.
+C. Implementation Details
+1) Template Reconstruction: We optimize an SDF and
+color field represented by an MLP consisting of intermediate
+layers with (512, 256, 256, 256, 256, 256) neurons. Given a
+posed point, we find accurate correspondence in the canonical
+space by root finding. Following ARAH [59], we initialize
+the correspondence as the canonical position that is computed
+by inverse skinning based on blending weights of the closest
+SMPL vertex. Different from SNARF [44] and ARAH [59]
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+10
+Fig. 8. Qualitative comparison with state-of-the-art NeRF-based body-only avatars including TAVA [8], ARAH [59], SLRF [7] and PoseVocab [63]
+on novel pose synthesis.
+TABLE I
+LOSS WEIGHTS IN THE TRAINING PROCESS.
+Loss Weight
+Value
+λperceptual
+0.1
+λnormal
+0.2
+λvis
+0.1
+λgeo
+0.01
+λalbedo
+0.005
+λroughness
+0.005
+that utilize the Broyden’s method [121] to solve Eq. 3, we em-
+ploy the Gauss-Newton method by implementing a customized
+CUDA kernel. The training loss of template reconstruction
+involves an RGB loss, a mask loss and an Eikonal loss [122].
+2) Network Architecture: The network in our avatar rep-
+resentation is composed of StyleUNet [17], a conditional
+StyleGAN-based [14] generator. Differently, we adapt the
+original StyleUNet by incorporating two decoders to predict
+both front & back Gaussian and intrinsic maps. The resolution
+of the input position map is 512 × 512, and the resolution
+of the output Gaussian and intrinsic maps is 1024 × 1024.
+Specifically, we utilize five different StyleUNets to output
+color (3-channel), position (3-channel), other Gaussian at-
+tributes (8-channel), albedo & roughness (4-channel) and
+normal & visibility (19-channel). The visibility is represented
+as 16-dimensional SH coefficients. In the color StyleUNet,
+we modulate the color output with a view direction map
+to model view-dependent effects. Each pixel on the view
+direction map indicates the angle between the view direction
+and the template normal. The view direction map is encoded
+through a tiny CNN, then the encoded feature map is injected
+into an intermediate decoder layer of the color StyleUNet.
+TABLE II
+QUANTITATIVE COMPARISON WITH STATE-OF-THE-ART NERF-BASED
+BODY-ONLY AVATARS.
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+FID ↓
+Ours
+28.0714
+0.9739
+0.0515
+29.4831
+PoseVocab [63]
+26.3784
+0.9707
+0.0592
+49.4541
+SLRF [7]
+26.9015
+0.9724
+0.0600
+52.0613
+ARAH [59]
+22.3004
+0.9616
+0.1075
+90.6077
+TAVA [8]
+26.8019
+0.9705
+0.0915
+96.3474
+3) Training: We adopt the Adam optimizer [123] for train-
+ing the network with a learning rate of 5 × 10−4. The loss
+weights are set as illustrated in Tab. I. The batch size is 1,
+the total iteration number is 500k, and the training procedure
+takes about two days on one RTX 4090.
+4) Running Time: For only animation, it takes around
+0.13 secs to render one frame. Given novel illumination for
+relighting, it takes 4 ∼10 secs to synthesize one frame
+due to the additional computational cost of light visibility
+computation in PBR. The relighting time cost mainly depends
+on the numbers of 3D Gaussians and sampled rays.
+D. Comparison on Avatar Animation
+In the comparisons with state-of-the-art animatable avatars,
+we first compare our method with NeRF-based approaches
+including both body-only (TAVA [8], ARAH [59], SLRF
+[7], PoseVocab [63]) and full-body (AvatarReX [66]) avatars.
+Then we compare our method with concurrent 3D Gaussian
+splatting-based avatars including 3DGS-Avatar [91] and Gaus-
+sianAvatar [95].

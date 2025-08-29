@@ -1,0 +1,1031 @@
+Title: Hair-GAN: Recovering 3D hair structure from a single image using generative adversarial networks
+
+Avatar Digitization From a Single Image For Real-Time Rendering
+LIWEN HU∗, Pinscreen, University of Southern California
+SHUNSUKE SAITO∗, Pinscreen, University of Southern California
+LINGYU WEI∗, Pinscreen, University of Southern California
+KOKI NAGANO, Pinscreen
+JAEWOO SEO, Pinscreen
+JENS FURSUND, Pinscreen
+IMAN SADEGHI, Pinscreen
+CARRIE SUN, Pinscreen
+YEN-CHUN CHEN, Pinscreen
+HAO LI, Pinscreen, University of Southern California, USC Institute for Creative Technologies
+input image
+face mesh and
+hair polystrips
+3D avatar
+input image
+face mesh and
+hair polystrips
+3D avatar
+input image
+face mesh and
+hair polystrips
+3D avatar
+Fig. 1. We introduce an end-to-end framework for modeling a complete 3D avatar from a single input image for real-time rendering. We infer fully rigged
+textured faces models and polygonal strips for hair. Our flexible and efficient mesh-based hair representation is suitable for a wide range of hairstyles and can
+be readily integrated into existing real-time game engines. All of the illustrations are rendered in realtime in Unity. President Trump’s picture is obtained from
+whitehouse.gov and Kim Jong-un’s photograph was published in the Rodong Sinmun. The other celebrity pictures are used with permission from Getty Images.
+We present a fully automatic framework that digitizes a complete 3D head
+with hair from a single unconstrained image. Our system offers a practical
+and consumer-friendly end-to-end solution for avatar personalization in
+gaming and social VR applications. The reconstructed models include sec-
+ondary components (eyes, teeth, tongue, and gums) and provide animation-
+friendly blendshapes and joint-based rigs. While the generated face is a
+high-quality textured mesh, we propose a versatile and efficient polygonal
+strips (polystrips) representation for the hair. Polystrips are suitable for an
+extremely wide range of hairstyles and textures and are compatible with
+existing game engines for real-time rendering. In addition to integrating
+state-of-the-art advances in facial shape modeling and appearance infer-
+ence, we propose a novel single-view hair generation pipeline, based on
+∗indicates equal contribution
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than ACM
+must be honored. Abstracting with credit is permitted. To copy otherwise, or republish,
+to post on servers or to redistribute to lists, requires prior specific permission and/or a
+fee. Request permissions from permissions@acm.org.
+© 2017 Association for Computing Machinery.
+0730-0301/2017/11-ART1 $15.00
+https://doi.org/10.1145/3130800.3130887
+3D-model and texture retrieval, shape refinement, and polystrip patching
+optimization. The performance of our hairstyle retrieval is enhanced using
+a deep convolutional neural network for semantic hair attribute classifi-
+cation. Our generated models are visually comparable to state-of-the-art
+game characters designed by professional artists. For real-time settings, we
+demonstrate the flexibility of polystrips in handling hairstyle variations, as
+opposed to conventional strand-based representations. We further show the
+effectiveness of our approach on a large number of images taken in the wild,
+and how compelling avatars can be easily created by anyone.
+CCS Concepts: • Computing methodologies →Mesh geometry mod-
+els; • Theory of computation →Machine learning theory;
+Additional Key Words and Phrases: dynamic avatar, face, hair, digitization,
+modeling, rigging, polystrip, texture synthesis, data-driven, deep learning,
+deep convolutional neural network
+ACM Reference Format:
+Liwen Hu, Shunsuke Saito, Lingyu Wei, Koki Nagano, Jaewoo Seo, Jens
+Fursund, Iman Sadeghi, Carrie Sun, Yen-Chun Chen, and Hao Li. 2017. Avatar
+Digitization From a Single Image For Real-Time Rendering. ACM Trans.
+Graph. 36, 6, Article 1 (November 2017), 14 pages.
+https://doi.org/10.1145/3130800.3130887
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+1:2
+•
+L. Hu, S. Saito, L. Wei, K. Nagano, J. Seo, J. Fursund, I. Sadeghi, C. Sun, Y. Chen and H. Li
+1
+INTRODUCTION
+The onset of virtual reality (VR) and its entertainment applications
+have highlighted how valuable and captivating the immersion of
+alternate universes can be. VR and its democratization have the
+potential to revolutionize 3D face-to-face communication and social
+interactions through compelling digital embodiments of ourselves,
+as demonstrated lately with the help of VR head mounted displays
+with facial sensing capabilities [Li et al. 2015; Olszewski et al. 2016;
+Thies et al. 2016b] or voice-driven technology demonstrated at Ocu-
+lus Connect 3. In addition to enabling personalized gaming expe-
+riences, faithfully individualized 3D avatars could facilitate natu-
+ral telepresence and interactions between remote participants in
+virtual worlds, and potentially, one day, displace physical travels.
+Meanwhile, companies such as Facebook and Snap are populariz-
+ing the use of augmented reality filters to alter selfie videos and
+emerging tech startups such as Pinscreen [2017], FaceUnity [2017],
+Loom.ai [2017], and itSeez3D [2017], are exploring the automatic
+creation of 3D avatars for virtual chatting applications.
+Recent progress in data-driven methods and deep learning re-
+search have catalyzed the development of high-quality 3D face mod-
+eling techniques from a single image [Cao et al. 2014b; Saito et al.
+2017; Thies et al. 2016a]. Even the generation of realistic strand-level
+hair models is possible from an image fully automatically [Chai et al.
+2016]. However, despite efforts in real-time simulation [Chai et al.
+2014], strand-based representations are still very difficult to inte-
+grate into game environments due to their rendering and simulation
+complexity. Furthermore, strands are not efficient representations
+for short hairstyles and ones with highly stochastic structures, such
+as for curly hair. Cao et al. [2016] have recently introduced a sys-
+tem that uses a versatile image-based mesh representation, but it
+requires the usage of multiple photographs and manual interven-
+tion, and the volumetric structure of hair is not captured. Despite
+substantial advances in making avatar creation as easy as possible,
+the barriers to entry are still too high for commodity user adoption.
+In this paper, we present the first automatic framework that gener-
+ates a complete 3D avatar from a single unconstrained image, using
+high-quality optimized polygonal strips (polystrips or poly cards)
+for real-time hair rendering. By eliminating the need of multiple
+photographs and a controlled capture environment, we provide a
+practical and consumer-friendly solution for digitizing ourselves
+or others, such as celebrities, from any photograph. Our digitized
+models are fully rigged with intuitive animation controls such as
+blendshapes and joint-based skeletons, and can be readily integrated
+into existing game engines.
+We first address the challenge of predicting the 3D shape and
+appearance of entire heads from partially visible 2D input data. We
+carefully integrate multiple cutting edge techniques into a compre-
+hensive facial digitization framework. An accurate 3D face model
+is estimated using a modified dense analysis-through-synthesis
+approach [Thies et al. 2016a] with visibility constraints on a pre-
+segmented input image, which is obtained from a convolutional
+neural network for segmentation [Saito et al. 2016]. Subsequently,
+a complete high-quality facial texture is synthesized using a deep
+learning-based inference technique introduced by Saito et al. [2017].
+While a straightforward incorporation of an existing single-view
+hair modeling technique is possible [Chai et al. 2016; Hu et al. 2015],
+we focus on a method that produces highly efficient polystrips rather
+than strands. The use of polystrips is particularly suitable for real-
+time rendering and integration with existing game engines. For
+games, hair models rarely exceed 100K triangles, especially when a
+large number of characters need to be on screen at any given time.
+With appropriate textures and alpha masks, this representation also
+supports for a much larger variety of hairstyles than strands. Though
+widely used in cutting edge games (e.g., Uncharted 4), the creation
+of visually compelling hair polystrips is typically associated with a
+tedious and time-consuming modeling and texture painting process
+by skilled artists.
+We introduce an automatic hair digitization pipeline for mod-
+eling polystrip-based hairstyles. Critical to reconstructing high-
+quality hair meshes are convincing shapes and structures, such as
+fringes, which are laid out manually by a modeler. We propose a
+deep learning-based framework to first extract semantical hair at-
+tributes that characterizes the input hairstyle. A tractable subset
+of candidate hairstyles with compatible traits is then selected from
+a large hair model database. A closest hairstyle is then retrieved
+from this hairstyle collection and refined to match the input. Our
+deep neural network also identifies hair appearance attributes, that
+describe the local structure and styling with the corresponding shad-
+ing properties. Though a small set of local hairstyle textures can
+generalize well for different hair models, the associated alpha masks
+often introduce severe transparency artifacts and alter the overall
+look of the hair model significantly. In production, the crafting of
+hair polystrips typically involves a complex iterative design process
+of mesh adjustments, UV layout, texturing, as well as polystrip du-
+plication and perturbation. To this end, we develop a novel iterative
+optimization technique for polystrip patching, placement, and shape
+refinement based on a scalp visibility metric. For visually pleasing
+animations, we also rig our hair model to the head skeleton using
+inverse distance skinning [Jacobson et al. 2014].
+We show the effectiveness of our approach on a wide range of sub-
+jects and hairstyles, and also demonstrate compelling animations of
+our avatars with simulated hair dynamics. The output quality of our
+framework is comparable to state-of-the-art game characters, as well
+as cutting-edge avatar modeling systems that are based on multiple
+input photographs [Cao et al. 2016; Ichim et al. 2015]. The proposed
+pipeline also produces superior results than existing commercial
+single view-based solutions such as Loom.ai and itSeez3D.
+Contributions:
+• We present a fully automatic framework for complete 3D
+avatar modeling and rigging, from a single unconstrained
+image that is suitable for real-time rendering in game and VR
+environments. Our facial digitization pipeline integrates the
+latest advances in facial segmentation, shape modeling, and
+high-fidelity appearance inference.
+• We develop a new single-view hair digitization pipeline that
+produces highly efficient and versatile polystrip models. Our
+system captures both hair shape and appearance properties.
+• To ensure high-quality output hair meshes, we present a hair
+attributes classification framework based on deep learning.
+Furthermore, an iterative optimization algorithm for polystrip
+patching is introduced to ensure a flawless scalp coverage
+and correct hair shape likeness to the input.
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+Avatar Digitization From a Single Image For Real-Time Rendering
+•
+1:3
+2
+RELATED WORK
+Facial Modeling and Capture. Over the past two decades, a great
+amount of research has been dedicated to the modeling and ani-
+mation of digital faces. We refer to [Parke and Waters 2008] for a
+comprehensive introduction and overview. Though artist-friendly
+digital modeling tools have significantly evolved over the years, 3D
+scanning and performance capture technologies provide an attrac-
+tive way to scale content creation and improve realism through ac-
+curate measurements from the physical world. While expensive and
+difficult to deploy, sophisticated 3D facial capture systems [Beeler
+et al. 2010, 2011; Bradley et al. 2010; Debevec et al. 2000; Ghosh et al.
+2011; Li et al. 2009; Ma et al. 2007; Weise et al. 2009] are widely
+adopted in high-end production and have proven to be a critical
+component for creating photoreal digital actors. Different rigging
+techniques such as joint-based skeletons, blendshapes [Li et al. 2010;
+von der Pahlen et al. 2014], or muscle-based systems [Sifakis et al.
+2005; Terzopoulos and Waters 1990] have been introduced to ensure
+intuitive control in facial animation and high-fidelity retargeting
+for performance capture. Dedicated systems for capture, rigging,
+and animation have also emerged for the treatment of secondary
+components such as eyes [Bérard et al. 2016; Miller and Pinskiy
+2009], lips [Garrido et al. 2016b], and teeth [Wu et al. 2016]. Despite
+high-fidelity output, these capture and modeling systems are too
+complex for mainstream adoption.
+The PCA-based linear face models of [Blanz and Vetter 1999]
+have laid the foundations for the modern treatment of image-based
+3D face modeling, with extensions to multi-view stereo [Blake et al.
+2007], large-scale internet pictures [Kemelmacher-Shlizerman 2013;
+Liang et al. 2016], massive 3D scan datasets [Booth et al. 2016], and
+the use of shading cues [Kemelmacher-Shlizerman and Basri 2011].
+Blanz and Vetter have demonstrated in their original work that
+compelling facial shapes and appearances with consistent parame-
+terization can be extracted reliably from a single input image. Recent
+progress in single-view face modeling demonstrate improved detail
+reconstruction [Richardson et al. 2016], component separation [Kim
+et al. 2017; Tewari et al. 2017], and manipulation capabilities [Shu
+et al. 2017] using deep convolutional neural networks. To handle
+facial expressions, vector spaces based on visemes and expressions
+have been proposed [Blanz et al. 2003], which led to the develop-
+ment of PCA-based multi-linear face models [Vlasic et al. 2005] and
+the popularization of FACS-based blendshapes [Cao et al. 2014b].
+The low dimensionality and effectiveness in representing faces have
+made linear models particularly suitable for instant 3D face mod-
+eling and robust facial performance capture in monocular settings
+using depth sensors [Bouaziz et al. 2013; Hsieh et al. 2015; Li et al.
+2013; Weise et al. 2011, 2009], as well as RGB video [Cao et al. 2014a;
+Garrido et al. 2013, 2016a; Saito et al. 2016; Shi et al. 2014; Thies
+et al. 2016a]. When modeling a 3D face automatically from an im-
+age, sparse 2D facial landmarks [Cootes et al. 2001; Cristinacce and
+Cootes 2008; Saragih et al. 2011; Xiong and De la Torre 2013] are
+typically used for robust initialization during fitting. State-of-the-art
+landmark detection methods achieve impressive efficiency by using
+explicit shape regressions [Cao et al. 2013; Kazemi and Sullivan
+2014; Ren et al. 2014].
+While linear models can estimate entire head models from a single
+view, the resulting textures are typically crude approximations of
+the subject, especially in the presence of details such as facial hair,
+complex skin tones, and wrinkles. In order to ensure likeness to
+the captured subject, existing 3D avatar creation systems often
+avoid the use of a purely linear appearance model, but rely on
+acquisitions from multiple views to build a more accurate texture
+map. Ichim et al. [2015] introduced a comprehensive pipeline for
+video-based avatar reconstruction in uncontrolled environments.
+They first produce a dense point cloud using multi-view stereo
+and then estimate a 3D face model using non-rigid registration. An
+integrated albedo texture map is then extracted using a combination
+of Poisson blending and light factorization via spherical harmonics.
+Their method is limited to a controlled acquisition procedure based
+on a semi-circular sweep of a hand-held sensor, and hair modeling
+is omitted. Chai et al. [2015] presented a single-view system for
+high-quality 2.5D depth map reconstruction of a both faces and hair,
+using structural hair priors, silhouette, and shading cues. However,
+their technique is not suitable for avatars, as a full head cannot be
+produced nor animated. More recently, Cao et al. [2016] developed
+an end-to-end avatar creation system that can produce compelling
+face and hair models based on an image-based mesh representation.
+While their system can handle very large variations of hairstyles and
+also produce high-quality facial animations with fine-scale details,
+they require up to 32 input images and some manual guidance for
+segmentation and labeling. Instead of a controlled capture procedure
+with multiple photographs, we propose a fully automatic system
+that only needs a single image as input.
+Notice that proprietary technologies for single-view avatar mod-
+eling have emerged recently in the commercial world, such as Pin-
+screen’s demonstration at SIGGRAPH Real Time Live! show [Li et al.
+2017] and FaceUnity’s photo-to-avatar preview [FaceUnity 2017]. In
+Section 6, we compare our proposed solution with two other recent
+avatar creation solutions, Loom.ai [2017] and itSeez3D [2017].
+Hair Modeling and Capture. Hair is an essential component of
+life-like avatars and CG characters. In studio settings, human hair is
+traditionally modeled, simulated, and rendered using sophisticated
+design tools [Choe and Ko 2005; Kim and Neumann 2002; Weng et al.
+2013; Yuksel et al. 2009]. We refer to the survey of Ward et al. [2006]
+for an extensive overview. 3D hair capture techniques, analogous
+to those used for face capture, have been introduced to digitize hair
+from physical inputs. High-fidelity acquisition systems typically in-
+volve controlled recording sessions, manual assistance, and complex
+hardware equipments, such as multi-view stereo rigs [Beeler et al.
+2012; Echevarria et al. 2014; Jakob et al. 2009; Luo et al. 2013; Paris
+et al. 2008] or even thermal imaging [Herrera et al. 2012].
+Hu et al. [2014a] demonstrated a highly robust multi-view hair
+modeling approach using a data-collection of pre-simulated hair
+strands, which can fully eliminate the need for manual hair segmen-
+tation. Since physically simulated hair strands are used as shape
+priors, their method can only handle unconstrained hairstyles. The
+same authors later introduced a procedural method for hair patch
+generation [Hu et al. 2014b] to handle highly convoluted hairstyles
+such as braids. They also proposed a more accessible acquisition
+approach based on a single RGB-D camera, that is swept around
+the subject. Single-view hair digitization methods have been pio-
+neered by Chai et al. [2013; 2012] but rely on high-resolution input
+photographs and can only produce the frontal geometry of the hair.
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+1:4
+•
+L. Hu, S. Saito, L. Wei, K. Nagano, J. Seo, J. Fursund, I. Sadeghi, C. Sun, Y. Chen and H. Li
+input image
+face modeling
+face texture
+reconstruction
+faces and hair
+segmentation
+hairstyle
+digitization
+hair appearance matching (shader, texture, alpha mask, bump map, color)
+real-time
+3D avatar rendering
+facial rigging (blendshape, joint-based, secondary components)
+Fig. 2. Our single-view avatar creation framework is based on a pipeline that combines both complete face digitization and hair polystrip digitization—both
+geometry and appearance are captured. Original image courtesy of Getty Images.
+A database-driven approach by Hu et al. [2015] later showed that
+the modeling of complete strand-level hairstyles is possible from a
+single image, with the help of very few user strokes as guidance. A
+similar, but fully automatic approach has been furthered by Chai
+et al. [2016] using a larger database for shape retrieval and a deep
+learning-technique for hair segmentation. While a wide range of
+high-quality hair models can be digitized, many hairstyles with
+multiple layers or stochastic structures—such as afros or messy
+hair—are difficult to capture and not suitable for strand-based repre-
+sentations. Furthermore, strand-based hair models are still difficult
+to integrate into real-time game environments, due to their com-
+plexity in real-time hair rendering and simulation. We introduce
+a new hair digitization framework based on highly efficient and
+flexible polystrips, which are widely adopted in modern games. Hair
+polystrips are more efficient for rendering than hair strands, and
+also can also achieve believable volumetric structures through tex-
+tures with alpha masks and cut-off techniques as opposed to the
+opaque textured mesh representation used by Cao et al. [2016].
+3
+AVATAR MODELING FRAMEWORK
+Our end-to-end pipeline for face and hair digitization is illustrated
+in Figure 2. An initial pre-processing step computes pixel-level
+segmentation of the face and hair regions. We then produce a fully
+rigged avatar based on textured meshes and hair polystrips from this
+image. We decouple the digitization of face and hair since they span
+entirely different spaces for shape, appearance, and deformation.
+While the full head topology of the face is anatomically consistent
+between subjects and expressions, the mesh of the hair model will
+be unique for each person.
+Image Pre-Processing. Segmenting the face and hair regions of an
+input image improves the accuracy of the 3D model fitting process,
+as only relevant pixels are used as constraints. It also provides
+additional occlusion areas, that need to be completed during texture
+reconstruction, especially when the face is covered by hair. For the
+hair modeling step, the silhouette of the segmented hair region will
+provide important matching cues.
+We adopt the real-time and automatic semantic segmentation
+technique of [Saito et al. 2016] which uses a two-stream deconvo-
+lution network to predict face and hair regions. This technique
+produces accurate and robust pixel-level segmentations for un-
+constrained photographs. While the original implementation is
+designed to process face regions, we repurpose the same convo-
+lutional neural network to segment hair. In contrast to the image
+pre-processing step of [Cao et al. 2016], ours is fully automatic.
+To train our convolutional neural network, we collected 9269
+images from the public LFW face dataset [Huang et al. 2007] and
+produce the corresponding binary segmentation masks for both
+faces and hair via Amazon Mechanical Turk (AMT) as illustrated
+in Figure 3. We detect the face in each image using the popular
+Viola-Jones face detector [2001] and normalize their positions and
+scales to a 128 × 128 image. To avoid overfitting, we augment the
+training dataset with random Gaussian-distributed transformation
+perturbations and produce 83421 images in total. The standard de-
+viations are 10◦for rotations, 5 pixels for translations, and 0.1 for
+scale, and the means are 0, 0, and 1.0 respectively. We further use a
+learning rate of 0.1, a momentum of 0.9, and weight decay of 0.0005
+for the training. The optimization uses 50, 000 stochastic gradient
+descent (SGD) iterations which take roughly 10 hours on a machine
+with 16GB RAM and NVIDIA GTX Titan X GPU. We refer to the
+work of [Saito et al. 2016] for implementation details. Once trained,
+the network outputs a multi-class probability map (for face and hair)
+from an arbitrary input image. A post-hoc inference algorithm based
+on dense conditional random field (CRF) [Krähenbühl and Koltun
+2011] is then used to extract the resulting binary mask. Successful
+results and failure cases are presented in Figure 3.
+Face Digitization. We first fit a PCA-based linear face model for
+shape and appearance to the segmented face region. Next, a variant
+of the efficient pixel-level analysis-through-synthesis optimization
+method of [Thies et al. 2016a] is adopted to solve for the PCA coef-
+ficients of the 3D face model and an initial low-frequency albedo
+map. We use our own artist-created head topology (front and back
+head) with identity shapes transferred from [Blanz and Vetter 1999]
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+Avatar Digitization From a Single Image For Real-Time Rendering
+•
+1:5
+training data
+successful results
+failure cases
+Fig. 3. Hair segmentation training data, successful results, and failure cases.
+and expressions from [Cao et al. 2014b]. A visibility constraint is
+incorporated into the model fitting process to improve occlusion
+handling and non-visible regions. A PCA-based appearance model
+is constructed for the textures of the full head, using artist-painted
+skin textures in missing regions of the original data samples. We
+then infer high-frequency details to the frontal face regions even
+if they are not visible in the capture using a feature correlation
+analysis approach based on deep neural networks [Saito et al. 2017].
+Finally, we eliminate the expression coefficients of our linear face
+model to neutralize the face. The resulting model is then translated
+and scaled to fit the eye-balls using the average pupillary distance of
+an adult human of 66 mm. We then translate and scale the teeth/gum
+to fit pre-selected vertices of the mouth region. We ensure that these
+secondary components do not intersect the face using a penetration
+test for all the FACS expressions of our custom animation rig.
+Hair Digitization. Our hair digitization pipeline produces a hair
+mesh model and infers appearance properties for the hair shader.
+We first use a state-of-the-art deep convolutional neural network
+based on residual learning [He et al. 2016] to extract semantic hair
+attributes such as hair length, level of baldness, and the existence
+of hairlines and fringes. These hair attributes are compared with
+a large hairstyle database containing artist created hair polystrip
+models. We then form a reduced hairstyle dataset that only contains
+relevant models with compatible hair attributes. We then search for
+the closest hairstyle to our input image based on the silhouette of
+its segmentation and the orientation field of the hair strands. As
+the retrieved hairstyle may not match the input exactly, we further
+perform a mesh fitting step to deform the retrieved hairstyle to the
+input image using the silhouette and the input orientation field. We
+incorporate collision handling between the deformed hair and the
+personalized face model to avoid hair meshes intersecting the face
+mesh. The classification network for hair attribute classification also
+identifies hair appearance properties for proper rendering such as
+hair color, texture and alpha maps, various shader parameters, etc.
+Polystrip duplication is necessary, since the use of alpha masks for
+the hair texture can cause a loss of scalp coverage during rendering.
+Consequently, we iteratively identify the incomplete hair regions
+using multi-view visibility map and patch them with interpolated
+hair strips. The hair polystrips are alpha blended using an efficient
+rendering algorithm based on order-independent transparency with
+depth peeling [Bavoil and Myers 2008].
+Rigging and Animation. Since our linear face model is expressed
+by a combination of identity and expression coefficients [Saito et al.
+2017], we can easily obtain the neutral pose. Using an example-
+based approach, we can compute the face input’s corresponding
+FACS-based expressions (including high-level controls) via trans-
+fer from a generic face model [Li et al. 2010]. Our generic face is
+also equipped with skeleton joints based on linear blend skinning
+(LBS) [Parke and Waters 2008]. The face and secondary components
+(eyes, teeth, tongue, and gums) also possess blendshapes. Eye col-
+ors (black, brown, blue, and green) are detected using the same
+deep convolutional neural network used for hair attribute classi-
+fication [He et al. 2016] and the appropriate texture is used. Our
+model consists of 71 blendshapes, and 16 joints in total. Our face rig
+also abstracts the low-level deformation parameters with a smaller
+and more intuitive set of high-level controls as well as manipula-
+tion handles. We implemented our rig in both the animation tool,
+Autodesk Maya, and the real-time game engine, Unity. We can rig
+our hair model directly with the skeleton joints of the head in order
+to add a minimal amount of dynamics for simple head rotations.
+For more complex hair dynamics, we also demonstrate a simple
+real-time physical simulation of our polystrip hair representation
+using mass-spring models with rigid body chains and hair-head
+collisions [Selle et al. 2008].
+4
+FACE DIGITIZATION
+We first build a fully textured head model using a multi-linear PCA
+face model. Given a single unconstrained image and the correspond-
+ing segmentation mask, we compute a shape V , a low-frequency
+facial albedo map I, a rigid head pose (R,t), a perspective transfor-
+mation ΠP (V ) with the camera intrinsic matrix P, and illumination
+L, together with high-frequency textures from the visible skin re-
+gion. Since the extracted high-frequency texture is incomplete from
+a single-view, we infer the complete texture map using a facial ap-
+pearance inference method based on deep neural networks [Saito
+et al. 2017].
+input image
+without visibility
+constraints
+without visibility
+constraints (uv map)
+with visibility
+constraints
+with visibility
+constraints (uv map)
+Fig. 4. Our facial modeling pipeline with visibility constraints produces
+plausible facial textures when there are occlusions such as hair.
+3D Head Modeling. To obtain the unknown parameters χ =
+{V, I,R,t, P, L}, we adopt the pipeline of [Thies et al. 2016a] which
+is based on morphable face models [Blanz and Vetter 1999] ex-
+tended with a PCA-based facial expression model and an efficient
+optimization based on pixel color constraints. We further incorpo-
+rate pixel-level visibility constraints using our segmentation mask
+obtained using the method of [Saito et al. 2016].
+We use a multi-linear PCA model to represent the low-frequency
+facial albedo I and the facial geometry V with n = 10, 822 vertices
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+1:6
+•
+L. Hu, S. Saito, L. Wei, K. Nagano, J. Seo, J. Fursund, I. Sadeghi, C. Sun, Y. Chen and H. Li
+and 21, 510 faces:
+V (αid,αexp) = ¯V + Aidαid + Aexpαexp,
+I (αal ) = ¯I + Aalαal .
+Here Aid ∈R3n×40, Aexp ∈R3n×40, and Aal ∈R3n×40 are the
+basis of a multivariate normal distribution for identity, expression,
+and albedo with the corresponding mean: ¯V = ¯Vid + ¯Vexp ∈R3n,
+and ¯I ∈R3n, and the corresponding standard deviation: σid ∈R40,
+σexp ∈R40, and σal ∈R40. Aid, Aal , ¯V , and ¯I are based on the Basel
+Face Model database [Paysan et al. 2009] and Aexp is obtained from
+FaceWarehouse [Cao et al. 2014b]. We assume Lambertian surface
+reflectance and approximate the illumination using second order
+Spherical Harmonics (SH).
+First, we detect 2D facial landmarks fi ∈F using the method of
+Kazemi et al. [Kazemi and Sullivan 2014] in order to initialize the
+face fitting by minimizing the following energy:
+Elan(χ) =
+1
+|F |
+X
+fi ∈F
+∥fi −ΠP (RVi + t)∥2
+2.
+We further refine the shape and optimize the low-frequency albedo,
+as well as the illumination, by minimizing the photometric differ-
+ence between the input image and a synthetic face rendering. The
+objective function is defined as:
+E(χ) = wcEc (χ) + wlanElan(χ) + wreдEreд(χ),
+(1)
+with energy term weights wc = 1, wlan = 10, and wreд = 2.5×10−5
+for the photo-consistency term Ec, the landmark term Elan, and
+the regularization term Ereд. Following [Saito et al. 2017], we also
+ensure that the photo-consistency term Ec is only evaluated for
+visible face regions:
+Ec (χ) =
+1
+|M|
+X
+p ∈M
+∥Cinput (p) −Csynth(p)∥2,
+where Cinput is the input image, Csynth the rendered image, and
+p ∈M a visibility pixel given by the facial segmentation mask. The
+regularization term Ereд is defined as:
+Ereд(χ) =
+40
+X
+i=1
+"
+(αid,i
+σid,i
+)2 + (αal,i
+σal,i
+)2
+#
++
+40
+X
+i=1
+(αexp,i
+σexp,i
+)2.
+This term encourages the coefficients of the multi-linear model to
+conform a normal distribution and reduces the chance to converge
+into a local minimum. We use an iteratively reweighted Gauss-
+Newton method to minimize the objective function (1) using three
+levels of image pyramids. In our experiments, 30, 10, and 3 Gauss-
+Newton steps were sufficient for convergence from the coarsest
+level to the finest one. After this optimization, a high-frequency
+albedo texture is obtained by factoring out the shading component
+consisting of the illumination L and the surface normal from the
+input image. The resulting texture map is stored in the uv texture
+map and used for the high-fidelity texture inference.
+Face Texture Reconstruction. After obtaining the low-frequency
+albedo map and a partially visible fine-scale texture, we can infer a
+complete high-frequency texture map, as shown in Figure 5, using
+a deep learning-based transfer technique and a high-resolution
+face database [Ma et al. 2015]. The technique has been recently
+introduced in [Saito et al. 2017] and is based on the concept of feature
+correlation analysis using convolutional neural networks [Gatys
+et al. 2016]. Given an input image I and a filter response Fl (I) on the
+layer l of a convolutional neural network, the feature correlation
+can be represented by a normalized Gramian matrix Gl (I):
+Gl (I) = 1
+Ml
+Fl (I)
+
+Fl (I)
+T
+Saito et al. [2017] have found that high-quality facial details (e.g.,
+pores, moles, etc.) can be captured and synthesized effectively using
+Gramian matrices. Let I0 be the low-frequency texture map and Ih
+be the high-frequency albedo map with the corresponding visibility
+mask Mh. We aim to represent the desired feature correlationGh as a
+convex combination of G(Ii ), where I1, ..., Ik are the high-resolution
+images in the texture database:
+Gl
+h =
+X
+k
+wkGl (Ik ),∀l
+s.t.
+K
+X
+k=1
+wk = 1.
+We compute an optimal blending weight {wk } by minimizing the dif-
+ference between the feature correlation of the partial high-frequency
+texture Ih and the convex combination of the feature correlations
+in the database under the same visibility. This is formulated as the
+following problem:
+min
+w
+P
+l 
+P
+k wkGl
+M(Ik, Mh) −Gl
+M(Ih, Mh)F
+s.t.
+PK
+k=1 wk
+=
+1
+wk
+≥
+0
+∀k ∈{1, . . . ,K}
+,
+(2)
+where GM(I, M) is the Gramian Matrix computed from only the
+masked region M. This allows us to transfer multi-scale features
+of partially visible skin details to the complete texture. We refer
+to [Saito et al. 2017] for more detail.
+Once the desired Gh is computed, we update the albedo map I so
+that the resulting correlation G(I) is similar to Gh, while preserving
+the low frequency spatial information Fl (I0) (i.e., position of eye
+brows, mouth, nose, and eyes):
+min
+I
+X
+l ∈LF
+Fl (I) −Fl (I0)
+2
+F + α
+X
+l ∈LG
+Gl (I) −Gh
+2
+F ,
+(3)
+where LG is a set of high-frequency preserving layers and LF a set
+of low-frequency preserving layers in VGG-19 [Simonyan and Zis-
+serman 2014]. A weight α balances the influence of high frequency
+and low frequency and α = 2000 is used for all our experiments.
+Following Gatys et al. [2016], we solve Equation 3 using an L-BFGS
+solver. Since only frontal faces are available in the database, we can
+only enhance frontal face regions. To obtain a complete texture, we
+combine the results with the PCA-based low-frequency textures of
+the back of the head using Poisson blending [Pérez et al. 2003].
+Secondary Components. To enhance the realism of the recon-
+structed avatar, we insert template models for eyes, teeth, gums, and
+tongue into the reconstructed head model. The reconstructed face
+model is rescaled and translated to fit a standardized pair of eye balls
+so that each avatar is aligned as to avoid scale ambiguity during the
+single-view reconstruction. The mouth-related template models are
+aligned based on pre-selected vertices on the facial template model.
+After the initial alignment, we test for intersections between the
+face and the secondary components for each activated blendshape
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+Avatar Digitization From a Single Image For Real-Time Rendering
+•
+1:7
+input image
+input uv map
+inferred uv map
+inferred textured
+face model
+Fig. 5. We produce a complete and high-fidelity texture map from a partially
+visible and low resolution subject using a deep learning-based inference
+technique. Original image courtesy of Getty Images.
+expression. The secondary models for the mouth region are then
+translated by the minimal offset where no intersection is present.
+The eye color texture (black, brown, green, blue) is computed us-
+ing a similar convolutional neural network for semantic attribute
+inference as the one used for hair color classification. The input
+to this network is a cropped image of the face region based on the
+bounding box around the 2D landmarks from [Kazemi and Sulli-
+van 2014], where non-face regions are set to black and the image
+centered between the two eyes.
+5
+HAIR DIGITIZATION
+Hairstyle Database. Starting from the USC-HairSalon database
+for 3D hairstyles, introduced in [Hu et al. 2015], and 89 additional
+artist created models, we align all the hairstyle samples to the PCA
+mean head model ¯V used in Section 4. Inspired by [Chai et al. 2015],
+we also increase the number of samples in our database using a
+combinatorial process, which is necessary to span a sufficiently
+large variation of hairstyles. While the online model generation
+approach of [Hu et al. 2015] is less memory consuming, it requires
+some level of user interaction.
+To extend the number of models, we first group each sample of
+the USC-HairSalon database into 5 clusters via k-means clustering
+using the root positions and the strand shapes as in [Wang et al.
+2009]. Next, for every pair of hairstyles, we randomly pick a pair of
+strands among the cluster centroids and construct a new hairstyle
+using these two sampled strands as a guide using the volumetric
+combination method introduced in [Hu et al. 2015]. We further
+augment our database by flipping each hairstyle w.r.t. the x-axis
+plane, forming a total of 100,000 hairstyles.
+For each hair model, the set of all particles forms the outer surface
+of the entire hair by considering each hair strand as a chain of par-
+ticles. This surface can be constructed using a signed distance field
+obtained by volumetric points samples [Zhu and Bridson 2005]. By
+using the surface normal of this mesh, we compose close and nearly
+parallel hair strands into a hair polystrip, which is a parametric
+piece-wise linear patch. This thin surface structure can carry realis-
+tic looking textures that provide additional variations of hair, such as
+curls, crossings, or thinner tips. Additionally, the transparency of the
+texture allows us to see through the overlay of different polystrips
+and provide an efficient way to achieve volumetric hair renderings.
+Luo et al. [2013] proposed a method to group short hair segments
+into a ribbon structure. Adopting a similar approach, we start from
+the longest hair strand in the hairstyle as the center strand of the
+input image
+hair attribute
+extraction
+hair attributes
+hair category
+matching
+hairstyle
+retrieval
+hair mesh
+ﬁtting
+polystrip
+patching
+optimization
+hairstyle database
+reduced dataset
+closest hairstyle
+ﬁtted hairstyle
+reconstructed hair
+alpha mask
+segmentation
+and orientation
+Short
+curly
+not spiky
+...
+...
+...
+Fig. 6. Our hair mesh digitization pipeline. Original image courtesy of Getty
+Images.
+polystrip. By associating the normal of each vertex on the strand to
+the closest point on the hair surface, we can expand the center strand
+on both sides of the binormal as well as its opposite direction. We
+compute the coverage of all hair strands by the current polystrip, and
+continue to expand the polystrip until no more strands are covered.
+Once a polystrip is generated, we remove all the covered strands
+in the hairstyle, and reinitiate process from the longest strand in
+the remaining hair strand subset. Finally, we obtain a complete hair
+polystrip model, once all the hair strands are removed from the
+hairstyle. We refer to [Luo et al. 2013] for more details.
+Hair Attribute Classification. We use 40K images from the CelebA
+dataset [Liu et al. 2015] with various hairstyles and collect their
+hair attributes using AMT (see Table 1 for the list of hair attributes).
+Similarly, we manually label all the hair models in our database
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+1:8
+•
+L. Hu, S. Saito, L. Wei, K. Nagano, J. Seo, J. Fursund, I. Sadeghi, C. Sun, Y. Chen and H. Li
+using high level semantic attributes. We also actively ensure that
+we have roughly the same quantity of images for each attribute by
+resampling the training data.
+These annotations are then fed into a state-of-the-art classifica-
+tion network, ResNet [He et al. 2016], to train multiple classifiers
+predicting each hair attribute given an input image. We use the
+50-layer ResNet pre-trained with ImageNet [Deng et al. 2009], and
+fine-tune it using our training data under learning rate 10−4, weight
+decay 10−4, momentum 0.9, batch size 32, and 90 epochs using the
+stochastic gradient descent method. The images are augmented for
+the training based on perturbations suggested by He et al. [2016]
+(variations in cropping, brightness, contrast, and saturation).
+During test time, input images are resized so that the maxi-
+mum width or height is 256, center-cropped to 224 × 224, and fed
+into the trained classifiers. Each classifier returns a normalized n-
+dimensional vector, where n = 2 for binary attributes and n = m for
+m-class attributes. The predictions of all classifiers are then concate-
+nated into a multi-dimensional descriptor. Nearest neighbor search
+is then performed to find the k-closest matching hair with smallest
+Euclidean distance in the descriptor space. If the classifier detects a
+bald head, the following hairstyle matching process is skipped.
+Hairstyle Matching. After obtaining a reduced hair model subset
+based on the semantic attributes, we compare the segmentation
+mask and hair orientations at the pixel level using pre-rendered
+thumbnails to retrieve the most similar hairstyle [Chai et al. 2016].
+Following Chai et al. [2016], we organize our database as thumbnails
+and adopt the binary edge-based descriptor from [Zitnick 2010] to
+increase matching efficiency. For each hairstyle in the database,
+we pre-render the mask and the orientation map as thumbnails
+from 35 different views, where 7 angles are uniformly sampled
+in [−π/4, π/4] as yaw and 5 angles in [−π/4, π/4] as pitch. If the
+hair segmentation mask has multiple connected components due to
+occlusion or if the hair is partially cropped, then the segmentation
+descriptor may not be reliable; in this case, we find the most similar
+hairstyle using the classifiers.
+retrieved
+hairstyle
+deformed
+hairstyle
+collision
+handling
+input
+image
+Fig. 7. Our hair mesh fitting pipeline.
+Hair Mesh Fitting. In order to match the retrieved model with the
+silhouette and orientation of the input, we extend the hair fitting
+algorithm for strands [Chai et al. 2016; Hu et al. 2015] to the polystrip
+meshes. First, we perform spatial deformation in order to fit the hair
+model to the personalized head model, using an as-rigid-as-possible
+graph-based deformation model [Li et al. 2009]. We represent the
+displacement of each vertex on the hair mesh as a linear combination
+of the displacements of k-nearest vertices on the head mesh using
+the following inversely weighted Gaussian approximation:
+dpi =
+X
+j ∈Ni
+(1 + ∥pi −qj ∥2 + ∥pi −qj ∥2
+2)−1dqj,
+where p and q are vertices on the hair and mean head mesh respec-
+tively. This allows the hair model to follow the head deformation
+without causing intersection. Once the scalp and the hair mesh is
+aligned, we compute a smooth warping function W(·) mapping ver-
+tices on the 3D model’s silhouette to the closest points on the input’s
+2D silhouette from the camera angle, and deform each polystrip
+according to the as-rigid-as-possible warping function presented
+in [Li et al. 2009]. Then, we deform each polystrip to follow the
+input 2D orientation map as described in [Chai et al. 2016; Hu et al.
+2015]. Possible intersections between the head and the hair model
+due to this deformation are resolved using simple collision handling
+via force repulsion [Luo et al. 2013].
+input hair model
+multi-view scalp
+visibility map
+iteration 1
+final result
+Fig. 8. Our iterative optimization algorithm for polystrip patching.
+Polystrip Patching Optimization. With the benefit of having a low
+computational overhead, a polystrip-based rendering with a bump
+map and an alpha mask produces locally plausible hair appearance
+for a wide range of hairstyles. However, such rendering is prone to a
+lack of scalp coverage, especially for short hairstyles. We propose an
+iterative optimization method to ensure scalp coverage via patching
+with minimum increase in the number of triangles.
+We measure the coverage by computing the absolute difference
+between the alpha map in a model view space with and without
+hair transparency from multiple view points (see Figure 8). Regions
+with high error expose the scalp surface and need to be covered
+by additional hair meshes. Without transparency, all polystrips are
+rendered with alpha value 1.0. When a hair alpha mask is assigned
+by the hair style classification, the polystrips are rendered via order-
+independent transparency (OIT), resulting in alpha values of range
+[0, 1]. First, we convert the error map into a binary map by thresh-
+olding if the error exceeds 0.5, and apply blob detection on the
+binary map. Given the blob with highest error, a new polystrip is
+then placed to cover the area.
+We find the k-closest polystrips to the region with the highest
+error and resample two polystrips within this set so that their aver-
+age produces a new one that covers this region. We use k = 6 for all
+our examples. The two polystrips are re-sampled so that they have
+consistent vertex numbers for linear blending. By averaging the
+polystrips, we can guarantee that the resulting strips are inside the
+convex hull of the hair region. Thus, our method does not violate
+the overall hair silhouette after new strips are added. We iterate this
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+Avatar Digitization From a Single Image For Real-Time Rendering
+•
+1:9
+process until the highest error has reached a certain threshold or
+when no more scalp region is visible.
+straight
+dreadlock
+wavy
+Fig. 9. Example polystrip textures for characterizing high-frequency struc-
+tures of different hair types. Each texture atlas contains a 9-uv map for
+polystrips of different sizes.
+Hair Rendering and Texturing. We render the resulting polystrips
+using a variant of [Sadeghi et al. 2010]. The hair tangents are directly
+obtained from the directions of the mesh’s UV parameterization.
+We use our classification network to determine the semantic shader
+parameters, such as the width and the intensity of the primary
+and secondary highlights. To approximate the multiple scattering
+components, we add the diffuse term from Kajiya and Kay [1989].
+We perform alpha blending between the polystrips using an order-
+independent transparency (OIT) algorithm based on depth peeling.
+Our classification network also specifies for each input image
+the most similar local hairstyle texture. As illustrated in Figure 9,
+we characterize a hairstyle’s local high-frequency structure into
+different categories. These textures are manually designed by an
+artist based on pre-categorized images that are also used for training.
+As demonstrated in many games, these type of hair textures can
+represent a wide range of hair appearances. As different hair types
+are associated with custom shaders, some styles may be associated
+with a bump map, which is also prepared by the artist.
+For the texture lookups, we use a hierarchical UV atlas which
+depends on the world dimensions of individual polystrips after
+the deformation step. The polystrip textures are grouped into nine
+categories of sizes in a single map. Using multiple texture sizes for
+each hair patch reduces stretching and compression artifacts in both
+U and V directions, and also increases texture variations.
+6
+RESULTS
+We created fully-rigged 3D avatars with challenging hairstyles and
+secondary components for a diverse set of inputs from a wide range
+of image sets. Even though the input resolutions are inconsistent,
+there is no a-priori knowledge about the scene illumination or in-
+trinsic camera parameters, and the subjects within the inputs may
+have tilted or partially covered heads with different expressions,
+we were still able to produce automatically digitized outputs. We
+also processed short and long hairstyles of different local structures
+including straight, wavy, and dreadlock styles. As illustrated in Fig-
+ure 10, our proposed framework successfully digitizes textured face
+models and reproduces the volumetric appearance of hair, which
+is shown from the front and the back. Facial details are faithfully
+digitized in unseen regions and fully covered hair polystrips can be
+reconstructed using our iterative patching optimization algorithm.
+Our accompanying video shows several animations produced by a
+professional animator using the provided controls of our avatar. We
+also demonstrate an avatar animation applications using a real-time
+facial performance capture system, as well as the simulated hair
+motions of our hair polystrip models using a mass-spring system
+based on rigid body chains and hair-head collision (see Figure 13).
+Evaluation. We evaluate the robustness of our system and con-
+sistency of the reconstruction using a variety of input examples
+of the same subject as shown in Figure 11. Our combined facial
+segmentation [Saito et al. 2016], texture inference [Saito et al. 2017]
+and PCA-based shape, appearance, and lighting estimation [Thies
+et al. 2016a] framework is robust to severe lighting conditions. We
+can observe that the visual difference between the reconstructed
+albedo map of a same person, captured under contrasting illumina-
+tions, is minimal. We also demonstrate how our linear face model
+can discern between a person’s identity and its expression up to
+some degree. Our visualization shows the resulting avatar in the
+neutral pose. While some slightly noticeable dissimilarity in the
+face and hair digitization remains, both outputs are plausible. For
+large smiles in the input image, the optimized neutral pose can still
+contain an amused expression.
+While traditional hair database retrieval techniques [Chai et al.
+2016; Hu et al. 2015] are effective for strand-based output, our hair
+polystrip modeling approach relies on clean mesh structures and
+topologies as they are mostly preserved until the end of the pipeline.
+As shown in Figure 12, a deep learning-based hair attribute clas-
+sification step is critical in avoiding wrong hair types being used
+during retrieval. Table 1 lists a few annotated hair attributes, as well
+as their prediction accuracies from the trained network. Although
+the predictions are sometimes not accurate due to the lack of train-
+ing data, we can still retrieve similar hairstyles which are further
+optimized by subsequent steps in the pipeline.
+attribute
+possible values
+accuracy (%)
+hair_length
+long/short/bald
+72.5
+hair_curve
+straight/wavy/curly/kinky
+76.5
+hairline
+left/right/middle
+87.8
+fringe
+full/left/right
+91.8
+hair_bun
+1 bun/2 buns/...
+91.4
+ponytail
+1 tail/2 tails/...
+79.2
+spiky_hair
+spiky/not spiky
+91.2
+shaved_hair
+fully/partially shaved
+81.4
+baldness
+fully bald/receded hair
+79.6
+Table 1. We train a network to classify the above attributes of hairstyles,
+achieving accuracies around 70-90%.
+Comparison. We compare our method against several state-of-
+the-art facial modeling techniques and avatar creation systems in
+Figure 14. Our deep learning-based framework [Saito et al. 2017]
+can infer facial textures with more details comparing to linear mor-
+phable face models [Blanz and Vetter 1999; Thies et al. 2016a], In
+addition to producing high-quality hair models, our generated face
+meshes and textures are visually comparable to the video-based
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.
+
+
+1:10
+•
+L. Hu, S. Saito, L. Wei, K. Nagano, J. Seo, J. Fursund, I. Sadeghi, C. Sun, Y. Chen and H. Li
+input image
+face and hair mesh
+3D avatar (side)
+3D avatar (animated)
+3D avatar
+face and hair mesh (side)
+Fig. 10. Our proposed framework successfully generates high-quality and fully rigged avatars from a single input image in the wild. We demonstrate the
+effectiveness on a wide range of subjects with different hairstyles. We visualize the face meshes and hair polystrips, as well as their textured renderings.
+Original images courtesy of Getty Images.
+ACM Transactions on Graphics, Vol. 36, No. 6, Article 1. Publication date: November 2017.

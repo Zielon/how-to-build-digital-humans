@@ -1,0 +1,1066 @@
+Title: VOODOO XP: Expressive One-Shot Head Reenactment for VR Telepresence
+
+VOODOO XP: Expressive One-Shot Head Reenactment for VR
+Telepresence
+PHONG TRAN, Mohamed Bin Zayed University of Artificial Intelligence, UAE
+EGOR ZAKHAROV, ETH Zurich, Switzerland
+LONG-NHAT HO, Mohamed Bin Zayed University of Artificial Intelligence, UAE
+LIWEN HU, Pinscreen, USA
+ADILBEK KARMANOV, Mohamed Bin Zayed University of Artificial Intelligence, UAE
+AVIRAL AGARWAL, Pinscreen, USA
+MCLEAN GOLDWHITE, Pinscreen, USA
+ARIANA BERMUDEZ VENEGAS, Mohamed Bin Zayed University of Artificial Intelligence, UAE
+ANH TUAN TRAN, VinAI Research, Vietnam
+HAO LI, Pinscreen, MBZUAI, USA
+source
+driver
+reenactment
+novel views
+VR Telepresence
+webcam
+Fig. 1. We introduce VOODOO XP, an expressive 3D-aware head reenactment system. Our method successfully transfers the driver’s expressions to the
+source and produces view-consistent renderings, covering a wide range of head poses and highly dynamic and extreme expressions from the input driver.
+Thanks to the real-time capability of our method, we also demonstrate our solution in a live monocular webcam setting and an end-to-end VR telepresence
+system for two-way communication. Please see the supplement video for the live demonstration.
+We introduce VOODOO XP: a 3D-aware one-shot head reenactment method
+that can generate highly expressive facial expressions from any input driver
+video and a single 2D portrait. Our solution is real-time, view-consistent,
+and can be instantly used without calibration or fine-tuning. We demon-
+strate our solution on a monocular video setting and an end-to-end VR
+telepresence system for two-way communication. Compared to 2D head
+reenactment methods, 3D-aware approaches aim to preserve the identity
+Authors’ Contact Information: Phong Tran, the.tran@mbzuai.ac.ae, Mohamed Bin Za-
+yed University of Artificial Intelligence, UAE; Egor Zakharov, ETH Zurich, Switzerland,
+ezakharov@ethz.ch; Long-Nhat Ho, Mohamed Bin Zayed University of Artificial Intelli-
+gence, UAE, long.ho@mbzuai.ac.ae; Liwen Hu, Pinscreen, USA, liwen@pinscreen.com;
+Adilbek Karmanov, Mohamed Bin Zayed University of Artificial Intelligence, UAE,
+adilbek.karmanov@mbzuai.ac.ae; Aviral Agarwal, Pinscreen, USA, aviral@pinscreen.
+com; McLean Goldwhite, Pinscreen, USA, lain@pinscreen.com; Ariana Bermudez Vene-
+gas, Mohamed Bin Zayed University of Artificial Intelligence, UAE, ariana.venegas@
+mbzuai.ac.ae; Anh Tuan Tran, VinAI Research, Vietnam, anhtt152@vinai.io; Hao Li,
+Pinscreen, MBZUAI, USA, hao@hao-li.com.
+of the subject and ensure view-consistent facial geometry for novel camera
+poses, which makes them suitable for immersive applications. While vari-
+ous facial disentanglement techniques have been introduced, cutting-edge
+3D-aware neural reenactment techniques still lack expressiveness and fail
+to reproduce complex and fine-scale facial expressions. We present a novel
+cross-reenactment architecture that directly transfers the driver’s facial ex-
+pressions to transformer blocks of the input source’s 3D lifting module. We
+show that highly effective disentanglement is possible using an innovative
+multi-stage self-supervision approach, which is based on a coarse-to-fine
+strategy, combined with an explicit face neutralization and 3D lifted frontal-
+ization during its initial training stage. We further integrate our novel head
+reenactment solution into an accessible high-fidelity VR telepresence system,
+where any person can instantly build a personalized neural head avatar from
+any photo and bring it to life using the headset. We demonstrate state-of-
+the-art performance in terms of expressiveness and likeness preservation
+on a large set of diverse subjects and capture conditions.
+arXiv:2405.16204v2  [cs.CV]  28 May 2024
+
+
+2
+•
+Tran et al.
+CCS Concepts: • Computing methodologies →Image-based rendering.
+Additional Key Words and Phrases: View Synthesis, Facial Animation, Neural
+Radiance Field
+1
+INTRODUCTION
+Virtual and augmented reality has the potential to displace tra-
+ditional 2D video conferencing and facilitate fully immersive 3D
+communication in virtual worlds and remote spatial collaboration.
+The latest consumer AR/VR headsets (e.g., Apple’s Vision Pro [Apple
+2024], Meta Quest Pro [Meta 2022]), all support built-in real-time
+face tracking capabilities [Li et al. 2015; Lombardi et al. 2018; Ma
+et al. 2021; Olszewski et al. 2016; Wei et al. 2019], which can enable
+engaging social face-to-face interactions using 3D avatars. Those
+avatars are typically built as a separate process without the user
+wearing the HMD using an authoring tool, from scans or videos
+swiped around a face, or by uploading a photo. While most VR ap-
+plications (e.g., Meta Horizon) are based on conventional graphics
+rendering of 3D avatars, Apple’s Persona uses a 2D neural rendering
+approach and a face scanning procedure to make the creation of
+realistic avatars easier.
+Despite the steady progress of real-time game engines, such as
+Unreal [Epic Games 2024a] and Unity [Unity 2024], and their capa-
+bilities of rendering highly quality digital humans (e.g., MetaHuman
+Creator [Epic Games 2024b]), achieving realism for personalized
+avatars, using such graphics pipeline, typically relies on professional
+scans, complex facial rig adjustment, and careful shader/lighting
+tweaks for individual scenes. On the other hand, neural rendering
+approaches are gaining popularity as they ensure the generation of
+photorealistic faces and expressions using models trained directly
+from real world data. High-end neural rendering systems such as
+Meta’s avatar codec model [Lombardi et al. 2018; Ma et al. 2021; Wei
+et al. 2019] a personalized head avatar using a complex multi-view
+video capture system or a number of 3D facial scans obtained from
+a handheld device [Cao et al. 2022]. The process, however, generally
+involves tedious recording sessions, as well as a lengthy optimiza-
+tion process (hours to days), which makes it not yet suitable for
+deployment in everyday environments.
+A number of one-shot neural head reenactment methods have
+shown that high-fidelity facial expressions and poses can be gener-
+ated instantly from a single portrait using a driver video by training
+a generative model using large image/video datasets [Burkov et al.
+2020; Doukas et al. 2021; Drobyshev et al. 2022; Gao et al. 2023; Hong
+et al. 2022b; Ji et al. 2022; Ren et al. 2021; Siarohin et al. 2019a,b, 2021;
+Song et al. 2021c; Tao et al. 2022; Wang et al. 2021a, 2022b; Wiles et al.
+2018; Xiang et al. 2020; Yin et al. 2022; Zakharov et al. 2020, 2019;
+Zhang et al. 2023; Zhao and Zhang 2022]. However for real-time 2D
+methods, the identity and expressions can deviate drastically from
+the input, especially when a novel view is rendered that is different
+from the driver video, which is the case for VR telepresence. Lately,
+several 3D-aware head reenactment methods have been introduced
+and use neural radiance fields combined with a disentanglement
+approach for identity, expressions, and pose to achieve consistent
+renderings from novel views [An et al. 2023; Chan et al. 2022, 2021;
+Deng et al. 2022; Ki et al. 2024; Li et al. 2023a; Niemeyer and Geiger
+2021; Or-El et al. 2022; Schwarz et al. 2020; Skorokhodov et al. 2022;
+Tran et al. 2024; Xiang et al. 2023; Xu et al. 2023a,b; Xue et al. 2022;
+Ye et al. 2024]. Due to the volumetric nature of neural fields, such
+disentanglement is particularly challenging, and despite the most
+recent efforts based on either 3D morphable models [Li et al. 2023a],
+3D lifted frontalization techniques [Tran et al. 2024], or multi-modal
+training-based expression encoder [Deng et al. 2024b,a], the reen-
+acted faces struggle with complex face/lip movement, as well as
+asymmetric expressions.
+Expressive faces are important for conveying emotions and pro-
+ducing natural lip movements during speech in social interactions.
+To this end, we propose a real-time 3D head reenactment approach
+called VOODOO XP, which can generate highly expressive faces
+and view-consistent renderings given a single unconstrained input
+portrait (source), a monocular video performance of the same or
+different person (driver), as well as an arbitrary camera pose. Ad-
+ditionally, we also introduce the first end-to-end VR telepresence
+system for two-way face-to-face communication based on a one-
+shot head reenactment technology and the Meta Quest Pro HMD.
+The user first takes a picture with a webcam or picks an arbitrary 2D
+portrait as the source, and after wearing the VR headset, the user can
+instantly drive the face of its neural head avatar and communicate
+immersively with a second person.
+Similar to the state-of-the-art neural head reenactment approach,
+VOODOO 3D [Tran et al. 2024], our method performs a fully vol-
+umetric disentanglement for identity, expressions, and pose using
+a 3D lifted frontalization network. However, instead of 3D lifting
+the driver’s face and extracting its expressions, we directly transfer
+the expression signal to transformer blocks of the 3D lifting mod-
+ule used for the source portrait. For an effective disentanglement
+and extraction of the driver’s expression, we present a multi-stage
+self-supervised learning approach, in which the first stage uses an
+explicit neutralization and 3D lifted frontalization for training, fol-
+lowed by less restrictive but higher resolution fine-scale training,
+and global fine-tunine step. We demonstrate extreme facial expres-
+sions such as face squeezing, complex lip movements, asymmetric
+facial poses, and fine-scale wrinkles that are particularly challenging
+for other methods. It is worth noting that our method can synthesize
+tongues as well as correct eyebrow movements behind glass frames.
+While we proposed a one-shot technique, our system naturally
+supports few-shot fine-tuning as an optional step. In case additional
+sources images are available, more faithful avatars can be obtained
+in tens of seconds. We show how our system achieves superior
+reenactment in terms of expressiveness, fidelity, and identity preser-
+vation compared to the current state-of-the-art on various datasets
+and a wide range of examples. We also demonstrate the performance
+and robustness of our one-shot reenactment technique on an inte-
+grated, immersive telepresence system for two-way communication
+using VR headsets. We make the following contributions:
+• We introduce a novel 3D-aware neural head reenactment
+architecture using a transformer-based expression transfer
+approach for generating highly expressive facial expressions
+in real-time.
+• For effective volumetric disentanglement of complex expres-
+sions, we propose a multi-stage training approach based on
+
+
+VOODOO XP: Expressive One-Shot Head Reenactment for VR Telepresence
+•
+3
+face neutralization and 3D lifted frontalization, coarse-to-
+fine training, and global fine-tuning.
+• We present the first end-to-end VR telepresence solution
+based on a one-shot 3D head reenactment algorithm.
+2
+RELATED WORK
+For today’s VFX, gaming, and VR/AR applications, the standard
+for rendering 3D avatars consists of using a conventional graph-
+ics pipeline based on textured mesh representations, followed by
+shader and lighting processing. Personalized avatar heads are ei-
+ther created from scratch by skilled artists and/or assisted using
+sophisticated authoring tools for digital humans (e.g., Metahuman
+Creator [Epic Games 2024b]). 3D scanning techniques based on
+multi-view or photometric stereo are often used to capture accurate
+geometry and skin appearance properties and facilitate the creation
+of high-fidelity digital humans, but they require a complex capture
+setup. More deployable solutions such as using handheld monoc-
+ular cameras or depth sensors exist, but achieving photorealism
+is often associated with a tedious shader/lighting fine-tuning pro-
+cess, and custom modeling approaches for face regions, hair, and
+eyes are typically required and remain challenging for real-time
+performance.
+3D Neural Head Modeling from Multi-View Stereo. Deep learning-
+based (neural) rendering techniques are becoming increasingly pop-
+ular as they facilitate the generation of photorealistic avatars using
+implicit representations learned directly from captured data (im-
+ages, videos, or 3D scans). A comprehensive survey can be found
+in [Tewari et al. 2020]. Such a holistic approach enables a unified
+way of modeling and rendering every head component, including
+hair, eyes, and glasses, including view-dependent appearances and
+complex material properties. In particular, there is no need for devel-
+oping specialized models or shaders, and photorealistic 3D avatars
+can be achieved more easily and without the need for human la-
+bor, which is appealing for lifelike VR telepresence experiences. For
+high-end use cases and research settings, complex multi-view video
+camera systems are used to build a comprehensive dynamic neural
+head model of a person with maximum face coverage.
+Meta’s Deep Appearance Models, or Codec Avatars [Lombardi
+et al. 2018], use a 3D mesh representation combined with view-
+dependent dynamic textures, represented by a variational autoen-
+coder (VAE) network, for realistic rendering of a head avatar. Their
+solution also integrates inward-facing HMD cameras for real-time
+avatar animation in a VR setting. Later works enhance the facial
+expressiveness of the avatars [Wei et al. 2019] or develop a light-
+weight model for running on a mobile VR headset [Ma et al. 2021].
+However, for all Codec Avatar methods, a dense multi-view stereo
+system (40 cameras) is used for learning dynamic facial textures per
+subject, and a coarse triangle mesh is needed for real-time speed.
+Lombardi and colleagues [Lombardi et al. 2019] introduced a fully
+volumetric approach called Neural Volumes, which uses multiple
+views of a dynamic object as input to an encoder-decoder archi-
+tecture. The latent code generates dense 3D voxels that represent
+appearance and opacity, which are sampled using a differentiable
+ray marching algorithm and used for end-to-end training. This ap-
+proach is suitable for rendering complex volumetric structures like
+hair and transparent objects but suffers from an extensive memory
+footprint. Mixture of Volumetric Primitives [Lombardi et al. 2021]
+addressed the cubic memory requirement problem using a sparse
+3D data structure based on rigidly-moving volumetric primitives,
+initialized with a coarse tracked mesh, to model deformable objects
+and produced higher quality renderings. Garbin et al. [Garbin et al.
+2022] instead used an efficient deformable tetrahedral graph for
+real-time rendering of generic dynamic objects in a multi-view set-
+ting. The authors presented drivable neural head avatars for VR
+telepresence applications using the volumetric tetrahedral structure
+as an extension to a tracked facial blendshape model [Li et al. 2017].
+Similar to the mentioned mesh-driven neural rendering methods, a
+complex multi-view stereo scanner is needed, followed by hours of
+data processing to build an avatar head, limiting its deployability.
+Neural Radiance Fields (NeRFs) [Mildenhall et al. 2021] enable
+highly realistic renderings as they learn view-dependent appear-
+ances. The original work was designed for static scenes captured
+from large numbers of calibrated views or a monocular moving
+video sequence with camera poses obtained from structure-from-
+motion. NeRF techniques that can handle deformable scenes [Du
+et al. 2021; Li et al. 2021; Park et al. 2021a,b; Pumarola et al. 2021;
+Tretschk et al. 2021] have been introduced for monocular video
+input, and are generally based on computing a mapping between
+a canonical and deformed state using deep neural network. More
+recently, Kirschstein and coworkers have presented a multi-view
+NeRF reconstruction and rendering method for human heads called
+Nersemble [Kirschstein et al. 2023]. Their system combines a de-
+formation field and multi-resolution hash encoding approach to
+facilitate sparse (16-view) multi-view video input and efficient high-
+fidelity rendering with blendshape type controls.
+3D Gaussian Splatting [Kerbl et al. 2023] has been recently in-
+troduced as an alternative to NeRFs for high-quality radiance field
+rendering from multiple calibrated views without a deep neural
+network. The method achieves superior efficiency and fidelity us-
+ing anisotropic 3D Gaussians as an unstructured representation of
+radiance fields combined with fast GPU-based differentiable render-
+ing. Qian et al. have recently developed a 3D Gaussian-based Head
+Avatar system [Qian et al. 2024] using video sequences recorded
+from 16 views and shown that these 3D Gaussians can be initialized
+and controlled using a FLAME model [Li et al. 2017] and produce
+superior facial expression quality and accuracy than NeRF-based so-
+lutions. A similar approach was proposed by Xu et al. [Xu et al. 2024]
+but uses two separate 3D Gaussian representations, one for neutral
+face and one for facial expressions, followed by a super-resolution
+network to produce 2K image output. Saito et al. [Saito et al. 2024]
+recently demonstrated that relightable Gaussian avatars are possible
+using learnable radiance transfer functions using the UV space of a
+parametric mesh model. While multi-view capture approaches for
+neural head avatar modeling produce the highest fidelity and most
+accurate results, the complex hardware requirements make them
+unsuitable for consumer avatar creation and everyday deployment.
+3D Neural Head Modeling from Monocular Video. A more accessi-
+ble approach for building a neural head avatar consists of recording
+various facial expressions and poses from a video sequence obtained
+by a single monocular camera. Deep Video Portraits [Kim et al.
+
+
+4
+•
+Tran et al.
+2018] uses a source video to control the facial performance and head
+pose of a person in a target video. The method consists of extract-
+ing dynamic 3DMM models for both source and target subject and
+translating the retargeted performance using a rendering-to-video
+translation network [Ronneberger et al. 2015], which is trained on
+all the frames of the target video. Thies and colleagues [Thies et al.
+2019] introduced a deferred neural rendering framework where
+neural texture maps, which are attached to a face rig, are learned
+jointly, in order to produce more detailed facial expressions.
+Gafni and coworkers developed a NeRF-based face reenactment
+framework [Gafni et al. 2021], called NerFACE, that can be trained
+from 2 minutes of video recordings and reenacted by a driver video
+in real-time. They use a 3DMM and camera parameters as input
+to a dynamic radiance field network, which is optimized using the
+monocular video sequence, to synthesize a novel expression and
+view of a target person. Similarly, Guo et al. [Guo et al. 2021] have
+shown that audio-driven NeRF-based facial reenactment is possible.
+Grassal et al. [Grassal et al. 2022] model the head avatar using an
+explicit mesh representation and neural textures. Similar to Ner-
+FACE [Gafni et al. 2021], training time is very long, with 7 hours on
+two NVIDIA A100 GPUs. Zheng et al. [Zheng et al. 2022] create an
+implicit morphable head avatar (I AM Avatar), where learned blend-
+shapes and skinning fields are used to morph canonical geometry
+and texture fields during animation and rendering. Its non-rigid
+ray marching process can take up to 2 GPU days. HAvatar [Zhao
+et al. 2023] uses a separate canonical and posed appearance volume
+in addition to a parametric conditioned NeRF representation, sig-
+nificantly improving disentanglement capabilities for more stable
+animation and rendering quality. Their method is very robust and
+synthesizes high-fidelity avatars, but training time also takes days.
+Lately, Bai et al. [Bai et al. 2023] introduced a high-fidelity volumet-
+ric head avatar solution by incorporating a 3DMM-anchored neural
+radiance field, which is decoded from local features using convolu-
+tional neural networks. While superior fidelity was demonstrated,
+both training and rendering are prolonged.
+Gao et al. [Gao et al. 2022] presented a highly efficient video-based
+3D head modeling method for NeRF rendering. They combine multi-
+level voxel fields with expression coefficients in latent space to re-
+duce the neural model optimization to only 10-20 minutes. Zielonka
+et al. [Zielonka et al. 2023] suggest a fast reduced the required
+time to less than 10 minutes while outperforming the rendering
+quality of several state-of-the-art methods. They employed a surface-
+embedded dynamic NeRF approach based on multi-resolution hash
+encoding for instant neural graphics primitives [Müller et al. 2022]
+(Instant-NGP), combined with a 3DMM-driven geometry regular-
+ization for improved pose extrapolation.
+In practice, covering all possible facial expressions during the
+short capture span is difficult, especially for an untrained end-user.
+To this end, Cao et al. [Cao et al. 2022] introduced an approach that
+customizes a universal prior model trained from 255 subjects to a
+specific person’s face. The recording session consists only of a face
+scan using a handheld video camera, and additional expression scans
+can be optionally provided to improve expressions’ faithfulness.
+Zheng et al. [Zheng et al. 2023] recently introduced a hybrid
+deformable point-based representation that can better represent
+intricate structures, e.g., fluffy hair, and is almost a magnitude
+faster to train (e.g., 6 hours instead of 54 hours). Furthermore, the
+neural avatars are relightable. An even faster relightable neural
+avatar framework (15 minutes of optimization) has been presented
+in [Bharadwaj et al. 2023], which uses a mesh-based representa-
+tion and a combination of traditional graphics rendering and neural
+network that approximates some of their components.
+Since many of these techniques rely on a 3DMM model to cap-
+ture a driver’s expressions, NeRF-based cross-identity reenactment
+can deteriorate when there is a misalignment between the tracking
+results. Consequently, Xu et al. [Xu et al. 2023c] proposed to learn
+latent expression codes as the driver signal to improve the expres-
+siveness of neural avatar heads. The method is self-supervised using
+a photometric reconstruction loss. To reproduce fine-scale details
+in facial expressions, Chen et al. [Chen et al. 2023] use part-based
+implicit shape models to decompose a global deformation field into
+local ones. While high-resolution details around eyes and teeth can
+be obtained, the method struggles with extreme expressions and
+poses. While significantly easier to deploy in a consumer setting,
+monocular video-based avatar modeling techniques still require a
+few minutes of facial recording. To cover all the necessary ranges
+of facial motion, visual guidance is often preferred, but may be hard
+to follow without practice. For instance, Apple’s Persona avatars,
+released with the Apple Vision Pro, take around a minute to guide
+the user through various expressions and head rotation by asking
+the user to point the front of the VR headset to their face.
+2D One-Shot Neural Head Reenactment. One-shot head reenact-
+ment techniques use only a single source image as input and a driver
+video to animate the source portrait. Since only one facial expres-
+sion is available from the source (not necessarily neutral), these
+methods are typically based on deep generative models trained on
+large in-the-wild face datasets so that unseen and plausible facial
+expressions of the source can be generated. Moreover, as the source
+portrait is generally an unconstrained image, its identity needs to
+be disentangled effectively from arbitrary poses and expressions.
+Due to the large availability of unconstrained large face im-
+age/video datasets, a number of 2D-based one-shot neural head
+reenactment techniques have been introduced [Burkov et al. 2020;
+Doukas et al. 2021; Drobyshev et al. 2022; Gao et al. 2023; Hong et al.
+2022b; Ji et al. 2022; Ren et al. 2021; Siarohin et al. 2019a,b, 2021;
+Song et al. 2021c; Tao et al. 2022; Wang et al. 2021a, 2022b; Wiles
+et al. 2018; Xiang et al. 2020; Yin et al. 2022; Zakharov et al. 2020,
+2019; Zhang et al. 2023; Zhao and Zhang 2022] and to accommodate
+personalized facial expressions, few shot methods have also been
+developed [Rochow et al. 2024; Zhang et al. 2022].
+Several facial modeling techniques have been introduced, such as
+based on facial keypoint or 3DMMs, to separate identity, expression,
+and poses from the source and driver input. Despite its robustness,
+using linear face models to capture expressions, often limits the
+range of motions and expressiveness, and leads to identity leakage
+from the source subject during reenactment. Want et al. [Wang
+et al. 2022a] proposed an implicit disentanglement approach for
+controllable talking head synthesis by leaning separate encoders for
+head pose, mouth and eye movements, and emotional expressions,
+where lip motions are learned from audio-visual data. Drobyshev et
+al. [Drobyshev et al. 2022] introduced MegaPortraits, a robust and
+
+
+VOODOO XP: Expressive One-Shot Head Reenactment for VR Telepresence
+•
+5
+high-resolution real-time technique based on a CNN architecture,
+where signals from the driver are directly mapped as facial expres-
+sion features for face disentanglement and face synthesis, without
+using an explicit parametric model. The method was able to achieve
+state-of-the-art cross-reenactment results and image resolution us-
+ing a carefully designed training process. To further enhance the
+facial expressiveness, a new model EMOPortraits [Drobyshev et al.
+2024] uses a combination of latent facial expression space devel-
+opment and novel self-supervision loss functions, which mitigates
+identity information in latent expression vectors explicitly.
+Despite their ability to generate impressive high-resolution fa-
+cial cross reenactment results, 2D-based real-time one-shot cross-
+reenactment methods cannot ensure identity or expression consis-
+tency for novel views which is an important requirement for 3D
+rendering applications such as immersive telepresence. Hence, they
+are typically limited to 2D video manipulation use cases. While
+recent advancements in diffusion models [Ho et al. 2020; Song et al.
+2021a,b] are showing highly diverse image generation capabilities
+and learning capacities, several conditional diffusion-based 2D face
+reenactment methods have emerged [Bounareli et al. 2024; Oh et al.
+2024; Tao et al. 2024; Xie et al. 2024]. Most noteworthy, is the X-
+Portrait [Xie et al. 2024] framework, which learns a motion control
+module directly from the driving video using a hierarchical motion
+attention approach. While being a purely 2D method, the novel
+view synthesis is highly view-consistent, but, like most diffusion-
+based approaches, the performance is far from real-time and the
+generation of realistic faces often appears cartoonish.
+3D One-Shot Neural Head Reenactment. Lately, a number of 3D-
+aware one-shot neural head reenactment techniques [An et al. 2023;
+Chan et al. 2022, 2021; Deng et al. 2022; Ki et al. 2024; Li et al. 2023a;
+Niemeyer and Geiger 2021; Or-El et al. 2022; Schwarz et al. 2020;
+Skorokhodov et al. 2022; Tran et al. 2024; Xiang et al. 2023; Xu
+et al. 2023a,b; Xue et al. 2022; Ye et al. 2024] have been introduced,
+which aim at generating consistent renderings from novel camera
+poses and extreme angles, as a motivation to improve facial dis-
+entanglement and enable multi-view rendering capabilities for 3D
+holographic displays [Li et al. 2023a; Stengel et al. 2023; Tran et al.
+2024]. Some of the early methods such as ROME [Khakhulin et al.
+2022] use an explicit mesh-based representation, e.g., FLAME [Li
+et al. 2017], combined with neural textures, but to ensure real-time
+performance, low polygonal meshes prevent these systems to pro-
+duce high-resolution geometric and appearance details. Most of the
+3D head reenactment methods use a radiance field-based represen-
+tation due to its ability to learn and render complex appearances
+and intricate structures, while ensuring 3D awareness, meaning
+view-consistent geometries.
+The two methods, HeadNeRF [Hong et al. 2022a] and MofaN-
+eRF [huang et al. 2022], use an implicit NeRF-based representation
+to control the head pose, but their compact latent vector represen-
+tation does not always ensure the source subject’s identity to be
+preserved, and intensive test-time optimization is often necessary.
+Most of the latest 3D-aware real-time reenactment techniques [Ki
+et al. 2024; Li et al. 2023b,a; Tran et al. 2024; Ye et al. 2024; Yu
+et al. 2023] implement tri-plane based representations [Chan et al.
+2022; Chen et al. 2022] to generate neural radiance field from ex-
+tracted input signal features, since they are particularly efficient
+computation-wise and also compatible with CNN architectures.
+While parametric 3DMM models are typically used to extract
+facial expressions from the driver video and separate its features
+from the subject’s identity [Hong et al. 2022a; Khakhulin et al. 2022;
+Ki et al. 2024; Li et al. 2023b,a; Ma et al. 2023; Ye et al. 2024; Yu et al.
+2023], only a recently developed method called VOODOO 3D [Tran
+et al. 2024] can disentangle facial performances fully volumetrically
+and without an explicit mesh model. Similar to the work of [Li
+et al. 2023a] (GOHA), visual transformer networks were used to
+extract identity features from the source and expression features
+from the driver, but VOODOO 3D, introduces a particularly effective
+volumetric disentanglement technique by performing a 3D lifted
+frontalization [Trevithick et al. 2023] of both source and driver sig-
+nals into a canonical neural radiance field. As demonstrated by [Tran
+et al. 2024], the approach can handle extremely challenging uncon-
+strained source images and more plausible and natural expressions
+can be achieved, when compared to mesh-based disentanglement
+approaches such as [Li et al. 2023a].
+In a new work, Portrait4D, Deng et al. [Deng et al. 2024b] have
+shown that volumetric disentanglement is possible without 3D lifted
+frontalization for the driver, but can be achieved by directly mapping
+its expression features into transformer blocks of the source’s 3D
+lifting module. The facial expressions are then neutralized by several
+transformer blocks, then added back at the end. To facilitate disen-
+tanglement in this 3D-aware reenactment model, the authors use
+a pre-trained expression encoder [Wang et al. 2022a] trained with
+audio-visual data (dialogues). Shortly after its release, an improved
+version, Portrait4D-v2 [Deng et al. 2024a] was presented, which
+adopts a similar training approach as Voodoo 3D [Tran et al. 2024],
+where 3D lifting is first trained then the expression module, rather
+than both together. Compared to the first version, the results are
+significantly improved, producing less artifacts and handling more
+challenging source images. Since the pre-trained expression en-
+coder [Wang et al. 2022a] only disentangles control over lip motion,
+eye movements, and emotional expressions, very limited asymmet-
+ric facial movements are present nor intense expressions or tongues.
+Our proposed work, VOODOO XP, also maps expression features
+of the driver directly into transformer blocks of the 3D lifted source
+frontalization, but does not use a pre-trained expression encoder,
+nor a neutralization step. Instead we learn the expressions encoder
+end-to-end use a multi-phase training approach, which combines a
+coarse-to-fine training approach with explicit neutralization and 3D
+lifted frontalization in its initial stage, and GAN-based fine tuning
+using unconstrained large video datasets. While [Tran et al. 2024]
+have demonstrated their reenactment solution on 3D holographic
+displays, we presents here, the first immersive telepresence sys-
+tem with VR headsets, that adopts a one-shot head reenactment
+technique for modeling and driving 3D avatars.
+3
+EXPRESSIVE 3D-AWARE HEAD REENACTMENT
+Given a source image 𝑥𝑠and a driver image 𝑥𝑑, we develop an ex-
+pressive 3D-aware head reenactment model to synthesize a 3D head
+
+
+6
+•
+Tran et al.
+DINO
+DeepLabv3
+driver
+Ehigh
+...
+...
+Volumetric
+Renderer
+Expression Transfer
+3D Lifting & Rendering (Frozen weights)
+Transformer
+block
+Transformer
+block
+Transformer
+block
+Transformer
+block
+Camera
+pose
+prediction
+SegFormer
+source
+tri-plane
+Fig. 2. Architecture of our expressive 3D-aware head reenactment pipeline. First, a vision transformer module, DINO, is used to extract the expression vector
+from the driver image. This vector is then used to directly modify intermediate low-level features within the 3D lifting module using several cross and
+self-attention layers, altering the expression of the tri-plane representation of the source image. Finally, we can render the reenacted source tri-plane from an
+arbitrary viewpoint using a volumetric renderer.
+input
+...
+neutralized tri-plane
+Volumetric
+Renderer
+Neutralization
+3D Lifting & Rendering (Frozen weights)
+Transformer
+block
+Transformer
+block
+Segformer
+neutral
+pose
+Ehigh
+Elow
+neutralized image
+Fig. 3. Architecture of the neutralizer. Our neutralizer is based on Lp3D but
+has a few additional self-attention blocks inside of the 𝐸𝑙𝑜𝑤module. We
+only optimize these additional transformer blocks during training.
+that combines the appearance of 𝑥𝑠and the expression of 𝑥𝑑, allow-
+ing free-view rendering. We adopt a tri-plane based NeRF [Chan
+et al. 2022] as the underlying 3D representation for its fidelity, gen-
+eralizability, and efficiency. Our model is trained using a three-stage
+approach, where all the stages share the same architecture as il-
+lustrated in Fig. 2. Specifically, on top of a pre-trained 3D lifting
+network [Trevithick et al. 2023] (Section 3.1), we add a trainable
+expression transfer module (Section 3.2) to alter the expression. This
+module first uses a vision transformer initialized from DINO [Caron
+et al. 2021] to extract an expression vector from the driver image 𝑥𝑑.
+The extracted expression vector is then used to directly modify in-
+termediate low-level features within the 3D lifting module through
+several cross and self-attention layers, altering the expression of
+the source image 𝑥𝑠. However, training such network is non-trivial
+as shown by [Deng et al. 2024b,a], where they use a pre-trained
+expression encoder [Wang et al. 2022a] to facilitate disentanglement.
+However, their approach cannot produce expressive expressions
+since it is trained mainly with audio-visual data.
+To stabilize the self-supervision of our transformer-based expres-
+sion transfer model, we divide the training into multiple stages
+(Section 3.3). The first stage uses several techniques to prevent iden-
+tity leakage, so that the identity information of the driver does not
+leak into the reenacted image. These methods include driver 3D
+lifted head frontalization, augmentation, and a novel neutralizing
+loss to minimize the difference between the neutralized source and
+the neutralized cross-reenacted image. In the second stage, we in-
+troduce a fine-scale training strategy using the model from the first
+stage to supervise a higher resolution model training with the help
+of generated synthetic drivers. This approach allows us to disable
+all constraints used in the previous step that might compromise
+expression quality, thereby further enhancing the expressiveness
+of the output. In the third stage, we adopt global fine-tuning, by
+unfreezing the 3D lifting module and applying GAN loss to increase
+the high-frequency details of the reenacted images. Additionally,
+per-subject fine-tuning can be introduced as an optional step to
+improve the likeness and the expressiveness of the target identity.
+Note that unless specified explicitly, no fine-tuning is applied in any
+of the results in this paper.
+3.1
+3D Lifting and Rendering
+Following previous works [Bai et al. 2024; Tran et al. 2024], we
+adopt the state-of-the-art Lp3D [Trevithick et al. 2023] as our 3D
+lifting model, which converts a 2D input image into a 3D neu-
+ral radiance field. Its architecture is given in the bottom part of
+Fig. 2. Given an input portrait, Lp3D first extracts low-level fea-
+tures using a hybrid transformer model and high-frequency details
+using a convolution-based network. These two features are then
+fused using several computationally efficient transformer blocks
+[Xie et al. 2021] to produce the canonicalized tri-plane representa-
+tion {𝑇𝑖∈R𝐻×𝑊×𝐶|0 ≤𝑖≤2} of the input image, which can be
+then rendered at arbitrary viewpoints using volumetric rendering
+[Mildenhall et al. 2021] with density and color. These output values
+
+
+VOODOO XP: Expressive One-Shot Head Reenactment for VR Telepresence
+•
+7
+can be calculated from the tri-plane as following:
+𝑐𝑥𝑦𝑧, 𝜎𝑥𝑦𝑧= 𝐷(𝑇0(𝑥,𝑦),𝑇1(𝑦,𝑧),𝑇2(𝑧,𝑥)),
+(1)
+where 𝑇𝑖(𝑢, 𝑣) is a feature vector calculated by interpolating 𝑇𝑖at
+position (𝑢, 𝑣), and 𝐷is an MLP-based decoder that converts tri-
+plane features into color and density at each specified 3D location.
+To improve the rendering efficiency, Lp3D renders at a low resolu-
+tion (128 × 128) and then upsamples it to a higher resolution image
+(512 × 512) using a 2D super-resolution network. We train this mod-
+ule using a combination of synthetic multi-view images generated
+by a 3D-aware face generative model EG3D [Chan et al. 2022] and
+DiffPortrait3D [Gu et al. 2024], as well as a real-world multi-view
+dataset, NeRSemble [Kirschstein et al. 2023], which covers a wide
+range of dynamic expressions. The EG3D-based dataset is crucial
+for the training process since it allows us to effectively invert its
+internal 3D representation by minimizing the differences between
+the predicted and ground-truth tri-planes, as was proposed in prior
+work [Trevithick et al. 2023]. The NeRSemble dataset has a high di-
+versity of expressions, yet is limited in terms of identities, containing
+around 200 subjects. Thus, we further boost our training data using
+a state-of-the-art novel-view synthesis method DiffPortrait3D [Gu
+et al. 2024]. We use it to generate novel views for the collection of
+in-the-wild images with diverse appearances and expressions.
+3.2
+Expression Transfer
+As shown in previous works [Bai et al. 2024; Trevithick et al. 2023],
+the first branch of Lp3D extracts global features, such as the geome-
+try of the head, while the second branch extracts high-frequency
+details. Therefore, given a pre-trained Lp3D model, we can modify
+the expression of a given source image by directly modifying its in-
+termediate features in the low-level branch. To this end, we propose
+a new architecture for expression transfer as shown in the upper
+part of Fig. 2. First, we use a powerful vision transformer encoder
+𝐸𝑒𝑥𝑝[Dosovitskiy et al. 2021] initialized from a pre-trained self-
+supervised model [Caron et al. 2021] to extract an expression vector
+𝑒𝑑= 𝐸𝑒𝑥𝑝(𝑥𝑑) from the driver. Then for each transformer block
+𝐵𝑙𝑜𝑤
+𝑖
+in the low-level branch of Lp3D, we use another transformer
+block 𝐵𝑒𝑥𝑝
+𝑖
+to modify its output:
+𝐹𝑖= 𝐵𝑙𝑜𝑤
+𝑖
+(𝐹𝑖−1) + 𝐵𝑒𝑥𝑝
+𝑖
+(𝐹𝑖−1,𝑒𝑑),
+where 𝐹𝑖is the output of𝑖𝑡ℎtransformer block in Lp3D. 𝐵𝑒𝑥𝑝
+𝑖
+(𝐹𝑖−1,𝑒𝑑)
+uses a self-attention layers applied on 𝐹𝑖−1 following by a cross-
+attention layer with 𝑒𝑑. Different from previous works [Chu et al.
+2024; Khakhulin et al. 2022; Li et al. 2023a; Ma et al. 2023], which rely
+on predicted expression coefficients of morphable models [Blanz
+and Vetter 1999; Li et al. 2017] or auxiliary signals such as facial
+key points or audio, we directly use the RGB image of the driver to
+estimate the expression. This approach enables the modeling of com-
+plex expressions, such as asymmetric expressions, face squeezing, or
+tongue movements. However, training such an expression module
+is hard due to identity leakage from the source. Specifically, without
+proper training strategy, the identity clues of the driver, such as
+hair, head geometry, or skin color, can leak into the reenacted image.
+To address this issue, we introduce an efficient three-stage training
+strategy, as detailed in the next section.
+3.3
+Multi-stage Training
+Stage 1: Coarse-Level Model. To train the expression transfer mod-
+ule, we propose a three-stage approach. In the first stage, we follow
+the standard training pipeline of other facial reenactment methods.
+Given a large-scale facial video dataset, during training, we ran-
+domly sample two frames 𝑥𝑠1 and 𝑥𝑑1 from the same video and use
+the following loss to train the model:
+L𝑟𝑒𝑐(𝑥𝑠1→𝑑1,𝑥𝑑1) = L1(𝑥𝑠1→𝑑1,𝑥𝑑1) + L𝑝𝑒𝑟(𝑥𝑠1→𝑑1,𝑥𝑑1)
++L𝐼𝐷(𝑥𝑠1→𝑑1,𝑥𝑠1),
+where 𝑥𝑠1→𝑑1 is the reenacted image with the source image 𝑥𝑠1 and
+the driver image 𝑥𝑑1, L1 the L1 distance between the reenacted
+image and the the driver image, L𝑝𝑒𝑟the perceptual loss [Zhang
+et al. 2018] between them, and L𝐼𝐷measures the negative cosine
+similarity between the face recognition embeddings [Deng et al.
+2019a] of the facial images. Since the model is trained exclusively
+on self-reenactment data, it can transfer not only the expression but
+also some identity clues from the driver to the reenacted image. This
+phenomenon is known as identity leakage. To avoid this, we adopt
+several techniques from previous works, including frontalizing the
+driver using a 3D lifting module [Tran et al. 2024] and applying
+strong augmentations to the frontalized driver image [Drobyshev
+et al. 2022; Tran et al. 2024], such as random color patching and ran-
+dom masking. However, these techniques alone cannot completely
+solve the identity leakage problem. To fully address this issue, we
+propose a novel neutralizing loss. Specifically, let N (𝑥) be a func-
+tion that maps the input face image 𝑥with arbitrary expression and
+pose into its neutralized tri-plane representation. We then add the
+following neutralizing loss to ensure the identity matching between
+the source image and the cross-driver reenacted image:
+L𝑛𝑒𝑢(𝑥𝑠1,𝑥𝑑2) = ∥N (𝑥𝑠1→𝑑2) −N (𝑥𝑠1)∥
+where 𝑠1 and 𝑑2 are two identities from different videos. Finding
+N is a highly challenging task due to the lack of supervised data
+for training. Inspired by Noise2Noise [Lehtinen et al. 2018], which
+demonstrated that denoising networks can be trained on pairs of
+noisy images to predict the underlying clean signal by averaging
+out the noise without the need of seeing the ground truth clean
+image, we consider the following optimization task:
+N∗= arg min
+N
+E𝑥𝑠1,𝑥𝑑1 ∥N (𝑥𝑠1) −𝑇𝑑1 ∥,
+(2)
+where 𝑥𝑠1 and 𝑥𝑑1 are statistically independent given that they share
+the same identity, and 𝑇𝑑1 is the tri-plane representation of 𝑥𝑑1,
+which can be extracted by the pre-trained 3D lifting module. Suppose
+we have enough data, then the optimal function N∗will converge to
+the average value of all 𝑇𝑑1 given the identity of 𝑥𝑠1, representing a
+tri-plane of the neutralized face. Therefore, even without supervised
+neutralizing data, we can use the objective function in Eq. (2) to
+train the neutralizer using a large-scale video dataset. We implement
+the neutralizer using the network structure described in Fig. 3. Our
+final loss for the first stage can be formulated as:
+Lstage 1(𝑥𝑠1,𝑥𝑑1,𝑥𝑑2) = L𝑟𝑒𝑐(𝑥𝑠1→𝑑1,𝑥𝑑1) + 𝜆𝑛𝑒𝑢L𝑛𝑒𝑢(𝑥𝑠1,𝑥𝑑2),
+where 𝜆𝑛𝑒𝑢is the weight for the neutralizing loss. In our experiment,
+we set 𝜆𝑛𝑒𝑢= 0.01.
+
+
+8
+•
+Tran et al.
+Stage 2: Fine-Level Model. While the model trained in the first
+stage can produce reasonable expressions without identity leak-
+age, the techniques used in that stage, such as driver frontalization,
+augmentations, and neutralizing loss, can potentially clamp the
+expressiveness. In addition, for better training efficiency, the res-
+olution used in the first stage is only 128 × 128. Previous works
+[Deng et al. 2024b,a; Li et al. 2023a; Tran et al. 2024] uses a 4× super-
+resolution network to upsample the output to 512 × 512. However,
+this approach often leads to inconsistencies, especially with extreme
+poses, as shown in Fig. 7. Therefore, we introduce a second stage to
+improve both the expressiveness and resolution of the first stage.
+We first increase the rendering resolution of the 3D lifting module
+from 128 to 256. We initialize the new 3D lifting module with the
+weights from the first step, then fine-tune it at the higher rendering
+resolution using the same set of losses. During training, instead
+of calculating losses on the 256 × 256 images, we randomly ren-
+der patches of sizes 172 × 172 in order to avoid the GPU memory
+limitations and facilitating the use of larger batch sizes.
+For the expression transfer module, we use the same architecture
+of the first stage and initialize the network with the weights of
+the trained model. To further improve expressiveness, we remove
+driver frontalization, data augmentations, and the neutralizing loss.
+To overcome the identity leakage problem, resulting from remov-
+ing these techniques, and instead of only using paired source and
+driver as self-reenactment data in the first stage, we use the first-
+stage network to synthesize a cross-reenactment dataset. For each
+synthetic data point, the source 𝑥𝑠1 and the ground-truth 𝑥𝑑1 are
+sampled from the same video. Additionally, instead of only using
+𝑥𝑑1 as the driver as in self-reenactment training, we generate a syn-
+thetic driver 𝑥1
+𝑠2→𝑑1 using the reenactment network, trained in the
+first stage. This network uses 𝑥𝑑1 to drive a different identity image
+𝑥𝑠2 sampled from another video. This data synthesizing approach
+uses real images as both the source and ground truth, while only
+using the output of the first stage as the driver. Consequently, the
+quality of the second stage is no longer constrained by the first stage.
+Finally, we adopt an eye-region loss Leye on self-reenactment data,
+where only the eye regions are rendered using the frontal view of
+the reenacted image 𝑥𝑠1→𝑑1 and ground-truth image 𝑥𝑑1, and we
+calculate the 𝐿1 loss between them. As can be seen in Fig. 13, this
+loss significantly improves the eye gaze accuracy of the output. The
+loss for the second stage can be summarized as follows:
+Lstage 2(𝑥𝑠1,𝑥𝑠2,𝑥𝑑1) = Lrec(𝑥𝑠1→𝑥1
+𝑠2→𝑑1,𝑥𝑑1) + Lrec(𝑥𝑠1→𝑑1,𝑥𝑑1)
++Leye(𝑥𝑠1→𝑑1,𝑥𝑑1).
+Stage 3: Global fine-tuning. The model from stage 2 can produce
+highly expressive faces at high-resolution. However, we notice that
+in practice, it does not preserve the identity of the source well. Note
+that this issue is not due to identity leakage, as the identities of
+the reenacted images remain consistent across different drivers. We
+conjecture that this issue arises from the following reasons: (1) We
+only uses 𝐿1 and LPIPS losses, which cause the model to ignore high-
+frequency details; (2) Most of the data used in the previous stages
+are expressive, but limited in the number of identities [Kirschstein
+et al. 2023]; and (3) In both stages, the 3D lifting module is frozen,
+which limits the capacity of the expression transfer module. Based
+on these hypotheses, we introduce a final stage where we fine-tune
+the entire network with an additional GAN loss. Specifically, we
+unfreeze the weights of the lifting module and then train the model
+with the following loss:
+Lstage 3(𝑥𝑠1,𝑥𝑠2,𝑥𝑑1) = Lrec(𝑥𝑠1→𝑠𝑔(𝑥𝑠2→𝑑1 ),𝑥𝑑1)
++Lrec(𝑥𝑠1→𝑥𝑑1,𝑥𝑑1) + 𝜆𝐺𝐴𝑁LGAN(𝑥𝑠1→𝑠𝑔(𝑥𝑠2→𝑑1 ),𝑥𝑑1)
+where 𝑠𝑔(·) is the stop-gradient operator and LGAN is a standard
+projected GAN loss [Sauer et al. 2021] with corresponding weight
+𝜆𝐺𝐴𝑁= 0.05 in our experiment. Here, we use a similar idea as in
+stage 2, where we leverage the previous model to synthesize the
+driver and therefore avoid identity leaking. However, different from
+the second stage, we perform this on-the-fly, using a stop-gradient
+operator. We observe that this stage greatly improves the identity
+preservation and high-frequency expression details of the reenacted
+images.
+Finally, we use the trained network to synthesize a set of pairs
+𝑥𝑠∈R512×512×3 and 𝑥𝑠→𝑠∈R256×256×3 and use them to train
+a consistent 2× super-resolution network [Wang et al. 2021b]. In
+Fig. 7, our results on extreme poses and novel view synthesis are
+much more consistent than other methods.
+Optional step: Few-shot fine-tuning. While our proposed work is
+a one-shot reenactment technique, it inherently supports few-shot
+input as a fine-tuning process. In particular when a few images or
+video of the source is available, we simply use these additional source
+images to fine-tune our model, using he same training strategy as in
+stage 3. Thanks to the loss used in stage 3, the fine-tuned model still
+works with an arbitrary driver. This optional stage can significantly
+improve the expressiveness and likeness of the reenacted result,
+even with a few additional images (e.g., 10 or 20), as demonstrated
+in the results section. In practice, this optional step takes no longer
+than additional tens of seconds of computation for each source
+subject.
+3.4
+Implementation Details
+We train the models of each stage using a mix of CelebVHQ [Zhu
+et al. 2022], which is a large-scale video dataset with more than
+33000 number of identties, and Nersemble [Kirschstein et al. 2023],
+which contains a large variety of expressions, but the number of
+identities is limited (. We train the 128 × 128 3D lifting module for
+five days on 7 NVIDIA RTX6000ADA with a batch size 14 and a
+learning rate of 1𝑒−4. For the 256 × 256 3D lifting module, it only
+takes a day for the model to converge since we fine-tuned it from
+the weights of the low-res version. The expression module takes
+five days for all three stages to converge.
+4
+VR TELEPRESENCE SYSTEM
+We propose the first immersive telepresence system for two-way
+remote communication based on realistic 3D avatars built from one-
+shot neural head reenactment. Each participant uses a Meta Quest
+Pro VR headset, tethered to a high-performance workstation with
+four NVIDIA RTX 6000 ADA GPUs (see Figure Fig. 4). In particular, 2
+GPUs are used for each eye (left and right) for stereoscopic rendering
+and we achieve 30 FPS at 512 × 512 pixel resolution (including super
+resolution from 256 × 256). Our solution allows users to instantly
+
+
+VOODOO XP: Expressive One-Shot Head Reenactment for VR Telepresence
+•
+9
+Fig. 4. VR telepresence system setup. Our solution can be applied to an
+end-to-end VR telepresence system for two-way communication.
+User 1
+Wearing VR HMD
+HMD Built-in
+Facial Tracking
+Tracked Mesh Render
+Source Image
+Stereoscopic Neural Rendering
+& Pose Tracking
+VOODOO XP
+Tracked Mesh Render
+Source Image
+Stereoscopic Neural Rendering
+HMD Built-in
+Pose Tracking
+Head & Camera Pose Fusion
+& Facial Tracking
+VOODOO XP
+User 2
+Wearing VR HMD
+Fig. 5. Overview of our two-way VR telepresence system. For each user, we
+track pose and expressions using built-in tracking of the headset and use
+them to drive our reenactment system. To create an avatar, we can either
+use a user’s portrait (User 2) or an arbitrary photo (User 1).
+build their 3D avatar instantely (60 ms), just by taking a photo
+with a webcam or by loading a picture. Once created, the users can
+immediately control their neural heads by simply wearing their VR
+headset, which captures their facial expressions and eye-gaze, using
+the built-in outside-in cameras and the 6DoF head pose using the
+integrated inside-out/IMU tracker.
+System overview. Our complete VR telepresence system is illus-
+trated in Fig. 5. For VR-based facial performance capture, we simply
+use Meta’s Movement SDK [Meta 2024a] and Headset Tracking
+SDK [Meta 2024b], as input signals to a Unity game engine [Unity
+2024] scene with a generic parametric blendshape model. The facial
+expressions consist of 63 blendshapes (7 for tongue) and 2 gaze con-
+trols (angles) for each eye. This generic face model is then animated
+and rendered using a traditional computer graphics (CG) pipeline
+to produce a live video stream, which serves as input to our neural
+head reenactment framework.
+For each person’s Unity scene, we render the generic face model
+placed in a canonical coordinate frame without applying 6DoF head
+pose transformations. Then, our VOODOO XP framework converts
+a CG video of a frontalized generic avatar into a photorealistic
+avatar, seen from two novel stereoscopic views. Two instances of
+VOODOO XP are running in parallel on the workstation and all
+frame processing is fully synchronized using another controller
+thread. Note that user 1 sees the face of user 2, so the avatar creation,
+animation, and rendering on user 1’s side, should be for the avatar of
+user 2. Hence, our system transfers user 2’s avatar input photo first
+onto the system of user 1, and vice versa, before communication
+happens. While the rendering of user 2’s avatar occurs on user
+1’s side, it uses the head pose of user 1 as the camera view pose
+during reenactment. Consequently, the inverse head pose of user
+2 is multiplied by the head pose of user 1 on user 1’s system. We
+denote this step as head and camera pose fusion in Fig. 5. Finally, the
+combined head poses are used as input for novel view generation,
+combined with the frontalized driver video for both left and right
+eye cameras, into our VOODOO XP head reenactment framework.
+The stereoscopic neural renderings are then fed back into the same
+local Unity scene instance and rendered into VR HMD accordingly
+as synchronized stereoscopic video textures via Meta XR Simulator.
+Our immersive communication is extremely low bandwidth and
+low latency, as we only need to transmit 63 facial blendshape values,
+based on Facial Action Coding System [Ekman and Friesen 1978]
+(FACS), 4 signals for eye gaze angles, and 6DoF head pose parameters
+between users, as all the neural rendering of the opposite user
+happens on each person’s system locally.
+Generic Driver Rig. In contrast to our base VOODOO XP system,
+which can process driver input frames of arbitrary subjects in un-
+constrained settings and head poses, we use a generic avatar head
+model for our VR application, with expressions compatible with
+Meta’s Movement SDK and use a frontalized view as it maximizes
+the visibility of expressions independently of the user’s head pose.
+We adopted the shape and mesh topology of the generic head model
+from Pinscreen’s AvatarNeo SDK [Pinscreen 2024] and transferred
+FACS-based [Ekman and Friesen 1978] facial expressions from the
+Meta Movement SDk’s Aura character. Our model consists of 13K
+vertices for the face, 4K vertices for the mouth interior (gum, teeth,
+tongue), and 3K vertices for the eyes.
+To build the facial expression blendshapes for our generic head
+model, we first warp our generic head model to the Auro neutral face
+mesh to establish one-to-one correspondences between meshes with
+different mesh topologies using a non-rigid registration algorithm
+based on [Li et al. 2009]. A deformation transfer technique [Sumner
+and Popović 2004] is then used to transfer facial expressions from
+the Aura face model back to our generic head model. We transfer all
+273 facial blendshapes as well as 28 additional blendshapes of the
+mouth interior model (gum, teeth, and tongue) from Aura’s model,
+and combine all of them into 63 linear blendshapes for the headset
+tracking. A skilled digital artist refined all facial blendshapes via 3D
+sculpting and real-world FACS expression references corresponding
+to Meta’s movement SDK guideline, to ensure expressive and natural
+movements as not all facial expressions of Aura are ideal. This
+process is only done once as we are using the same generic head
+model for each driver.
+5
+EXPERIMENTS
+5.1
+Benchmark Dataset
+Existing datasets commonly used for benchmarking [Karras et al.
+2018; Zhang et al. 2021] lack pose diversity, since most faces in them
+are frontal. In addition, they do not cover a wide range of facial
+expressions. In this work, we propose a new evaluation dataset
+for facial reenactment that covers a wide range of different poses,
+
+
+10
+•
+Tran et al.
+Pose coverage
+Expression coverage
+Fig. 6. Our evaluation dataset covers a wide range of poses, expressions,
+genders, accessories, and ethnicities
+expressions, and ethnicities. To this end, we capture video data
+of 17 different subjects. For each subject, we record five different
+scenarios: normal conversation, extreme pose rotation, mild pose
+rotation, and extreme expression with random poses. We also take
+into account many different accessories, e.g., hijab, sunglasses, or
+eyeglasses. This resulted in 102 videos totaling more than 137,000
+frames. We filter out similar frames by performing a clustering of
+200 centers based on each frame’s facial landmarks and then pick 200
+frames that have the closest landmarks to each center. This reduced
+the number of frames to 20,400 which we used for the evaluation.
+The examples from our dataset can be seen in Fig. 6.
+For the self-reenactment task, we use the first frame of each video
+as the source and the rest as the driver. For the cross-reenactment
+task, we also use the first frame of the videos as the source but the
+drivers are frames of another video with different identities.
+5.2
+Baseline Comparison
+We compare our method against the following one-shot neural head
+avatar systems: EMOPortraits [Drobyshev et al. 2024], GOHA [Li
+et al. 2023a], Portrait4D [Deng et al. 2024b], Portrait4D-v2 [Deng
+et al. 2024a], and VOODOO 3D [Tran et al. 2024].
+EMOPortraits [Drobyshev et al. 2024] is a 2D avatar synthesis
+method that models extreme expressions via latent vectors of low
+dimensionality. The latter are learned in a self-supervised fashion
+from the in-the-wild video data.
+GOHA [Li et al. 2023a] represents the subject’s expression using
+a 3DMM [Blanz and Vetter 1999] parametric model. Their method
+employs a pre-trained expression extractor [Deng et al. 2019b] that
+learns to predict facial shape and texture blendshapes from in-the-
+wild data using photometric supervision. These expressions are
+then imposed onto a tri-plane representation of the face [Chan et al.
+2022] by predicting its residual.
+Portrait4D [Deng et al. 2024b] and Portrait4D-v2 (denoted as
+P4D-v2) both leverage a pre-trained 3D human face generation
+model called GenHead that combines a modified EG3D [Chan et al.
+2022] pipeline with explicit conditioning on the FLAME [Li et al.
+2017] head pose and expression parameters. The authors leverage
+GenHead to generate a synthetic dataset used to train a 3D avatar
+system conditioned on a source image identity and a driver image
+expression. To encode the expression from the driver image while
+preserving the disentanglement between the identity and expression,
+they rely on a pre-trained expression extractor [Wang et al. 2022a]
+which is supervised using audio and keypoint-based data and thus
+does not contain identity-specific information.
+VOODOO 3D [Tran et al. 2024] also leverages a pre-trained
+generative model for human faces. In this work, similarly to ours,
+the authors use the EG3D [Chan et al. 2022] generator to train a 3D
+lifting network, following the approach of Live 3D Portraits [Ye et al.
+2024]. VOODOO 3D then uses an expression estimation procedure
+that modifies the 3D-lifted representation and is learned directly
+from in-the-wild data.
+5.3
+Qualitative Evaluation of Cross-Reenactment
+We conduct the evaluation using both in-the-wild and studio data.
+For the in-the-wild data, we use a set of celebrities with diverse
+ethnicities, poses, and expressions.
+The qualitative comparison results are presented in Figs. 7 and 8,
+more examples for our method with the novel-view synthesis eval-
+uation in Fig. 9, and few-shot fine-tuning results in Fig. 10. For
+EMOPortraits, we showcase performance only in extreme cases,
+as this method is 2D and is not designed for the 3D novel-view
+synthesis task.
+First, we notice that most of the baseline methods are capable of
+reenacting simple expressions, such as open mouth, see the fourth
+row of Fig. 7. However, both versions of Portrait4D noticeably strug-
+gle to generate images without artifacts, which are especially visible
+in the region of teeth, and GOHA changes the facial shape. When
+even minor asymmetries are introduced in the mouth or eyebrow
+shapes, such as in the first three rows, it already poses a substantial
+challenge for the base methods. For example, we can see that our
+method can faithfully convey a correct change of the mouth shape,
+see the example in the first row, while GOHA and VOODOO 3D
+simply reenact a smiling face. None of the base methods is also ca-
+pable of reenacting asymmetrically raised eyebrows, see row three.
+Going to the more extreme mouth shape changes in the last four
+rows, we can see most of the base methods completely fail to reflect
+the expression of the driver, while our method manages to reenact
+the faces with high accuracy, especially in the mouth region. Lastly,
+even in the most challenging cases showcased in Fig. 8, i.e., for large
+head rotations and tongue movement, our method still produces
+convincing results. Notice that while VOODOO 3D is also capable
+of realistically synthesizing large head pose movements, it intro-
+duces substantial identity change in the process. It is also worth
+noting that our method can synthesize tongues as well as correct
+eyebrow movements behind glass frames, as well as reconstruct
+view-consistent eyeglasses.

@@ -1,0 +1,973 @@
+Title: GroomGen: A High-Quality Generative Hair Model Using Hierarchical Latent Representations
+
+GroomGen: A High-Quality Generative Hair Model Using Hierarchical
+Latent Representations
+YUXIAO ZHOU, ETH Zurich, Switzerland
+MENGLEI CHAI, Google Inc., United States of America
+ALESSANDRO PEPE, Google Inc., United States of America
+MARKUS GROSS, ETH Zurich, Switzerland
+THABO BEELER, Google Inc., Switzerland
+Fig. 1. Our method is able to automatically generate diverse high-quality hairstyles from random latent vectors.
+Despite recent successes in hair acquisition that fits a high-dimensional
+hair model to a specific input subject, generative hair models, which estab-
+lish general embedding spaces for encoding, editing, and sampling diverse
+hairstyles, are way less explored. In this paper, we present GroomGen, the first
+generative model designed for hair geometry composed of highly-detailed
+dense strands. Our approach is motivated by two key ideas. First, we con-
+struct hair latent spaces covering both individual strands and hairstyles. The
+latent spaces are compact, expressive, and well-constrained for high-quality
+and diverse sampling. Second, we adopt a hierarchical hair representation
+that parameterizes a complete hair model to three levels: single strands,
+sparse guide hairs, and complete dense hairs. This representation is critical
+to the compactness of latent spaces, the robustness of training, and the
+efficiency of inference. Based on this hierarchical latent representation,
+our proposed pipeline consists of a strand-VAE and a hairstyle-VAE that
+encode an individual strand and a set of guide hairs to their respective latent
+spaces, and a hybrid densification step that populates sparse guide hairs to
+a dense hair model. GroomGen not only enables novel hairstyle sampling
+and plausible hairstyle interpolation, but also supports interactive editing
+of complex hairstyles, or can serve as strong data-driven prior for hairstyle
+reconstruction from images. We demonstrate the superiority of our approach
+with qualitative examples of diverse sampled hairstyles and quantitative
+evaluation of generation quality regarding every single component and the
+entire pipeline.
+Authors’ addresses: Yuxiao Zhou, ETH Zurich, Switzerland, yuxiao.zhou@inf.ethz.ch;
+Menglei Chai, Google Inc., United States of America, mengleichai@google.com;
+Alessandro Pepe, Google Inc., United States of America, apepe@google.com; Markus
+Gross, ETH Zurich, Switzerland, grossm@inf.ethz.ch; Thabo Beeler, Google Inc.,
+Switzerland, tbeeler@google.com.
+Additional Key Words and Phrases: Strand-level hair modeling, hairstyle
+generation
+1
+INTRODUCTION
+Hair substantially contributes to a person’s appearance, and we
+frequently change it to express ourselves. As such it plays a critical
+role in depicting not just our physical appearance but also reflecting
+our individuality, mood, and cultural belonging. Hair digitization
+and modeling have recently garnered much attention, highlight-
+ing the exciting potential of creating high-quality hairstyles that
+contribute significantly to the perceived realism of virtual human
+avatars. However, unlike any other parts of ourselves, such as faces,
+bodies, or hands, hair geometry is highly intricate and unstructured,
+making it exceptionally challenging to represent or model.
+Empirically, the complexity of hair arises from two main levels.
+Locally, each individual strand corresponds to a 1D curve embedded
+in 3D space, originating from the scalp, defined by intrinsic proper-
+ties that give rise to diverse curliness or waviness, and modulated
+by external conditions such as gravity. Globally, comprising hun-
+dreds of thousands of hair strands, the overall hairstyle exhibits a
+high-level structure that combines coherency among neighboring
+strands with independent variations on a per-strand basis. Given the
+intricate nature of hair, much of the existing research focuses on hair
+acquisition, which often involves overfitting high-dimensional hair
+representations, typically Euclidean positions of densely sampled
+vertices, to various types of inputs (multi-view images [Beeler et al.
+arXiv:2311.02062v2  [cs.GR]  16 Nov 2023
+
+
+2
+•
+Yuxiao Zhou, Menglei Chai, Alessandro Pepe, Markus Gross, and Thabo Beeler
+2012; Luo et al. 2012; Nam et al. 2019; Winberg et al. 2022; Zhang et al.
+2017], single photos [Chai et al. 2016; Hu et al. 2015], or specialized
+sensors [Herrera et al. 2012]). While high-fidelity reconstruction
+for specific subjects is achieved, without proper parameterization
+that embeds the different hair within a shared compact space, their
+outputs lack the generalization capability necessary to support
+interpolation, manipulation, or novel hairstyle synthesis.
+On the other hand, generative hair models, the main focus of
+this work, remain relatively unexplored. The pioneering work on
+hair geometry synthesis [Wang et al. 2009] proposes a 2D hair
+embedding that can generate new hairstyles from given exemplars
+through texture synthesis. However, due to the inherent limitations
+of explicit strand geometry encoding and homogeneous texture
+synthesis, this approach can only handle short to medium-length
+hair with uniform styles. More recently, Volumetric Hair VAE [Saito
+et al. 2018] demonstrates the potential of generating novel hairstyles
+by interpolating existing ones in a latent volume space. However,
+the combination of volumetric flow field and post-processing strand
+tracing often results in over-smoothed geometry with limited strand-
+level detail and inter-strand variation. The objective of our work is to
+develop a novel architecture for strand-level hair generation, capable
+of synthesizing diverse hairstyles with high-quality dense geometry
+in a computation- and memory-efficient manner. To this end, we
+aim to establish a new hair representation that is highly compact
+and efficient, capable of capturing common hairstyles through a
+shared parameterization, and expressive enough to encompass both
+global structural characteristics and local fine details.
+We introduce GroomGen, a generative model for diverse and high-
+quality hairstyle synthesis. Our method is rooted in a hierarchical
+hair representation, inspired by the conventional practice of guide-
+hair-based authoring in visual effects. We represent a hairstyle
+using three levels of abstraction: strand latent codes for individual
+strands, low-resolution latent-maps for sparse guide hairs, and high-
+resolution strand-maps for dense hairstyles. This hierarchy not
+only achieves significant compression, robust training, and efficient
+inference without compromising expressiveness, but also establishes
+a versatile multi-level embedding space for sampling diverse and
+valid hairstyles. Based on this hierarchical representation, we design
+the entire hair generation pipeline as three major components:
+(1) At the single strand level, we employ a strand variational
+autoencoder (strand-VAE) to establish a low-dimensional
+latent space for encoding diverse strand geometry.
+(2) Building upon the strand latent space, our hairstyle vari-
+ational autoencoder (hairstyle-VAE) encodes the sparsely-
+sampled guide hairs into a hairstyle feature vector.
+(3) To generate dense hair from sparse guide strands, we pro-
+pose a GAN-based neural upsampler that synthesizes high-
+resolution hair geometry, followed by a heuristic refinement
+step that allows user control for customizing details.
+Our compact model possesses the capability to represent and
+generate diverse hairstyles with high visual fidelity. This versatility
+makes it useful for a wide range of applications, such as simu-
+lation, generating training data for downstream models through
+(un)conditional sampling, serving as a powerful prior for robust
+image-based hair reconstruction, and facilitating rapid hairstyle
+creation and exploration for artists.
+2
+RELATED WORK
+Strand Representation of Hairs. A common approach to represent
+a hair model is by using a collection of hair strands, where each
+strand is defined as a polyline consisting of tens or hundreds of
+vertices. While this representation is intuitive and expressive, it
+often becomes heavy and redundant. To address this issue, pre-
+vious works such as [Bertails et al. 2006, 2005] propose to use
+the super-helix as a compact approximation of hair strands. This
+representation requires only a few parameters per strand, but the
+resulting reconstruction is typically over-smoothed. In the recent
+work by [Rosu et al. 2022], neural representations of hair strands
+are explored. The authors adopt the modulated sine network struc-
+ture [Mehta et al. 2021] to map a strand into a low-dimensional latent
+space, achieving superior reconstruction results. In organizing the
+strands of a hair model, many previous works [Lyu et al. 2022; Rosu
+et al. 2022; Zhou et al. 2018] opt to parameterize the scalp area
+using UV unwrapping and assign strands to corresponding pixels.
+While such a UV-mapping representation facilitates the exploitation
+of spatial adjacency among strands, due to the huge number of
+hair strands, a high-resolution UV map is often required, resulting
+in significant computational costs. Taking advantage of the local
+similarity of human hairs, other works [Chai et al. 2014, 2017; Guan
+et al. 2012] propose to use a set of sparse guide strands as proxies for
+all hairs, leading to more efficient simulation, which is a common
+practice in the industry. In this paper, we choose to utilize the
+strand-based representation for its fidelity and flexibility. We follow
+the convention of using guide hairs to represent hairstyles, which
+helps reduce the computational and memory overhead compared to
+representing individual strands directly.
+Volumetric Representation of Hairs. An alternative approach to
+representing a hair model is through volumetric representation,
+where the entire hair volume is voxelized, and each voxel contains
+information about the growth direction and other properties of the
+hairs within it. This voxelized representation often organizes the
+free-growing hairs into regular groups, making the hair structure
+easier to capture. Although impressive results [Kuang et al. 2022;
+Saito et al. 2018; Wang et al. 2022; Wu et al. 2022; Yang et al. 2019]
+have been achieved, the expressiveness of volumetric representa-
+tions is inherently limited by the granularity of the discretization.
+The in-voxel fusion process inevitably leads to over-smoothed re-
+sults, especially when dealing with curly hair or instances where hair
+strands cross each other within the same voxel. Furthermore, the
+use of volumetric representation can be computationally expensive,
+particularly when dealing with large volumes of long hairstyles.
+Hair Acquisition. Hair capturing is an active and evolving re-
+search area. While a few previous works [Herrera et al. 2012; Jakob
+et al. 2009] seek to capture hair geometry with specialized devices,
+most existing methods for hair capturing rely on consumer-grade
+single- or multi-view cameras [Paris et al. 2004, 2008; Wei et al.
+2005]. Static hair reconstruction techniques [Beeler et al. 2012; Chai
+
+
+GroomGen: A High-Quality Generative Hair Model Using Hierarchical Latent Representations
+•
+3
+et al. 2013, 2012; Luo et al. 2013; Nam et al. 2019; Olszewski et al.
+2020; Sun et al. 2021; Winberg et al. 2022; Zheng et al. 2023] aim to
+reconstruct 2D and 3D hair curves based on single-view visual cues
+and multi-view correspondences. The work of [Shen et al. 2021]
+seeks to infer hair geometry from user sketches. In addition, dynamic
+capturing methods [Hu et al. 2017; Xu et al. 2014; Zhang et al.
+2012] take temporal consistency into consideration. Although these
+model-free methods demonstrate impressive results, they tend to be
+fragile in challenging cases and unconstrained environments due to
+the thin strand geometry, occlusion between strands, and complex
+hairstyle configurations. To enhance robustness, recent works have
+introduced prior models as constraints. Some approaches [Chai
+et al. 2015; Hu et al. 2014] employ geometric primitives as con-
+straints for individual hairs during capturing, while others utilize
+hairstyle databases [Chai et al. 2016; Hu et al. 2015; Liang et al. 2018]
+for initialization and guidance, largely improving reconstruction
+quality and stability. Furthermore, with the advancements in deep
+learning, neural approaches have emerged as the new state-of-the-
+art. For instance, the work of [Zhou et al. 2018] captures hair from
+monocular images by extracting hairstyle features using convolution
+neural networks. The work of [Rosu et al. 2022] combines multi-
+view reconstruction with neural descriptors to achieve photorealistic
+telepresence. In addition to strand-based representations, volumetric
+methods [Kuang et al. 2022; Luo et al. 2012; Saito et al. 2018; Wu
+et al. 2022; Yang et al. 2019] also have made significant progress
+in capturing both static and dynamic hair. These works aim to
+provide reliable priors for robust and high-quality hair acquisition,
+presenting a potential application of our research.
+Hair Generation. Compared to hair acquisition, generative hair
+models are relatively unexplored. A heuristic example-based method
+for hair generation is proposed by [Ren et al. 2021], which is largely
+limited by the reference hair models. Variational autoencoder (VAE)
+[Kingma and Welling 2014] is widely recognized as one prevalent
+generative architecture. In the context of hair modeling with vol-
+umetric representation, the work of [Saito et al. 2018] proposes
+the utilization of VAEs. However, VAEs often suffer from over-
+smoothness issues despite their extensive examination for data
+embedding. Generative adversarial networks (GAN) [Goodfellow
+et al. 2014] have also demonstrated remarkable results in image
+generation [Karras et al. 2019; Radford et al. 2016]. By incorporating
+the perceptual discriminator loss, GANs are particularly effective in
+recovering fine detail with weak supervision. For our specific task,
+we employ both VAEs and GANs, where two VAE models encode
+individual strands and overall hairstyles, while another GAN model
+is adopted for detail restoration.
+3
+METHOD
+In this section, we present our comprehensive pipeline for hairstyle
+generation, tailored specifically for strand-based hair models. Our
+algorithm operates on three hierarchical levels of human hair: indi-
+vidual strands, sparse guide strands, and the complete hair model
+with dense hair strands. Accordingly, we design three components
+for each hierarchical level in hairstyle generation: 1) At the single
+strand level, our strand variational autoencoder (strand-VAE) estab-
+lishes a low-dimensional latent space for encoding strands (Sec. 3.1).
+Fig. 2. We build a hierarchical representation of human hairstyles. To
+generate a hair model, we first draw a random vector from the Normal
+distribution in the hairstyle latent space. The vector is decoded by the
+hairstyle-VAE to get a low-resolution latent-map, which corresponds to
+sparse guide strands. Finally, the neural upsampler synthesizes dense hair
+strands from the sparse guide strands, which are further refined heuristically
+based on user specification.
+2) Building upon the strand latent space, a hairstyle variational au-
+toencoder (hairstyle-VAE) further encodes a hair model, represented
+by a collection of sparsely-sampled guide strands, into a feature
+vector (Sec. 3.3). 3) A hybrid densification step consisting of a neural
+upsampler (Sec. 3.4) and a heuristic refiner (Sec. 3.5) synthesizes
+the full hair style from the sparse guides. By connecting all these
+components together, our pipeline provides a complete framework
+for hair model generation. The overall structure of the pipeline is
+illustrated in Fig. 2.
+3.1
+Strand Latent Space
+Our strand-VAE module performs the encoding of individual strands,
+transforming their Euclidean coordinates into a low-dimensional
+strand-wise latent space. This latent space serves as the foundation
+for guide strand generation and quasi-static simulation. Compared
+to raw Euclidean coordinates, our latent encoding is better regu-
+larized to a more constrained distribution of valid strands, without
+sacrificing strand-level geometric details, coherency among strands,
+or the overall diversity of the generated hairstyle.
+Typically, a strand is represented as a polyline consisting of
+𝑁𝑠uniformly sampled points. Previous work [Rosu et al. 2022]
+constructs a latent space based on this polyline representation.
+However, we observe that representing strands in the original Eu-
+clidean space often has a significant negative impact on the structure
+preservation of the resulting latent space, leading to over-smoothed
+hair generation. To better retain strand-level details like curliness,
+we parameterize the strands in the frequency domain using the dis-
+crete Fourier transform (DFT), and establish the strand latent space
+based on this frequency representation. As elaborated in Sec. 4.3,
+this frequency latent space aligns better with human perception
+compared to the spatial latent space.
+
+
+4
+•
+Yuxiao Zhou, Menglei Chai, Alessandro Pepe, Markus Gross, and Thabo Beeler
+Formally, in the Euclidean spatial domain, a strand is originally
+represented as a polyline with 𝑁𝑠points: S = {𝒑1, 𝒑2, . . . , 𝒑𝑁𝑠} ∈
+R𝑁𝑠×3 (𝑁𝑠= 100 in our case). We first compute the gradients as ¯S =
+{𝒅1, 𝒅2, . . . , 𝒅𝑁𝑠−1} ∈R(𝑁𝑠−1)×3 with the gradient displacement
+𝒅𝑖= 𝒑𝑖+1 −𝒑𝑖, and then equally divide the entire strand into
+𝑁𝑔non-overlapping segments: ¯S𝑖= {𝒅𝑖𝑘, 𝒅𝑖𝑘+1, . . . , 𝒅𝑖𝑘+𝑘−1},𝑖∈
+{1, 2, ..., 𝑁𝑔} with 𝑘= ⌈(𝑁𝑠−1)/𝑁𝑔⌉denoting the segment size. The
+strands are segmented to allow for varying shape statistics along
+the strand. In all our experiments, we set 𝑁𝑔= 3. For each segment,
+we apply the DFT along 𝑥,𝑦,𝑧axes separately with respect to vertex
+indices, obtaining coefficients of Fourier bases F 𝑎
+𝑖
+∈C𝑓, with
+𝑎∈{x, y, z} referring to the axes and 𝑓= ⌊𝑘/2⌋+ 1 representing the
+number of frequency bands. Instead of using F directly, we further
+decompose it into three parts by taking their physical meanings
+into consideration: F𝐴= abs(F ) ∈R𝑓, Fcos = real( F
+F𝐴) ∈R𝑓, and
+Fsin = img( F
+F𝐴) ∈R𝑓, where abs(·), real(·), and img(·) refer to the
+absolute value, real part, and imaginary part of a complex number.
+Here, F𝐴describes the amplitude of each frequency, intuitively
+the significance of the strand’s curliness and length; Fcos and Fsin
+together describe the phase of the curves. We encode the phase as
+vector (Fcos, Fsin) instead of a scalar phase angle to avoid issues
+with periodicity. Concatenating F𝐴, Fcos, and Fsin for all segments
+and axes, we obtain a vector V, namely the frequency code, of
+𝑁𝑔× 𝑓× 3 × 3 = 459 dimensions, to represent a strand in the
+frequency domain.
+Our strand-VAE takes V as both the input and reconstruction
+target. The employed training loss terms include: L1 loss LA for the
+amplitude coefficients FA; L1 loss LP for the phase coefficients Fcos
+and Fsin; and KL divergence loss L𝑠
+𝐾𝐿with weight 𝜆𝑠
+𝐾𝐿= 10−4:
+L𝑠= LA + LP + 𝜆𝑠
+𝐾𝐿L𝑠
+𝐾𝐿.
+(1)
+Since the phases of the high-amplitude components play a more
+crucial role, the phase loss LP on each frequency is weighted by the
+corresponding ground truth amplitude ˆFA:
+LP =
+𝑓∑︁
+𝑖=1
+¯F 𝑖
+A ∗(|F 𝑖
+sin −ˆF 𝑖
+sin| + |F 𝑖
+cos −ˆF 𝑖
+cos|),
+(2)
+¯F 𝑖
+A =
+ˆF 𝑖
+A
+Í𝑓
+𝑗=1 ˆF 𝑗
+A
+.
+(3)
+Here, ˆ· denotes the ground truth values and ¯F 𝑖
+A represents the
+normalized weight for each frequency band 𝑖. The summation over
+the axes and segments is omitted here for conciseness.
+The encoder of the strand-VAE consists of a fully-connected
+network with 7 layers. Except the input and output layers, each
+layer has 1024 hidden units with batch normalization [Ioffe and
+Szegedy 2015] and residual connection [He et al. 2016]. It takes
+the individual strand representation V as input and compresses
+it into a latent code 𝒍∈R𝐷𝑠. We use 𝐷𝑠= 64 in our experiments,
+resulting in a compression rate of 21.5%. On the other hand, the
+decoder follows the modulated sine network structure [Mehta et al.
+2021] with 6 layers and 1024 hidden units. Given a latent code 𝒍, the
+decoder generates the vector V, which can then be converted back
+to Euclidean coordinates S, with the additional input of the root
+position 𝒑1 pre-defined on the scalp.
+Fig. 3. Illustration of our scalp parameterization (left) and latent-maps with
+baldness (right). Visualized using selected 3 axes of the strand latent codes.
+3.2
+Scalp Space Hairstyle Parameterization
+We now introduce our representation of hairstyles. Similar to prior
+works [Lyu et al. 2022; Rosu et al. 2022; Wang et al. 2009; Zhou
+et al. 2018], we define the 2D parameterization of hairs on the scalp
+surface as a regular UV map, as illustrated in Fig. 3. The strand
+representations are embedded into the UV map at the positions
+corresponding to their roots on the scalp. When the strands are
+represented by frequency codes V, the corresponding UV map is
+referred to as a strand-map; when the strands are represented by
+their latent codes, the UV map is called a latent-map. These two
+maps can be mutually converted using the strand-VAE.
+In our pipeline, we employ two different resolutions for the latent-
+maps: 24 × 32 (referred to as a low-resolution map where 1 pixel has
+side length 1.0−2.9cm) and 216×288 (referred to as a high-resolution
+map where 1 pixel has side length 0.1 −0.3cm). As not all texels
+are used, the low-resolution maps usually accommodate around
+300 hairs, while the high-resolution ones contain around 25K hairs.
+Initially, we generate a low-resolution latent-map that corresponds
+to sparse guide strands, and then adopt a hybrid densification step
+to generate dense hair strands from the guide strands. This design
+choice is motivated by the observation of high redundancy in dense
+hairs due to the local coherency of nearby strands. Compared to
+directly using high-resolution latent-maps (256 × 256 in [Rosu et al.
+2022] and 128 × 128 in [Lyu et al. 2022]), our intermediate repre-
+sentation enables better convergence during training and higher
+computational efficiency during inference. This design also aligns
+with the common CG practice of using sparse guide strands to model
+and control the global hairstyle structure before densification.
+Additionally, to ensure generalizability to a broader range of
+hairstyles, we incorporate baldness as part of the hairstyle. Baldness
+is defined by an additional binary mask, referred to as a baldness-
+map within the scalp space, as depicted in Fig. 3.
+3.3
+Hairstyle Latent Space
+Based on the scalp space parameterization, our hairstyle-VAE learns
+to generate whole hairstyles utilizing the VAE framework. The input
+and reconstruction target for the hairstyle-VAE consist of both the
+low-resolution latent-map M𝑙∈R𝑤𝑀×ℎ𝑀×𝐷𝑠and the baldness-
+map M𝑏∈R𝑤𝑀×ℎ𝑀, where 𝑤𝑀and ℎ𝑀represent the width and
+height of both maps. Within the hairstyle-VAE, the encoder projects
+the latent-map M = {M𝑙, M𝑏} into a single latent vector 𝒉∈R𝐷ℎ
+
+
+GroomGen: A High-Quality Generative Hair Model Using Hierarchical Latent Representations
+•
+5
+(we set 𝐷ℎ= 512, resulting in a compression rate of 99%), and
+the decoder takes the latent vector 𝒉as input to reconstruct the
+corresponding latent-map. The training objective is defined as:
+Lℎ= LM𝑙
+rec + LM𝑏
+rec + 𝜆ℎ
+𝐾𝐿Lℎ
+𝐾𝐿,
+(4)
+where LM𝑙
+rec and LM𝑏
+rec are the L1 reconstruction losses for latent-
+map M𝑙and baldness-map M𝑏, and Lℎ
+𝐾𝐿is the KL divergence loss
+with weight 𝜆ℎ
+𝐾𝐿= 0.01.
+Our hairstyle-VAE utilizes a concise network architecture. The
+encoder part consists of a total of 12 convolutional layers, incorpo-
+rating residual connections. Similarly, the decoder is symmetric to
+the encoder and employs transposed convolutions for upsampling.
+Please see Appendix D for detailed network structures.
+3.4
+Neural Upsampling
+The hairstyle-VAE produces a low-resolution latent-map that rep-
+resents sparse guide strands. To further generate a complete hair
+model with around 150K strands, we then employ a hybrid densifi-
+cation process involving two steps: upsampling and refinement. The
+upsampling step outputs a high-resolution strand-map with 25K
+hairs, and the refinement step additionally populates the strands by
+6 times.
+We emphasize that an end-to-end model is less suitable here
+because the mapping from sparse guide strands to dense hair strands
+is one-to-many, and the user’s involvement is often necessary to
+resolve the ambiguity. Our two-step hybrid approach strikes a
+balance between simplicity and controllability. In the first step, our
+novel neural upsampler automatically populates the strands based
+on the guide strands. In the second step, users are allowed to refine
+the high-frequency details, providing control over the final results.
+In this section, we will introduce the first step of neural upsampling,
+while the second step will be elaborated in Sec. 3.5.
+In the upsampling step, we aim to estimate a high-resolution
+strand-map from a low-resolution one where pixels contain fre-
+quency representations F of guide strands. The low-resolution
+strand-map is obtained by decoding the output of the hairstyle-VAE
+with the strand-VAE. Analogous to image upsampling, we assume
+that each dense strand can be viewed as a linear interpolation of its
+four neighboring guide strands. Consequently, the task simplifies
+to estimating the interpolation weights of the guide strands at
+each position. Trivial interpolation methods are inadequate for
+this task due to the significant variation in local smoothness ob-
+served in human hairstyles. Bilinear interpolation, for example,
+smooths out sharp parting lines and result in hair-head penetration,
+while nearest-neighbor interpolation exhibits aliasing artifacts (as
+depicted in Fig. 4). Therefore, spatially varying interpolation is often
+preferred, but determining an effective interpolation strategy a priori
+is challenging. While the industry relies on intensive manual design
+for this purpose, we introduce a neural upsampler to automate the
+process and ensure realism.
+The input of the neural upsampler is a high-resolution multi-
+channel feature map that describes the guide strands distribution.
+At each pixel, the feature vector is formed by concatenating the low-
+frequency components of its four neighboring guide strands, their
+Fig. 4. Illustration of interpolating near a parting line. (1) shows the source
+low-resolution strand-map where red and green represent strands growing
+in opposite directions and the dashed line is the expected parting line. The
+ideal interpolation is (2) where the parting line is sharp while other regions
+are smooth. The nearest-neighbor interpolation in (3) has aliasing artifacts.
+The bilinear interpolation in (4) smooths out the parting line and the strands
+may even penetrate the head mesh.
+bilinear interpolation, and the distances to the guides. Only the low-
+frequency components are considered, with a cut-off frequency
+set to 𝑓𝑙= 8. This choice is made because the high-frequency
+details have less significance in the interpolation process and will be
+refined later on. The output of the neural upsampler is a 5-channel
+weight-map, where the first 4 channels represent the weights for
+the four neighboring guide strands, and the last channel represents
+the weight for the bilinear interpolation of the guide strands. At
+inference, each strand 𝑌on the interpolated high-resolution map is
+computed as 𝑌= 𝑎1𝑋1 + 𝑎2𝑋2 + 𝑎3𝑋3 + 𝑎4𝑋4 + 𝑎5B(𝑋1,𝑋2,𝑋3,𝑋4),
+where {𝑎𝑖} represent the predicted weights, {𝑋𝑖} represent the
+neighboring guide hairs from the low-resolution map, and B(·)
+denotes the bilinear interpolation of guide hairs at the position of 𝑌.
+The bilinear interpolation is an effective shortcut because oftentimes
+it already provides a solution close to the optimal one.
+The neural upsampler is trained in an adversarial framework
+(GAN) [Goodfellow et al. 2014] for two reasons: First, dense hair
+interpolation is not a deterministic task and there is no unique
+ground truth; Second, for dense hairstyles, it is more reasonable
+to perceptually evaluate the hair model as a whole rather than
+enforcing per-strand supervision. We devise the neural upsampler
+as a 12-layer convolutional network with residual connections and
+instance normalization [Ulyanov et al. 2016], and use a large kernel
+size of 13 to perceive more spatial information in this high-resolution
+setting (more details in Appendix D). The discriminator has the same
+structure as the generator, except that its input is the interpolated
+high-resolution strand-map and its output is a score map. The
+loss function follows the Wasserstein loss [Arjovsky et al. 2017].
+Denoting the neural upsampler as 𝐺and the discriminator as 𝐷, the
+loss function for the discriminator is:
+L𝐷= 𝐷(H) −𝐷(X) + 𝐷(H)2 + 𝐷(X)2,
+(5)
+where X is a real strand-map from the dataset and H is a generated
+one. 𝐷(H)2 and 𝐷(X)2 are regularization terms that prevent 𝐷(H)
+and 𝐷(X) from being numerically too large. The loss function for
+the generator is:
+L𝐺= −𝐷(H) + 𝜆𝐺(Lbl
+𝐺+ Lg
+𝐺+ Lsum
+𝐺
+).
+(6)
+Denoting the 5-channel interpolation weights estimated by 𝐺as W,
+Lbl
+𝐺= |W5 −1| biases the weight of bilinear interpolation (channel
+5) towards 1, Lg
+𝐺= Í4
+𝑖=1 |W𝑖| regularizes the weights of each guide
+
+
+6
+•
+Yuxiao Zhou, Menglei Chai, Alessandro Pepe, Markus Gross, and Thabo Beeler
+towards 0, and Lsum
+𝐺
+= | Í5
+𝑖=1 W𝑖−1| softly normalizes the weights.
+The regularization weight 𝜆𝐺is set to 0.1.
+3.5
+Heuristic Refinement
+The high-resolution map generated by the neural upsampler con-
+tains 25K strands, which is still fewer than normal human hairs. To
+further enhance the quantity and quality of the dense strands, we
+introduce a heuristic refinement step that increases the number of
+hairs to 150K with fine details. In this step, we provide the user with
+creative semantic control over the final appearance. This step can
+also be fully automatic with fixed or randomized parameters if a
+hands-off approach is preferred, e.g. for large scale data generation.
+We start by addressing penetrations (detailed in Appendix C) and
+perturbing the frequency representation F with random noise to
+increase variation. The scale of the noise can be specified by the
+user, allowing for the creation of regular or messy hairstyles. Next,
+we perform wisp formation in the Euclidean spatial domain. The
+user may specify two parameters: the number of wisps 𝑤and the
+stickiness 𝑠to control the clustering of hairs. We adopt k-means
+clustering to identify 𝑤wisp clusters, and then guide each strand
+towards the center of its corresponding cluster:
+𝛿𝑖=
+𝑠· min(1, 𝑙𝑖¯𝑙)
+max(1,𝑑2
+𝑖)
++
+𝑖−1
+∑︁
+𝑘=1
+𝛿𝑘.
+(7)
+We denote the vertex index as 𝑖, where 𝑖= 1 is the fixed strand
+root with displacement 𝛿1 = 0, and the deformation 𝛿𝑖of other
+vertices is determined by stickiness 𝑠, distance to the center strand
+𝑑𝑖, and length to the strand root 𝑙𝑖. To prevent excessive deformation
+near the root, we empirically set ¯𝑙to 5cm as a threshold. This
+simple deformation strategy can yield practically satisfactory results
+since the neural upsampler provides a good initialization. This wisp
+formation is skipped when 𝑤= 0 or 𝑠= 0. Finally, as the raw output
+of the neural upsampler only contains 25𝐾strands, we duplicate
+all strands 6 times with small variations in the frequency domain
+again. This allows us to increase the total strand number of the final
+model to 150𝐾, further enhancing its density and realism.
+4
+EXPERIMENTS AND APPLICATIONS
+Extensive experiments are conducted to validate the effectiveness
+of our hair generation pipeline. In Sec. 4.1, we introduce the dataset,
+training procedure, and system runtime. In Sec. 4.2, we evaluate
+each main component of our method. We present ablation studies to
+justify the major technical choices in Sec. 4.3. Finally, in Sec. 4.4, we
+introduce a quasi-static neural hair simulator as one downstream
+application of our model.
+4.1
+Datasets, Training, and Runtime
+The model is trained and evaluated on an artist-created hairstyle
+dataset, referred to as GroomHair, which comprises diverse hairstyles
+with fine-grained variations. To create the dataset, the artists first
+identified 35 base hairstyle categories, encompassing a wide range
+of styles such as buzz, bobby, pixie, wavy, afro, and more (see
+Appendix F for the complete list). For each category, the artists
+Table 1. Runtime and number of parameters of the modules. Our system
+achieves real-time performance for generation, editing, and simulating up
+to 500 strands before densification.
+component runtime (ms)
+# params.
+# strands
+1
+300
+500
+150K
+strand-VAE
+1.90
+14.9
+23.5
+7670
+10.59M
+neural simulator
+3.26
+4.58
+4.77
+1330
+32.74M
+hairstyle-VAE
+3.42
+83.65M
+neural upsampler
+281
+11.22M
+utilize Houdini ∗to create a recipe that defines the desired hairstyles
+and generate a series of fine-grained variations (50 −400 depending
+on the hairstyle) of the same category using different parameters.
+In some categories, baldness is also modeled, which corresponds
+to the baldness-map used by the hairstyle-VAE. The final dataset
+contains 7712 data samples, each representing a specific hair model
+with approximately 150K strands. We randomly split the entire
+dataset into 6940 training samples and 772 test samples. The training
+samples are further augmented by horizontal mirroring.
+We first train our strand-VAE model using the GroomHair dataset.
+Subsequently, we fix the strand-VAE model and use it to process the
+hair models in GroomHair to obtain the training and testing data
+for the hairstyle-VAE.
+The strand-VAE and hairstyle-VAE are both trained using the
+Adam [Kingma and Ba 2015] optimizer with an initial learning rate
+of 10−3, which is reduced by a factor of 0.1 whenever the training
+loss ceases to improve. The training process continues until the
+learning rate reaches 10−6. The neural upsampler is also trained
+using the Adam optimizer but with a fixed learning rate of 10−4 for
+a total of 105K iterations (around 27 epochs).
+We evaluate the runtime performance of each module on a PC
+equipped with an Intel Core i9-11900KF CPU and an NVIDIA A100
+40GB GPU. The results are summarized in Tab. 1. It is noteworthy
+that the runtime measurements for the strand-VAE and hairstyle-
+VAE only include the decoder parts of the networks. Our system
+exhibits real-time performance, achieving more than 30 FPS for
+the generation and simulation of 300 −500 guide strands, which
+is a common quantity in hairstyle authoring. Users can edit the
+hairstyle by either tweaking the hairstyle code in the latent space
+or modifying the guide strands in the Euclidean space interactively.
+The heuristic refinement step typically takes 10 −15 seconds, and
+the optional penetration correction step takes 30 −55 seconds.
+4.2
+Evaluation
+In this section, we provide a comprehensive assessment of the
+components of our system in a bottom-up order. First, we evaluate
+the performance of the strand-VAE in encoding individual strands
+into the strand latent space. Next, we assess the hairstyle-VAE in
+embedding a given hair model into the hairstyle latent space, as
+well as generating hair models from this latent space. Finally, we
+demonstrate how the densification step effectively produces realistic
+dense hairs from sparse guide strands.
+∗https://www.sidefx.com/products/houdini/
+
+
+GroomGen: A High-Quality Generative Hair Model Using Hierarchical Latent Representations
+•
+7
+Table 2. Quantitative metrics of the strand-VAE, hairstyle-VAE, and neural
+simulator. The errors are acceptably low.
+strand-VAE
+hairstyle-VAE
+neural simulator
+pos. err.
+1.90mm
+7.26mm
+8.89mm
+loc. err.
+0.15mm
+0.40mm
+0.44mm
+Fig. 5. Reconstruction results of strand-VAE on the test set by encoding
+and decoding each strand. The difference is barely observable. The average
+positional errors for the demonstrated samples are (left to right, top to
+bottom): 1.41mm, 1.13mm, 1.30mm, and 5.08mm.
+We use the following per-strand metrics. Recall that originally
+each hair strand is represented as a polyline S = {𝒑1, 𝒑2, . . . , 𝒑𝑁𝑠}
+and the parent-relative displacement is defined as 𝒅𝑖= 𝒑𝑖+1 −𝒑𝑖.
+Positional error (pos. err.) calculates the mean distance between
+corresponding points of the predicted strands and the ground truth
+(indicated by ˆ·): Í𝑁𝑠
+𝑖
+∥𝒑𝑖−ˆ𝒑𝑖∥/𝑁𝑠. Local position error (loc. err.)
+measures the L2 distance between the gradients of corresponding
+points on the strands, without accumulating errors along the hair:
+Í𝑁𝑠−1
+𝑖
+∥𝒅𝑖−ˆ𝒅𝑖∥/(𝑁𝑠−1). We report these metrics by averaging
+them per hair model and then across the entire test set. This ensures
+that each hair model contributes equally to the final numbers.
+Strand-VAE. We first evaluate the strand-VAE model on the test
+set by measuring the reconstruction error of encoding and decoding
+individual strands. The quantitative results are reported in Tab. 2
+(1st column). The mean reconstruction error is remarkably low,
+measuring only 1.90mm. In Fig. 5 we provide a few examples of
+strand reconstruction from the test set. As demonstrated, the re-
+construction is of high fidelity and the difference is hard to discern.
+These results indicate that the strand-VAE effectively constructs a
+latent space that serves as a solid foundation for subsequent steps.
+Hairstyle-VAE. Next, We evaluate the performance of the hairstyle-
+VAE model by encoding and decoding the entire hair model rep-
+resented as a latent-map. The reconstructed latent-map is then
+decoded by the strand-VAE to obtain hair strands in the Euclidean
+space for visualization and error computation. The resulting recon-
+struction errors are reported in Tab. 2 (2nd column). As encoding
+the entire hair model is generally more challenging, particularly
+in our setting where the hairstyle latent vector utilizes only 0.4%
+parameters of the guide hairs, we observe relatively larger errors
+Fig. 6. Selected results of our hairstyle-VAE on the test set. Hairstyles are
+well-preserved with only 0.4% parameters of the original guide hairs. The
+average positional error for the demonstrated samples are (left to right, top
+to bottom): 8.35mm, 5.65mm, 24.53mm, 12.76mm, 24.61mm, and 20.68mm.
+compared to the strand-VAE. Nevertheless, the average error of 7mm
+remains at an acceptably low level, preserving the overall visual
+appearance of the hairstyle well as can be seen in Fig. 6, even for
+challenging hairstyles (right column) that have not been explored
+in previous works. Additionally, our model accurately reconstructs
+the baldness-map, a component often overlooked in prior work. The
+intersection-over-union (IoU) of the baldness-map on the test set
+measures 97.3% when the threshold is set to 0.8.
+We now present a series of experiments to showcase the capa-
+bility of the hairstyle-VAE in hairstyle generation and authoring.
+Firstly, we demonstrate that the latent space of the hairstyle-VAE
+is sufficiently well-constrained to allow for meaningful hairstyle
+generation by direct random sampling from the Normal distribution,
+as shown in Fig. 7. It is worth emphasizing the high local diversity
+observed in the generated hair styles, where the strands deviate
+from each other frequently, in contrast to previous works where
+nearby strands tend to grow in parallel and become over-smoothed.
+Additionally, we show that hairstyles can also be generated by
+traversing the latent space through interpolation, as shown in Fig. 8.
+Despite the distinct characteristics of the starting and ending hair
+models, the interpolation path in the hairstyle latent space remains
+semantically valid. This demonstrates the flexibility of our model in
+generating new hairstyles with controllable attributes.
+Furthermore, we explore another interesting application of arith-
+metic operations between hairstyles, as shown in Fig. 9. Denoting
+the hairstyle latent vector of column 𝑖as 𝒉𝑖, we compute 𝒉∗=
+𝒉1 −𝒉2 + 𝒉3 and decode 𝒉∗to produce the resulting hair model.
+This simple arithmetic aligns well with human intuition and can
+generate novel hairstyles that do not exist in our dataset.
+The most similar previous work is Volumetric Hair VAE (VHV)
+of [Saito et al. 2018] that learns the latent embedding of hair models
+from volumetric representation. However, a fair comparison is
+
+
+8
+•
+Yuxiao Zhou, Menglei Chai, Alessandro Pepe, Markus Gross, and Thabo Beeler
+Fig. 7. Diverse hairstyles generated by our hairstyle-VAE from random vectors sampled in the hairstyle latent space. We would like to emphasize 1) the
+diversity of hairstyles, which comes from the powerful hairstyle-VAE; 2) high local variety of the hairs, which originates from the well-structured frequency
+strand latent space.
+Fig. 8. Interpolation of hairstyles from left to right in the hairstyle latent
+space. While the start and end hairstyles are distinct, the interpolation
+trajectory is reasonable.
+Fig. 9. Arithmetic between hairstyles: we subtract the hairstyle latent vector
+𝒉of column 2 from column 1 and add the difference to column 3, finally get
+column 4. First row: the differences in curliness and length are successfully
+transferred. Second row: the difference between column 1 and 2 is the fringe,
+which is added to column 3 and gives us column 4. The hairstyles in the last
+column are not in the original dataset.
+challenging due to fundamental differences in tasks (capture vs.
+generation), hair representations (voxels vs. strands), and datasets.
+Table 3. A rough comparison with VHV [Saito et al. 2018]. Our method
+has higher IoU, precision, and recall, which suggests better estimation of
+strand occupancy in the space. Our method has a slightly higher L2 flow
+error because we use a strand-based representation. Notably, ours has a
+much more compact latent space that supports direct random sampling.
+IoU
+Precision
+Recall
+L2 (flow)
+latent dim.
+VHV
+0.8243
+0.8888
+0.9191
+0.2118mm
+6144
+ours
+0.9426
+0.9777
+0.9626
+0.2807mm
+512
+Table 4. Hair-head penetration rate of different interpolation methods.
+Our GAN-based neural upsampler avoids the aliasing artifacts in nearest
+neighbor interpolation but also keeps the parting line sharp, as indicated
+by a very low penetration rate.
+ours
+NN
+BL
+full sup.
+latent pred.
+rate
+1.5‰
+0.0‰
+5.0‰
+2.1‰
+195.5‰
+For a rough comparison, we convert our predicted strands into
+volumetric representations and report the numbers in Tab. 3 (note
+that the test sets differ). The metrics of IoU, precision, and recall
+evaluate the correctness of strand occupancy in the space. While
+our latent space is much more compact than that in VHV, our
+method still outperforms VHV on these metrics. It is noteworthy
+that our method exhibits higher error on the growing flows due to
+the fact that the volumetric representation in VHV fuses growing
+directions within the same voxel, which conflicts with our strand
+representation without any fusion. Furthermore, our model can
+generate hairstyles simply from random sampling, while VHV only
+demonstrates interpolation of given similar hairstyles. Please find
+qualitative comparisons with VHV in Appendix E.
+
+
+GroomGen: A High-Quality Generative Hair Model Using Hierarchical Latent Representations
+•
+9
+Fig. 10. Output from our neural upsampler based on our hairstyle-VAE reconstruction. Our method produces the most natural results, and the weight maps
+(please refer to 4.2 for an explanation) reveal the parting lines correctly. Nearest neighbor (NN) interpolation shows unrealistic abrupt changes between
+patches. Bilinear (BL) interpolation has severe hair-head penetration issues near the parting line.
+Fig. 11. Our results after refinement. Each group is produced from the same output of the neural upsampler. The parameters effectively control the fine details
+without losing realism. Note the complex wisps structures, e.g. row 1 column 5, originates from the generated guide strands with high local variety.
+Hybrid Densification. In the densification step, we utilize our
+neural upsampler to increase the number of strands by upsampling
+low-resolution latent-maps to higher resolution. This is followed by
+a heuristic refinement process with user-defined parameters. Please
+note that all the results presented in this step are based on the
+hairstyle-VAE’s reconstruction and not ground truth guide strands.
+We first evaluate the neural upsampler. In Fig. 10, we show a few
+representative hair models produced by the neural upsampler and
+compare them with alternative methods including nearest-neighbor
+(NN) and bilinear (BL) interpolation in both Euclidean and strand
+latent spaces. To visualize the weight-maps intuitively, we factorize
+the weight for bilinear interpolation into individual guide strands
+and colorize each pixel based on the standard deviation (std) of the
+weights. Larger std values indicate sharp transitions, while smaller
+std values reflect smooth interpolations. The emerging grid-like
+structure illustrates how interpolation is inhibited when close to the
+guides and parting lines, while being smooth otherwise. To make
+artifacts more obvious, we remove all strands that penetrate the
+head mesh. In the first row of Fig. 10, our learned upsampler not only
+preserves the parting line but also avoids aliasing patterns observed
+in the NN interpolation (column 3 & 5). The presence of baldness in
+the bilinear interpolations (column 4 & 6) indicates severe penetra-
+tions when interpolating strands from opposite sides of the parting
+line. In the second row, our estimated parting line correctly ends
+before the fringe. Additionally, we report the percentage of hairs
+that penetrate the head mesh after upsampling in Tab. 4. Our neural
+upsampler stands out with a very low penetration rate, indicating
+that it accurately identifies most hairstyle parting lines. Please see
+Appendix A for more results of the neural upsampler.
+
+
+10
+•
+Yuxiao Zhou, Menglei Chai, Alessandro Pepe, Markus Gross, and Thabo Beeler
+Fig. 12. Averaging two curly strands (column 1, blue strands) based
+on spatial representations (column 2 and 3, magenta strand) results in
+straight strands in both original space and latent space. While frequency
+representation (column 4, magenta strand) preserves the curliness, averaging
+in the latent space (column 5, magenta strand) gives the most natural result.
+Fig. 13. The frequency hairstyle-VAE (ours) achieves significantly better
+local variety while other alternatives with different strand representations
+or latent spaces suffer from over-smoothness.
+In Fig. 11 we demonstrate the final results after the refinement
+step. Each group presents three hair models produced from the
+same output of the neural upsampler but with different user-defined
+parameters. Note that the intricate wisp structures, such as the one
+shown in the first row, fifth column, are rarely seen in previous
+works. The high fidelity of these structures is a result of our strand-
+level representation of hair models in the frequency latent space.
+Please find more results in Appendix A.
+4.3
+Ablation Study
+In this section, we provide justifications for the important technical
+choices made in our approach. We first explain why our frequency
+representation of strands leads to a better latent space compared to
+conventional spatial coordinates. Then, we demonstrate the superi-
+ority of our GAN-based neural upsampler over other alternatives
+for strand-map upsampling. Lastly, we highlight the suitability of
+our hierarchical structure for representing a hair model.
+Strand VAE. Our method begins by constructing a compact latent
+space for strands, which effectively reduces the dimensionality
+while preserving high-fidelity shape information. Among various
+shape features, we consider length and curliness to be the most
+crucial ones. We opt to build the strand latent space in the fre-
+quency domain (frequency latent space), motivated by the fact that
+Table 5. Positional error (pos. err.) and relative messiness (rel. mes.) for
+hairstyle-VAE variants. The unit is millimeter. Our method has better
+reconstruction error and also similar levels of hair messiness as the ground
+truth data. Other models are either over-smooth or less accurate.
+latent space
+original space
+freq. (ours)
+spat.
+dense
+spat.
+freq.
+pos. err.
+7.25
+7.08
+9.80
+7.07
+8.47
+rel. mes.
+-0.05
+-0.11
+-0.23
+-0.20
+-0.08
+the Fourier spectrum explicitly encodes both features. In contrast,
+spatial coordinates do not directly represent curliness, so that the
+latent space thereon (spatial latent space) is not always consistent
+with respect to curliness. Consequently, two visually similar curly
+strands may be embedded far apart in this spatial latent space, while
+a straight strand and a curly strand may appear closer to each other.
+Such counter-intuitive issues are avoided in the frequency latent
+space. To validate this claim, we conduct additional experiments
+by training a separate strand-VAE model using spatial coordinates
+(spatial strand-VAE) and subsequently a hairstyle-VAE based on it
+(spatial hairstyle-VAE). We refer to our main models in the frequency
+domain as frequency strand-VAE and frequency hairstyle-VAE.
+We first present an intuitive explanation for our reasoning in
+Fig. 12. We pick two curly hairs from our dataset and average them
+based on their spatial coordinates. The resulting strand appears
+straight and loses its curliness (column 2). Averaging in the spatial
+latent space leads to a similar outcome (column 3). In contrast, if the
+averaging is performed on the frequency code V, the curliness is
+better preserved (column 4). The most meaningful result is obtained
+when the averaging is conducted in the frequency latent space
+(column 5). This is because, in the frequency domain, the averaging
+is applied independently to the amplitudes and phases. If both source
+strands have similar amplitudes but different phases, their mean will
+maintain the amplitude (i.e., curliness) while undergoing a phase
+shift. Consequently, the frequency latent space aligns better with the
+human perception of hair shapes, where curly and straight strands
+are distinguished regardless of their spatial proximity. Please find
+more results of strand interpolation in Appendix B.
+This inherent structural distinction between the spatial and fre-
+quency strand latent spaces significantly influences the performance
+of the hairstyle-VAEs residing within them. This impact is shown in
+Fig. 13, where the frequency hairstyle-VAE (2nd column) exhibits a
+high level of local variety that closely resembles the ground truth,
+while the spatial hairstyle-VAE (3rd column) produces overly smooth
+results. In real hairstyles, it is quite common for adjacent strands to
+grow in opposite directions, resulting in interesting local variations.
+However, the embedding within the spatial domain tends to diminish
+such local variety, whereas the frequency domain preserves it better.
+To quantitatively assess local variation, we introduce the messi-
+ness metric, defined as follows. For each strand 𝑖, we calculate its
+mean deviation relative to its neighbors:
+D𝑖=
+1
+|N𝑖|
+∑︁
+𝑗∈N𝑖
+1
+𝑁𝑠−1
+𝑁𝑠−1
+∑︁
+𝑘=1
+||𝒅𝑖,𝑘−𝒅𝑗,𝑘||2,
+(8)

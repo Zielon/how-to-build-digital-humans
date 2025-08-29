@@ -1,0 +1,1351 @@
+Title: State of the art on monocular 3D face reconstruction, tracking, and applications
+
+EUROGRAPHICS 2018
+K. Hildebrandt and C. Theobalt
+(Guest Editors)
+Volume 37 (2018), Number 2
+STAR – State of The Art Report
+State of the Art on Monocular 3D Face
+Reconstruction, Tracking, and Applications
+M. Zollhöfer1,2
+J. Thies3
+P. Garrido1,5
+D. Bradley4
+T. Beeler4
+P. Pérez5
+M. Stamminger6
+M. Nießner3
+C. Theobalt1
+1Max Planck Institute for Informatics
+2Stanford University
+3Technical University of Munich
+4Disney Research
+5Technicolor
+6University of Erlangen-Nuremberg
+Figure 1: This state-of-the-art report provides an overview of monocular 3D face reconstruction and tracking, and highlights applications.
+Abstract
+The computer graphics and vision communities have dedicated long standing efforts in building computerized tools for re-
+constructing, tracking, and analyzing human faces based on visual input. Over the past years rapid progress has been made,
+which led to novel and powerful algorithms that obtain impressive results even in the very challenging case of reconstruction
+from a single RGB or RGB-D camera. The range of applications is vast and steadily growing as these technologies are further
+improving in speed, accuracy, and ease of use.
+Motivated by this rapid progress, this state-of-the-art report summarizes recent trends in monocular facial performance capture
+and discusses its applications, which range from performance-based animation to real-time facial reenactment. We focus our
+discussion on methods where the central task is to recover and track a three dimensional model of the human face using
+optimization-based reconstruction algorithms. We provide an in-depth overview of the underlying concepts of real-world image
+formation, and we discuss common assumptions and simpliﬁcations that make these algorithms practical. In addition, we
+extensively cover the priors that are used to better constrain the under-constrained monocular reconstruction problem, and
+discuss the optimization techniques that are employed to recover dense, photo-geometric 3D face models from monocular 2D
+data. Finally, we discuss a variety of use cases for the reviewed algorithms in the context of motion capture, facial animation,
+as well as image and video editing.
+CCS Concepts
+•Computing methodologies →Reconstruction; Tracking; Motion capture; Shape modeling; 3D imaging;
+1. Introduction
+Human faces occupy a very central place in human visual percep-
+tion since they play a key role in conveying identity, message, emo-
+tion, and intent. For these reasons, the computer graphics and vision
+communities started very early in building computerized tools for
+analyzing real-world faces with the goal of generating digital face
+images [Wil90, GGW∗98], a process generally referred to as face
+capture. The range of application domains that can beneﬁt from
+these face capture technologies is vast and steadily growing as these
+methods are improving in speed, accuracy, and ease of use.
+In some contexts, detailed face analysis aims at helping a sys-
+tem take speciﬁc actions or decisions. These include facial bio-
+metrics, face-based interfaces, visual speech recognition, and face-
+based search in visual assets. In other applications, such as creating
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John
+Wiley & Sons Ltd. Published by John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+personalized avatars or 3D printing of faces for entertainment or
+medicine, an accurate three-dimensional reconstruction of a spe-
+ciﬁc face’s geometry is of paramount importance. Finally, in a vari-
+ety of settings, capturing the deformable geometry of a face as well
+as its texture is the foundation for generating photo-realistic faces
+and modifying the appearance/performance of a face in video con-
+tent. Such technologies are required in a wide range of applications,
+such as the modiﬁcation (touch-up, editing, completion, reenact-
+ment) of real faces for professional visual effects (VFX), the gen-
+eration of completely digital photo-realistic faces in high-end pro-
+ductions (movies, commercials, music videos, computer games),
+and for facial augmented reality (AR) and virtual reality (VR) in
+entertainment, social media and communication.
+While the extraction of sparse 2D information such as facial
+landmarks might sufﬁce in some of these scenarios, the estima-
+tion of a dense 3D photo-geometric model (i.e., recovering detailed
+models of geometry and appearance) of a face from visual data is
+the holy grail and a key enabling technology. On the capture side,
+various setups can be employed depending on the target application
+and on the available resources. These setups range from expensive
+professional large multi-view stages, possibly with controlled lights
+and additional depth cameras, all the way to lightweight capture
+with a mobile phone RGB camera, with or without depth sensing.
+Latter setups have witnessed remarkable progress in recent years
+fueled by the consumers’ appetite for face technologies and the
+constant progress in the development of commodity sensors (con-
+sider, for example, the recent iPhone X released by Apple with Face
+ID unlocking technology). This increasing demand for lightweight
+capture solutions led to the development of new high-quality pri-
+ors that better constrain the challenging and ill-posed monocular
+reconstruction problem. It also led to a rapid development of novel
+and powerful face reconstruction and tracking algorithms that per-
+form well on monocular RGB and RGB-D input, even at real-time
+frame rates. At the heart of such technologies lies the ability to ren-
+der detailed deformable face models and to inversely estimate their
+parameters from real images. Working with unconstrained monoc-
+ular content recorded in general real world scenes not only opens
+up many consumer applications, but is also of major interest for
+professional face related tasks in current content creation and ani-
+mation pipelines, which are still highly manual, complex and time
+consuming.
+Face performance capture has been advanced from two different
+directions. At one end of the spectrum are off-line approaches that
+aim for the highest possible quality, often based on complicated and
+controlled multi-view setups. On the other end are lightweight se-
+tups that work with a single monocular RGB or RGB-D camera and
+nowadays even achieve real-time performance by trading recon-
+struction quality for increased speed. Current off-line high-quality
+approaches are getting faster and work in less constrained settings,
+while recent real-time techniques obtain higher and higher recon-
+struction quality based on the availability of novel high-quality face
+priors.
+Motivated by this progress, this state-of-the-art report focuses on
+the developments that have narrowed down the gap between high-
+end and commodity setups. More speciﬁcally, we show how re-
+cent methodical and algorithmic progress has helped to achieve re-
+markable success using only lightweight capture setups that consist
+of either a single monocular RGB or RGB-D camera. In addition
+to the algorithmic development, we thoroughly discuss open chal-
+lenges, unresolved limitations, and possible avenues for future re-
+search to further advance the ﬁeld. Our discussion focuses on meth-
+ods in which optimization-based reconstruction is the central con-
+cept to recover and track a three dimensional model of the face, see
+Fig. 1. We will review in detail:
+1. The lightweight RGB and RGB-D camera systems that are em-
+ployed in current state-of-the-art methods,
+2. the concepts of image formation as well as the simpliﬁcations
+and assumptions of current state-of-the-art approaches that are
+employed to make monocular reconstruction feasible,
+3. the priors that are currently used to better constrain the underly-
+ing ill-posed reconstruction problems and how such models can
+be acquired based on high-quality capture setups,
+4. the algorithms to extract accurate 3D deformable, textured face
+models from monocular RGB and RGB-D data based on the
+described priors at off-line and real-time frame rates,
+5. and how the obtained reconstructions of geometry, texture, and
+illumination can be used within applications to accomplish com-
+plex face editing tasks from performance-based animation to
+real-time facial reenactment.
+2. Related Surveys and Course Notes
+In the ﬁelds of computer vision and computer graphics, extensive
+research exists in the areas of facial capture, tracking, animation
+and recognition. While this survey focuses primarily on methods
+for monocular 3D facial capture, we direct interested readers to ad-
+ditional surveys and course notes in related topic areas. Perhaps
+most closely related is the image-based 3D face reconstruction sur-
+vey of Sylianou et al. [SL09], which covers early 3D facial acqui-
+sition approaches from single and multiple viewpoints. Alongside
+geometry reconstruction, appearance capture is also of great impor-
+tance. A recent report by Klehm et al. [KRP∗15] outlines related
+methods for capturing the appearance of faces, with the goal of re-
+rendering in CG. Facial capture is closely related to the problem of
+non-rigid surface registration, where the goal is to align a speciﬁc
+surface to images or 3D scans, a topic that is covered in detail in
+recent tutorials [BTP14,BTLP16]. In the context of computer ani-
+mation, excellent surveys exist that discuss facial rigging [OBP∗12]
+and blendshape based facial animation [LAR∗14]. Finally, driven
+by applications in security and person identiﬁcation, there is a large
+body of work on face recognition [ZCPR03, ANRS07], and more
+speciﬁcally expression recognition [SZPY12], which aims to ad-
+vance user experiences in human-computer interaction scenarios.
+3. Overview of the State-of-the-art Methods
+Lightweight face tracking and reconstruction has received an im-
+pressive amount of attention in the computer vision and computer
+graphics literature over the past few years. Tab. 1 gives an overview
+of current monocular state-of-the-art 3D facial performance cap-
+ture approaches that do not require facial markers and are based on
+a single commodity RGB or RGB-D camera. We focus our discus-
+sion on methods that rely on optimization-based reconstruction to
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+Method
+Vlasic et al. [VBPP05]
+Weise et al. [WBLP11]
+Chen et al. [CWS∗13]
+Li et al. [LYYB13]
+Garrido et al. [GVWT13]
+Cao et al. [CWLZ13]
+Bouaziz et al. [BWP13]
+Cao et al. [CHZ14]
+Shi et al. [SWTC14]
+Suwajanakorn et al. [SSS14]
+Thies et al. [TZN∗15]
+Cao et al. [CBZB15]
+Hsieh et al. [HMYL15]
+Saito et al. [SLL16]
+Thies et al. [TZS∗16a]
+Garrido et al. [GZC∗16]
+Thies et al. [TZS∗16b]
+Wang et al. [WSXC16]
+Wu et al. [WBGB16]
+Input
+RGB
+✓
+-
+-
+-
+✓
+✓
+-
+✓
+✓
+✓
+-
+✓
+-
+✓
+✓
+✓
+-
+✓
+✓
+RGB-D
+-
+✓
+✓
+✓
+-
+-
+✓
+-
+-
+-
+✓
+-
+✓
+-
+-
+-
+✓
+-
+-
+Prior
+Graph
+-
+-
+✓
+-
+-
+-
+-
+-
+-
+✓
+-
+-
+-
+-
+-
+-
+-
+-
+-
+Linear Model
+✓
+✓
+-
+✓
+✓
+✓
+✓
+✓
+✓
+-
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+Anatomical
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+✓
+Tracker
+Features
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+Dense Geometry
+-
+✓
+✓
+✓
+-
+-
+✓
+-
+-
+-
+✓
+-
+✓
+-
+-
+-
+✓
+-
+-
+Dense Color
+-
+-
+-
+-
+✓
+-
+-
+-
+-
+✓
+✓
+✓
+-
+-
+✓
+✓
+✓
+-
+✓
+Output
+Geometry
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+Details
+-
+-
+-
+-
+✓
+-
+-
+-
+✓
+✓
+-
+✓
+-
+-
+-
+✓
+-
+-
+✓
+Reﬂectance
+-
+-
+-
+-
+✓
+-
+-
+-
+✓
+✓
+✓
+-
+-
+-
+✓
+✓
+✓
+-
+-
+Occlusion
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+✓
+✓
+-
+-
+-
+-
+-
+Controllable Rig
+✓
+✓
+-
+✓
+✓
+✓
+✓
+✓
+✓
+-
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+Speed
+Ofﬂine
+✓
+-
+✓
+-
+✓
+-
+-
+-
+✓
+✓
+-
+-
+-
+-
+-
+✓
+-
+-
+✓
+Online
+-
+✓
+-
+✓
+-
+✓
+✓
+✓
+-
+-
+✓
+✓
+✓
+✓
+✓
+-
+✓
+✓
+-
+GPU
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+✓
+-
+-
+-
+✓
+-
+✓
+-
+-
+Table 1: Overview of current optimization-based monocular state-of-the-art 3D facial performance capture approaches that do not require
+facial markers and are based on commodity RGB or RGB-D setups. We discuss the foundations of these approaches in more detail. Our
+discussion focuses on their differences in terms of the used input data, the underlying priors, the employed tracking constraints, the computed
+output channels and the achieved runtime performance.
+recover and track a three dimensional model of the face. We also
+brieﬂy discuss how these approaches differ from and compare to
+recent machine learning-based face capture methods. The current
+state-of-the-art differs along multiple orthogonal dimensions (see
+Tab. 1), such as the input channels used, the underlying face prior,
+the constraints used during tracking, the channels of the computed
+output reconstruction and the achieved runtime performance. In the
+following, we will discuss each of these dimensions in more detail.
+4. Input Modalities
+Facial performance capture techniques commonly aim to recon-
+struct high-quality 3D face models with detailed facial motion and
+appearance from optical sensor measurements of a subject’s perfor-
+mance. In the past, state-of-the-art approaches have achieved this
+goal through complex indoor capture setups with dense camera ar-
+rays and complex lighting setups that are expensive to build and
+operate. Recent methods have pushed the frontier of capture further
+using low-cost and standard monocular devices. In the following,
+we provide an overview of the different input modalities, from a
+brief review of multi-view capture setups to monocular RGB and
+RGB-D sensors, which are the main focus of this report.
+4.1. Multi-View Setups
+Multi-view capture setups employ calibrated dense camera ar-
+rays with controlled indoor illumination [HZW∗04,ZSCS04,PL06,
+BBA∗07, FP09, BHPS10, BHB∗11, FJA∗14]. To aid 3D recon-
+struction, some setups also resort to marker data [HZW∗04,
+BBA∗07, ARL∗10, HCTW11, AFB∗13] and/or use active illumi-
+nation [WHL∗04,GFT∗11,MHP∗07,WGP∗10,KH12], i. e., struc-
+tured light patterns cast by a projector. Similar setups are already
+commercially [VIC, MOV, DI4, IM] available and can be used for
+high end production. Standard multi-view setups consist of a set of
+pairwise stereo cameras distributed around the subject’s face. From
+each stereo pair, the visible face geometry is reconstructed via trian-
+gulation. The individual reconstructions are then aggregated while
+enforcing global consistency. While not the focus of this report,
+such high-quality multi-view techniques have been extremely suc-
+cessful in the past and have enabled the creation of the ﬁrst photo-
+real digital actors [BL03, ARL∗10, AFB∗13, SEL17]. These tech-
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+niques set a high baseline on which more lightweight monocular
+approaches can be evaluated.
+4.2. Monocular RGB
+An RGB camera captures three channel images that separately en-
+code the amount of received red, green and blue light. High-end
+cameras often use three independent CCD sensors to acquire the
+three color signals. Many consumer-grade cameras reconstruct the
+ﬁnal RGB image from a Bayer pattern, interleaving colored ﬁl-
+ters in front of a single sensor. Consumer-grade RGB cameras are
+ubiquitous and are utilized for a wide range of purposes: televi-
+sion production, surveillance and/or security, live streaming, and
+entertainment, among others. Since RGB cameras are available to
+most users, researchers usually prefer this input to develop off-
+line [GVWT13,GZC∗16,IBP15,SWTC14,SSS14,WBGB16] and
+online [CWLZ13, CHZ14, CBZB15, SLL16, TZS∗16a] monocu-
+lar reconstruction and tracking approaches. Monocular face recon-
+struction and tracking is a highly challenging and ill-posed prob-
+lem, since the image formation process convolves multiple physi-
+cal dimensions (geometry, surface reﬂectance and illumination) in
+a single color measurement. Therefore, current state-of-the-art ap-
+proaches rely heavily on several simpliﬁcations of real world image
+formation (see Sec. 5) and employ data-driven priors (see Sec. 6).
+4.3. Monocular RGB-D
+Unlike RGB cameras, commodity RGB-D sensors capture both
+color and depth data at real-time rates. This helps in resolv-
+ing the inherent depth ambiguity of the monocular reconstruc-
+tion problem, since at least a coarse geometry estimate is avail-
+able. Therefore, such cameras are frequently employed in state-
+of-the-art monocular face reconstruction and tracking approaches
+[WBLP11, LYYB13, BWP13, HMYL15, TZN∗15]. Existing con-
+sumer depth sensors can be classiﬁed in either being active or
+passive devices. Most commonly passive depth sensors are imple-
+mented via a stereo camera setup. If a point is found in both views
+of a calibrated stereo setup, the 3D point can be reconstructed by
+triangulation. Finding a corresponding point for one pixel of the
+ﬁrst image in the second view, is a hard problem. By utilizing the
+epipolar geometry of calibrated cameras, the search problem can
+be reduced to a 1D search. The search is based on features (e.g.,
+color, color gradients, edges), but if there are no unique features the
+search fails. This problem occurs for example if a white wall should
+be reconstructed. Therefore, one of the cameras in the stereo setup
+can be replaced by a projector (which can be assumed as an in-
+verse camera). Using a known structured pattern that is projected,
+correspondence search is simpliﬁed. These structured light cam-
+eras are widely spread (e.g., Micosoft Kinect, Primesense Carmine,
+Intel Realsense) and give relatively good depth in the near range,
+which is important for face tracking tasks. One common problem
+of structured light sensors is that they cannot reconstruct geometric
+features and structures that are smaller than the projected pattern.
+In addition, the captured geometry is slightly smaller at object sil-
+houettes (depth discontinuities) than the real object, since the pat-
+tern cannot be reliably identiﬁed at such locations. To avoid that
+humans can see this pattern, these devices typically work in the
+infrared (IR) domain. Active depth cameras that work in the IR do-
+main have problems under strong sun light, since the sun’s own IR
+radiation overpowers the projector. This problem is tackled with
+cameras like the Intel Realsense R200 that combine active and pas-
+sive stereo using two IR cameras and one projector. In an outdoor
+environment the projector has no effect over the IR light of the sun
+and the system works as a classical passive stereo setup.
+Another type of active depth cameras are time-of-ﬂight (ToF)
+cameras. These RGB-D cameras compute depth by measuring the
+round-trip time of a light pulse (e.g., Creative Senz3D or Micosoft
+Kinect One). Accurately measuring the round-trip time is a big
+challenge due to the speed of light. Some devices measure the
+actual round-trip time with rapid shutters, while others indirectly
+measure it with time-modulated light. In general, these cameras
+have a poor depth resolution and a lower signal to noise ratio in the
+near range than their structured light counterparts. They also suffer
+from noise and systematic distortions that are typical to the mea-
+surement principles, such as multi-path errors. Another common
+problem are ‘ﬂying pixels’ at depth discontinuities, which have a
+depth value somewhere between the foreground and background
+object. These mixed depth values occur, since light from both ob-
+jects is reﬂected and inﬂuences the depth value computed for the
+pixel. These can be hard to model and compensate for, which may
+complicate face capture. Since the near capture range is typically
+the most important range for face tracking, most state-of-the-art
+approaches rely on structured light sensors.
+5. Image Formation Models
+Many of the described methods interpret the face reconstruction
+problem as an inverse rendering problem. This requires them to
+mathematically model the image formation process. The geome-
+try of a face is commonly described with triangle or quad meshes.
+In most cases, also material properties describing how the skin or
+other elements of the face interact with light, have to be modeled.
+Modeling the light surface interactions for faces is highly complex,
+since faces exhibit a certain amount of diffuse reﬂection and differ-
+ent amounts of specular reﬂection (with different lobes). Specular
+skin reﬂection depends on several factors, such as the oiliness of
+the skin or sweat. In addition, faces also exhibit a certain amount
+of transmission and subsurface scattering. An in-depth discussion
+of skin appearance modeling is beyond the scope of this state-of-
+the-art report and we would like to refer to [KRP∗15] for more
+details. In the context of monoculuar face capture, most work relies
+on simple appearance models that approximate real face appear-
+ance. Often faces are assumed to be diffuse, modulated by a simple
+reﬂectance map. This is a stark oversimpliﬁcation of reality, which
+ignores the specular lobe and subsurface effects [JMLH01,BL03],
+but makes the inverse reconstruction problem easier to tackle. An-
+other simpliﬁcation is that mostly directional illumination or lo-
+cal low-frequency illumination is assumed to make the problem
+tractable (e.g., Spherical Harmonics). In Appendix B, we discuss
+the most commonly employed models. Using these material prop-
+erties, the geometry and an illumination model, the amount of light
+on a surface point that is reﬂected to the camera can be computed.
+The mapping from the 3D geometry to a 2D image is established
+through projective camera models. Given a 3D world point v, a
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+2D image point p is obtained using the following general model
+[FP12]:
+p = KΠ(Rv+t) = KΠ(ˆv) ,
+(1)
+where [R|t] ∈R3×4 refers to the camera extrinsics that transform
+the 3D point v into a point ˆv in camera space. Π(·) denotes a po-
+tentially non-linear operator that projects the aligned 3D point ˆv
+onto the 2D image plane, and K is the geometric property of the
+camera a. k. a. camera intrinsics. Here, p = [px,py,1]⊤is the pro-
+jection of v onto the image plane in homogeneous coordinates.
+In non-homogeneous screen space, we can represent this point as
+ˆp = [ˆpx, ˆpy]⊤. Appendix A details the different camera models used
+in the literature. For more details and topics such as lens distortion
+correction we refer to [SRT∗11].
+6. Face Models and Statistical Priors
+To allow the reconstruction of a face in the ill-posed monocular
+setting or based on incomplete and noisy depth data, priors that
+model the structure and expression of faces are commonly em-
+ployed. These priors are typically based on the low dimensional
+subspaces we describe in this section.
+6.1. Blendshape Expression Model
+Blendshapes are a set of 3D-models of a face, each with a particu-
+lar expression [LAR∗14]. The topology of all models is identical,
+so the blendshapes only affect the vertex positions. Animation can
+be achieved by blending between the neutral face and a particular
+expression, or by blending between different expressions (see Fig.
+2 (b) and Sec. 6.1.3).
+Blendshapes are extensively used in 3D modeling and anima-
+tion due to their intuitive representation. In the animation indus-
+try, artists typically directly manipulate blendshapes, each of which
+controls an elementary face expression or a localized face region.
+Sometimes they work on sparser higher level controls that directly
+activate a combination of blendshapes. Blendshapes can be ob-
+tained from user-speciﬁc expressions [WBLP11,WBGB16], gener-
+ated via statistical analysis from a large facial expression database
+[CWZ∗14, VBPP05], or can be hand-crafted by animation artists
+[BWP13]. Artistically created blendshape rigs are typically rela-
+tively sparse and controlled through semantically meaningful pa-
+rameter dimensions.
+Absolute Blendshape models (Sec. 6.1.1) describe the expres-
+sions of a particular face, but as coarse expressions generalize well
+across individuals, most approaches employ more generic Delta
+Blendshapes (Sec. 6.1.2) to track and reconstruct deformations of
+arbitrary faces. Blendshapes can also be automatically transferred
+to new character rigs with different topology [SP04,LWP10], how-
+ever such approaches are beyond the scope of this report.
+6.1.1. Absolute Blendshape Model
+Let the be
+i ∈R3n be the me + 1 blendshapes of a particular face,
+where be
+0 is usually the neutral face. A new facial expression e is
+obtained by linear combination, yielding the absolute blendshape
+model:
+e =
+me
+∑
+i=0
+δibe
+i ,
+(2)
+where 0 ≤δi ≤1, ∀i ∈{0,...,me} denote the blendshape weights.
+The parameter limits are under the assumption that each individual
+blendshape models the maximal allowed activation of the corre-
+sponding expression. Note, often a soft constraint, instead of a hard
+constraint, is employed to keep the weights in a reasonable range.
+To avoid an undesired global scaling factor, usually a convex com-
+bination is used, i. e., ∑i δi = 1 [LAR∗14].
+6.1.2. Delta Blendshape Model
+The model in the previous section only describes animations of one
+particular face. A more convenient and popular representation used
+by modeling packages (e. g., Maya) and many approaches in the
+literature [BWP13,GZC∗16,IBP15,LYYB13,TZS∗16a,WBLP11]
+models blendshapes as delta variations that linearly add up on top
+of the neutral face:
+e = be
+0 +
+me
+∑
+i=1
+δi(be
+i −be
+0) = be
+0 +
+me
+∑
+i=1
+δide
+i
+(expression) ,
+(3)
+where 0 ≤δi ≤1 and de
+i , ∀i ∈{1,...,me} are the per-vertex 3D
+displacements w. r. t. the neutral face be
+0.
+These delta vectors generalize well to other neutral faces, i. e.,
+other identities, with same topology. If we combine them with the
+parametric model from Eqn. 5, we achieve a general face model:
+s = as +
+ms
+∑
+i=1
+αibs
+i +
+me
+∑
+i=1
+δide
+i
+(shape + expression) ,
+(4)
+where the αi describe the identity and the δi the expression.
+6.1.3. Blendshape Weights
+Although the box constraints imposed on the linear weights δi can
+control the inﬂuence of the blendshapes (δi = 0 deactivated blend-
+shape; δi = 1 fully-activated blendshape), some blendshapes sim-
+ply cannot be combined together due to their linear dependency
+(see Fig. 2 (c)). For instance, jointly moving the mouth to the left
+and to the right can cause face distortions. The combination of se-
+mantically similar expressions, e. g., a wide open smile combined
+with a mouth open, also adds a double effect, resulting in unrealistic
+deformations. This problem can be alleviated by utilizing pairwise
+activation constraints of the form δiδj = 0, i ̸= j for some of the
+weights [LAR∗14], which means that only one of the two blend-
+shapes should be activated. An alternative is to employ a strong
+prior that enforces sparsity [BWP13] or restricts the activation of
+the linear weights [LYYB13,TZN∗15].
+6.2. Parametric Face Models
+The most commonly used prior is based on the Morphable Model
+of Blanz and Vetter [BV99] which learned a low-dimensional face
+subspace from high resolution laser scans. Alternative parametric
+face models were built later, using inputs ranging from commod-
+ity [CFKP04] 3D face scans to a large number of high-quality 3D
+face scans [BRZ∗16] . Reconstruction of a linear face model from
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+monocular face images downloaded from the internet was also in-
+vestigated [KS13].
+The model of Blanz and Vetter is constructed from a database
+of 200 human faces, with neutral expression, that were digitized
+using a laser scanner (for details see [BV99]). In addition to geom-
+etry they also captured the illumination-corrected textures of the
+faces. Based on non-rigid template-ﬁtting these scans are ﬁrst reg-
+istered and aligned in a common coordinate system. The resulting
+faces share the same topology, but differ in geometry and skin re-
+ﬂectance. The template mesh is a simple triangle mesh consisting
+of n vertices. To reduce the dimensionality of the dataset, principle
+component analysis (PCA) is independently applied to geometry
+and skin reﬂectance. PCA computes the principle components of
+a dataset and the corresponding standard deviations based on the
+assumption of a multi-variate Gaussian distribution of the samples.
+Let the bs
+i ∈R3n and br
+i ∈R3n be the ms shape and mr reﬂectance
+basis vectors, respectively. The vectors bs
+i contain the stacked x,y,z-
+components of all vertices and br
+i the r,g,b-components respec-
+tively. Using this PCA model, new faces (shape s and skin re-
+ﬂectance r) are synthesized via a linear combination:
+s = as +
+ms
+∑
+i=1
+αibs
+i
+(shape),
+(5)
+r = ar +
+mr
+∑
+i=1
+βibr
+i
+(reﬂectance) .
+(6)
+Here, as ∈R3n is the average face shape and ar ∈R3n the aver-
+age reﬂectance. New shapes s and reﬂectances r are generated by
+adding a linear combination of the basis vectors bs
+i and br
+i using
+weights αi and βi, respectively. The corresponding standard devi-
+ations σs ∈Rms and σr ∈Rmr are stored in vectorized form. The
+standard deviation of the shape and reﬂectance dimension exhibit
+a rapid falloff. This can be exploited to reduce dimensionality, i.e.,
+instead of using all principle components of the dataset, a lower
+number can be used without loss of accuracy, e.g., the ms = mr = 80
+vectors used in Face2Face [TZS∗16a] explain 86% of the original
+variance.
+(a)
+(b)
+(c)
+Figure 2: Blendshape expression model: (a) Neutral face. (b) Ex-
+pressions obtained by activating different blendshapes. (c) Artifacts
+due to the linear dependency between certain blendshapes.
+7. Advanced Face Models and Personalized Rigs
+The commonly used statistical face model described in the previ-
+ous section not only regularizes the ill-posed reconstruction prob-
+lem, but also enables reconstruction results of high quality. Yet, it
+is still restricted to comparably coarse scale, i. e., it lacks person-
+speciﬁc idiosyncrasies and ﬁne-scale skin detail, e. g., wrinkles. In
+addition, it disregards anatomical and physical plausibility in the
+reconstructions. For example, the state-of-the-art Face2Face ap-
+proach [TZS∗16a] uses a compact set of only 76 expression co-
+efﬁcients, whereas for photo-real virtual humans in recent movie
+productions hundreds of blendshapes are employed for ﬁne-scale
+control. Therefore, many recent approaches try to go beyond this
+coarse reconstruction to further personalize the model and recover
+the missing dimensions. In the following, we will give a detailed
+overview of these approaches.
+7.1. Personalized Reﬂectance Maps
+The low-dimensional statistical prior [BV99], which is employed
+by many state-of-the-art tracking approaches, models the skin re-
+ﬂectance variation of 200 3D scans (mostly Caucasians) using prin-
+cipal component analysis. Thus, it does not generalize well beyond
+the span of this ethnic group. If a colored SH illumination model
+is assumed, the unexplained skin color variation is typically baked
+into the ambient illumination coefﬁcients during face reconstruc-
+tion. Even though this is not physically correct, these cases are in
+general still robustly handled and do not lead to a degradation of the
+tracking quality. But this physically implausible explanation of skin
+color variation through illumination will cause errors in relighting
+and illumination transfer applications.
+One of the biggest problems of this low-dimensional reﬂectance
+subspace is the lack of facial hair, e. g., beards. This leads to re-
+construction and tracking artifacts, manifested as global geomet-
+ric misalignments and surface shrinkage, since the model avoids to
+correctly overlay unexplained regions to reduce the ﬁtting error.
+A simple extension to the coarse albedo estimation based on a
+statistical prior is to compute a personalized reﬂectance map. This
+technique is used by many current approaches [GZW∗16, IBP15,
+TZN∗15, TZS∗16a, TZS∗16b]. First, the parameters of the coarse
+parametric model and the illumination are jointly estimated, thus
+recovering the facial identity and the incident illumination. The
+color information in the input image is projected to the model
+and divided by the estimated illumination. The resulting reﬂectance
+map contains high-frequency details, which signiﬁcantly improves
+tracking accuracy. Note that this strategy only succeeds if the coarse
+alignment can be computed reliably.
+7.2. Multi-region and Sparse Deformation Models
+Researchers also looked at dividing the face into smaller regions in
+order to approximate faces better. Already Blanz and Vetter [BV99]
+partitioned the face into 5 regions, ﬁtted a parametric model to each
+region independently and ﬁnally blend the estimates into a sin-
+gle coherent face shape. Since then, different methods for manual
+[DM00, TDlTM11] and automatic [JTDP03, DSVG10, NVW∗13]
+face segmentation have been proposed. Most segmentation lay-
+outs attempt to split the face into few rather large and semanti-
+cally meaningful regions at a single scale. Brunton et al. [BBW14]
+employ multi-linear wavelets to statistically analyze a face at mul-
+tiple scales. Wu et al. [WBGB16] split the face into very many
+small patches and further increase the ﬂexibility of the model by
+explicitly decoupling the rigid pose of the patch from its non-rigid
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+Figure 3: The facial performance capture approach of Garrido
+et al. [GZC∗16] employs shape-from-shading techniques to recon-
+struction wrinkle-level surface detail. Image taken from [GZC∗16].
+deformation. In order for such a highly localized model to be ap-
+plicable to monocular capture they employ anatomically inspired
+constraints that add the required regularization. It is also possi-
+ble to automatically compute sparse localized deformation com-
+ponents from sequences of face meshes [NVW∗13], either fully-
+automatically or under user guidance, instead of using a pre-deﬁned
+global or local region model. Local models have the advantage of
+better generalization to unseen data, since they provide more de-
+grees of freedom. On the down side, such models are generally
+more difﬁcult to ﬁt to noisy, monocular RGB and RGB-D input
+due to the limited spatial support of the underlying basis.
+7.3. Medium-level Shape Correctives
+Face reconstruction and tracking quality can be improved by inte-
+grating person-speciﬁc shape correctives on top of the generic face
+models. In the following, we focus on medium-level correctives,
+the recovery of small scale detail is discussed in the next section.
+Li et al. [LYYB13] ﬁrst proposed an incremental PCA reﬁne-
+ment for on-the-ﬂy personalization of the expression basis. They
+employ an RGB-D sensor and model the out-of-subspace motion
+based on Laplacian deformation. The ﬁnal personalized expres-
+sion basis leads to an improved face tracking quality. Bouaziz
+et al. [BWP13] proposed the use of a medium-scale corrective
+basis, which is based on manifold harmonics [VL08]. Manifold
+harmonics are a generalization of the Fourier basis to the mesh
+domain. They jointly ﬁt this additional linear basis on top of the
+coarse-scale model based on RGB-D data. Recently, Garrido et al.
+[GZC∗16] proposed an approach that recovers medium-scale cor-
+rectives based on face video recorded with a single color camera.
+7.4. Fine-Scale Detail Estimation
+To be able to also recover small surface detail, shape-from-shading
+techniques can be applied for face reconstruction [Hor75,ZTCS99,
+Figure 4: [CBZB15] uses the RGB input It to compute a texture
+map Tt based on the coarse mesh Lt. A local regressor estimates
+the displacement map Dt to produce a high-ﬁdelity mesh Ht. Image
+taken from [CBZB15].
+WWMT11, WZN∗14, GVWT13, SSS14, SWTC14] (see Fig. 3).
+These approaches exploit shading cues in the input color image
+to reﬁne the surface geometry. The disadvantage of shading-based
+reﬁnement is its high computational complexity, which makes it
+currently unsuitable for real-time techniques.
+High-quality multi-view approaches obtain high-quality ﬁne-
+scale surface reconstructions [BBA∗07, FP09, BHPS10, BHB∗11,
+FJA∗14] based on a controlled capture setup at slow off-line
+frame rates. Based on a corpus of high-quality 3D scans, genera-
+tive wrinkle formation models can be learned [HYZ∗12, BBB∗14,
+LXC∗15a,CBZB15] as an alternative to shape-from-shading. High-
+resolution static face scans can be dynamically combined based on
+video input to model wrinkle formation [FJA∗14]. Bickel et al.
+[BLB∗08] propose pose space deformation by parameterizing a
+generative wrinkle model using a coarse feature graph. Such mod-
+els even allow for the regression of wrinkle level detail at real-
+time frame rates [CBZB15] based on commodity data (see Fig. 4).
+Transient detail can also be learned using a data-driven approach
+[HYZ∗12, MJC∗08] to infer facial detail maps. The approach of
+Garrido et al. [GZC∗16] learns a gradient domain regressor that
+models the correlation between transient surface detail and the low-
+dimensional blendshape expression coefﬁcients.
+7.5. Reconstruction of Personalized Face Rigs
+Some state-of-the-art approaches go beyond the reconstruction of
+facial identity and coarse expression in monocular video. Their goal
+is rather the reconstruction of person-speciﬁc face rigs, i. e., fully-
+controllable and personalized parametric models that capture the
+mannerisms of a subject, such as personalized smiles and frown
+lines. Parameters of these rigs can be modiﬁed to plausibly repro-
+duce even face expressions that were not seen in the videos from
+which they were reconstructed.
+Face rigs can be created using either detailed tailor-made expres-
+sions [IBP15,LWP10,WLVGP09], physically-based geometric de-
+formations driven by simulated muscle activations [EBDP96, SS-
+RMF06], or a combination of both [KMML10]. These rigs are
+usually animated through high-level controllers, and they are em-
+ployed in VFX pipelines and for various animation applications.
+In the literature, face rigs are commonly modeled as a combina-
+tion of personalized blendshapes due to their simplicity and intu-
+itive semantics. In this category, we can ﬁnd methods that either
+adapt [LWP10, IBP15] or extend [LYYB13] the linear expression
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+Figure 5: [IBP15] create fully rigged 3D avatars from uncali-
+brated RGB data. The avatars are augmented with textures and dy-
+namic detail maps that are used to generate wrinkles. Image taken
+from [IBP15].
+basis of a generic blendshape rig. Li et al. [LWP10] transfer exam-
+ple target expressions to a generic blendshape rig while preserv-
+ing the original model semantics. Ichim et al. [IBP15] non-rigidly
+deform the generic blendshapes to optimally match a sequence of
+actor-speciﬁc expressions. In addition, they learn a linear mapping
+between ﬁne-scale details and facial feature strain to add wrinkles
+to the synthesized expressions (see Fig. 5). Li et al. [LYYB13] ex-
+tend the generic blendshape model by adding unobserved expres-
+sions to the model. Alternatively, Garrido et al. [GZC∗16] learn a
+fully-controllable, personalized blendshape rig that models the cor-
+relation between the generic expression basis (represented as blend-
+shape weights) and person-speciﬁc idiosyncrasies at a medium- and
+a ﬁne-scale detail layer. Here, the ﬁne-scale detail layer represents
+transient wrinkle-level detail. The reconstructed personalized face
+rigs allow artists to generate novel person-speciﬁc expressions with
+ﬁne-scale wrinkles by using intuitive high-level controllers.
+7.6. Anatomical Models and Physics
+Finally, also non-linear face models can be applied [Law07] for
+face capture. In particular physical and anatomical models have at-
+tracted the attention of the research community in the recent years.
+Sifakis and colleagues [SNF05] created a full anatomical model of
+a human head from MRI data, which they used to ﬁt to sparse Mo-
+Cap markers, and recently Ichim et al. [IKKP17] explored anatom-
+ically based performance capture from a single RGB-D input. Cre-
+ating a full anatomical rig can be very labor intense, and hence re-
+searchers have looked into ways to transfer and personalize a tem-
+plate rig [CBB∗15]. Another line of research investigates anatom-
+ically inspired rigs. The work of Beeler and Bradley [BB14] em-
+ploys empirically designed constraints that model the relationship
+between the skull and skin surface to estimate the exact pose of
+the skull given observations of the non-rigidly deforming skin - a
+process called stabilization. Wu et al. [WBGB16] explore the re-
+lationship of skin and skull further and propose a highly localized
+face model that is both ﬂexible due to its locality and robust due to
+the global regularization provided by the skull.
+8. Estimation of Model Parameters
+There are two general approaches to estimate the parameters of a
+face model. An estimation approach is either generative or discrim-
+inative. Generative approaches fall back to the principle of analysis-
+by-synthesis where the model is adapted in an iterative manner un-
+til the synthesized face matches the input data. The analysis-by-
+synthesis technique is based on parameter optimization to mini-
+mize the difference between the synthetic and the observed image
+(⇒Energy Minimization). As an alternative to optimization based
+approaches, parameter regression can be used (see Sec. 8.5). This
+report is focused on approaches in which optimization based re-
+construction is the central concept. In the following, we describe
+the foundations of optimization based reconstruction in detail.
+8.1. Parameter Estimation as Energy Minimization
+Given a monocular video as input, parameter estimation is com-
+monly phrased as a general non-linear optimization problem
+[LYYB13,BWP13,CWS∗13,CWLZ13,SWTC14,SSS14,CHZ14,
+GZC∗16,TZN∗15,TZS∗16a,WSXC16,TZS∗16b]. To this end, ﬁrst
+all unknowns are stacked in a parameter vector P. Recent state-of-
+the-art approaches typically optimize for all or a subset of the fol-
+lowing parameters: Global head rotation R and translation t, facial
+shape {αi}ms
+i=1, reﬂectance {βi}mr
+i=1, expression {δi}me
+i=1 and illumi-
+nation {li}ml
+i=1.
+The optimal parameters P∗are found by minimizing a recon-
+struction/tracking objective function E:
+P∗= argmin
+P
+E(P) .
+(7)
+In general, the used tracking objectives are highly non-linear in the
+unknown parameters and consist of all or some of the following
+different components:
+E(P)=wdenseEdense(P)+wsparseEsparse(P)
+|
+{z
+}
+data
++wregEreg(P)
+|
+{z
+}
+prior
+.
+(8)
+The ﬁrst components are the data terms that measure the similar-
+ity of the current synthesized face and the input data. Several data
+terms are commonly employed: Sparse feature alignment terms
+Esparse match a small number of feature points of the model to
+equivalent detected feature points in the input. Additionally, dense
+alignment terms are often employed that enforce constraints on ver-
+tex [LYYB13,BWP13,GVWT13,SWTC14,SSS14,GZC∗16] or on
+pixel level [CWS∗13,TZN∗15,TZS∗16a,TZS∗16b]. In addition to
+the data terms, regularizers Ereg are employed to better constrain
+the solution and resolve ambiguities. These components are lin-
+early combined together based on a set of weights w•. In the fol-
+lowing, we discuss several common choices for the different com-
+ponents of the objective function. An overview of the inﬂuence of
+different alignment terms is shown in Fig. 6.
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+Figure 6: Inﬂuence of the energy terms as shown in [TZN∗15]: tracking accuracy is evaluated in terms of geometric (middle) and pho-
+tometric error (bottom). The ﬁnal reconstructed pose is shown as an overlay on top of the input images (top). Mean and standard de-
+viations of geometric and photometric error are 6.48mm/4.00mm and 0.73px/0.23px for Feature, 3.26mm/1.16mm and 0.12px/0.03px for
+Features+Color, 2.08mm/0.16mm and 0.33px/0.19px for Feature+Depth, 2.26mm/0.27mm and 0.13px/0.03px for Feature+Color+Depth.
+Image taken from [TZN∗15].
+8.1.1. Sparse Feature Alignment
+Since faces contain many visually-salient structures, one of the
+most commonly used and most important data terms is sparse fea-
+ture alignment [VBPP05,WBLP11,CWS∗13,LYYB13,HMYL15,
+CBZB15, SLL16, CWW∗16, SWTC14, SSS14, GZC∗16, TZN∗15,
+TZS∗16a,TZS∗16b]:
+Elan(P) =
+1
+|F| ∑
+f j∈F
+wconf,j
+fj −KΠ(R·vj(P)+t)
+2
+2 .
+(9)
+It enforces that a small set of facial landmark points vj(P) on
+the model align well with corresponding detected 2D features
+f j ∈F ⊂R2. Each of the detections normally comes with a con-
+ﬁdence wconf,j that can be used to weight the corresponding align-
+ment constraint.
+There is a rich body of literature on methods for the detection
+and tracking of facial features and landmarks. Some methods are
+holistic, using the whole face region to localize the facial landmarks
+like Active Appearance Models (AAM) [CTCG95,CET01,MB04,
+XBMK04]. Local methods often use constraints to stabilize the es-
+timation [SLC11a,CC06,BRM12,AZCP13]. These constrained lo-
+calized model (CLM) approaches are fast and robust. Therefore,
+they are commonly used as facial feature tracker for dense face
+tracking and reconstruction. For a good overview of face detection
+in the wild see [VJ04,ZZZ15].
+Given the fact that the energy minimization problem is highly
+non-linear, Elan is a very important energy term. The facial feature
+points are not only important for initializing the tracker in the ﬁrst
+frame, but also bring the optimization close to the basin of conver-
+gence of the dense alignment constraints. Without this data term
+fast motion and strong deformation can not be tracked reliably.
+8.1.2. Dense Photometric Alignment
+The sparse data term coarsely aligns the model to the input, such
+that the optimization is in the basin of convergence of the dense
+alignment constraints. Dense photometric alignment is commonly
+used by many approaches [GVWT13, SSS14, TZN∗15, CBZB15,
+TZS∗16a, TZS∗16b, GZC∗16, WBGB16]. The photometric align-
+ment term measures densely how well the input data is explained
+by a rendered version of the current ﬁt:
+Ecol(P) = 1
+|V| ∑
+p∈V
+∥CS(P,p)−CI(p)∥2
+2 ,
+(10)
+In this formulation, CS is the synthesized face image, CI is the in-
+put RGB image, and p∈V denotes all visible pixel positions in CS
+that are used for comparison. For performance reasons this con-
+straint is often deﬁned on vertex level rather than pixel or frag-
+ment level. Different norms are used to measure closeness. Nor-
+mally, either an ℓ2 [BV99, GVWT13, SSS14, TZN∗15, GZC∗16]
+or a more robust ℓ2,1-norm [TZS∗16a,TZS∗16b] is employed. The
+latter norm handles outliers better. In the ℓ2,1-norm, the distance
+in color space is based on ℓ2, while the summation over all pixels
+enforces sparsity based on an ℓ1-norm.
+8.1.3. Dense Geometric Alignment
+Besides the dense photometric constraints, all RGB-D based ap-
+proaches rely on a dense geometric alignment term that exploits the
+available depth stream to better constrain the reconstruction prob-
+lem and resolve depth ambiguity. This is based on the idea that the
+reconstructed geometry of the face model should tightly align to
+the captured depth stream [WBLP11,CWS∗13,LYYB13,BWP13,
+TZN∗15, HMYL15, TZS∗16b]. To this end, multiple surface-to-
+depth distance measures can be employed. The most commonly
+used alignment term measures the point-to-point distance between
+model surface points and the input depth. This constraint is effec-
+tively the sum of the projective Euclidean point-to-point distances
+to the input:
+Epoint(P) = 1
+|V| ∑
+p∈V
+∥XS(P,p)−XI(p)∥2
+2 ,
+(11)
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.
+
+
+M. Zollhöfer et al. / State of the Art on Monocular 3D Face Reconstruction, Tracking, and Applications
+with XS(P,p)−XI(p) being the difference between the measured
+3D position and the corresponding 3D model. V denotes all visi-
+ble pixel positions that are used for comparison. Often times, this
+constraint is deﬁned on vertex level rather than a per (depth-)pixel
+level.
+To improve robustness and convergence a ﬁrst-order surface ap-
+proximation distance [CM92] is often used. This point-to-plane
+surface metric is especially beneﬁcial for translational motion,
+where a simple point-to-point metric would fail:
+Eplane(P)= 1
+|V| ∑
+p∈V
+h
+NS(P,p)⊤·(XS(P,p)−XI(p))
+i2
+, (12)
+with NS being the synthesized surface normal image. One question
+that arises is if one should use a point-to-plane distance from input
+to model or vice versa. The advantage of using the normals of the
+model is that they are guaranteed to be smooth. Some approaches
+[TZN∗15] propose to use a symmetric point-to-plane distance that
+goes from input to model and vice versa.
+8.1.4. Regularization
+Using the statistical information available in the face prior, the re-
+construction problem can be further constrained to resolve ambigu-
+ities:
+Ereg(P) =
+ms
+∑
+i=1
+ αi
+σs,i
+2
++
+mr
+∑
+i=1
+ βi
+σr,i
+2
++
+me
+∑
+i=1
+ δi
+σe,i
+2
+.
+(13)
+This constraint enforces the model parameters to be statistically
+close to their mean. This is a commonly-used regularization strat-
+egy [BV99, TZN∗15, TZS∗16a, TZS∗16b, GZC∗16] that prevents
+degeneration of the facial geometry and face reﬂectance. Regular-
+ization is particularly important in the monocular RGB reconstruc-
+tion setting, which suffers from severe depth ambiguity.
+8.2. Model Initialization
+While joint estimation of all parameters is in general feasible, al-
+most all approaches ﬁx the facial identity at a certain stage in
+the algorithm, and subsequently optimize only for the remain-
+ing subset of parameters. Many approaches use multiple images
+[WBLP11, LYYB13, IBP15, TZN∗15, TZS∗16a, GZC∗16] at the
+beginning of an input sequence. This enables a better identity es-
+timate than reconstruction from a single frame. A few examples
+of the different employed strategies are described in the follow-
+ing. Weise et al. [WBLP11] fuse multiple depth frames based on
+rigid alignment to obtain a 3D model of the neutral face. Thies et
+al. [TZN∗15, TZS∗16a] use model-based non-rigid bundle adjust-
+ment over 3 frames with different head pose. Ichim et al. [IBP15]
+perform a static structure-from-motion reconstruction based on
+multi-view data captured by an iPhone. The approach of [GZC∗16]
+averages the identity over a small part of the video.
+8.3. Handling Occlusions
+Occlusion handling is of paramount importance for robust face
+tracking. Facial hair, a hand or other occluders can easily deteri-
+orate the previously described face reconstruction and tracking ap-
+proaches [LYYB13,BWP13,CWS∗13,CWLZ13,SWTC14,SSS14,
+Figure 7: [HMYL15] demonstrates a face tracking approach that
+is robust to occlusion. They use the depth and color information of
+an RGB-D camera to robustly segment the face region. Image taken
+from [HMYL15].
+Figure 8: An RGB face tracker that is robust to occlusion has been
+proposed by [SLL16]. Using deep learning a clean segmentation of
+all visible parts of the face is obtained. Image taken from [SLL16].
+CHZ14, GZC∗16, TZN∗15, TZS∗16a, WSXC16, TZS∗16b], since
+they assume the absence of occlusion. Recently, many approaches
+have been proposed to alleviate this problem. In general, they are
+based on a segmentation mask that disables the data ﬁtting terms
+in occluded regions. Hsieh et al. [HMYL15] use depth and color
+information of an RGB-D camera to robustly segment the visi-
+ble face region (see Fig. 7). After segmentation, they apply occlu-
+sion completion based on the appearance of the last unoccluded
+observation of the face. Saito et al. [SLL16] use deep learning to
+obtain a clean facial segmentation of the visible part of the face
+based on just monocular RGB data (see Fig. 8). This binary mask
+is later used in their adapted displaced dynamic expression (DDE)
+method [CHZ14]. Such a skin mask could also be incorporated into
+dense reconstruction methods [TZN∗15, TZS∗16a] to weight the
+data terms, but it also requires an adaptation of the used sparse fea-
+ture tracker, which is also adversely impacted by occlusions.
+8.4. Optimization Strategies
+One of the main components of an analysis-by-synthesis approach
+is the estimation of face parameters that minimize the difference be-
+tween the input and the synthesized face image. In general, to ﬁnd
+this parameter estimate an optimization problem has to be solved.
+An analysis-by-synthesis approach iteratively computes a new set
+of parameters Pi+1, starting from the synthesis generated with the
+old parameters Pi. The parameters Pi+1 are chosen such that the
+energy that measures the difference between the observation and
+the synthetic image is minimized. For simplicity, let us assume an
+objective function E(P) that is comprised of a single data ﬁtting
+c
+⃝2018 The Author(s)
+Computer Graphics Forum c
+⃝2018 The Eurographics Association and John Wiley & Sons Ltd.

@@ -1,0 +1,1114 @@
+Title: Harp: Personalized hand reconstruction from a monocular rgb video
+
+HARP: Personalized Hand Reconstruction from a Monocular RGB Video
+Korrawe Karunratanakul
+Sergey Prokudin
+Otmar Hilliges
+Siyu Tang
+ETH Z¨urich, Switzerland
+{korrawe.karunratanakul,sergey.prokudin,otmar.hilliges,siyu.tang}@inf.ethz.ch
+https://korrawe.github.io/harp-project/
+Figure 1. Given a short monocular video of a hand and a coarse hand pose and shape estimation for initialization, we reconstruct a photo-
+realistic hand avatar exhibiting faithful personalized appearance and geometry using standard explicit representations and a differentiable
+renderer without any neural networks. Compared to the baselines, our hand avatar demonstrates better-reconstructed geometry and appear-
+ance. The hand avatar can be used to render high-fidelity hand images in novel views and poses in real-time, which serves as a foundation
+for many AR/VR applications.
+Abstract
+We present HARP (HAnd Reconstruction and Personal-
+ization), a personalized hand avatar creation approach that
+takes a short monocular RGB video of a human hand as
+input and reconstructs a faithful hand avatar exhibiting a
+high-fidelity appearance and geometry. In contrast to the
+major trend of neural implicit representations, HARP mod-
+els a hand with a mesh-based parametric hand model, a
+vertex displacement map, a normal map, and an albedo
+without any neural components. The explicit nature of our
+representation enables a truly scalable, robust, and efficient
+approach to hand avatar creation as validated by our ex-
+periments. HARP is optimized via gradient descent from
+a short sequence captured by a hand-held mobile phone
+and can be directly used in AR/VR applications with real-
+time rendering capability. To enable this, we carefully de-
+sign and implement a shadow-aware differentiable render-
+ing scheme that is robust to high degree articulations and
+self-shadowing regularly present in hand motions, as well
+as challenging lighting conditions. It also generalizes to un-
+seen poses and novel viewpoints, producing photo-realistic
+renderings of hand animations. Furthermore, the learned
+HARP representation can be used for improving 3D hand
+pose estimation quality in challenging viewpoints. The key
+advantages of HARP are validated by the in-depth analyses
+on appearance reconstruction, novel view and novel pose
+synthesis, and 3D hand pose refinement. It is an AR/VR-
+ready personalized hand representation that shows superior
+fidelity and scalability.
+1. Introduction
+Advancements in AR/VR devices are introducing a new
+reality in which the physical and digital worlds merge. The
+human hand is a crucial element for an intimate and in-
+teractive experience in these environments, serving as the
+primary interface between humans and the digital world.
+Therefore, it is essential to capture, reconstruct, and animate
+life-like digital hands for AR and VR applications. Without
+arXiv:2212.09530v3  [cs.CV]  3 Jul 2023
+
+
+this capability, the authenticity and practicality of AR/VR
+consumer products will always be limited.
+Despite its importance, the research into hand avatar cre-
+ation has so far been limited. Most works [8, 37, 62] focus
+on creating an appearance space on top of a parametric hand
+model such as MANO [65]. Such an appearance space pro-
+vides a compact way to represent hand texture but is rather
+limited in expressivity to handle non-standard textures. The
+recent LISA [12] model has emerged as an alternative, us-
+ing an implicit function to represent hand geometry and tex-
+ture color fields. Training a new identity in LISA, how-
+ever, requires a multi-view capturing setup as well as a large
+amount of data and computing power. In the nearby fields of
+face and body avatar creation, many works that leverage an
+implicit function [19,42,43,77] or NeRF-based [44] volume
+rendering [41,56,80] have also been recently explored. The
+NeRF-based method such as HumanNeRF [80] produces a
+convincing novel view synthesis but still shows blurry ar-
+tifacts around highly articulated parts and cannot be easily
+exported to other applications.
+We argue that democratizing hand avatar creation for
+AR/VR users requires a method that is (1) accurate: so that
+personalized hand appearance and geometry can be faith-
+fully reconstructed; (2) scalable: allowing hand avatars to
+be obtained using a commodity camera; (3) robust: ca-
+pable of handling out-of-distribution appearance and self-
+shadows between fingers and palm; and (4) efficient: with
+real-time rendering capability.
+To this end, we propose HARP, a personalized hand re-
+construction method that can create a faithful hand avatar
+from a short RGB video captured by a hand-held mobile
+phone. HARP leverages a parametric hand model, an ex-
+plicit appearance, and a differentiable rasterizer and shader
+to reconstruct a hand avatar and environment lighting in
+an analysis-by-synthesis manner, without any neural net-
+work component. Our observation is that human hands are
+highly articulated.
+The appearance changes of observed
+hands in a captured sequence can be dramatic and largely
+attributed to articulations and light interaction. Learning
+neural representations, such as implicit texture fields [12] or
+volume-based representations like NeRF [73], is vulnerable
+to the over-fitting to a short monocular training sequence
+and can hardly generalize well to sophisticated and dexter-
+ous hand movements. By properly disentangling geometry,
+appearance, and self-shadow with explicit representations,
+HARP can significantly improve the reconstruction quality
+and generate life-like renderings on novel views and novel
+animations performing highly articulated motions. Further-
+more, the nature of the explicit representation allows the
+results from HARP to be conveniently exported to standard
+graphics applications.
+In summary, the key advantages of HARP are:
+(1)
+HARP is a simple personalized hand avatar creation method
+that reconstructs high-fidelity appearance and geometry us-
+ing only a short monocular video.
+HARP demonstrates
+that an explicit representation with a differentiable raster-
+izer and shader is enough to obtain life-like hand avatars.
+(2) The hand avatar from HARP is controllable and com-
+patible with standard rasterization graphics pipelines allow-
+ing for photo-realistic rendering in AR/VR applications. (3)
+Moreover, HARP can be used to improve 3D hand pose
+estimation in challenging viewpoints. We perform exten-
+sive experiments on the tasks of appearance reconstruction,
+novel-view-and-pose synthesis, and 3D hand poses refine-
+ment. Compared to existing approaches, HARP is more ac-
+curate, robust, and generalizable with superior scalability.
+2. Related Work
+Hand Models. Hand models are crucial for compactly rep-
+resenting a hand surface and using it in downstream ap-
+plications.
+Many models rely on an explicit mesh sur-
+face [36, 37, 47, 65, 83], while others implicitly represent
+the surface with neural networks [12, 25, 26]. The widely
+used MANO model [65] represents a hand with pose and
+shape vectors, generating hand meshes using a PCA model
+and linear blend skinning. While parametric models like
+MANO can handle various hand geometries, their expres-
+sivity is limited by the learned parameter spaces. An al-
+ternative approach is to store vertex locations directly to
+broaden geometry representation [18, 38, 45, 70], but this
+prevents re-animation.
+Conversely, a limited amount of
+work has been explored for hand appearance modeling. No-
+table works include HTML [62], a linear appearance model
+for inferring the UV texture on top of MANO, and NIMBLE
+[37], an extension of the hand skeleton model [36], which
+can infer the surface appearance, including an albedo, spec-
+ular, and normal map. Despite their realistic texture, these
+model suffers from their linear nature of appearance space
+and limited appearance data, making them unsuitable for
+adapting to a novel identity. In this work, we enhance the
+parametric model with personalized geometry adjustment,
+explicit albedo, and normal maps, enabling animatable per-
+sonalized geometry and stronger texture representation than
+PCA-based textures.
+Geometry Reconstruction. To build a hand avatar, one
+must first derive the hand geometry from the input images
+which has been a long-studied problem [1, 4, 6, 51, 52, 66,
+74, 85]. To estimate the hand surface, these methods gen-
+erally leverage the statistical prior in the MANO model by
+predicting its pose and shape parameters. One advantage of
+such a method is that it could prevent geometry from col-
+lapsing by encouraging the hand shape to be close to the
+mean shape [21, 26]. To overcome this limited expressive-
+ness of the MANO shape space, a convolution neural net-
+work (CNN) can be used to directly estimate the vertex lo-
+
+
+cations of the mesh topology [10, 18, 31, 32, 45]. Lin et al.
+[38] replace the convolution operation with a Transformer
+model [76] and achieve state-of-the-art results on various
+datasets. Alternatively, the hand surface can be represented
+by an implicit function [12, 25, 26]. With HALO [25], the
+hand geometry can be estimated by any key point estimation
+methods [3, 14, 17, 23, 48–50, 72, 75,84, 89]. Given ground
+truth hand poses in multi-view images, differentiable ray
+tracing can also be used to refine the annotations [27]. In
+this work, we leverage the prediction by METRO [38] as
+initialization to refine a personalized geometry.
+Appearance Representations.
+Numerous methods have
+been proposed to learn and estimate appearance from im-
+ages or videos for bodies with clothing [22,34,54,59,61,68]
+and faces [2, 15, 16, 19, 29, 56], including those that use
+NeRF [44] to implicitly represent appearance [56, 57]. To
+model a human, pose information can also be used as con-
+ditions to transform the radiance field of a human avatar
+[9,55,73,80,82]. However, these models are not suitable for
+hand appearance due to the high degree of articulation. Fur-
+thermore, mesh extraction is required to make these meth-
+ods compatible with traditional graphics applications. In
+contrast, less research has been done on hand appearance
+representation [67]. While LISA [12] and HandAvatar [7]
+both learn implicit color fields together with implicit sur-
+face representations, they require a large number of images
+to train a subject-specific shape and appearance. Given an
+image, S2hand [8] employs an MLP to estimate the vertex
+colors and lighting together with MANO parameters. Con-
+currently, Wang et al. proposed SunStage [78], an outdoor
+face reconstruction method that shares similarities to our
+method, in particular, the use of explicit mesh representa-
+tion and differentiable rendering. In this work, we present
+an explicit hand appearance model and the optimization
+pipeline that can capture detailed hand texture while also
+taking lighting and shadowing into account.
+3. Method
+Overview.
+The overview of HARP is illustrated in
+Fig. 2.
+Given a short monocular RGB video of a hand
+consisting of N frames, we reconstruct a realistic hand
+avatar with personalized shape and texture. Specifically,
+our method outputs a triangle mesh M, containing vertices
+V and faces F, and its UV texture, which is decomposed
+into albedo and normal maps. We optimize the personal-
+ized hand mesh M, the albedo, and the normal map using
+an analysis-by-synthesis approach by comparing the input
+images to the images of our reconstruction M rendered us-
+ing a differentiable rendering framework.
+Our approach focuses on efficiency, robustness, and ex-
+portability, while also maintaining a high-quality hand ap-
+pearance. Given the focus, we employ (1) explicit represen-
+tations (mesh, normal map, and albedo) which can be easily
+exported to any graphics application; (2) direct optimization
+of the explicit appearance without relying on a learned ap-
+pearance space, such that we do not require pre-training nor
+a large number of training images. (3) the explicit and effi-
+cient rasterizing and shading which provides a good balance
+between rendering quality and computation cost.
+3.1. Hand Representation
+Template Model. Our hand template model is built upon
+the MANO [65] model, which we extend to a higher mesh
+resolution and allow surface vertex deformation from the
+template. Concretely, we perform a linear subdivision on
+the MANO template to increase the number of vertices from
+778 to 3093, which in turn allows our template to cap-
+ture more surface details. The subdivision process is dif-
+ferentiable, thus enabling gradient propagation back to the
+MANO pose parameter γ and shape parameter β. Addition-
+ally, the MANO hand is truncated at the wrist, which does
+not reflect the reality where hands are attached to the arms
+and the foreground mask does not separate the wrist. There-
+fore, we built another template from SMPLX [58] by trun-
+cating the arm at the elbow to facilitate the hand-and-arm
+fitting depending on the available mask. Their interactions
+with the rest of the system remain identical.
+Geometry Refinement. To utilize the higher mesh reso-
+lution for finer geometry details, we allow each posed ver-
+tex to additionally deform based on a personalized vertex
+displacement D along the vertex normal. The posed hand
+vertex locations without arm could be obtained with:
+V = S(M(γ, β)) + D,
+(1)
+S : R778×3 →R3093×3,
+(2)
+where M is the MANO function which takes pose γ and
+shape β as inputs and returns posed mesh vertex locations,
+S is the mesh subdivision function. The vertex displace-
+ment vector D is subject-specific, which we obtain by opti-
+mizing it along with other parameters.
+Texture. We model the hand skin as a Lambertian surface
+with an albedo map a, which is defined per subject in a UV
+space. Additionally, to add high-frequency details without
+upsampling the mesh, we utilize a UV-space normal map
+which can be combined with the surface normal ˆN when
+computing the illumination at the 3D surface point x.
+3.2. Shadow-aware Differentiable Rendering
+There are multiple options for differentiable rendering
+such as a differentiable path tracer [53], differentiable ras-
+terizer [40], neural renderer [28] or the recently developed
+NeRF-based volume rendering [44].
+The path tracer is
+known for its realistic rendering and explicit factorization of
+
+
+Figure 2. Method Overview. Given a short monocular RGB video of a hand, our hand avatar creation method includes two steps: (1)
+coarse hand pose and shape estimation for initialization; (2) an optimization framework to reconstruct the personalized hand geometry and
+appearance. The hand geometry is first rasterized and combined with a normal map. Then, the shader combines the albedo, geometry, and
+lighting to render the personalized hand. The optimization solves the hand and scene parameters using only the input images.
+material properties. However, this comes at a high computa-
+tion cost and has not been shown to work with highly articu-
+lated objects [20,53]. NeRF-based methods [73,80,87] and
+implicit texture-based methods [12] are often computation-
+ally expensive, and as they leverage MLPs to approximate
+the light interaction with the articulated parts; the result can
+be blurry and have self-shadows baked into the texture rep-
+resentation.
+In this work, we demonstrate that, to create a realistic
+hand avatar from a short video sequence, it is not neces-
+sary to rely on neural implicit representations, such as neu-
+ral volume rendering. Standard explicit geometry and ap-
+pearance representations together with a carefully imple-
+mented differentiable rendering scheme are able to provide
+the right balance between quality, speed, and compatibility
+with other graphics applications.
+To render the hand in the camera view, we first utilize
+the differentiable rasterizer [63] to determine the visible
+surfaces from the camera views. We then use the Phong
+model [60] without the specular component to compute the
+illumination, i.e. color, at the surface point x:
+Ix
+= kaia +
+P
+m∈lights
+kdim,d(ˆLm · ˆN)
+(3)
+where ka is an ambient reflection constant, kd is a diffuse
+reflection constant, ia and im,d are intensities of the light
+sources for diffuse surface, ˆN is the normal at point x,
+and ˆLm is a ray from the surface point toward each light
+source.
+We observe that having just one dominant light
+source (|m| = 1) provides a good balance between compu-
+tation cost and the rendering quality, under the assumption
+that the hard shadow is usually produced by the closest light
+source when indoors and by the sun outdoors.
+Self-shadowing. Notably, the Phong model does not ac-
+count for self-shadowing which often occurs when a finger
+casts a shadow onto other fingers and the palm. To accom-
+modate this scenario, we add the visibility term V (x, m) at
+x with respect to the light m to the diffuse component, mak-
+ing it kd(ˆLm · ˆN)V (x, m)im,d. We compute the visibility
+V by performing a two-step rasterization of the mesh. We
+integrate the classic idea of shadow mapping in computer
+graphics [81] into our differentiable pipeline.
+The step-by-step computation is shown in Alg 1. The z-
+buffer Zm is a depth image when seen from the camera
+camm. If the light position is more than 1 m away from
+the hand, we project it to 1 m distance. The Sigmoid func-
+tion is used to ensure smooth gradients, with a bias term
+b = 0.005 and scale s = 1000.
+To produce a softer
+shadow, we use percentage-closer filtering [64], which av-
+erages the visibility values of the nearby points. These visi-
+bility values then allow us to integrate the self-shadow into
+the pipeline. We note that our self-shadowing implemen-
+tation is differentiable with respect to both geometry and
+appearance. Our implementation is compatible with the py-
+Torch3D [63] package, and will be made publicly available.
+Algorithm 1 Visibility V (x, m) from light m
+1: Place virtual camera camm at light m pointing at hand
+2: Compute z-buffer Zm(·) from camm
+3: Get 3D points {Xhit} seen from the actual camera
+4: for x ∈Xhit do
+5:
+Transform x to camm coordinate
+xm = Tm(x)
+6:
+Get 2D pixel coordinate of xm
+x2d = π(xm)
+7:
+Compute distance to the light
+dm→x = ||x −m||
+8:
+V (x, m) = Sigmoid(s(Zm(x2d) −dm→x + b))
+9: end for
+
+
+3.3. Optimization
+To find the parameters that describe the personalized
+hand, we optimize the parameters using short RGB videos.
+The optimization objective is to minimize the difference be-
+tween the input and the rendered hand images using the pro-
+posed differentiable rendering pipeline. For each subject,
+we optimize for a joint objective consisting of a geometry
+alignment term Egeo and an appearance term Eapp:
+E
+= Egeo + Eapp,
+(4)
+where Egeo focuses on mesh configuration and Eapp en-
+courages the same appearance as in the input images.
+Geometry Objective.
+For the geometry, the goal is to
+match the rendered silhouette with the hand mask while also
+satisfying 3D mesh constraints. The geometry objective is
+defined independently from the appearance as follows:
+Egeo
+= wsil · Esil + Ereg,
+(5)
+where Esil is the silhouette difference term, Ereg is the
+mesh regularization term, and w are the weights.
+The silhouette difference term is the l1-difference be-
+tween the hand mask and the rendered silhouette Srender:
+Esil = |Sin −Srender|,
+(6)
+where Sin ∈{0, 1}H×W is an input binary hand mask that
+can be obtained from off-the-shelf segmentation tool [24].
+To prevent the optimized mesh from collapsing, we em-
+ploy a combination of 3D mesh regularizations defined as:
+Ereg
+= Einit + Everts + Elap + Enorm + Earap,
+(7)
+where each term is accompanied by its weight.
+The term Einit penalizes key points deviation from the
+initial pose with l1 distance. The vertex offset regularization
+Everts controls the deviation from the MANO mesh to be
+small using an l2-norm: Everts = ∥D∥2.
+The mesh vertices V are regularized by the Laplacian
+mesh regularizer [13] Elap and the normal consistency reg-
+ularizer Enorm defined on the posed mesh.
+The term Earap is the as-rigid-as-possible term [71] that
+encourages the 3D mesh to be more rigid and distributes the
+changes in length among multiple edges. The edge length
+difference is defined with respect to the MANO template as:
+Earap
+= PV
+v
+P
+u∈N(v) ∥∥vt −ut∥−∥v∗−u∗∥∥2 , (8)
+where N(v) are the adjacent vertices of v, vt is a vertex
+from frame t, and v∗is a vertex from the MANO template.
+Appearance Objective. The appearance term Eapp mea-
+sures the similarity between the input and the rendered im-
+age. Note that as the texture is mapped to the triangle mesh
+for rendering, the appearance term is also affected by the
+geometry change. We define the appearance term Eapp as:
+Eapp
+= wphoto · Ephoto + wvgg · Evgg + Eapp reg (9)
+where Ephoto is a per-pixel l1 color difference between the
+input images and the predicted images, Evgg is the VGG
+loss [33] that captures the perceptual difference between
+the two images by comparing the features extracted using
+the VGG model [69], and Eapp reg is a regularization term
+that encourages both albedo and normal map to be locally
+smooth [87] (details in the Appendix).
+Initialization. For optimization, we initialize the hand pa-
+rameters with per-frame predictions from the hand pose es-
+timator METRO [38].
+As METRO directly predicts the
+mesh coordinate without using the MANO pose and shape
+space, we obtain the equivalent MANO pose γ and shape β
+parameters by minimizing the l2-distances between corre-
+sponding vertices from the prediction and the MANO mesh.
+Optimization. In summary, we optimize: hand geome-
+try parameters: (1) β, the global MANO shape parame-
+ter, (2) D, the per-vertex displacement, (3) γ, the per-frame
+MANO pose parameter, including (4) the per-frame transla-
+tion, global appearance parameters: (5) a, the UV-space
+albedo, and (6) the UV-space normal map, lighting param-
+eters: (7) xlights, the light positions, (8) k, the global reflec-
+tion constant. Fig. 2 shows the overview of our optimization
+process. More details are in Appendix.
+4. Experiments
+Datasets. There is a rich literature on datasets for hand
+pose estimation and geometry reconstruction [5,49,88], but
+less on hand appearance reconstruction. For our person-
+alized hand avatar reconstruction task, there is no suitable
+dataset captured in the out-of-lab environment with monoc-
+ular commodity equipment. Therefore, apart from evaluat-
+ing on the existing InterHand2.6M [49] dataset, we create
+our own datasets for hand avatar creation, including a hand
+appearance dataset and a synthetic dataset (Fig. 3).
+Hand Appearance Dataset. To simulate less-constrained
+capture settings similar to what the end-users of AR/VR ap-
+plications typically have, all of our videos are captured by
+holding a phone camera pointing at a right hand in normal
+office lighting (Fig.1). Our hand appearance dataset con-
+sists of three parts: (1) Multi-subject single-view hand se-
+quences. The captures contain four subjects, three male
+subjects and one female subject, in motions ranging from
+flipping the hand to more complex interactions between fin-
+gers. In total, there are 750 training and 600 testing frames
+for each subject. (2) Out-of-distribution hand appear-
+ance. We captured 2 additional subjects with tattoos for
+testing the out-of-distribution appearance, each containing
+
+
+Figure 3. Sample images. (left) Each subject in the hand appear-
+ance dataset. (right) The synthetic dataset. The hand segmentation
+is obtained using an off-the-shelf segmentation tool [24].
+4 sequences. Otherwise, the setting is the same as the first
+part. (3) Lighting and shadow variation. We selected a
+subject from the previous part to capture 6 sequences of
+simple hand motions under varying directions of a single
+dominant light source. The shadow is highly pronounced in
+this portion. For all parts, we ensure that both sides of the
+hand are visible. It is still possible that parts that are usu-
+ally occluded, such as areas between fingers, are not visible.
+We obtain a binary hand mask for each frame using an on-
+line segmentation tool [24] that considers the hand and the
+visible part of the arm as foreground.
+Interhand2.6M Dataset. [49] The data is captured in a
+capturing dome with controlled lighting which is more re-
+strictive than our primary goal of casually captured video.
+The foreground masks are obtained using RVM [39], which
+are sometimes noisy. We select a single-view sequence of
+length 500 frames from the test set where most of the sur-
+face is visible for appearance evaluation.
+Synthetic Dataset. As the 3D annotations of real datasets
+often contain fitting error (reported at 2-3mm for Inter-
+Hand2.6M [49]), we opt to use a synthetic dataset with per-
+fect ground truth to evaluate hand pose estimation task. We
+rendered images of two subjects, each with two sequences,
+using a ray tracing engine Cycles in Blender [11]. More
+details about the datasets can be found in the Appendix.
+Baselines.
+We summarize the overview of the available
+baselines for hand avatar creation from RGB images in
+Tab. 1. Our main advantages compared to the baselines are:
+(i) by relying on explicit UV and normal maps, our out-
+put is directly compatible with standard graphics pipelines;
+(ii) we can represent non-standard hand textures which are
+often not captured well by the models that rely on a PCA
+space for appearance (Sec 4.1); (iii) HARP is more efficient
+in term of optimization time and memory than MLP-based
+methods due to the lower number of parameters.
+For the methods which are a variation of a hand model,
+namely S2Hand [8], HTML [62], and NIMBLE [37], the
+appearance is often predicted by a regressor, which can be
+inaccurate. Nevertheless, such models also allow test time
+optimization to refine the appearance according to the in-
+put images. For a fair comparison, we optimize the hand
+appearances in all of these baselines at test time.
+Appearance Rep.
+Out-of-dist.
+Compatibility
+w/ shared appearance space
+S2Hand [8]
+vertex color
+✗
+✓
+HTML [62]
+UV map
+✗
+✓
+NIMBLE [37]
+UV+spec+normal
+✗
+✓
+w/o shared appearance space
+LISA [12]
+3D Implicit
+✓
+✓1
+NHA* [19]
+2D Implicit
+✓
+✗2
+HARP
+UV + normal
+✓
+✓
+Table 1. Overview of hand appearance models. Appearance Rep
+indicates the method used to represent texture information in the
+model. Out-of-dist refers to its ability to represent arbitrary non-
+standard hand appearance, including hands with scars or tattoos.
+Compatibility indicates if the method could export the 3D model
+with appearance for use in other applications. *For Neural Head
+Avatar (NHA), we adapt the official code to hand domain. To make
+it compatible with other methods, we dropped the face-specific
+components from the model, including face landmarks, segmen-
+tation, and normals.
+1Can be extracted as a mesh by Marching
+Cubes. 2Geometry is compatible but colors cannot be extracted.
+We provide details on how we adapt each work for the
+hand avatar creation in the Appendix. For the methods that
+require pose and shape initialization–all except S2Hand–we
+fit the hand model to the vertex predictions by METRO [38].
+The comparison to LISA [12] is omitted as there is no re-
+leased code, model, or result that we could compare to.
+Nevertheless, our results on InterHand2.6M (Fig. 6) show a
+superior qualitative appearance than those presented in [12].
+Evaluation Metrics.
+For appearance evaluation, we re-
+port metrics that focus on the rendered image quality in-
+cluding the pixel-wise L1, the silhouette intersection-over-
+union (IoU), the learned perceptual image patch similarity
+(LPIPS) [86], and the multi-scale structural similarity met-
+ric (MS-SSIM) [79]. The rendered image with white back-
+ground is compared to the masked input. Importantly, the
+pixel-wise L1 difference, LPIPS, and the intersection-over-
+union evaluation are not directly comparable between meth-
+ods that produce different hand geometry due to the missing
+appearance of the truncated wrist in MANO and NIMBLE.
+Therefore they should be considered as references rather
+than direct comparisons. For pose evaluation, we report
+Procrustes-aligned vertex error (PA-MPVPE) in mm com-
+pared to the MANO ground truth.
+4.1. Hand Appearance Reconstruction
+To demonstrate the realism and robustness of HARP, we
+first evaluate its ability to reconstruct and re-render hand ap-
+pearance from RGB sequences. We use the first part of our
+appearance dataset which reflects a more common environ-
+ment for hand-related applications, e.g., personalized hand
+reconstruction and rendering for AR/VR. We show the qual-
+itative texture and geometry in Fig. 4 and the quantitative
+evaluation in Tab. 2 averaged over all subjects. The results
+
+
+IoU ↑
+L1 ↓
+LPIPS ↓
+MS-SSIM ↑
+METRO [38]
+0.651
+-
+-
+-
+S2Hand [8]
+0.430
+0.058
+0.270
+0.595
+HTML [62]
+0.778
+0.033
+0.136
+0.791
+NHA [19]
+0.860
+0.025
+0.114
+0.878
+NIMBLE [37]
+0.641
+0.048
+0.204
+0.691
+HARP
+0.929
+0.018
+0.071
+0.902
+Table 2. Quantitative evaluation of the appearance reconstruction
+task on the train split of our captured sequences.
+IoU ↑
+L1 ↓
+LPIPS ↓
+MS-SSIM ↑
+METRO [38]
+0.561
+-
+-
+-
+HTML [62]
+0.571
+0.091
+0.203
+0.822
+NHA [19]
+0.651
+0.084
+0.229
+0.819
+NIMBLE [37]
+0.621
+0.083
+0.229
+0.775
+HARP
+0.779
+0.051
+0.173
+0.876
+Table 3. Appearance reconstruction results on InterHand2.6M.
+Figure 4. Qualitative comparison to the baselines on our captured
+sequences. Zoom in for details.
+suggest that HARP can faithfully reconstruct hand appear-
+ance with much higher details than the baselines. In addi-
+tion, we demonstrate the robustness of HARP with appear-
+ance evaluation on the InterHand2.6M sequence in Tab. 3
+and avatar reconstruction on various datasets in Fig. 6.
+Out-of-distribution Hand Appearance.
+To demonstrate
+the advantage of our method to capture out-of-distribution
+appearance, we compare the optimized results to those of
+the PCA-based HTML and NIMBLE and the MLP-based
+NHA on the videos of hands with tattoos, using the same
+optimization pipeline and objectives. The results are shown
+in Tab. 4. By not being constrained by the PCA space, we
+can reasonably capture such out-of-distribution appearance.
+At the same time, the tattoos are completely discarded by
+HTML and NIMBLE as they are not in the training set of
+those models. The qualitative results Fig. 5 demonstrate the
+robustness of our system to capture the non-standard ap-
+L1 ↓
+LPIPS ↓
+MS-SSIM ↑
+HTML [62]
+0.018
+0.121
+0.836
+NHA [19]
+0.017
+0.131
+0.891
+NIMBLE [37]
+0.029
+0.178
+0.736
+HARP
+0.012
+0.080
+0.897
+Table 4. Evaluation on out-of-distribution appearance.
+Figure 5. Qualitative comparison between our method and base-
+lines on hands with out-of-distribution appearance.
+L1 ↓
+LPIPS ↓
+MS-SSIM ↑
+HARP w/o shadow
+0.0129
+0.054
+0.940
+HARP w/ shadow
+0.0123
+0.051
+0.943
+Table 5.
+Comparison between HARP with and without self-
+shadow modeling on the shadow portion of our captured dataset.
+Qualitative comparison in the Appendix.
+pearance. Note that we only demonstrate with the tattoo but
+such appearance deviation can also be scars or nail coloring
+(please see the Appendix).
+Differentiable Self-shadow Modeling.
+Self-shadowing
+between fingers and palm is almost inevitable due to highly
+articulated and dexterous hand movements. However, none
+of the baselines can properly capture and model self-
+shadowing. To validate the effectiveness of our shadow-
+aware differentiable shader, we compare the appearance re-
+construction quality with and without shadow modeling.
+The quantitative comparison is shown in Tab. 5.
+With-
+out properly modeling shadow, the optimized color at each
+pixel averages the color when that pixel is in and out of the
+shadow, resulting in dark patches baked into the texture.
+4.2. Hand Pose Reconstruction via Appearance
+Modeling
+With a realistic hand appearance obtained from a video
+using HARP, we demonstrate that such appearance informa-
+tion can improve the RGB hand pose estimation from the
+same identity using differentiable rendering if the appear-
+ance is known. Intuitively, with differentiable rendering, the
+optimization should be able to improve the initial predic-
+tion using only the hand mask to refine the pose. However,
+we observe that such masks are not always useful depend-
+ing on the poses and viewpoints (see Appendix). In such
+cases, knowing the hand appearance supplements the mask
+in guiding the optimization toward the correct pose.
+To the best of our knowledge, we are the first to qual-
+
+
+Figure 6. Results on various datasets (our Synthetic, InterHand2.6M [49], and HanCo [88]). HARP is very robust, it can obtain faithful
+hand avatars on different datasets that have a large variety of capture setups, lighting and image conditions, and textures.
+Dataset
+METRO
+HARP-sil
+HARP-full
+HARP-known
+Synthetic
+6.12
+6.16
+6.04
+5.65
+Table 6. Pose error on synthetic sequences (PA-MPVPE in mm).
+itatively and quantitatively demonstrate such improvement
+for hand pose estimation. We believe that the main com-
+ponent for enabling such improvement lies in the design of
+the rendering process such as shading and visibility check.
+However, such topics did not receive much attention in the
+hand community especially in the context of pose estima-
+tion prior to this work. We analyze the scenario in which
+such improvement is possible in the Appendix.
+In Tab. 6, we compare the hand pose error between
+METRO [38], HARP with silhouette loss only (HARP-sil),
+a normal HARP (HARP-full), and HARP with a known ap-
+pearance that is frozen during optimization (HARP-known).
+The known appearance is obtained from running HARP on
+a simple video of the same identity. The results indicate that
+HARP can leverage the differentiable rendering of appear-
+ance to improve poses. When the appearance is known in
+advance (HARP-known), the optimization can perform bet-
+ter as it avoids the shadow and lighting effect that will be
+baked into the texture during the optimization.
+4.3. Novel View and Pose Synthesis
+The explicit geometry obtained using HARP also en-
+ables consistent 3D geometry and appearance rendering
+across different poses and viewpoints. We evaluate this fea-
+ture by rendering the known appearance onto the hands in
+novel views and novel poses, using the test sequences of our
+dataset. To match the pose in the test sequences, we opti-
+mize only the pose parameter γ (see Sec. 3.1) with respect
+to the hand masks while freezing all other components. The
+quantitative results shown in Tab. 7 suggest that HARP can
+produce consistent appearances in novel views and poses.
+IoU ↑
+L1 ↓
+LPIPS ↓
+MS-SSIM ↑
+METRO [38]
+0.651
+-
+-
+-
+S2Hand [8]
+0.448
+0.059
+0.271
+0.598
+HTML [62]
+0.754
+0.040
+0.144
+0.771
+NHA [19]
+0.826
+0.034
+0.134
+0.850
+NIMBLE [37]
+0.752
+0.038
+0.157
+0.789
+HARP
+0.870
+0.029
+0.105
+0.831
+Table 7. Appearance synthesis evaluation on the test sequences.
+5. Conclusion and Limitation
+In conclusion, we present HARP, a method for recon-
+structing personalized hand geometry and appearance from
+monocular RGB sequences.
+Starting from a parametric
+hand model as a geometry backbone, HARP refines the sur-
+face to a personalized hand shape. The texture is factor-
+ized into an albedo and a normal map. The resulting hand
+model is robust when rendered in novel views and novel
+poses, outperforming existing baselines both qualitatively
+and quantitatively. Furthermore, HARP is efficient, scal-
+able, and compatible with traditional rendering pipelines. It
+provides a foundation for the realistic experience of person-
+alized hands in AR/VR applications.
+Limitation.
+As our system assumes only a single light
+source and ambient light, with no specular effect, its abil-
+ity to replicate the appearance under other lighting assump-
+tions might still be limited. Incorporating an environment
+map, modeling bounced light, as well as increasing the res-
+olution of the rendered texture are all interesting steps for
+future works toward a more photorealistic rendering.
+Acknowledgement.
+We sincerely acknowledge Shaofei
+Wang and Marko Mihajlovic for the discussions, and Malte
+Prinzler for the help with the Neural Head Avatar baseline.
+This work was supported by the SNF grant 200021 204840
+and an ETH Z¨urich Postdoctoral Fellowship.
+
+
+References
+[1] L. Ballan, A. Taneja, J. Gall, L. van Gool, and M. Polle-
+feys. Motion capture of hands in action using discriminative
+salient points. In European Conference on Computer Vision
+(ECCV), volume 7577 of LNCS, pages 640–653. Springer,
+2012. 2
+[2] Marcel C. Buehler, Abhimitra Meka, Gengyan Li, Thabo
+Beeler, and Otmar Hilliges. Varitex: Variational neural face
+textures.
+In Proceedings of the IEEE/CVF International
+Conference on Computer Vision, 2021. 3
+[3] Yujun Cai, Liuhao Ge, Jianfei Cai, and Junsong Yuan.
+Weakly-supervised 3d hand pose estimation from monocu-
+lar rgb images. In Proceedings of the European Conference
+on Computer Vision (ECCV), pages 666–682, 2018. 3
+[4] Zhe Cao, Ilija Radosavovic, Angjoo Kanazawa, and Jitendra
+Malik. Reconstructing hand-object interactions in the wild.
+ICCV, 2021. 2
+[5] Yu-Wei Chao, Wei Yang, Yu Xiang, Pavlo Molchanov,
+Ankur Handa, Jonathan Tremblay, Yashraj S. Narang, Karl
+Van Wyk, Umar Iqbal, Stan Birchfield, Jan Kautz, and Dieter
+Fox. DexYCB: A benchmark for capturing hand grasping of
+objects. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), 2021.
+[6] Ping Chen, Yujin Chen, Dong Yang, Fangyin Wu, Qin Li,
+Qingpei Xia, and Yong Tan. I2uv-handnet: Image-to-uv pre-
+diction network for accurate and high-fidelity 3d hand mesh
+modeling. In Proceedings of the IEEE/CVF International
+Conference on Computer Vision, pages 12929–12938, 2021.
+2
+[7] Xingyu Chen, Baoyuan Wang, and Heung-Yeung Shum.
+Hand avatar: Free-pose hand animation and rendering from
+monocular video. arXiv:2211.12782, 2022. 3
+[8] Yujin Chen, Zhigang Tu, Di Kang, Linchao Bao, Ying
+Zhang, Xuefei Zhe, Ruizhi Chen, and Junsong Yuan. Model-
+based 3d hand reconstruction via self-supervised learning. In
+Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition, pages 10451–10460, 2021. 2,
+3, 6, 7, 8
+[9] Zhaoxi Chen and Ziwei Liu.
+Relighting4d:
+Neural re-
+lightable human from videos. In ECCV, 2022. 3
+[10] Hongsuk Choi, Gyeongsik Moon, and Kyoung Mu Lee.
+Pose2mesh: Graph convolutional network for 3d human pose
+and mesh recovery from a 2d human pose. In European Con-
+ference on Computer Vision (ECCV), 2020. 3
+[11] Blender Online Community. Blender - a 3D modelling and
+rendering package. Blender Foundation, Stichting Blender
+Foundation, Amsterdam, 2018. 6, 1
+[12] Enric Corona, Tomas Hodan, Minh Vo, Francesc Moreno-
+Noguer, Chris Sweeney, Richard Newcombe, and Lingni
+Ma. Lisa: Learning implicit shape and appearance of hands.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 20533–20543, 2022.
+2, 3, 4, 6
+[13] Mathieu Desbrun, Mark Meyer, Peter Schr¨oder, and Alan H
+Barr.
+Implicit fairing of irregular meshes using diffusion
+and curvature flow. In Proceedings of the 26th annual con-
+ference on Computer graphics and interactive techniques,
+pages 317–324, 1999. 5
+[14] Bardia Doosti, Shujon Naha, Majid Mirbagheri, and David J
+Crandall. Hope-net: A graph-based model for hand-object
+pose estimation. In Proceedings of the IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition, pages
+6608–6617, 2020. 3
+[15] Yao Feng, Haiwen Feng, Michael J. Black, and Timo
+Bolkart.
+Learning an animatable detailed 3D face model
+from in-the-wild images. ACM Transactions on Graphics,
+(Proc. SIGGRAPH), 40(8), 2021. 3
+[16] Guy Gafni, Justus Thies, Michael Zollhofer, and Matthias
+Nießner. Dynamic neural radiance fields for monocular 4d
+facial avatar reconstruction. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 8649–8658, 2021. 3
+[17] Guillermo Garcia-Hernando,
+Shanxin Yuan,
+Seungryul
+Baek, and Tae-Kyun Kim. First-person hand action bench-
+mark with rgb-d videos and 3d hand pose annotations. In
+Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 409–419, 2018. 3
+[18] Liuhao Ge, Zhou Ren, Yuncheng Li, Zehao Xue, Yingying
+Wang, Jianfei Cai, and Junsong Yuan. 3d hand shape and
+pose estimation from a single rgb image. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 10833–10842, 2019. 2, 3
+[19] Philip-William Grassal,
+Malte Prinzler,
+Titus Leistner,
+Carsten Rother, Matthias Nießner, and Justus Thies. Neu-
+ral head avatars from monocular rgb videos. arXiv preprint
+arXiv:2112.01554, 2021. 2, 3, 6, 7, 8
+[20] Jon Hasselgren, Nikolai Hofmann, and Jacob Munkberg.
+Shape,
+Light,
+and Material Decomposition from Im-
+ages
+using
+Monte
+Carlo
+Rendering
+and
+Denoising.
+arXiv:2206.03380, 2022. 4
+[21] Yana Hasson, G¨ul Varol, Dimitrios Tzionas, Igor Kale-
+vatykh, Michael J. Black, Ivan Laptev, and Cordelia Schmid.
+Learning joint reconstruction of hands and manipulated ob-
+jects. In Proceedings IEEE Conf. on Computer Vision and
+Pattern Recognition (CVPR), June 2019. 2
+[22] Tao Hu, Tao Yu, Zerong Zheng, He Zhang, Yebin Liu, and
+Matthias Zwicker. Hvtr: Hybrid volumetric-textural render-
+ing for human avatars. In 2022 International Conference on
+3D Vision (3DV), 2022. 3
+[23] Umar Iqbal, Pavlo Molchanov, Thomas Breuel Juergen Gall,
+and Jan Kautz. Hand pose estimation via latent 2.5 d heatmap
+regression. In Proceedings of the European Conference on
+Computer Vision (ECCV), pages 118–134, 2018. 3
+[24] Kaleido AI GmbH. Unscreen. February 2021. 5, 6, 1
+[25] Korrawe Karunratanakul, Adrian Spurr, Zicong Fan, Otmar
+Hilliges, and Siyu Tang. A skeleton-driven neural occupancy
+representation for articulated hands. In International Confer-
+ence on 3D Vision (3DV), 2021. 2, 3
+[26] Korrawe
+Karunratanakul,
+Jinlong
+Yang,
+Yan
+Zhang,
+Michael J. Black, Krikamol Muandet, and Siyu Tang.
+Grasping field: Learning implicit representations for hu-
+man grasps. In 2020 International Conference on 3D Vision
+(3DV), pages 333–344. IEEE, 2020. 2, 3
+
+
+[27] Giorgos Karvounas, Nikolaos Kyriazis, Iason Oikonomidis,
+Aggeliki Tsoli, and Antonis A Argyros. Multi-view image-
+based hand geometry refinement using differentiable monte
+carlo ray tracing. BMVC, 2021. 3
+[28] Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada. Neu-
+ral 3d mesh renderer. In Proceedings of the IEEE conference
+on computer vision and pattern recognition, pages 3907–
+3916, 2018. 3
+[29] Hyeongwoo Kim, Pablo Garrido, Ayush Tewari, Weipeng
+Xu, Justus Thies, Matthias Niessner, Patrick P´erez, Chris-
+tian Richardt, Michael Zollh¨ofer, and Christian Theobalt.
+Deep video portraits. ACM Transactions on Graphics (TOG),
+37(4):1–14, 2018. 3
+[30] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization.
+arXiv preprint arXiv:1412.6980,
+2014. 3
+[31] Nikos Kolotouros, Georgios Pavlakos, and Kostas Dani-
+ilidis. Convolutional mesh regression for single-image hu-
+man shape reconstruction. In CVPR, 2019. 3
+[32] Dominik Kulon,
+Riza Alp Guler,
+Iasonas Kokkinos,
+Michael M. Bronstein, and Stefanos Zafeiriou.
+Weakly-
+supervised mesh-convolutional hand reconstruction in the
+wild. In The IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), June 2020. 3
+[33] Christian Ledig, Lucas Theis, Ferenc Husz´ar, Jose Caballero,
+Andrew Cunningham, Alejandro Acosta, Andrew Aitken,
+Alykhan Tejani, Johannes Totz, Zehan Wang, et al. Photo-
+realistic single image super-resolution using a generative ad-
+versarial network. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 4681–4690,
+2017. 5
+[34] Ruilong Li, Julian Tanke, Minh Vo, Michael Zollhofer, Jur-
+gen Gall, Angjoo Kanazawa, and Christoph Lassner. Tava:
+Template-free animatable volumetric actors. 2022. 3
+[35] Tianye Li, Timo Bolkart, Michael. J. Black, Hao Li, and
+Javier Romero. Learning a model of facial shape and ex-
+pression from 4D scans. ACM Transactions on Graphics,
+(Proc. SIGGRAPH Asia), 36(6), 2017. 2
+[36] Yuwei Li, Minye Wu, Yuyao Zhang, Lan Xu, and Jingyi Yu.
+Piano: A parametric hand bone model from magnetic reso-
+nance imaging. In Proceedings of the Thirtieth International
+Joint Conference on Artificial Intelligence, IJCAI-21, pages
+816–822. International Joint Conferences on Artificial Intel-
+ligence Organization, 8 2021. 2
+[37] Yuwei Li, Longwen Zhang, Zesong Qiu, Yingwenqi Jiang,
+Yuyao Zhang, Nianyi Li, Yuexin Ma, Lan Xu, and Jingyi Yu.
+Nimble: A non-rigid hand model with bones and muscles.
+arXiv preprint arXiv:2202.04533, 2022. 2, 6, 7, 8, 1
+[38] Kevin Lin, Lijuan Wang, and Zicheng Liu. End-to-end hu-
+man pose and mesh reconstruction with transformers.
+In
+CVPR, 2021. 2, 3, 5, 6, 7, 8
+[39] Shanchuan Lin, Linjie Yang, Imran Saleemi, and Soumyadip
+Sengupta. Robust high-resolution video matting with tempo-
+ral guidance, 2021. 6, 1
+[40] Shichen Liu, Tianye Li, Weikai Chen, and Hao Li. Soft ras-
+terizer: A differentiable renderer for image-based 3d reason-
+ing. The IEEE International Conference on Computer Vision
+(ICCV), Oct 2019. 3, 7
+[41] Marko Mihajlovic, Aayush Bansal, Michael Zollhoefer, Siyu
+Tang, and Shunsuke Saito.
+KeypointNeRF: Generalizing
+image-based volumetric avatars using relative spatial encod-
+ing of keypoints. In European conference on computer vi-
+sion, 2022. 2
+[42] Marko Mihajlovic, Shunsuke Saito, Aayush Bansal, Michael
+Zollhoefer, and Siyu Tang.
+COAP: Compositional artic-
+ulated occupancy of people.
+In Proceedings IEEE Conf.
+on Computer Vision and Pattern Recognition (CVPR), June
+2022. 2
+[43] Marko Mihajlovic, Yan Zhang, Michael J Black, and Siyu
+Tang. LEAP: Learning articulated occupancy of people. In
+Proceedings IEEE Conf. on Computer Vision and Pattern
+Recognition (CVPR), June 2021. 2
+[44] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik,
+Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis. In ECCV, 2020. 2, 3
+[45] Gyeongsik Moon and Kyoung Mu Lee. I2l-meshnet: Image-
+to-lixel prediction network for accurate 3d human pose and
+mesh estimation from a single rgb image.
+In Computer
+Vision–ECCV 2020: 16th European Conference, Glasgow,
+UK, August 23–28, 2020, Proceedings, Part VII 16, pages
+752–768. Springer, 2020. 2, 3
+[46] Gyeongsik Moon and Kyoung Mu Lee. Neuralannot: Neu-
+ral annotator for in-the-wild expressive 3d human pose and
+mesh training sets. arXiv preprint arXiv:2011.11232, 2020.
+7
+[47] Gyeongsik Moon, Takaaki Shiratori, and Kyoung Mu Lee.
+Deephandmesh: A weakly-supervised deep encoder-decoder
+framework for high-fidelity hand mesh modeling. In Euro-
+pean Conference on Computer Vision (ECCV), 2020. 2
+[48] Gyeongsik Moon, Ju Yong Chang, and Kyoung Mu Lee.
+V2v-posenet: Voxel-to-voxel prediction network for accu-
+rate 3d hand and human pose estimation from a single depth
+map. In Proceedings of the IEEE conference on computer
+vision and pattern Recognition, pages 5079–5088, 2018. 3
+[49] Gyeongsik Moon, Shoou-I Yu, He Wen, Takaaki Shiratori,
+and Kyoung Mu Lee. Interhand2.6m: A dataset and baseline
+for 3d interacting hand pose estimation from a single rgb im-
+age. In European Conference on Computer Vision (ECCV),
+2020. 3, 5, 6, 8, 1, 7
+[50] Franziska Mueller,
+Florian Bernard,
+Oleksandr Sotny-
+chenko, Dushyant Mehta, Srinath Sridhar, Dan Casas, and
+Christian Theobalt. Ganerated hands for real-time 3d hand
+tracking from monocular rgb. In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition,
+pages 49–59, 2018. 3
+[51] Franziska Mueller, Micah Davis, Florian Bernard, Olek-
+sandr Sotnychenko, Mickeal Verschoor, Miguel A. Otaduy,
+Dan Casas, and Christian Theobalt.
+Real-time Pose and
+Shape Reconstruction of Two Interacting Hands With a Sin-
+gle Depth Camera. ACM Transactions on Graphics (TOG),
+38(4), 2019. 2
+[52] Evonne Ng, Shiry Ginosar, Trevor Darrell, and Hanbyul Joo.
+Body2hands: Learning to infer 3d hands from conversational
+gesture body dynamics. Proceedings of the IEEE/CVF Con-

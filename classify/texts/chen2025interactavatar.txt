@@ -1,0 +1,1093 @@
+Title: InteractAvatar: Modeling Hand-Face Interaction in Photorealistic Avatars with Deformable Gaussians
+
+Position: Levels of AGI for Operationalizing Progress on the Path to AGI
+Meredith Ringel Morris 1 Jascha Sohl-Dickstein 2 Noah Fiedel 2 Tris Wartkentin 2 Allan Dafoe 3
+Aleksandra Faust 2 Clement Farbaret 3 Shane Legg 3
+Abstract
+We propose a framework for classifying the ca-
+pabilities and behavior of Artificial General Intel-
+ligence (AGI) models and their precursors. This
+framework introduces levels of AGI performance,
+generality, and autonomy, providing a common
+language to compare models, assess risks, and
+measure progress along the path to AGI. To de-
+velop our framework, we analyze existing defini-
+tions of AGI, and distill six principles that a useful
+ontology for AGI should satisfy. With these prin-
+ciples in mind, we propose “Levels of AGI” based
+on depth (performance) and breadth (generality)
+of capabilities, and reflect on how current systems
+fit into this ontology. We discuss the challenging
+requirements for future benchmarks that quan-
+tify the behavior and capabilities of AGI models
+against these levels. Finally, we discuss how these
+levels of AGI interact with deployment considera-
+tions such as autonomy and risk, and emphasize
+the importance of carefully selecting Human-AI
+Interaction paradigms for responsible and safe
+deployment of highly capable AI systems.
+1. Introduction
+Artificial General Intelligence (AGI) is an important and
+sometimes controversial concept in computing research,
+used to describe an AI system that is at least as capable as a
+human at most tasks. Given the rapid advancement of Ma-
+chine Learning (ML) models, the concept of AGI has grown
+from a subject of philosophical debate, to one which also
+has near-term practical relevance. Some experts believe that
+“sparks” of AGI (Bubeck et al., 2023) are already present
+in the latest generation of large language models (LLMs);
+some predict AI will broadly outperform humans within
+1Google DeepMind, Seattle, WA, USA 2Google DeepMind,
+Mountain View, CA, USA 3Google DeepMind, London, UK. Cor-
+respondence to: Meredith Ringel Morris <merrie@google.com>.
+Proceedings of the 41 st International Conference on Machine
+Learning, Vienna, Austria. PMLR 235, 2024. Copyright 2024 by
+the author(s).
+about a decade (Bengio et al., 2023); some even assert that
+current LLMs are AGIs (Ag¨uera y Arcas & Norvig, 2023).
+The concept of AGI is important as it maps onto goals for,
+predictions about, and risks of AI:
+Goals: Achieving human-level “intelligence” is an implicit
+or explicit north-star goal for many in our field, from the
+1956 Dartmouth AI Conference (McCarthy et al., 1955)
+that kick-started the modern field of AI, to today’s leading
+AI research firms, whose mission statements include goals
+such as “ensure transformative AI helps people and soci-
+ety” (Anthropic, 2023a) and “ensure that artificial general
+intelligence benefits all of humanity” (OpenAI, 2023).
+Predictions: The concept of AGI is related to a predic-
+tion about progress in AI, namely that it is toward greater
+generality, approaching and exceeding human generality.
+Additionally, AGI is typically intertwined with a notion
+of “emergent” properties (Wei et al., 2022), i.e. capabili-
+ties not explicitly anticipated by the developer. Such capa-
+bilities offer promise, perhaps including abilities that are
+complementary to typical human skills, enabling new types
+of interaction or novel industries. Such predictions about
+AGI’s capabilities in turn predict likely societal impacts;
+AGI may have significant economic implications, i.e., reach-
+ing the necessary criteria for widespread labor substitution
+(Ellingrud et al., 2023; Dell’Acqua et al., 2023; Eloundou
+et al., 2023), as well as geo-political implications relating
+not only to the economic advantages AGI may confer, but
+also to military considerations (Kissinger et al., 2022).
+Risks: Lastly, AGI is viewed by some as a concept for iden-
+tifying the point when there are extreme risks (Shevlane
+et al., 2023; Bengio et al., 2023), as some speculate that
+AGI systems might be able to deceive and manipulate, accu-
+mulate resources, advance goals, behave agentically, outwit
+humans in broad domains, displace humans from key roles,
+and/or recursively self-improve.
+In this position paper, we argue that it is critical for the
+AI research community to explicitly reflect on what we
+mean by “AGI,” and aspire to quantify attributes like the
+performance, generality, and autonomy of AI systems.
+Shared operationalizable definitions for these concepts will
+support: comparisons between models; risk assessments
+1
+arXiv:2311.02462v5  [cs.AI]  24 Sep 2025
+
+
+Levels of AGI
+and mitigation strategies; clear criteria from policymakers
+and regulators; identifying goals, predictions, and risks for
+research and development; and the ability to understand and
+communicate where we are along the path to AGI.
+2. Defining AGI: Case Studies
+Many AI researchers and organizations have proposed def-
+initions of AGI. In this section, we consider nine promi-
+nent examples, and reflect on their strengths and limitations.
+This analysis informs our subsequent introduction of a two-
+dimensional, leveled ontology of AGI.
+Case Study 1: The Turing Test. The Turing Test (Turing,
+1950) is perhaps the most well-known attempt to opera-
+tionalize an AGI-like concept. Turing’s “imitation game”
+attempts to operationalize the question of whether machines
+can think, and asks a human to interactively distinguish
+whether text is produced by another human or by a ma-
+chine. The test as originally framed is a thought experiment,
+and is the subject of many critiques (Wikipedia, 2023b); in
+practice, the test often highlights the ease of fooling people
+(Weizenbaum, 1966; Wikipedia, 2023a) rather than the “in-
+telligence” of the machine. Given that modern LLMs pass
+some framings of the Turing Test, it seems clear that this
+criteria is insufficient for operationalizing or benchmarking
+AGI. We agree with Turing that whether a machine can
+think, while an interesting philosophical and scientific ques-
+tion, seems orthogonal to the question of what the machine
+can do; the latter is much more straightforward to measure
+and more important for evaluating impacts. Therefore we
+propose that AGI should be defined in terms of capabilities
+rather than processes1.
+Case Study 2: Strong AI – Systems Possessing Conscious-
+ness. Philosopher John Searle mused, “according to strong
+AI, the computer is not merely a tool in the study of the
+mind; rather, the appropriately programmed computer re-
+ally is a mind, in the sense that computers given the right
+programs can be literally said to understand and have other
+cognitive states” (Searle, 1980). While strong AI might be
+one path to achieving AGI, there is no scientific consen-
+sus on methods for determining whether machines possess
+strong AI attributes such as consciousness (Butlin et al.,
+2023), making this process-oriented framing impractical.
+Case Study 3: Analogies to the Human Brain. The origi-
+nal use of the term “artificial general intelligence” was in
+a 1997 article about military technologies by Mark Gubrud
+(Gubrud, 1997), which defined AGI as “AI systems that rival
+or surpass the human brain in complexity and speed, that
+can acquire, manipulate and reason with general knowledge,
+1As research into mechanistic interpretability (R¨auker et al.,
+2023) advances, it may enable process-oriented metrics. These
+may be relevant to future definitions of AGI.
+and that are usable in essentially any phase of industrial or
+military operations where a human intelligence would other-
+wise be needed.” This early definition emphasizes processes
+(rivaling the human brain in complexity) in addition to capa-
+bilities; while neural network architectures underlying mod-
+ern ML systems are loosely inspired by the human brain,
+the success of transformer-based architectures (Vaswani
+et al., 2023) whose performance is not reliant on human-
+like learning suggests that strict brain-based processes and
+benchmarks are not inherently necessary for AGI.
+Case Study 4: Human-Level Performance on Cognitive
+Tasks. Legg (Legg, 2008) and Goertzel (Goertzel, 2014)
+popularized the term AGI among computer scientists in
+2001 (Legg, 2022), describing AGI as a machine that is able
+to do the cognitive tasks that people can typically do. This
+definition notably focuses on non-physical tasks (i.e., not
+requiring robotic embodiment as a precursor to AGI). Like
+many definitions of AGI, this framing presents ambiguity
+around choices such as “what tasks?” and “which people?”.
+Case Study 5: Ability to Learn Tasks. In The Technologi-
+cal Singularity (Shanahan, 2015), Shanahan suggests that
+AGI is “artificial intelligence that is not specialized to carry
+out specific tasks, but can learn to perform as broad a range
+of tasks as a human.” An important property of this framing
+is its inclusion of metacognitive capabilities (learning) as a
+requirement for AGI.
+Case Study 6: Economically Valuable Work. OpenAI’s
+charter defines AGI as “highly autonomous systems that
+outperform humans at most economically valuable work”
+(OpenAI, 2018). This definition has strengths per the “capa-
+bilities, not processes” criteria, as it focuses on performance
+agnostic to underlying mechanisms; further, this definition
+offers a potential yardstick for measurement, i.e., economic
+value. A shortcoming of this definition is that it does not
+capture all of the criteria that may be part of “general intelli-
+gence.” There are tasks associated with intelligence that may
+not have a well-defined economic value (e.g., artistic cre-
+ativity or emotional intelligence). Such properties may be
+indirectly accounted for in economic measures (e.g., artistic
+creativity might produce books or movies, emotional intel-
+ligence might relate to the ability to be a successful CEO),
+though whether economic value captures the full spectrum
+of “intelligence” remains unclear. Another challenge with
+framing AGI in terms of economic value is the implied need
+for deployment in order to realize that value, whereas a
+focus on capabilities might only require the potential for
+an AGI to execute a task. We may develop systems that
+are technically capable of performing economically impor-
+tant tasks but don’t realize that economic value for varied
+reasons (legal, ethical, social, etc.).
+Case Study 7: Flexible and General – The “Coffee Test”
+and Related Challenges. Marcus suggests that AGI is
+2
+
+
+Levels of AGI
+“shorthand for any intelligence (there might be many) that
+is flexible and general, with resourcefulness and reliability
+comparable to (or beyond) human intelligence” (Marcus,
+2022b). This definition captures both generality and per-
+formance (via the inclusion of reliability); the mention of
+“flexibility” is noteworthy, since, like the Shanahan formu-
+lation, this suggests that metacognitive capabilities, such
+as the ability to learn new skills, are necessary to make an
+AI system sufficiently general. Further, Marcus proposes
+five tasks to gauge success (understanding a movie, under-
+standing a novel, cooking in an arbitrary kitchen, writing a
+bug-free 10,000 line program, and converting natural lan-
+guage mathematical proofs into symbolic form) (Marcus,
+2022a). Accompanying a definition with a benchmark is
+valuable; however, more work would be required to make
+this benchmark comprehensive. While failing some of these
+tasks may indicate a system is not an AGI, it is unclear that
+passing them is sufficient for AGI status. In Section 5, we
+further discuss the challenge in developing a set of tasks
+that is both necessary and sufficient for capturing the gen-
+erality of AGI. We also note that one of Marcus’ proposed
+tasks, “work as a competent cook in an arbitrary kitchen” (a
+variant of Steve Wozniak’s “Coffee Test” (Wozniak, 2010)),
+requires robotic embodiment; this differs from other defini-
+tions that focus on non-physical tasks2.
+Case Study 8: Artificial Capable Intelligence. Suley-
+man proposed the concept of “Artificial Capable Intelli-
+gence (ACI)” (Mustafa Suleyman and Michael Bhaskar,
+2023) to refer to AI systems with sufficient performance
+and generality to accomplish complex, multi-step tasks
+in the open world.
+More specifically, Suleyman pro-
+posed an economically-based definition of ACI skill that he
+dubbed the “Modern Turing Test,” in which an AI would be
+given $100,000 of capital and tasked with turning that into
+$1,000,000 over a period of several months. This framing
+is more narrow than OpenAI’s definition of economically
+valuable work and has the additional downside of poten-
+tially introducing alignment risks (Kenton et al., 2021) by
+only targeting fiscal profit. However, a strength of Suley-
+man’s concept is the focus on performing a complex, multi-
+step task that humans value. Construed more broadly than
+making a million dollars, ACI’s emphasis on complex, real-
+world tasks is noteworthy, since such tasks may have more
+ecological validity than many current AI benchmarks; Mar-
+cus’ aforementioned five tests of flexibility and generality
+(Marcus, 2022a) seem within the spirit of ACI, as well.
+Case Study 9: SOTA LLMs as Generalists. Ag¨uera y Ar-
+cas and Norvig (Ag¨uera y Arcas & Norvig, 2023) suggested
+that state-of-the-art LLMs (e.g. mid-2023 deployments of
+2Though robotics might also be implied by the OpenAI char-
+ter’s focus on “economically valuable work,” OpenAI shut down
+its robotics research division in 2021 (Wiggers, 2021), suggesting
+this is not their intended interpretation.
+GPT-4, Bard, Llama 2, and Claude) already are AGIs, ar-
+guing that generality is the key property of AGI, and that
+because language models can discuss a wide range of topics,
+execute a wide range of tasks, handle multimodal inputs and
+outputs, operate in multiple languages, and “learn” from
+zero-shot or few-shot examples, they have achieved suffi-
+cient generality. While we agree that generality is a crucial
+characteristic of AGI, we posit that it must also be paired
+with a measure of performance (i.e., if an LLM can write
+code or perform math, but is not reliably correct, then its
+generality is not yet sufficiently performant).
+3. Defining AGI: Six Principles
+Reflecting on these nine example formulations of AGI (or
+AGI-adjacent concepts), we identify properties and com-
+monalities that we feel contribute to a clear, operationaliz-
+able definition of AGI. We argue that any definition of AGI
+should meet the following six criteria:
+1. Focus on Capabilities, not Processes. The majority of
+definitions focus on what an AGI can accomplish, not on the
+mechanism by which it accomplishes tasks. This is impor-
+tant for identifying characteristics that are not necessarily a
+prerequisite for achieving AGI (but may nonetheless be in-
+teresting research topics). This focus on capabilities implies
+that AGI systems need not necessarily think or understand
+in a human-like way (since this focuses on processes); sim-
+ilarly, it is not a necessary precursor for AGI that systems
+possess qualities such as consciousness (subjective aware-
+ness) (Butlin et al., 2023) or sentience (the ability to have
+feelings), since these qualities have a process focus.
+2. Focus on Generality and Performance. All of the
+above definitions emphasize generality to varying degrees,
+but some exclude performance criteria. We argue that both
+generality and performance are key components of AGI. In
+Section 4 we introduce a leveled taxonomy that considers
+the interplay between these dimensions.
+3. Focus on Cognitive and Metacognitive, but not Phys-
+ical, Tasks. Whether to require robotic embodiment (Roy
+et al., 2021) as a criterion for AGI is a matter of some de-
+bate. Most definitions focus on cognitive tasks, by which
+we mean non-physical tasks. Despite recent advances in
+robotics (Brohan et al., 2023), physical capabilities for AI
+systems seem to be lagging behind non-physical capabili-
+ties. It is possible that embodiment in the physical world is
+necessary for building the world knowledge to be successful
+on some cognitive tasks (Shanahan, 2010), or at least may
+be one path to success on some classes of cognitive tasks;
+if that turns out to be true then embodiment may be critical
+to some paths toward AGI. We suggest that the ability to
+perform physical tasks increases a system’s generality, but
+should not be considered a necessary prerequisite to achiev-
+3
+
+
+Levels of AGI
+ing AGI. On the other hand, metacognitive capabilities (such
+as the ability to learn new tasks or the ability to know when
+to ask for clarification or assistance from a human) are key
+prerequisites for systems to achieve generality.
+4. Focus on Potential, not Deployment. Demonstrating
+that a system can perform a requisite set of tasks at a given
+level of performance should be sufficient for declaring the
+system to be an AGI; deployment of such a system in the
+open world should not be inherent in the definition of AGI.
+For instance, defining AGI in terms of reaching a certain
+level of labor substitution would require real-world deploy-
+ment, whereas defining AGI in terms of being capable of
+substituting for labor would focus on potential. Requiring
+deployment as a condition of measuring AGI introduces non-
+technical hurdles such as legal and social considerations, as
+well as ethical and safety concerns.
+5. Focus on Ecological Validity. Tasks that can be used to
+benchmark progress toward AGI are critical to operational-
+izing any proposed definition. While we discuss this further
+in Section 5, we emphasize here the importance of choos-
+ing tasks that align with real-world (i.e., ecologically valid)
+tasks that people value (construing “value” broadly, not only
+as economic value but also social value, artistic value, etc.).
+This may mean eschewing traditional AI metrics that are
+easy to automate or quantify (Raji et al., 2021) but may not
+capture the skills that people would value in an AGI.
+6. Focus on the Path to AGI, not a Single Endpoint.
+Much as the adoption of a standard set of Levels of Driv-
+ing Automation (SAE International, 2021) allowed for clear
+discussions of policy and progress relating to autonomous
+vehicles, we posit there is value in defining “Levels of AGI.”
+As we discuss in Section 5 and Section 6, we intend for
+each level of AGI to be associated with a clear set of met-
+rics/benchmarks, as well as identified risks introduced at
+each level, and resultant changes to the Human-AI Inter-
+action paradigm (Morris et al., 2023). This level-based
+approach to defining AGI supports the coexistence of many
+prominent formulations – for example, Aguera y Arcas &
+Norvig’s definition (Ag¨uera y Arcas & Norvig, 2023) would
+fall into the “Emerging AGI” category of our ontology, while
+OpenAI’s threshold of labor replacement (OpenAI, 2018)
+better matches “Exceptional AGI.” Our “Competent AGI”
+level is probably the best catch-all for many existing def-
+initions of AGI (e.g., the Legg (Legg, 2008), Shanahan
+(Shanahan, 2015), and Suleyman (Mustafa Suleyman and
+Michael Bhaskar, 2023) formulations). In the next section,
+we introduce a level-based ontology of AGI.
+4. Levels of AGI
+In accordance with Principle 2 (“Focus on Generality and
+Performance”) and Principle 6 (“Focus on the Path to AGI,
+not a Single Endpoint”), in Table 1 we introduce a matrixed
+leveling system that focuses on performance and generality
+as the two dimensions that are core to AGI:
+Performance refers to the depth of an AI system’s capa-
+bilities, i.e., how it compares to human-level performance
+for a given task. Note that for all performance levels above
+“Emerging,” percentiles are in reference to a sample of adults
+who possess the relevant skill (e.g., “Competent” or higher
+performance on a task such as English writing ability would
+only be measured against the set of adults who are literate
+and fluent in English).
+Generality refers to the breadth of an AI system’s capabili-
+ties, i.e., the range of tasks for which an AI system reaches
+a target performance threshold.
+This taxonomy specifies the minimum performance over
+most tasks needed to achieve a given rating – e.g., a Com-
+petent AGI must have performance at least at the 50th per-
+centile for skilled adult humans on most cognitive tasks, but
+may have Expert, Exceptional3, or even Superhuman perfor-
+mance on a subset of tasks. As an example of how individual
+systems may straddle different points in our taxonomy, we
+posit that as of this writing in September 2023, frontier lan-
+guage models (e.g., ChatGPT (OpenAI, 2023), Bard (Anil
+et al., 2023), Llama2 (Touvron et al., 2023), etc.) exhibit
+“Competent” performance levels for some tasks (e.g., short
+essay writing, simple coding), but are still at “Emerging”
+performance levels for most tasks (e.g., mathematical abil-
+ities, tasks involving factuality). Overall, current frontier
+language models would therefore be considered a Level 1
+General AI (“Emerging AGI”) until the performance level
+increases for a broader set of tasks (at which point the Level
+2 General AI, “Competent AGI,” criteria would be met).
+We suggest that documentation for frontier AI models, such
+as model cards (Mitchell et al., 2019), should detail this
+mixture of performance levels. This will help end-users,
+policymakers, and other stakeholders come to a shared, nu-
+anced understanding of the likely uneven performance of
+systems progressing along the path to AGI.
+The order in which stronger skills in specific cognitive areas
+are acquired may have serious implications for AI safety
+(e.g., acquiring strong knowledge of chemical engineering
+before acquiring strong ethical reasoning skills may be a
+dangerous combination). Note also that the rate of progres-
+sion between levels of performance and/or generality may
+be nonlinear. Acquiring the capability to learn new skills
+may particularly accelerate progress toward the next level.
+While this taxonomy rates systems according to their perfor-
+mance, systems that are capable of achieving a certain level
+3While Level 4 was originally called “Virtuoso AGI,” we now
+use the term “Exceptional AGI,” (Shah et al., 2025) which we
+believe better captures this capability level.
+4
+
+
+Levels of AGI
+Table 1. A leveled, matrixed approach toward classifying systems on the path to AGI based on depth (performance) and breadth (generality)
+of capabilities. The assignment of example systems to cells is approximate. Unambiguous classification of AI systems will require a
+standardized benchmark of tasks, as we discuss in Section 5. Note that general systems that broadly perform at a level N may be able to
+perform a narrow subset of tasks at higher levels. The “Competent AGI” level, which has not been achieved by any public systems at the
+time of writing, best corresponds to many prior conceptions of AGI, and may precipitate rapid societal change once achieved.
+Performance (rows) x
+Generality (columns)
+Narrow
+clearly scoped task or set of tasks
+General
+wide range of non-physical tasks, includ-
+ing metacognitive tasks like learning new
+skills
+Level 0: No AI
+Narrow Non-AI
+calculator software; compiler
+General Non-AI
+human-in-the-loop computing, e.g., Ama-
+zon Mechanical Turk
+Level 1: Emerging
+equal to or somewhat better than an un-
+skilled human
+Emerging Narrow AI
+GOFAI (Boden, 2014); simple rule-based
+systems, e.g., SHRDLU (Winograd, 1971)
+Emerging AGI
+ChatGPT (OpenAI, 2023), Bard (Anil
+et al., 2023), Llama 2 (Touvron et al.,
+2023), Gemini (Pichai & Hassabis, 2023)
+Level 2: Competent
+at least 50th percentile of skilled adults
+Competent Narrow AI
+toxicity detectors such as Jigsaw (Das et al.,
+2022); Smart Speakers such as Siri (Ap-
+ple), Alexa (Amazon), or Google Assis-
+tant (Google); VQA systems such as PaLI
+(Chen et al., 2023); Watson (IBM); SOTA
+LLMs for a subset of tasks (e.g., short es-
+say writing, simple coding)
+Competent AGI
+not yet achieved
+Level 3: Expert
+at least 90th percentile of skilled adults
+Expert Narrow AI
+spelling & grammar checkers such as
+Grammarly (Grammarly, 2023); genera-
+tive image models such as Imagen (Saharia
+et al., 2022) or Dall-E 2 (Ramesh et al.,
+2022)
+Expert AGI
+not yet achieved
+Level 4: Exceptional
+at least 99th percentile of skilled adults
+Exceptional Narrow AI
+Deep Blue (Campbell et al., 2002), Al-
+phaGo (Silver et al., 2016; 2017)
+Exceptional AGI
+not yet achieved
+Level 5: Superhuman
+outperforms 100% of humans
+Superhuman Narrow AI
+AlphaFold (Jumper et al., 2021; Varadi
+et al., 2021), AlphaZero (Silver et al.,
+2018), StockFish (Stockfish, 2023)
+Artificial Superintelligence (ASI)
+not yet achieved
+of performance (e.g., against a given benchmark) may not
+match this level in practice when deployed. For instance,
+user interface limitations may reduce deployed performance.
+Consider DALLE-2 (Ramesh et al., 2022), which we es-
+timate as a Level 3 Narrow AI (“Expert Narrow AI”) in
+our taxonomy. We estimate the “Expert” level of perfor-
+mance since DALLE-2 produces images of higher quality
+than most people are able to draw; however, the system
+has failure modes (e.g., drawing hands with incorrect num-
+bers of digits, rendering nonsensical or illegible text) that
+prevent it from achieving an “Exceptional” performance
+designation. While theoretically an “Expert” level system,
+in practice the system may only be “Competent,” because
+prompting interfaces are too complex for most end-users
+to elicit optimal performance (as evidenced by user studies
+(Zamfirescu-Pereira et al., 2023) and the existence of market-
+places (e.g., PromptBase) in which skilled prompt engineers
+sell prompts). This observation emphasizes the importance
+of designing ecologically valid benchmarks (that approxi-
+mate deployed rather than idealized performance), as well
+as the importance of considering the human-AI interaction
+paradigms.
+The highest level in our matrix in terms of combined perfor-
+mance and generality is ASI (Artificial Superintelligence).
+We define “Superhuman” performance as outperforming
+100% of humans. For instance, we posit that AlphaFold
+(Jumper et al., 2021; Varadi et al., 2021) is a Level 5 Narrow
+AI (“Superhuman Narrow AI”) since it performs a single
+task (predicting a protein’s 3D structure from an amino acid
+sequence) above the level of the world’s top scientists. This
+definition means that Level 5 General AI (“ASI”) systems
+will be able to do a wide range of tasks at a level that no
+human can match. Additionally, this framing also implies
+that Superhuman systems may be able to perform an even
+broader generality of tasks than lower levels of AGI, since
+the ability to execute tasks that qualitatively differ from
+5
+
+
+Levels of AGI
+existing human skills would by definition outperform all hu-
+mans (who fundamentally cannot do such tasks). For exam-
+ple, non-human skills that an ASI might have could include
+capabilities such as neural interfaces (perhaps through mech-
+anisms such as analyzing brain signals to decode thoughts
+(Tang et al., 2023; Bellier et al., 2023)), oracular abilities
+(perhaps through mechanisms such as analyzing large vol-
+umes of data to make high-quality predictions (Schoenegger
+& Park, 2023)), or the ability to communicate with animals
+(perhaps by mechanisms such as analyzing patterns in their
+vocalizations, brain waves, or body language (Goldwasser
+et al., 2023; Andreas et al., 2022)).
+5. Testing for AGI
+Two of our six proposed principles for defining AGI (Princi-
+ple 2: Generality and Performance; Principle 6: Focus on
+the Path to AGI) influenced our choice of a matrixed, leveled
+ontology for facilitating nuanced discussions of the breadth
+and depth of AI capabilities. Our remaining four principles
+(Principle 1: Capabilities, not Processes; Principle 3: Cog-
+nitive and Metacognitive Tasks; Principle 4: Potential, not
+Deployment; and Principle 5: Ecological Validity) relate to
+the issue of measurement.
+While our performance dimension specifies one aspect of
+measurement (e.g., percentile ranges for task performance
+relative to particular subsets of people), our generality di-
+mension leaves open important questions: What is the set of
+tasks that constitute the generality criteria? What proportion
+of such tasks must an AI system master to achieve a given
+level of generality in our schema? Are there some tasks that
+must always be performed to meet the criteria for certain
+generality levels, such as metacognitive tasks?
+Operationalizing an AGI definition requires answering these
+questions, as well as developing specific diverse and chal-
+lenging tasks. Because of the immense complexity of this
+process, as well as the importance of including a wide range
+of perspectives (including cross-organizational and multi-
+disciplinary viewpoints), we do not propose a benchmark in
+this paper. Instead, we work to clarify the ontology a bench-
+mark should attempt to measure. We also discuss properties
+an AGI benchmark should possess.
+Our intent is that an AGI benchmark would include a broad
+suite of cognitive and metacognitive tasks (per Principle 3),
+measuring diverse properties including (but not limited to)
+linguistic intelligence, mathematical and logical reasoning
+(Webb et al., 2023), spatial reasoning, interpersonal and
+intra-personal social intelligences, the ability to learn new
+skills (Chollet, 2019), and creativity. A benchmark might
+include tests covering psychometric categories proposed
+by theories of intelligence from psychology, neuroscience,
+cognitive science, and education; however, such tests must
+first be evaluated for suitability for benchmarking comput-
+ing systems, since many may lack ecological and construct
+validity in this context (Serapio-Garc´ıa et al., 2023).
+We emphasize the importance of metacognition, and suggest
+that an AGI benchmark should include metacognitive tasks
+such as (1) the ability to learn new skills, (2) the ability
+to know when to ask for help, and (3) social metacogni-
+tive abilities such as those relating to theory of mind. The
+ability to learn new skills (Chollet, 2019) is essential to
+generality, since it is infeasible for a system to be optimized
+for all possible use cases a priori; this necessitates related
+sub-skills such as the ability to select appropriate strategies
+for learning (Pressley et al., 1987). Knowing when to ask
+for help is necessary to support alignment and appropriate
+human-AI interaction (Terry et al., 2023), and would in-
+clude an awareness of the limits of the model’s own abilities
+(Demetriou & Kazi, 2006), which relates to the sub-skill
+of model calibration (Liang et al., 2023), i.e., the model’s
+ability to proactively anticipate and retroactively evaluate
+how well it would do/did on certain tasks. Additionally, the-
+ory of mind tasks are sometimes considered metacognitive
+(Tullis & Fraundorf, 2017), though are sometimes classified
+separately as social cognition (Gardner, 2011); the ability
+of systems to accurately model end-users is a necessary
+component of alignment for AGI systems.
+One open question for benchmark design is whether to allow
+the use of tools, including potentially AI-powered tools, as
+an aid to human performance. This choice may ultimately
+be task dependent and should account for ecological validity
+in benchmark choice (per Principle 5). For example, in
+determining whether a self-driving car is sufficiently safe,
+benchmarking against a person driving without the benefit of
+any modern AI-assisted safety tools would not be the most
+informative comparison; since the relevant counterfactual
+involves some driver-assistance technology, we may prefer
+a comparison to that baseline.
+While an AGI benchmark might draw from some existing
+AI benchmarks (Lynch, 2023) (e.g., HELM (Liang et al.,
+2023), BIG-bench (Srivastava et al., 2023)), we also envi-
+sion the inclusion of open-ended and/or interactive tasks
+that might require qualitative evaluation (Papakyriakopou-
+los et al., 2021; Yang et al., 2023; Bubeck et al., 2023). We
+suspect that these latter classes of complex, open-ended
+tasks, though difficult to benchmark, will have better eco-
+logical validity than traditional AI metrics, or than adapted
+traditional measures of human intelligence.
+It is impossible to enumerate the full set of tasks achiev-
+able by a sufficiently general intelligence. As such, an AGI
+benchmark should be a living benchmark. Such a bench-
+mark should therefore include a framework for generating
+and agreeing upon new tasks.
+6
+
+
+Levels of AGI
+Determining that something is not an AGI at a given level
+simply requires identifying tasks that people can typically
+do but the system cannot adequately perform. Systems that
+pass the majority of the envisioned AGI benchmark at a par-
+ticular performance level (“Emerging,” “Competent,” etc.),
+including new tasks added by the testers, can be assumed to
+have the associated level of generality for practical purposes
+(i.e., though in theory there could still be a test the AGI
+would fail, at some point unprobed failures are so special-
+ized or atypical as to be practically irrelevant). We hesitate
+to specify the number or percentage of tasks that a system
+must pass at a given level of performance in order to be
+declared a General AI at that Level (e.g., a rule such as
+“a system must pass at least 90% of an AGI benchmark at
+a given performance level to get that rating”). While we
+think this will be a very high percentage, it will probably
+not be 100%, since it seems clear that broad but imperfect
+generality is impactful (individual humans also lack consis-
+tent performance across all possible tasks, but are generally
+intelligent). Determining what portion of benchmarking
+tasks at a given level demonstrate generality remains an
+open research question.
+6. Risk, Autonomy, and Interaction
+Discussions of AGI often include discussion of risk, includ-
+ing “x-risk” – existential (for AI Safety, 2023) or other very
+extreme risks (Shevlane et al., 2023). A leveled approach
+to defining AGI enables a more nuanced discussion of how
+different combinations of performance and generality re-
+late to different types of AI risk. While there is value in
+considering extreme risk scenarios, understanding AGI via
+our proposed ontology rather than as a single endpoint (per
+Principle 6) can help ensure that policymakers also identify
+and prioritize risks in the near-term and on the path to AGI.
+6.1. Levels of AGI as a Framework for Risk Assessment
+As we advance along our capability levels toward ASI, new
+risks are introduced, including misuse risks, alignment risks,
+and structural risks (Zwetsloot & Dafoe, 2019). For exam-
+ple, the “Expert AGI” level is likely to involve structural
+risks related to economic disruption and job displacement,
+as more and more industries reach the substitution threshold
+for machine intelligence in lieu of human labor. On the other
+hand, reaching “Expert AGI” likely alleviates some risks
+introduced by “Emerging AGI” and “Competent AGI,” such
+as the risk of incorrect task execution. The “Exceptional
+AGI” and “ASI” levels are where many concerns relating
+to x-risk are most likely to emerge (e.g., an AI that can
+outperform its human operators on a broad range of tasks
+might deceive them to achieve a mis-specified goal, as in
+misalignment thought experiments (Christian, 2020)).
+Systemic risks such as destabilization of international rela-
+tions may be a concern if the rate of progression between
+levels outpaces regulation or diplomacy (e.g., the first nation
+to achieve ASI may have a substantial geopolitical/military
+advantage, creating complex structural risks). At levels
+below “Expert AGI” (e.g., “Emerging AGI,” “Competent
+AGI,” and all “Narrow” AI categories), risks likely stem
+more from human actions (e.g., risks of AI misuse, whether
+accidental, incidental, or malicious). A more complete anal-
+ysis of risk profiles associated with each level is a critical
+step toward developing a taxonomy of AGI that can guide
+safety/ethics research and policymaking.
+Whether an AGI benchmark should include tests for po-
+tentially dangerous capabilities (e.g., the ability to deceive,
+to persuade (Veerabadran et al., 2023), or to perform ad-
+vanced biochemistry (Morris, 2023)) is controversial. We
+lean on the side of including such capabilities in bench-
+marking, since most such skills tend to be dual use (having
+valid applications to socially positive scenarios as well as
+nefarious ones). Dangerous capability benchmarking can be
+de-risked via Principle 4 (Potential, not Deployment) by en-
+suring benchmarks for any dangerous or dual-use tasks are
+appropriately sandboxed and not defined in terms of deploy-
+ment. However, including such tests in a public benchmark
+may allow malicious actors to optimize for these abilities;
+understanding how to mitigate risks associated with bench-
+marking dual-use abilities remains an important area for
+research by AI safety, AI ethics, and AI governance experts.
+Concurrent with this work, Anthropic released Version
+1.0 of its Responsible Scaling Policy (RSP) (Anthropic,
+2023b). This policy uses a levels-based approach (inspired
+by biosafety levels (Richmond & McKinney, 2009)) to de-
+fine the level of risk associated with an AI system, identify-
+ing what dangerous capabilities may be associated with each
+AI Safety Level (ASL), and what containment or deploy-
+ment measures should be taken at each level. Current SOTA
+generative AIs are classified as an ASL-2 risk. Including
+items matched to ASL capabilities in any AGI benchmark
+would connect points in our AGI taxonomy to specific risks
+and mitigations.
+6.2. Capabilities vs. Autonomy
+While capabilities provide prerequisites for AI risks, AI
+systems (including AGI systems) do not and will not op-
+erate in a vacuum. Rather, AI systems are deployed with
+particular interfaces and used to achieve particular tasks in
+specific scenarios. These contextual attributes (interface,
+task, scenario, end-user) have substantial bearing on risk.
+Consider, for instance, the affordances of user interfaces for
+AGI systems. Increasing capabilities unlock new interac-
+tion paradigms, but do not determine them. Rather, system
+designers and end-users will settle on a mode of human-
+AI interaction (Morris et al., 2023) that balances a variety
+7
+
+
+Levels of AGI
+Table 2. More capable AI systems unlock new human-AI interaction paradigms. The choice of appropriate autonomy level need not be
+the maximum achievable given the capabilities of the underlying model. One consideration in the choice of autonomy level are resulting
+risks. This table’s examples illustrate the importance of carefully considering human-AI interaction design decisions.
+Autonomy Level
+Example Systems
+Unlocking
+AGI Level(s)
+Example Risks
+Introduced
+Autonomy Level 0:
+No AI
+human does everything
+Analogue approaches (e.g., sketching
+with pencil on paper)
+Non-AI digital workflows (e.g., typing in
+a text editor; drawing in a paint program)
+No AI
+n/a (status quo risks)
+Autonomy Level 1:
+AI as a Tool
+human fully controls task
+and uses AI to automate
+mundane sub-tasks
+Information-seeking with the aid of a
+search engine
+Revising writing with the aid of a
+grammar-checking program
+Reading a sign with a
+machine translation app
+Possible:
+Emerging Narrow AI
+Likely:
+Competent Narrow AI
+de-skilling
+(e.g., over-reliance)
+disruption of
+established
+industries
+Autonomy Level 2:
+AI as a Consultant
+AI takes on a
+substantive role, but only
+when invoked by a human
+Relying on a language model to summa-
+rize a set of documents
+Accelerating
+computer
+programming
+with a code-generating model
+Consuming
+most
+entertainment
+via
+a sophisticated recommender system
+Possible:
+Competent Narrow AI
+Likely:
+Expert Narrow AI;
+Emerging AGI
+over-trust
+radicalization
+targeted
+manipulation
+Autonomy Level 3:
+AI as a
+Collaborator
+co-equal human-AI collab-
+oration; interactive coordi-
+nation of goals & tasks
+Training as a chess player through
+interactions with and analysis of a
+chess-playing AI
+Entertainment
+via
+social
+interac-
+tions with AI-generated personalities
+Possible:
+Emerging AGI
+Likely:
+Expert Narrow AI;
+Competent AGI
+anthropomorphization (e.g.,
+parasocial
+relationships)
+rapid societal change
+Autonomy Level 4:
+AI as an Expert
+AI drives interaction; hu-
+man provides guidance &
+feedback or performs sub-
+tasks
+Using an AI system to advance scientific
+discovery (e.g., protein-folding)
+Possible:
+Exceptional Narrow AI
+Likely:
+Expert AGI
+societal-scale ennui
+mass labor
+displacement
+decline
+of
+human
+ex-
+ceptionalism
+Autonomy Level 5:
+AI as an Agent
+fully autonomous AI
+Autonomous AI-powered
+personal assistants
+(not yet unlocked)
+Likely:
+Exceptional AGI;
+ASI
+misalignment
+concentration
+of power
+of considerations, including safety. We propose character-
+izing human-AI interaction paradigms with six Levels of
+Autonomy, described in Table 2.
+These Levels of Autonomy are correlated with the Levels
+of AGI. Higher levels of autonomy are “unlocked” by AGI
+capability progression, though lower levels of autonomy
+may be desirable for particular tasks and contexts even as
+we reach higher levels of AGI. Carefully considered choices
+around human-AI interaction are vital to safe and responsi-
+ble deployment of frontier AI models.
+Unlike prior taxonomies of computer automation (Sheridan
+et al., 1978; Sheridan & Parasuraman, 2005; Parasuraman
+et al., 2000) that take a computer-centric perspective (fram-
+ing automation in terms of how much control the designer
+relinquishes to computers), we characterize the concept
+of autonomy through the lens of the nature of human-AI
+interaction style; further, our ontology considers how AI
+capabilities may enable particular interaction paradigms and
+how the combination of level of autonomy and level of AGI
+may impact risk. Shneiderman (Shneiderman, 2020) ob-
+serves that automation is not a zero-sum game, and that
+high levels of automation can co-exist with high levels of
+human control; this view is compatible with our perspec-
+tive of considering automation through the perspective of
+varying styles of human-AI partnerships.
+We emphasize the importance of the “No AI” paradigm for
+many contexts, including for education, enjoyment, assess-
+8
+
+
+Levels of AGI
+ment, or safety reasons. For example, in the domain of
+self-driving vehicles, when Level 5 Self-Driving technology
+is widely available, there may be reasons for using a Level
+0 (No Automation) vehicle. These include for instructing
+a new driver (education), for pleasure by driving enthusi-
+asts (enjoyment), for driver’s licensing exams (assessment),
+or in conditions where sensors cannot be relied upon such
+as technology failures or extreme weather events (safety).
+While Level 5 Self-Driving (SAE International, 2021) ve-
+hicles would likely be a Level 4 or 5 Narrow AI under our
+taxonomy, the same considerations regarding human vs.
+computer autonomy apply to AGIs. We may develop an
+AGI, but choose not to deploy it autonomously, or choose
+to deploy it with differentiated autonomy levels in distinct
+circumstances as dictated by contextual considerations.
+Certain aspects of generality may be required to make par-
+ticular interaction paradigms desirable. For example, the
+Autonomy Levels 3, 4, and 5 (“Collaborator,” “Expert,”
+and “Agent”) may only work well if an AI system also
+demonstrates strong performance on certain metacognitive
+abilities (learning when to ask a human for help, theory of
+mind modeling, social-emotional skills). Implicit in our
+definition of Autonomy Level 5 (“AI as an Agent”) is that
+such a fully autonomous AI can act in an aligned fashion
+without continuous human oversight, but knows when to
+consult humans (Shah et al., 2021). Interfaces that support
+human-AI alignment through better task specification, the
+bridging of process gulfs, and evaluation of outputs (Terry
+et al., 2023) are a vital area of research.
+6.3. Human-AI Interaction and Risk Assessment
+Table 2 illustrates the interplay between AGI Level, Auton-
+omy Level, and risk. Advances in model performance and
+generality unlock additional interaction paradigm choices
+(including full autonomy). These interaction paradigms in
+turn introduce new classes of risk. The interplay of model
+capabilities and interaction design will enable more nuanced
+risk assessments and responsible deployment decisions than
+considering model capabilities alone.
+Table 2 also provides concrete examples of each of our six
+proposed Levels of Autonomy. For each level of auton-
+omy, we indicate the corresponding levels of performance
+and generality that “unlock” that interaction paradigm (i.e.,
+the level of AGI at which it is possible or likely for that
+paradigm to be successfully deployed and adopted).
+Our predictions regarding “unlocking” levels tend to require
+higher levels of performance for Narrow than for General
+AI systems; for instance, we posit that the use of AI as a
+Consultant is likely with either an Expert Narrow AI or an
+Emerging AGI. This discrepancy reflects the fact that for
+General systems, capability development is likely to be un-
+even; for example, a Level 1 General AI (“Emerging AGI”)
+may have Level 2 or perhaps even Level 3 performance
+across some subset of tasks. Such unevenness of capability
+for General AIs may unlock higher autonomy levels for
+particular tasks that are aligned with their specific strengths.
+Considering AGI systems in the context of use by people
+allows us to reflect on the interplay between advances in
+models and advances in human-AI interaction paradigms.
+The role of model building research can be seen as help-
+ing systems’ capabilities progress along the path to AGI in
+their performance and generality, such that an AI system’s
+abilities will overlap an increasingly large portion of human
+abilities. Conversely, the role of human-AI interaction re-
+search can be viewed as ensuring new AI systems are usable
+by and useful to people such that AI systems successfully ex-
+tend people’s capabilities (i.e., “intelligence augmentation”
+(Brynjolfsson, 2022; Englebart, 1962)).
+7. Conclusion
+Artificial General Intelligence is a concept of both aspira-
+tional and practical consequences. We analyzed nine defini-
+tions of AGI, identifying strengths and weaknesses. Based
+on this analysis, we introduced six principles for a clear, op-
+erationalizable definition of AGI: focusing on capabilities,
+not processes; focusing on generality and performance; fo-
+cusing on cognitive and metacognitive (rather than physical)
+tasks; focusing on potential rather than deployment; focus-
+ing on ecological validity for benchmarking; and focusing
+on the path to AGI rather than a single endpoint.
+With these principles in mind, we introduced our Levels
+of AGI ontology, which offers a more nuanced way to de-
+fine progress toward AGI by considering generality (either
+Narrow or General) in tandem with five levels of perfor-
+mance (Emerging, Competent, Expert, Exceptional, and
+Superhuman). We reflected on how current AI systems and
+AGI definitions fit into this framing. Further, we discussed
+the implications of our principles for developing a living,
+ecologically valid AGI benchmark, and argue that such an
+endeavor, while sure to be challenging, is vital to engage
+with.
+Finally, we considered how our principles and ontology
+can reshape discussions around the risks associated with
+AGI. Notably, we observed that AGI is not necessarily syn-
+onymous with autonomy. We introduced Levels of Auton-
+omy that are unlocked, but not determined by, progression
+through the Levels of AGI. We illustrated how consider-
+ing AGI Level jointly with Autonomy Level can provide
+more nuanced insights into risks associated with AI systems,
+underscoring the importance of investing in human-AI inter-
+action research in tandem with model improvements.
+We hope our framework will prove adaptable and scalable –
+for instance, how we define and measure progress toward
+9
+
+
+Levels of AGI
+AGI might change with technical advances such as improve-
+ments in interpretability that provide insight into models’
+inner workings. Additionally, parts of our ontology such as
+Human-AI Interaction paradigms and associated risks might
+evolve as society itself adapts to advances in AI.
+Impact Statement
+This position paper introduces a novel ontology that sup-
+ports discussing progress toward AGI in a nuanced manner,
+with the aim of supporting clear communication among re-
+searchers, practitioners, and policymakers about systems’
+capabilities and associated risks.
+Acknowledgements
+Thank you to the members of the Google DeepMind PAGI
+team for their support of this effort, and to Martin Watten-
+berg, Michael Terry, Geoffrey Irving, Murray Shanahan,
+Dileep George, Blaise Ag¨uera y Arcas, and Ben Shneider-
+man for helpful discussions about this topic.
+References
+Ag¨uera y Arcas, B. and Norvig, P.
+Artificial Gen-
+eral Intelligence is Already Here.
+Noema, October
+2023.
+URL
+https://www.noemamag.com/
+artificial-general-intelligence-is-already-here/.
+Amazon.
+Amazon Alexa.
+URL https://alexa.
+amazon.com/. accessed on October 20, 2023.
+Andreas, J., Beguˇs, G., Bronstein, M. M., Diamant,
+R., Delaney, D., Gero, S., Goldwasser, S., Gruber,
+D. F., de Haas, S., Malkin, P., Pavlov, N., Payne,
+R., Petri, G., Rus, D., Sharma, P., Tchernov, D.,
+Tønnesen, P., Torralba, A., Vogt, D., and Wood, R. J.
+Toward understanding the communication in sperm
+whales.
+iScience, 25(6):104393, 2022.
+ISSN 2589-
+0042. doi: https://doi.org/10.1016/j.isci.2022.104393.
+URL
+https://www.sciencedirect.com/
+science/article/pii/S2589004222006642.
+Anil, R., Dai, A. M., Firat, O., and et al.
+PaLM 2
+Technical Report. CoRR, abs/2305.10403, 2023. doi:
+10.48550/arXiv.2305.10403. URL https://arxiv.
+org/abs/2305.10403.
+Anthropic. Company: Anthropic, 2023a. URL https://
+www.anthropic.com/company. Accessed October
+12, 2023.
+Anthropic.
+Anthropic’s Responsible Scaling Policy,
+September 2023b.
+URL https://www-files.
+anthropic.com/production/files/
+responsible-scaling-policy-1.0.pdf.
+accessed on October 20, 2023.
+Apple. Siri. URL https://www.apple.com/siri/.
+accessed on October 20, 2023.
+Bellier, L., Llorens, A., Marciano, D., Gunduz, A.,
+Schalk, G., Brunner, P., and Knight, R. T.
+Music
+can be reconstructed from human auditory cortex ac-
+tivity using nonlinear decoding models.
+PLOS Bi-
+ology, 21(8):1–27, 08 2023.
+doi:
+10.1371/journal.
+pbio.3002176. URL https://doi.org/10.1371/
+journal.pbio.3002176.
+Bengio, Y., Hinton, G., Yao, A., Song, D., Abbeel, P.,
+Harari, Y. N., Zhang, Y.-Q., Xue, L., Shalev-Shwartz,
+S., Hadfield, G., Clune, J., Maharaj, T., Hutter, F., Bay-
+din, A. G., McIlraith, S., Gao, Q., Acharya, A., Krueger,
+D., Dragan, A., Torr, P., Russell, S., Kahneman, D.,
+Brauner, J., and Mindermann, S. Managing AI Risks
+in an Era of Rapid Progress. CoRR, abs/2310.17688,
+2023. doi: 10.48550/arXiv.2310.17688. URL https:
+//arxiv.org/abs/2310.17688.
+Boden, M. A. GOFAI, pp. 89–107. Cambridge University
+Press, 2014.
+Brohan, A., Brown, N., Carbajal, J., Chebotar, Y., Chen,
+X., Choromanski, K., Ding, T., Driess, D., Dubey, A.,
+Finn, C., Florence, P., Fu, C., Arenas, M. G., Gopalakr-
+ishnan, K., Han, K., Hausman, K., Herzog, A., Hsu, J.,
+Ichter, B., Irpan, A., Joshi, N., Julian, R., Kalashnikov,
+D., Kuang, Y., Leal, I., Lee, L., Lee, T.-W. E., Levine, S.,
+Lu, Y., Michalewski, H., Mordatch, I., Pertsch, K., Rao,
+K., Reymann, K., Ryoo, M., Salazar, G., Sanketi, P., Ser-
+manet, P., Singh, J., Singh, A., Soricut, R., Tran, H., Van-
+houcke, V., Vuong, Q., Wahid, A., Welker, S., Wohlhart,
+P., Wu, J., Xia, F., Xiao, T., Xu, P., Xu, S., Yu, T., and
+Zitkovich, B. RT-2: Vision-Language-Action Models
+Transfer Web Knowledge to Robotic Control. CoRR,
+abs/2307.15818, 2023. doi: 10.48550/arXiv.2307.15818.
+URL https://arxiv.org/abs/2307.15818.
+Brynjolfsson, E.
+The Turing Trap:
+The Promise &
+Peril of Human-Like Artificial Intelligence.
+CoRR,
+abs/2201.04200, 2022. doi: 10.48550/arXiv.2201.04200.
+URL https://arxiv.org/abs/2201.04200.
+Bubeck, S., Chandrasekaran, V., Eldan, R., Gehrke, J.,
+Horvitz, E., Kamar, E., Lee, P., Lee, Y. T., Li, Y., Lund-
+berg, S., Nori, H., Palangi, H., Ribeiro, M. T., and
+Zhang, Y.
+Sparks of Artificial General Intelligence:
+Early experiments with GPT-4. CoRR, abs/2303.12712,
+2023. doi: 10.48550/arXiv.2303.12712. URL https:
+//arxiv.org/abs/2303.12712.
+10

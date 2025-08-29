@@ -1,0 +1,1122 @@
+Title: AIpparel: A Multimodal Foundation Model for Digital Garments
+
+AIpparel: A Multimodal Foundation Model for Digital Garments
+Kiyohiro Nakayama1∗Jan Ackermann1,2∗† Timur Levent Kesdogan1,2∗†
+Yang Zheng1 Maria Korosteleva2 Olga Sorkine-Hornung2
+Leonidas J. Guibas1 Guandao Yang1 Gordon Wetzstein1
+1Stanford University
+2ETH Z¨urich
+pparel
+"A knee-length
+jumpsuit with 
+long sleeves."
+Multimodal Input
+Garment Editing - "asymmetric sleeve"
+Text-to-Garment
+Generation
+Text-and-Image-
+to-Garment Generation
+Image-to-Garment Generation
+Draping
+Simulation
+Sewing Pattern
+AI
+Figure 1. AIpparel. We present a multimodal foundation model for digital garments trained by fine-tuning a large multimodal model on
+a custom sewing pattern dataset using a novel tokenization scheme for these patterns. AIpparel generates complex, diverse, high-quality
+sewing patterns based on multimodal inputs, such as text and images, and it unlocks new applications such as language-instructed sewing
+pattern editing. The generated sewing patterns can be directly used to simulate the corresponding 3D garments.
+Abstract
+Apparel is essential to human life, offering protection, mir-
+roring cultural identities, and showcasing personal style.
+Yet, the creation of garments remains a time-consuming
+process, largely due to the manual work involved in design-
+ing them. To simplify this process, we introduce AIpparel,
+a multimodal foundation model for generating and editing
+sewing patterns.
+Our model fine-tunes state-of-the-art
+large multimodal models (LMMs) on a custom-curated
+large-scale dataset of over 120,000 unique garments,
+each with multimodal annotations including text, images,
+and sewing patterns.
+Additionally, we propose a novel
+tokenization scheme that concisely encodes these complex
+sewing patterns so that LLMs can learn to predict them
+efficiently. AIpparel achieves state-of-the-art performance
+in single-modal tasks,
+including text-to-garment and
+image-to-garment prediction, and enables novel multi-
+modal garment generation applications such as interactive
+garment editing.
+The project website is at https:
+//georgenakayama.github.io/AIpparel/.
+∗Equal Contribution.
+†Work done as a visiting researcher at Stanford.
+1. Introduction
+Clothing plays a crucial role in society, providing protection
+from the weather, reflecting societal norms, and serving as
+a means of personal expression. A key stage in garment
+production is the development of sewing patterns—a set of
+flat 2D panels with standardized assembly instructions that
+form a complete 3D garment [4]. Pattern making is a chal-
+lenging task due to the complex geometric relationship be-
+tween the 2D pattern and the draped 3D shape of the sewn
+garment. Even an experienced tailor must go through multi-
+ple iterations, incorporating feedback from various sources,
+including verbal descriptions of the garment’s fit and feel, as
+well as visual references of its appearance. To simplify the
+pattern-making process, we explore strategies to leverage
+emerging generative models with multimodal input, such as
+text and images.
+State-of-the-art sewing pattern prediction methods are
+designed to work with one specific input modality, such
+as 3D points [6, 14, 29], images [46, 50, 70, 75, 79], or
+language [21]. While effective within their respective do-
+mains, these single-modal approaches are often challeng-
+ing to adapt to garment prediction tasks requiring differ-
+ent or combined input modalities. Expanding these meth-
+arXiv:2412.03937v5  [cs.CV]  5 Apr 2025
+
+
+ods to multimodal pattern prediction presents two primary
+challenges. First, no large-scale multimodal sewing pattern
+dataset is publicly available. Second, the capacity to accu-
+rately interpret multimodal inputs typically only emerges in
+large models with billions of parameters [1, 36]. It remains
+uncertain how to efficiently scale existing methods to mod-
+els of this size.
+In this paper, we propose to build such multimodal gar-
+ment generative models by extending an existing large mul-
+timodal model (LMM) [36, 62, 74] to understand sewing
+patterns with complex geometries. To achieve this, we an-
+notate the largest sewing pattern dataset [31] with multi-
+modal labels. Our annotated dataset is ten times larger than
+those used by previous state-of-the-art generative meth-
+ods [21, 29, 38], including over 120,000 unique sewing pat-
+terns paired with detailed text descriptions, images, edited
+sewing patterns, and editing instructions. Fine-tuning an
+LMM to perform multimodal garment generation requires
+representing complex garments in a format that LMMs can
+understand—tokens. For this task, we develop a novel tok-
+enization method that is both expressive in representing the
+complex geometries of sewing patterns and concise enough
+to fit within the limited context length of existing LMMs,
+making fine-tuning computationally efficient.
+Combining these components, we present AIpparel, a
+large multimodal model for generating sewing patterns.
+AIpparel can predict sewing patterns with complex geome-
+tries and outperforms state-of-the-art methods in single-
+modal garment prediction, often by a large margin. More-
+over, our approach unlocks entirely new multimodal gar-
+ment generation tasks. Our contributions include:
+• We present GCD-MM, a multimodal sewing pattern
+dataset extending the largest public dataset of sewing
+patterns with multimodal annotations. We plan to pub-
+licly release the dataset to inspire innovative garment pre-
+diction capabilities and further enable research in multi-
+modal garment generation.
+• We develop a novel tokenization scheme and a new train-
+ing objective for fine-tuning LMMs to predict sewing pat-
+terns. This tokenization method is critical for retargeting
+LMMs to multimodal garment prediction tasks efficiently.
+• We present AIpparel, the first multimodal foundation
+model for sewing pattern prediction capable of taking lan-
+guage, images, and sewing patterns as input.
+2. Related Works
+Garment Generation.
+Prior works have studied learning-
+based garment generation represented in various formats,
+including images [5, 27], 3D meshes [17, 26, 33, 40,
+41, 44, 49, 54, 57, 60, 81, 83, 85, 86], and sewing pat-
+terns [21, 29, 38, 50, 68].
+Our paper focuses on gen-
+erating sewing patterns, which, compared to other repre-
+sentations, are the industry standard and can be directly
+used for downstream simulation and manufacturing. Ear-
+lier works have explored a variety of different ways to gen-
+erate and predict sewing patterns, including retrieval-based
+methods [14, 20], predicting sewing pattern templates with
+few parameters [25, 64, 65, 76], or cutting 3D scans into 2D
+panels [16, 18, 37, 43, 55, 67]. These algorithms usually re-
+quire heuristics, such as the output garment templates. This
+limits their flexibility in extending to different input modal-
+ities or more complex garment types. Further, researchers
+have successfully applied deep learning methods to gener-
+ate sewing patterns [21, 29, 38]. While these methods can
+predict accurate sewing patterns based on input condition-
+ing, they are task-specific models designed to work well
+only in a single modality. Extending these single-modal
+methods to a novel modality is difficult, in part because of
+the lack of large-scale multimodal sewing-pattern datasets
+and the requirement to redesign the network architecture.
+While Wang et al. [68] can predict sewing patterns from
+multiple modalities, including images, 3D garments, and
+body measurements, their method is limited to predicting
+simple garments with a predefined set of parameters. In this
+paper, we aim to tackle the challenge of creating a large
+multimodal generative model by curating the first multi-
+modal garment dataset with complex garment geometries
+and providing a scalable recipe building on existing large
+multimodal models.
+Extending Large Multimodal Models.
+Large multi-
+modal models have gained significant attention for their
+ability to understand language and images [2, 15, 48,
+58, 62].
+Efforts to extend LMMs to additional domains
+typically fall into two categories.
+Optimization-free ap-
+proaches [24, 39, 56, 69, 71, 74, 77] employ prompt en-
+gineering.
+The other option is to fine-tune LMMs to
+take the new modality as input and/or output.
+The lat-
+ter approach was first introduced for vision-language mod-
+els [36, 61, 84] and subsequent works extended it to other
+modalities [11, 19, 32, 34, 72, 80]. Their approaches typi-
+cally involve using pre-trained encoders [32, 34, 72] or stan-
+dard discrete representations [11, 80] to convert the input
+modalities into tokens and align them with the text feature
+space of the LMMs. In particular, LLaVA [36] is pioneer-
+ing in fine-tuning Large Language Models (LLMs) for vi-
+sual understanding. It uses a pre-trained vision encoder to
+encode images into tokens, and a trainable projection layer
+to project the visual tokens into the LLM’s feature space.
+We build our work on top of LLaVA by fine-tuning it to un-
+derstand sewing patterns. This presents unique challenges,
+however, due to the lack of pretrained encoders or learning-
+efficient representations for sewing patterns. This motivates
+us to design an efficient, learning-friendly tokenizer and a
+fine-tuning objective for sewing pattern prediction.
+Garment Datasets.
+Garment datasets mostly fall into one
+of the following three categories: 1) datasets based on 3D
+scans of real-world garments [3, 9, 22, 41, 59, 73, 85],
+2) datasets of designer-created garments [10, 87], and 3)
+
+
+Dataset
+Total
+Text
+Image
+Edits
+Wang et al. [68]
+8k
+✗
+✓
+✓
+Korosteleva and Lee [28]
+23.5k
+✗
+✓
+✗
+Sewfactory [38]
+19.1k
+✗
+✓
+✗
+DressCode [21]
+20.3k
+✓
+✗
+✗
+GCD [31]
+130k
+✗
+✓
+✗
+GCD-MM (Ours)
+120k
+✓
+✓
+✓
+Table 1. Modalities of Sewing Patter Datasets.
+GCD-MM is
+a large-scale sewing pattern dataset with multimodal annotations,
+including text, images, and edited patterns.
+datasets containing mostly procedurally generated sewing
+patterns [7, 26, 28, 38, 45, 51, 63, 66, 68]. While 3D gar-
+ment scans and designer-created garments can accurately
+capture the real-world complexity of garments, they are ex-
+pensive to obtain, which limits the scale of these categories
+of data. Our work focuses on leveraging large-scale pro-
+cedurally generated sewing pattern datasets. To the best of
+our knowledge, the largest synthetic sewing pattern datasets
+available are DressCode [21], SewFactory [38], and Gar-
+mentCodeData (GCD) [30, 31]. None of their annotations,
+however, contain the full combinations of text, images, and
+sewing pattern edits, making them insufficient for training
+a multimodal sewing pattern generative model. To over-
+come this data gap, we curate the first large-scale multi-
+modal sewing pattern dataset by expanding GCD with an-
+notations including text, editing pairs, and editing instruc-
+tions. Tab. 1 compares different sewing pattern datasets and
+their annotation modalities.
+3. Method
+We propose a large multimodal generative model for sewing
+patterns by fine-tuning existing LMMs on a multimodal
+sewing pattern dataset.
+For this purpose, we first cu-
+rate a sewing pattern dataset with multimodal annotations
+(Sec. 3.1). We then describe how to train our model, AIp-
+parel, using an efficient tokenization scheme for sewing pat-
+terns, with LlaVA 1.5-7B [36] as a base model (Sec. 3.2).
+3.1. Multimodal GarmentCode Dataset
+We create annotations covering many modalities to train
+a multimodal sewing pattern generative model.
+Specif-
+ically, we build on top of the largest existing sewing-
+pattern dataset, GarmentCodeData (GCD) [31], to incor-
+porate two other modalities: text descriptions and sewing
+pattern pairs with editing instructions. We dub our dataset
+GarmentCodeData-MultiModal (GCD-MM).
+Text description of sewing patterns.
+To enable applica-
+tions such as text-conditioned sewing pattern generation, it
+is important to obtain detailed text annotation describing the
+sewing patterns [8, 21]. He et al. [21] created short keyword
+descriptions of sewing patterns by prompting GPT4V with
+rendered images. However, this method suffers from hallu-
+cination, and the short keywords are insufficient to describe
+the garments in detail, leading to ambiguities. Our pipeline
+improves on this by leveraging the design parameters as-
+sociated with each synthetically generated sewing pattern
+to create accurate descriptions that capture the garment’s
+key features. Specifically, we develop a rule-based algo-
+rithm to generate a set of short phrases, including a garment
+type (e.g., “midi dress”, “godet skirt”) and brief descriptions
+based on distinctive characteristics (e.g., “flared hem”, “V-
+neckline”). To obtain the final sewing pattern description,
+we prompt GPT-4o [74] using the rule-based short captions
+and the rendered views of the draped garment.
+Our ap-
+proach reduces GPT-4o’s hallucination and results in more
+accurate descriptions in natural language. Please refer to
+the supplementary for caption comparison with DressCode
+and the prompts and rules we used to generate them.
+Language-instructed Sewing Pattern Editing.
+We also
+augment GCD with language-instructed editing annota-
+tions.
+Specifically, we use the programming abstraction
+from GarmentCode [30] to create paired sewing patterns
+with corresponding text instructions describing the applied
+edits.
+We first manually specify a series of sewing pat-
+tern edits using the abstraction. This includes edits such as
+adjustments in skirt and pants length, changing insert and
+neckline styles, and adding or excluding a hood or sleeve.
+For each modification, we generate captions using a text
+template to describe the applied changes. See the supple-
+mentary for editing templates and captions examples.
+3.2. AIpparel
+AIpparel fine-tunes LLaVA 1.5-7B on our GCD-MM
+dataset to generate sewing patterns from multimodal input.
+For this purpose, we need to encode sewing patterns into a
+compact list of tokens for LLaVA’s input. We also propose a
+novel fine-tuning objective that allows AIpparel to generate
+both discrete tokens and continuous parameters. Figure 2
+shows an overview of our method.
+Pattern Representation.
+Following GCD [31], we define
+sewing patterns as a set of 2D panels in 3D with stitching in-
+formation. A sewing pattern P = (P, S) is a tuple consist-
+ing of N panels P = {P1, . . . , PN} and stitching informa-
+tion S. Each panel Pi is a planar surface with vertices Vi =
+{v(i)
+1 , . . . , v(i)
+ni } and edges Ei = (e(i)
+1 , . . . , e(i)
+ni ), where each
+edge contains two endpoints connecting (v(i)
+k , v(i)
+k′ ) with
+k′ = k mod ni + 1. Since each panel is defined in its
+own coordinate frame, we always set v(i)
+1
+= 0 ∈R2. An
+edge can be a straight line, a quadratic or cubic B´ezier
+curve, or an arc, and includes its corresponding control
+vertices c(i)
+k . Each panel also includes a rigid 3D trans-
+formation R that transforms Pi into the global coordinate
+frame for draping. Lastly, each panel contains a unique
+name indicating the panel type for the designers. We define
+stitching information S as a set of edge pairs among panel
+
+
+Figure 2. Illustration of Our Method. AIpparel uses a novel sewing pattern tokenizer (light blue region) to tokenize each panel into a set
+of special tokens (light green region). Panel vertex positions and 3D transformations are incorporated using positional embeddings (colored
+arrows) to the tokens. AIpparel takes in multimodal inputs, such as images and texts (light orange region), to output sewing patterns using
+autoregressive sampling (light grey region). Finally, the output is decoded to produce simulation-ready sewing patterns (light pink region).
+See Section 3 for method details.
+edges, i.e., S = {(e(i1)
+k1 , e(j1)
+l1
+), . . . , (e(im)
+km , e(jm)
+lm
+)} where
+each (e(is)
+ks , e(js)
+ls
+) indicates that edge e(is)
+ks
+from panel Pis
+will be stitched with edge e(js)
+ls
+. See the supplementary for
+representation details.
+Sewing Pattern Tokenization.
+The sewing pattern rep-
+resentation in GCD contains both continuous parameters,
+such as panel vertex coordinates, and discrete parameters,
+such as the number of panels and stitches.
+This poses
+challenges in representing each sewing pattern compactly
+as a set of tokens for the transformer’s prediction. Prior
+works rely on extensive zero-padding to ensure that all
+sewing patterns can be represented as a fixed-length vec-
+tor [21, 29, 38]. This approach is impractical for the com-
+plex sewing patterns found in GCD-MM, as it produces an
+excessively long context.
+For example, the tokenization
+scheme of He et al. [21] requires more than 30k tokens to
+represent a typical sewing pattern in the GCD-MM dataset,
+making it extremely inefficient for generation and learning.1
+Inspired by recent work on vector graphics genera-
+tion [13], we develop a tokenization scheme that efficiently
+represents sewing patterns as a sequence of drawing com-
+mands. Specifically, we introduce four special tokens to
+indicate the start of a garment (<SoG>) and the end of a
+garment (<EoG>), as well as the start of a panel (<SoP>)
+and the end of a panel (<EoP>). With these tokens, each
+sewing pattern can be represented as
+Eg(P) = <SoG>Ep(P1, S) · · · Ep(Pn, S)<EoG>,
+(1)
+1See supplementary for a detailed analysis.
+where
+Ep
+tokenizes
+panel
+P
+in
+the
+form
+of
+<SoP> . . . <EoP>.
+Ep consists of three pieces of
+panel information:
+name, transformation, and edges.
+The panel name is tokenized using LLaVA-1.5-7B’s text
+tokenizer and inserted after <SoP>. We introduce a new
+token <R> and place it after the panel name to represent the
+panel’s transformation. Each edge type also corresponds to
+two special tokens, depending on whether the edge ends at
+the starting endpoint: line (<L>, <cL>), quadratic B´ezier
+curve (<Q>, <cQ>), cubic B´ezier curve (<B>, <cB>), and
+arc (<A>, <cA>). We also introduce a set of stitching tag
+tokens {<t1>, . . . , <tM>, <tN>} to represent stitching
+information S. We associate each edge with a stitching tag
+so that (e(is)
+ks , e(js)
+ls
+) ∈S iff there exists a ∈{1, . . . , M}
+such that e(is)
+ks
+and e(js)
+ls
+are both associated with <Ta>. If
+an edge is not stitched to another edge, it is associated with
+the null tag <tN>. For example, a panel consisting of two
+lines stitched together, one cubic B´ezier curve and an arc is
+tokenized as
+<SoP>[panel name]<R><L><t1><L><t1>
+<B><tN><cA><tN><EoP>.
+Compared to the DressCode tokenizer [21], our proposed
+scheme uses around 100 times fewer tokens to describe the
+same garment. On average, we represent a sewing pattern
+with around 250 tokens with a maximum of 838 tokens on
+GCD-MM, whereas DressCode uses more than 30k tokens
+for each sewing pattern on the same data.
+Notation.
+From now on, we use bold letters (e.g., X ∈
+RN×D) to denote the input embedding sequence to the
+
+
+Figure 3. Image-to-Garment Prediction (Qualitative). GCD-MM (Left): our model can reconstruct suitable sewing patterns from the
+input image alone. In contrast, SewFormer does not produce simulation-ready sewing patterns despite fine-tuning. SewFactory (Right):
+SewFormer produces inaccurate panels (top row) and incorrect garment types (bottom row) while AIpparel accurately recovers sewing
+patterns from the images, resulting in superior simulation results. See Sec. 4.1.
+Dataset
+Method
+Panel L2 (↓)
+#Panel Acc (↑)
+#Edge Acc (↑)
+Rot L2 (↓)
+Transl L2 (↓)
+#Stitch Acc (↑)
+Sewfactory
+SewFormer
+3.3
+89.8
+99.3
+.008
+0.8
+99.2
+AIpparel
+2.8
+93.9
+99.9
+.005
+0.6
+99.8
+GCD-MM
+SewFormer-FT
+12.3
+79.4
+44.7
+.040
+4.5
+2.8
+AIpparel
+5.4
+85.2
+82.7
+.020
+2.7
+77.2
+Table 2. Image-to-Garment Prediction (Quantitative). AIpparel achieves state-of-the-art performance in both datasets and surpasses
+SewFormer-FT by a large margin on GCD-MM.
+transformer. We denote the i-th embedding in X as Xi,
+and X<i, X>i are sliced sequences before or after the i-the
+embedding, respectively. We use fϕ to denote the language
+transformer from LLaVA. We use X to denote tokens be-
+fore passing through fϕ and H = fϕ(X) as the output
+hidden features from the transformer.
+Continuous Parameters.
+The tokenization scheme in
+Eq. 1 does not include any continuous parameters such as
+vertex positions, control points for edges, or rigid transfor-
+mation of panels. Prior works represent continuous param-
+eters as quantized tokens in discrete space [21, 47]. This
+introduces quantization error for the continuous parame-
+ters and uses more tokens per panel, leading to a longer,
+inefficient representation.
+Inspired by recent approaches
+of extending LMMs [19, 32], we propose using small re-
+gression heads to map hidden features of the transformer
+to the continuous parameters. Specifically, we define an
+MLP g(e)
+θ
+: RD →RC to map LLaVA’s hidden features
+from the last layer to vertices and control points. As illus-
+trated in Fig. 2, g(e)
+θ
+takes the output embedding correspond-
+ing to the token right before the edge type token. Con-
+cretely, if the i-th token, Xi, corresponds to an edge-type
+token for edge e, its associated output embedding H<i =
+fϕ(X<i) ∈R(i−1)×D is used to predict e’s endpoint and
+control parameters via g(e)
+θ (Hi−1). Similarly, we also de-
+fine a transformation regression head g(R)
+θ′
+: RD →R7
+mapping the hidden features of <R>’s previous token to a
+translation T ∈R3 and a rotation quaternion q ∈H. In this
+way, continuous parameters are regressed using small re-
+gression heads that are jointly trained with the transformer,
+leading to more efficient context length usage in represent-
+ing sewing patterns. At training time, we use ground-truth
+parameters for supervision, and during generation, we use
+the last hidden feature from the output for regression should
+an edge-type token or a transformation token be sampled.
+Positional Embeddings.
+To include information on con-
+tinuous parameters in the sewing pattern tokenization de-
+fined in Eq. 1, we include the second endpoint of each edge
+as a positional embedding added to the token embedding.
+Specifically, we define h(e)
+φ
+: R2 →RD as a two-layer per-
+ceptron. For each edge e = (v1, v2) with an edge-type to-
+ken embedding of Xi, we add h(e)
+φ (v2) to Xi to inform the
+language model fϕ of the vertex positions. We also define
+
+
+h(R)
+φ′
+: R7 →RD to be the projection function for trans-
+formations. The transformation parameters (t, q) ∈R7 for
+each panel are projected using h(R)
+φ
+and added to the token
+embedding for <R>. At training time, we use ground-truth
+vertex and 3D transformations as positional embeddings,
+and during generation, we use the parameters predicted by
+the regression heads.
+Training.
+We keep both the vision encoder and projection
+frozen, and fine-tune all weights in the language model fϕ,
+regression heads g(e)
+θ , g(R)
+θ′ , and the positional embedding
+projection layers h(e)
+φ , h(R)
+φ′ . The fine-tuning loss is defined
+as a combination of cross-entropy (CE) on the discrete to-
+kens and L2 loss on the continuous parameters:
+L = CE(fϕ(X<−1), X1>)
++ λ
+X
+e′
+g(e)
+θ
+◦fϕ
+ X<ie′
+
+−ve′
+2
+
+2
++ λ
+X
+R′
+g(R)
+θ′
+◦fϕ
+ X<iR′
+
+−R′
+2 .
+(2)
+Here, P
+e′ is the sum over all edges in the sewing pattern’s
+sequence X. For each edge e′, its second endpoint is de-
+noted as ve′
+2 . Similarly, P
+R′ is the sum over all the transfor-
+mations. We do not explicitly include the positional embed-
+ding in Eq. 2, but it is added according to the rules defined
+in the previous paragraph.
+4. Experiments
+We validate the effectiveness of our model on multiple tasks
+and conduct an ablation study on the key technical designs.
+Training Details.
+We train AIpparel on GCD-MM mul-
+timodal data samples for image-to-garment and text-to-
+garment generation, as well as text-based garment editing.
+We randomly split GCD-MM into train-validation-test sub-
+sets with a 90:5:5 ratio. All of our results on GCD-MM
+below are predicted using a single model. See the supple-
+mentary for a complete implementation and training setup.
+Metrics.
+To quantitatively measure our sewing pattern
+predictions, we use reconstruction metrics established by
+previous works [29, 38].
+Given a pair of generated and
+ground-truth sewing patterns, we measure 1) Panel L2, Rot
+L2, and Transl L2: average vertex, rotation and translation
+L2 distance between predicted and ground-truth panels; 2)
+#Panel Accuracy: percentage of sewing patterns with cor-
+rectly predicted number of panels; 3) #Edge Accuracy: per-
+centage of correctly predicted edges in each correctly pre-
+dicted panel; 4) #Stitch Accuracy: accuracy of predicted
+stitches compared to ground truth. To save space in compact
+tables, we report Accuracy, the product of #Panel Accuracy
+and #Edge Accuracy, to provide a comprehensive measure-
+ment of garment reconstruction quality. All L2-based met-
+rics are measured in centimeters except for rotation.
+4.1. Image to Sewing Pattern Prediction
+We test our model’s capability to reconstruct garments from
+a single image using two datasets: SewFactory [38] and
+GCD-MM. For the baseline, we compare with SewFormer’s
+pre-trained model on the SewFactory dataset. Because Sew-
+Former did not release their train–test split for their pre-
+trained model, we use a custom split for a fair comparison.
+For GCD-MM, we fine-tune SewFormer until its validation
+loss no longer improves. We denote it as SewFormer-FT.
+Tab. 2 shows quantitative comparisons on the two
+datasets.
+AIpparel outperforms the baselines on both
+datasets, suggesting that our method outputs more accurate
+sewing patterns than the baseline. In particular, AIpparel
+shows a large performance improvement over SewFormer-
+FT on the difficult GCD-MM dataset, indicating the effec-
+tiveness of our method in predicting more complex sewing
+patterns. Fig. 3 shows qualitative results. The two exam-
+ples on the left show that SewFormer-FT fails to recon-
+struct simulatable garments despite fine-tuning. This sug-
+gests that SewFormer cannot adapt to complex garments
+with small panels and diverse edge types. In contrast, our
+model predicts sewing patterns matching the input images,
+including small panels such as the waistband on the top row
+and the sleeve cuffs at the bottom. The two examples on
+the right show results on SewFactory [38]. The pre-trained
+SewFormer fails to predict the garment in the top row with
+sleeves and the bottom row’s skirt as a pair of pants, while
+AIpparel correctly predicts the sewing patterns based on the
+inputs.
+4.2. Multimodal Garment Generation
+We evaluate the effectiveness of AIpparel in various mul-
+timodal garment generation scenarios. Specifically, we as-
+sess its performance on a set of 100 garments with 5 types
+of multimodal inputs (20 test samples each): 1) texts, 2)
+images, 3) a combination of text and images, 4) open-ended
+prompts that require reasoning, and 5) editing instructions.
+Success in such a benchmark requires the model to make
+accurate predictions conditioned on a variety of different
+multimodal input formats, as well as having an understand-
+ing of common-sense knowledge. Refer to Fig. 4 for gener-
+ation examples in these tasks. We abbreviate the text input
+for compactness. Refer to the supplementary for complete
+examples.
+Because no existing work handles multimodal sewing
+pattern generation, we adopt state-of-the-art (SOTA) single-
+modal generative methods, i.e., SewFormer-FT and Dress-
+Code, to perform multimodal tasks. For this purpose, we
+augment these baselines using multimodal models, e.g.,
+GPT-4o [74] and DALL-E [8], to translate the multimodal
+inputs to their input domains (i.e., images and short key-
+word description). To ensure translation accuracy, we man-
+ually inspect the results before querying SewFormer-FT and
+DressCode. We denote them as Sewformer-FT† and Dress-
+
+
+Figure 4. Multimodal Sewing Pattern Prediction (Qualitative).
+AIpparel accurately predicts sewing patterns that follows the in-
+puts better than the baselines. See Sec. 4.2.
+Method
+Accuracy (↑)
+Panel L2 (↓)
+SewFormer-FT†
+10.3
+22.4
+DressCode†
+0.6
+31.0
+AIpparel
+59.0
+6.1
+Table 3. Multimodal Sewing Pattern Prediction. Compared to
+single-modal methods augmented with existing LMMs, our model
+outperforms both baselines by a large margin.
+Code†, respectively. In comparison, our model can directly
+perform all five categories of multimodal tasks without re-
+lying on external modules.
+We report quantitative comparisons in Tab. 3, measured
+between the reference and predicted sewing patterns. Com-
+pared with single-modal baselines, AIpparel performs sig-
+nificantly better. Fig. 4 shows qualitative comparisons. The
+first row validates the method’s reasoning ability by asking
+for a suitable sewing pattern for a specific occasion (e.g.,
+a “semi-formal garden party”). We use DressCode† as our
+baseline. Notice that DressCode† generates a mini-skirt that
+does not match well the description of a “semi-formal gar-
+den party”. Our model outputs a godet skirt that is more
+appropriate for this occasion. The second row shows an ex-
+ample of sewing pattern generation given a combination of
+image and text. SewFormer-FT† fails to generate a plausi-
+ble sewing pattern due to the garment’s complexity, whereas
+AIpparel reconstructs the complex garment closely follow-
+ing both visual and textual cues, such as the sleeve and skirt
+length in the image, and the waistline and neckline descrip-
+tions in the text.
+Figure 5. Sewing Pattern Editing (Qualitative). Our model fol-
+lows the editing instructions more accurately compared with the
+baseline by accurately including a hood to the tank top (top row)
+and elongating the skirt (bottom row). See Sec. 4.3.
+Method
+Accuracy (↑)
+Panel L2 (↓)
+Sewformer*
+9.5
+18.6
+DressCode*
+37.0
+13.7
+AIpparel
+83.4
+1.5
+Table 4. Sewing Pattern Editing. We use SOTA LMMs such
+as GPT-4V and DALL-E to facilitate both baselines to perform
+this multimodal editing task. Our model still outperforms both
+baselines by a large margin.
+4.3. Language-driven Sewing Pattern Editing
+We validate AIpparel’s ability to perform sewing pattern
+editing. Given a sewing pattern and text-based editing in-
+structions, the model is tasked with editing the pattern ac-
+cording to the prompt without altering the overall style of
+the garment. Since the existing sewing pattern generation
+models, DressCode and SewFormer, are not designed for
+this task, we adapt them for editing using a pre-trained In-
+structPix2Pix [12] and GPT4o [74]2. We denote them as
+DressCode* and SewFormer*, respectively.
+We report quantitative comparisons in Tab. 4. Our model
+outperforms the baselines in both metrics by a large mar-
+gin, indicating that AIpparel performs more accurate edits
+than the baselines while minimally affecting the rest of the
+sewing patterns. Qualitative results are shown in Fig. 5.
+DressCode produces results visibly deviating from the in-
+put garment. For example, DressCode changes the tank top
+to a full-length dress in the top row and the tight skirt to
+2See supplementary for details
+
+
+Methods
+Accuracy (↑)
+Panel L2 (↓)
+Time (↓)
+DressCode
+38.4
+22.4
+52.2s
+Ours w.o. reg.
+79.0
+7.2
+3.4s
+Ours
+85.0
+6.1
+2.1s
+Table 5. Ablation. Our tokenizer outperforms DressCode in all
+metrics while being more than 25 times faster at inference time.
+Our objective (Eq. 2) also improves performance compared to the
+cross-entropy-only variant.
+a flared one in the bottom row. These mistakes arise be-
+cause DressCode requires external modules to translate the
+sewing pattern to short keywords for input, losing impor-
+tant information about the original garment style during the
+process. In contrast, AIpparel directly accepts the sewing
+pattern and textual instructions as input, allowing it to ac-
+curately perform the minimal edits required to modify the
+garment according to the instructions, as demonstrated in
+both examples.
+4.4. Ablation Study
+We validate our key technical contributions in an ablation
+study. Specifically, we compare our tokenizer described in
+Sec. 3 with the existing tokenization scheme from Dress-
+Code [78]. We also perform an ablation study on our pro-
+posed mixed fine-tuning objective in Eq. 2, comparing it
+with a cross-entropy-only objective (“Ours w.o. reg”). We
+use text-to-garment prediction on DressCode’s dataset as
+our ablation task to compare with DressCode’s pre-trained
+model. For a fair comparison, we use the same backbone as
+DressCode and only change the tokenizer and training ob-
+jectives. To implement “Ours w.o. reg.”, we quantize vertex
+positions, edge control parameters, and 3D transformations
+into 256 bins, which are then predicted using next token
+prediction. See the supplementary for implementation de-
+tails.
+Tab. 5 shows the ablation results compared to our full
+model in text-to-garment tasks. The results are averaged
+over 100 samples from DressCode’s test set.
+Compared
+to DressCode, our tokenizer, both with and without regres-
+sion loss, significantly improves the reconstruction fidelity,
+as demonstrated by the large improvement in the metric
+values. Furthermore, by using a mixed training objective
+in Eq. 2, the reconstruction quality of sewing patterns im-
+proves significantly, demonstrating the effectiveness of our
+objective. In addition to quality improvements, our tok-
+enization drastically accelerates generation (25× speedup)
+compared to DressCode, as shown in the same table. The
+reported times show the average wall-clock time required to
+generate and decode a single garment in seconds, measured
+for each method on a single A6000 GPU. Fig. 6 displays re-
+constructed sewing patterns from all three methods. Notice
+that DressCode’s prediction does not accurately reflect the
+language description (i.e., the top row’s skirt is not flared)
+and shows geometry artifacts (bottom row, boxed region).
+Meanwhile, our proposed tokenizer and training objective
+predict garments with the best visual quality and alignment
+with the textual description.
+Figure 6. Ablation (Qualitative). DressCode’s tokenizer pro-
+duces unrealistic patterns (second row, boxed region) and does not
+match the text input (i.e., “flared hem”). In contrast, our tokenizer
+outputs geometrically regular sewing patterns accurately aligning
+with the inputs. See Sec. 4.4.
+5. Discussion
+We introduce AIpparel, a 7B-parameter multimodal founda-
+tion model for garment sewing patterns. To train AIpparel,
+we curate GCD-MM, a large-scale dataset with complex
+sewing patterns and multimodal annotations. Moreover, we
+develop a novel sewing pattern tokenizer and a mixed train-
+ing objective for fine-tuning LMMs on GCD-MM. AIpparel
+achieves state-of-the-art results on single-modal and multi-
+modal sewing-pattern-generation tasks, enabling new appli-
+cations like language-driven sewing pattern editing.
+Limitations and Future Work.
+While the current rep-
+resentation enables the digitalization of complex sewing
+patterns, it is still constrained to garments representable
+by manifold surfaces.
+Design elements like pockets re-
+quire non-manifold structures.
+A promising direction is
+to develop an efficient representation that accurately mod-
+els non-manifold features while remaining compatible with
+LMMs. Fabricating the generated garments is another in-
+teresting direction, which requires consideration of physical
+and material constraints during sewing pattern prediction.
+Broader Impacts. While we believe our model can ad-
+vance AI-assisted fashion design, we acknowledge potential
+risks we inherit from the pre-trained LLaVA model. For in-
+stance, generative AIs can spread misinformation or create
+biases potentially harmful to society. We do not condone
+these and other improper usage of our model.
+
+
+Conclusion. Vision-language and other large multimodal
+models capture web knowledge and enable reasoning for
+many downstream applications.
+By fine-tuning LMMs
+to understand sewing patterns, we take first steps to-
+wards a vision-language-garment model that transfers web
+knowledge to garment generation and editing, unlocking a
+plethora of applications for fashion design and fabrication.
+6. Acknowledgements
+Google, an ERC Consolidator Grant No. 101003104 (MY-
+CLOTH), an ARL grant W911NF-21-2-0104, a Vannevar
+Bush Faculty Fellowship, and LVMH support the project.
+Finally, we thank Stanford’s Marlowe cluster for provid-
+ing GPU computing for model training and evaluation.
+References
+[1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ah-
+mad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida,
+Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al.
+Gpt-4 technical report.
+arXiv preprint arXiv:2303.08774,
+2023. 2
+[2] Anthropic. Introducing claude 3.5 sonnet, 2024. Accessed:
+2024-09-06. 2
+[3] Dimitrije Anti´c, Garvita Tiwari, Batuhan Ozcomlekci, Ric-
+cardo Marin, and Gerard Pons-Moll. Close: A 3d clothing
+segmentation dataset and model. In 2024 International Con-
+ference on 3D Vision (3DV), pages 591–601. IEEE, 2024. 2
+[4] Helen Joseph Armstrong. Patternmaking for Fashion De-
+sign. Pearson India, 2009. 1
+[5] Alberto Baldrati, Davide Morelli, Giuseppe Cartella, Mar-
+cella Cornia, Marco Bertini, and Rita Cucchiara. Multimodal
+garment designer: Human-centric latent diffusion models for
+fashion image editing. In Proceedings of the IEEE/CVF In-
+ternational Conference on Computer Vision, pages 23393–
+23402, 2023. 2
+[6] Seungbae Bang, Maria Korosteleva, and Sung-Hee Lee. Es-
+timating garment patterns from static scan data.
+In Com-
+puter Graphics Forum, pages 273–287. Wiley Online Li-
+brary, 2021. 1
+[7] Hugo Bertiche, Meysam Madadi, and Sergio Escalera.
+Cloth3d: clothed 3d humans. In European Conference on
+Computer Vision, pages 344–359. Springer, 2020. 3
+[8] James Betker, Gabriel Goh, Li Jing, Tim Brooks, Jianfeng
+Wang, Linjie Li, Long Ouyang, Juntang Zhuang, Joyce
+Lee, Yufei Guo, et al.
+Improving image generation with
+better captions.
+Computer Science. https://cdn. openai.
+com/papers/dall-e-3. pdf, 2(3):8, 2023. 3, 6
+[9] Bharat Lal Bhatnagar, Garvita Tiwari, Christian Theobalt,
+and Gerard Pons-Moll. Multi-garment net: Learning to dress
+3d people from images. In Proceedings of the IEEE/CVF
+international conference on computer vision, pages 5420–
+5430, 2019. 2
+[10] Michael J Black, Priyanka Patel, Joachim Tesch, and Jin-
+long Yang. Bedlam: A synthetic dataset of bodies exhibit-
+ing detailed lifelike animated motion.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 8726–8737, 2023. 2
+[11] Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen
+Chebotar, Xi Chen, Krzysztof Choromanski, Tianli Ding,
+Danny Driess, Avinava Dubey, Chelsea Finn, Pete Florence,
+Chuyuan Fu, Montse Gonzalez Arenas, Keerthana Gopalakr-
+ishnan, Kehang Han, Karol Hausman, Alex Herzog, Jas-
+mine Hsu, Brian Ichter, Alex Irpan, Nikhil Joshi, Ryan
+Julian, Dmitry Kalashnikov, Yuheng Kuang, Isabel Leal,
+Lisa Lee, Tsang-Wei Edward Lee, Sergey Levine, Yao Lu,
+Henryk Michalewski, Igor Mordatch, Karl Pertsch, Kan-
+ishka Rao, Krista Reymann, Michael Ryoo, Grecia Salazar,
+Pannag Sanketi, Pierre Sermanet, Jaspiar Singh, Anikait
+Singh, Radu Soricut, Huong Tran, Vincent Vanhoucke, Quan
+Vuong, Ayzaan Wahid, Stefan Welker, Paul Wohlhart, Jialin
+Wu, Fei Xia, Ted Xiao, Peng Xu, Sichun Xu, Tianhe Yu,
+and Brianna Zitkovich. Rt-2: Vision-language-action models
+transfer web knowledge to robotic control. In arXiv preprint
+arXiv:2307.15818, 2023. 2
+[12] Tim Brooks, Aleksander Holynski, and Alexei A. Efros. In-
+structpix2pix: Learning to follow image editing instructions.
+In CVPR, 2023. 7, 23
+[13] Alexandre Carlier, Martin Danelljan, Alexandre Alahi, and
+Radu Timofte. Deepsvg: A hierarchical generative network
+for vector graphics animation, 2020. 4
+[14] Xiaowu Chen, Bin Zhou, Feixiang Lu, Lin Wang, Lang Bi,
+and Ping Tan. Garment modeling with a depth camera. ACM
+Trans. Graph., 34(6), 2015. 1, 2
+[15] Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhang-
+hao Wu, Hao Zhang, Lianmin Zheng, Siyuan Zhuang, Yong-
+hao Zhuang, Joseph E. Gonzalez, Ion Stoica, and Eric P.
+Xing.
+Vicuna: An open-source chatbot impressing gpt-4
+with 90%* chatgpt quality, 2023. 2
+[16] Hein Daanen and Sung-Ae Hong.
+Made-to-measure pat-
+tern development based on 3d whole body scans. Interna-
+tional Journal of Clothing Science and Technology, 20:15–
+25, 2008. 2
+[17] Luca De Luigi, Ren Li, Benoit Guillard, Mathieu Salzmann,
+and Pascal Fua.
+Drapenet: Garment generation and self-
+supervised draping. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, pages
+1451–1460, 2023. 2
+[18] Philippe Decaudin, Dan Julius, Jamie Wither, Laurence
+Boissieux, Alla Sheffer, and Marie-Paule Cani. Virtual gar-
+ments: A fully geometric approach for clothing design. Com-
+puter Graphics Forum, 25(3):625–634, 2006. 2
+[19] Yao Feng, Jing Lin, Sai Kumar Dwivedi, Yu Sun, Priyanka
+Patel, and Michael J. Black. Chatpose: Chatting about 3d
+human pose. In CVPR, 2024. 2, 5, 25
+[20] Nils Hasler, Bodo Rosenhahn, and Hans-Peter Seidel. Re-
+verse engineering garments. In Computer Vision/Computer
+Graphics Collaboration Techniques, pages 200–211, Berlin,
+Heidelberg, 2007. Springer Berlin Heidelberg. 2
+[21] Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu,
+and Lan Xu. Dresscode: Autoregressively sewing and gen-
+erating garments from text guidance, 2024. 1, 2, 3, 4, 5, 14,
+17, 18, 19, 23
+[22] Hsuan-I Ho, Lixin Xue, Jie Song, and Otmar Hilliges. Learn-
+ing locally editable virtual humans.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 21024–21035, 2023. 2
+
+
+[23] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-
+Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen.
+Lora: Low-rank adaptation of large language models, 2021.
+24
+[24] Rongjie Huang, Mingze Li, Dongchao Yang, Jiatong Shi,
+Xuankai Chang, Zhenhui Ye, Yuning Wu, Zhiqing Hong,
+Jiawei Huang, Jinglin Liu, Yi Ren, Zhou Zhao, and Shinji
+Watanabe. Audiogpt: Understanding and generating speech,
+music, sound, and talking head, 2023. 2
+[25] Moon-Hwan Jeong, Dong-Hoon Han, and Hyeong-Seok Ko.
+Garment capture from a photograph. Comput. Animat. Vir-
+tual Worlds, 26(3–4):291–300, 2015. 2
+[26] Boyi Jiang, Juyong Zhang, Yang Hong, Jinhao Luo, Ligang
+Liu, and Hujun Bao. Bcnet: Learning body and cloth shape
+from a single image. In Computer Vision–ECCV 2020: 16th
+European Conference, Glasgow, UK, August 23–28, 2020,
+Proceedings, Part XX 16, pages 18–35. Springer, 2020. 2, 3
+[27] Yuming Jiang, Shuai Yang, Haonan Qiu, Wayne Wu,
+Chen Change Loy, and Ziwei Liu. Text2human: Text-driven
+controllable human image generation. ACM Transactions on
+Graphics (TOG), 41(4):1–11, 2022. 2
+[28] Maria Korosteleva and Sung-Hee Lee. Generating datasets
+of 3d garments with sewing patterns. In Proceedings of the
+Neural Information Processing Systems Track on Datasets
+and Benchmarks, 2021. 3, 17
+[29] Maria Korosteleva and Sung-Hee Lee. Neuraltailor: Recon-
+structing sewing pattern structures from 3d point clouds of
+garments. ACM Trans. Graph., 41(4), 2022. 1, 2, 4, 6, 19
+[30] Maria Korosteleva and Olga Sorkine-Hornung.
+Garment-
+code: Programming parametric sewing patterns. ACM Trans-
+actions on Graphics (TOG), 42(6):1–15, 2023. 3, 14, 16, 17,
+25
+[31] Maria Korosteleva, Timur Levent Kesdogan, Fabian Kem-
+per, Stephan Wenninger, Jasmin Koller, Yuhan Zhang, Mario
+Botsch, and Olga Sorkine-Hornung. Garmentcodedata: A
+dataset of 3d made-to-measure garments with sewing pat-
+terns, 2024. 2, 3, 17, 27
+[32] Xin Lai, Zhuotao Tian, Yukang Chen, Yanwei Li, Yuhui
+Yuan, Shu Liu, and Jiaya Jia. Lisa: Reasoning segmentation
+via large language model. arXiv preprint arXiv:2308.00692,
+2023. 2, 5, 25
+[33] Boqian Li, Xuan Li, Ying Jiang, Tianyi Xie, Feng Gao,
+Huamin Wang, Yin Yang, and Chenfanfu Jiang. Garment-
+dreamer: 3dgs guided garment synthesis with diverse geom-
+etry and texture details. arXiv preprint arXiv:2405.12420,
+2024. 2
+[34] Kunchang Li, Yinan He, Yi Wang, Yizhuo Li, Wenhai
+Wang, Ping Luo, Yali Wang, Limin Wang, and Yu Qiao.
+Videochat: Chat-centric video understanding. arXiv preprint
+arXiv:2305.06355, 2023. 2
+[35] Minchen Li, Danny M. Kaufman, and Chenfanfu Jiang.
+Codimensional incremental potential contact. ACM Trans.
+Graph. (SIGGRAPH), 40(4), 2021. 25
+[36] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee.
+Visual instruction tuning, 2023. 2, 3, 18
+[37] Kaixuan Liu, Xianyi Zeng, Pascal Bruniaux, Xuyuan Tao,
+Xiaofeng Yao, Victoria Li, and Jianping Wang. 3d interac-
+tive garment pattern-making technology.
+Computer-Aided
+Design, 104:113–124, 2018. 2
+[38] Lijuan Liu, Xiangyu Xu, Zhijie Lin, Jiabin Liang, and
+Shuicheng Yan. Towards garment sewing pattern reconstruc-
+tion from a single image. ACM Transactions on Graphics
+(SIGGRAPH Asia), 2023. 2, 3, 4, 6, 14, 17, 18, 19
+[39] Zhaoyang Liu, Yinan He, Wenhai Wang, Weiyun Wang, Yi
+Wang, Shoufa Chen, Qinglong Zhang, Zeqiang Lai, Yang
+Yang, Qingyun Li, Jiashuo Yu, et al.
+Interngpt: Solving
+vision-centric tasks by interacting with chatgpt beyond lan-
+guage. arXiv preprint arXiv:2305.05662, 2023. 2
+[40] Zhen Luo, Tianxing Li, and Takashi Kanai. Garmatnet: A
+learning-based method for predicting 3d garment mesh with
+parameterized materials. In Proceedings of the 14th ACM
+SIGGRAPH Conference on Motion, Interaction and Games,
+pages 1–10, 2021. 2
+[41] Qianli Ma, Jinlong Yang, Anurag Ranjan, Sergi Pujades,
+Gerard Pons-Moll, Siyu Tang, and Michael J Black. Learn-
+ing to dress 3d people in generative clothing. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pat-
+tern Recognition, pages 6469–6478, 2020. 2
+[42] Miles Macklin. Warp: A high-performance python frame-
+work for gpu simulation and graphics.
+https : / /
+github.com/nvidia/warp, 2022.
+NVIDIA GPU
+Technology Conference (GTC). 25
+[43] Yuwei Meng, Charlie C.L. Wang, and Xiaogang Jin. Flexi-
+ble shape control for automatic resizing of apparel products.
+Computer-Aided Design, 44(1):68–76, 2012. Digital Human
+Modeling in Product Design. 2
+[44] Gyeongsik Moon, Hyeongjin Nam, Takaaki Shiratori, and
+Kyoung Mu Lee. 3d clothed human reconstruction in the
+wild.
+In European conference on computer vision, pages
+184–200. Springer, 2022. 2
+[45] Rahul Narain, Armin Samii, and James F O’brien. Adaptive
+anisotropic remeshing for cloth simulation. ACM transac-
+tions on graphics (TOG), 31(6):1–10, 2012. 3
+[46] Fumiya Narita, Shunsuke Saito, Takuya Kato, Tsukasa
+Fukusato, and Shigeo Morishima.
+Pose-independent gar-
+ment transfer. 2014. 1
+[47] Charlie Nash, Yaroslav Ganin, S. M. Ali Eslami, and Pe-
+ter W. Battaglia.
+Polygen: An autoregressive generative
+model of 3d meshes, 2020. 5
+[48] OpenAI, Josh Achiam, Steven Adler, Sandhini Agarwal,
+Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo
+Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anad-
+kat, Red Avila, Igor Babuschkin, Suchir Balaji, Valerie Bal-
+com, Paul Baltescu, Haiming Bao, Mohammad Bavarian,
+Jeff Belgum, Irwan Bello, Jake Berdine, Gabriel Bernadett-
+Shapiro, Christopher Berner, Lenny Bogdonoff, Oleg Boiko,
+Madelaine Boyd, Anna-Luisa Brakman, Greg Brockman,
+Tim Brooks, Miles Brundage, Kevin Button, Trevor Cai,
+Rosie Campbell, Andrew Cann, Brittany Carey, Chelsea
+Carlson, Rory Carmichael, Brooke Chan, Che Chang, Fo-
+tis Chantzis, Derek Chen, Sully Chen, Ruby Chen, Ja-
+son Chen, Mark Chen, Ben Chess, Chester Cho, Casey
+Chu, Hyung Won Chung, Dave Cummings, Jeremiah Cur-
+rier, Yunxing Dai, Cory Decareaux, Thomas Degry, Noah
+Deutsch, Damien Deville, Arka Dhar, David Dohan, Steve
+Dowling, Sheila Dunning, Adrien Ecoffet, Atty Eleti,
+Tyna Eloundou, David Farhi, Liam Fedus, Niko Felix,
+Sim´on Posada Fishman, Juston Forte, Isabella Fulford, Leo

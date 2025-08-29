@@ -1,0 +1,933 @@
+Title: Pointavatar: Deformable point-based head avatars from videos
+
+PointAvatar: Deformable Point-based Head Avatars from Videos
+Yufeng Zheng1,2
+Wang Yifan3
+Gordon Wetzstein3
+Michael J. Black2
+Otmar Hilliges1
+1ETH Zurich, 2Max Planck Institute for Intelligent Systems, 3Stanford University
+Figure 1. PointAvatar learns lighting-disentangled point-based head avatars from a monocular RGB video captured by a smartphone.
+Abstract
+The ability to create realistic animatable and relightable
+head avatars from casual video sequences would open up
+wide ranging applications in communication and entertain-
+ment. Current methods either build on explicit 3D mor-
+phable meshes (3DMM) or exploit neural implicit repre-
+sentations. The former are limited by ﬁxed topology, while
+the latter are non-trivial to deform and inefﬁcient to ren-
+der. Furthermore, existing approaches entangle lighting in
+the color estimation, thus they are limited in re-rendering
+the avatar in new environments. In contrast, we propose
+PointAvatar, a deformable point-based representation that
+disentangles the source color into intrinsic albedo and
+normal-dependent shading. We demonstrate that PointA-
+vatar bridges the gap between existing mesh- and implicit
+representations, combining high-quality geometry and ap-
+pearance with topological ﬂexibility, ease of deformation
+and rendering efﬁciency. We show that our method is able
+to generate animatable 3D avatars using monocular videos
+from multiple sources including hand-held smartphones,
+laptop webcams and internet videos, achieving state-of-the-
+art quality in challenging cases where previous methods
+fail, e.g., thin hair strands, while being signiﬁcantly more
+efﬁcient in training than competing methods.
+contact: yufeng.zheng@inf.ethz.ch
+project page: https://zhengyuf.github.io/PointAvatar/
+1. Introduction
+Personalized 3D avatars are crucial building blocks of
+the metaverse and beyond. Successful tools for creating
+avatars should enable easy data capture, efﬁcient compu-
+tation, and create a photo-realistic, animatable, and re-
+lightable 3D representation of the user. Unfortunately, ex-
+isting approaches fall short of meeting these requirements.
+Recent methods that create 3D avatars from videos ei-
+ther build on 3D morphable models (3DMMs) [26, 35] or
+leverage neural implicit representations [32–34]. The for-
+mer [7, 12, 21, 22] allows for efﬁcient rasterization and in-
+herently generalizes to unseen deformations, yet they can-
+not easily model individuals with eyeglasses or complex
+hairstyles, as template meshes suffer from a-priori ﬁxed
+topologies and are limited to surface-like geometries. Re-
+cently, neural implicit representations have also been used
+to model 3D heads [4, 11, 15, 52]. While they outperform
+3DMM-based methods in capturing hair strands and eye-
+glasses, they are signiﬁcantly less efﬁcient to train and ren-
+der, since rendering a single pixel requires querying many
+points along the camera ray. Moreover, deforming implicit
+representations in a generalizable manner is non-trivial and
+existing approaches have to revert to an inefﬁcient root-
+ﬁnding loop, which impacts training and testing time nega-
+tively [9,17,25,45,52].
+To address these issues, we propose PointAvatar, a novel
+avatar representation that uses point clouds to represent the
+canonical geometry and learns a continuous deformation
+1
+arXiv:2212.08377v2  [cs.CV]  28 Feb 2023
+
+
+Efﬁcient
+Rendering
+Easy
+Animation
+Flexible
+Topology
+Thin
+Strands
+Surface
+Geometry
+Meshes
+
+
+
+
+
+Implicit Surfaces
+
+
+
+
+
+Volumetric NeRF
+
+
+
+
+
+Points (ours)
+
+
+
+
+
+Table 1. PointAvatar is efﬁcient to render and deform which en-
+ables straightforward rendering of full images during training. It
+can also handles ﬂexible topologies and thin structures and can re-
+construct good surface normals in surface-like regions, e.g., skin.
+ﬁeld for animation. Speciﬁcally, we optimize an oriented
+point cloud to represent the geometry of a subject in a
+canonical space. For animation, the learned deformation
+ﬁeld maps the canonical points to the deformed space with
+learned blendshapes and skinning weights, given expression
+and pose parameters of a pretrained 3DMM. Compared to
+implicit representations, our point-based representation can
+be rendered efﬁciently with a standard differentiable raster-
+izer. Moreover, they can be deformed effectively using es-
+tablished techniques, e.g., skinning. Compared to meshes,
+points are considerably more ﬂexible and versatile.
+Be-
+sides the ability to conform the topology to model acces-
+sories such as eyeglasses, they can also represent complex
+volume-like structures such as ﬂuffy hair. We summarize
+the advantanges of our point-based representation in Tab. 1.
+One strength of our method is the disentanglement of
+lighting effects. Given a monocular video captured in un-
+constrained lighting, we disentangle the apparent color into
+the intrinsic albedo and the normal-dependent shading; see
+Fig. 1. However, due to the discrete nature of points, accu-
+rately computing normals from point clouds is a challenging
+and costly task [5,16,29,36], where the quality can deteri-
+orate rapidly with noise, and insufﬁcient or irregular sam-
+pling. Hence we propose two techniques to (a) robustly and
+accurately obtain normals from learned canonical points,
+and (b) consistently transform the canonical point normals
+with the non-rigid deformation. For the former, we exploit
+the low-frequency bias of MLPs [37] and estimate the nor-
+mals by ﬁtting a smooth signed distance function (SDF)
+to the points; for the latter, we leverage the continuity of
+the deformation mapping and transform the normals analyt-
+ically using the deformation’s Jacobian. The two techniques
+lead to high-quality normal estimation, which in turn propa-
+gates the rich geometric cues contained in shading to further
+improve the point geometry. With disentangled albedo and
+detailed normal directions, PointAvatar can be relit and ren-
+dered under novel scenes.
+As demonstrated using various videos captured with
+DSLR, smartphone, laptop cameras, or obtained from the
+internet, the proposed representation combines the advan-
+tages of popular mesh and implicit representations, and sur-
+passes both in many challenging scenarios. In summary, our
+contributions include:
+1. We propose a novel representation for 3D animatable
+avatars based on an explicit canonical point cloud and
+continuous deformation, which shows state-of-the-art
+photo-realism while being considerably more efﬁcient
+than existing implicit 3D avatar methods;
+2. We disentangle the RGB color into a pose-agnostic
+albedo and a pose-dependent shading component;
+3. We demonstrate the advantage of our methods on a
+variety of subjects captured through various commod-
+ity cameras, showing superior results in challenging
+cases, e.g., for voluminous curly hair and novel poses
+with large deformation.
+Code is available: https://github.com/zhengyuf/pointavatar
+2. Related Work
+Point clouds for neural rendering.
+Point-based neural
+rendering is gaining attention thanks to the ﬂexibility and
+scalability of point representations [43]. Aliev et al. [1]
+introduce one of the ﬁrst approaches to point-based neural
+rendering, in which each point is augmented with a neural
+feature. These features are projected to a set of multi-scale
+2D feature maps using a standard point rasterizer, then con-
+verted to an RGB image. Recently, Point-NeRF [47] com-
+bines points with volumetric rendering, achieving perceptu-
+ally high-quality results while being efﬁcient to train. Both
+of the above methods obtain point geometry through off-
+the-shelf multi-view stereo methods and keep them ﬁxed
+during optimization, other approaches [39, 50] propose to
+jointly optimize the point geometry using differentiable
+point rasterization [24,46,49]. Our method not only jointly
+optimizes both the point geometry and colors, but also the
+deformation of the point cloud through a forward deforma-
+tion ﬁeld proposed in [9,52].
+Head avatars from 2D. Learning photo-realistic head
+avatars from 2D observations is an emerging research topic
+in the computer vision community. Based on 3DMMs [26,
+35], recent works [12,22] leverage differentiable neural ren-
+dering to learn the detailed facial appearance and complete
+head geometry for a single subject. The idea is extended
+in [7,21] to enable generative or one-shot head avatars. An-
+other line of work leverages neural implicit representations.
+NerFace [11] extends photo-realistic and ﬂexible neural ra-
+diance ﬁelds (NeRF) [33] to model the dynamic head ge-
+ometry and view-dependent appearance. IMavatar [52] em-
+ploys neural implicit surfaces [20, 32, 34, 48] and learns an
+implicit deformation ﬁeld for generalizable animation. Im-
+plicit head avatars have been extended to a multi-subject
+scenario by [4,15]. To the best of our knowledge, our work
+is the ﬁrst to learn deformable point-based head avatars.
+Point-based human avatars.
+PoP [31] learns to model
+pose-dependent clothing geometry by mapping points from
+2
+
+
+Figure 2. Method pipeline. We model the human head as a learned deformable point cloud consisting of the point locations xc, normals
+nc and albedo a, which describe the subject’s geometry and intrinsic appearance in the canonical space. To deform points given a target
+expression and pose in a controllable and interpretable way, we warp xc into the FLAME canonical space via a learned offset O, and
+then deform further to the target deformed space by applying the blendshape and skinning using learned personalized blendshape bases
+(E, P) and skinning weights (W). After obtaining the deformed geometry, a small shading MLP is used to obtain shadings sd from the
+deformed normals nd. These are multiplied with the albedo colors a to produce the shaded colors cd, which are rendered to images via
+differentiable rasterization. PointAvatar leverages a combination of per-pixel and image-based losses to improve photo-realism, while the
+FLAME regularization term encourages controllable and generalizable animations.
+the minimally-clothed SMPL [28] surface to the clothing
+surface and demonstrates impressive geometric quality on
+various clothing types.
+Point-based clothing representa-
+tion is extended by [27, 30] to mitigate point sparsity is-
+sues for long skirts. Our work is principally different in
+two ways: 1) We learn the deformation, geometry, and ap-
+pearance jointly from scratch, without explicitly relying on
+a 3DMM template. 2) We learn from monocular videos,
+whereas previous works [27,30,31] require 3D scans.
+3. Method
+Given a monocular RGB video of a subject performing
+various expressions and poses, our model jointly learns (1) a
+point cloud representing the pose-agnostic geometry and
+appearance of the subject in a canonical space; (2) a de-
+formation network that transforms the point cloud into new
+poses using FLAME expression and pose parameters ex-
+tracted from the RGB frames; (3) a shading network that
+outputs a per-point shading vector based on the point nor-
+mals in the deformed space. The three components can be
+jointly optimized by comparing the rendering of the shaded
+points in the deformed space with the input frames. Once
+trained, we can synthesize new sequences of the same sub-
+ject under novel poses, expressions and lighting conditions.
+Fig. 2 represent an overview of our method.
+3.1. Point-based Canonical Representation
+Our canonical point representation consists of a set of
+learnable points Pc = {xci} with i = {1, 2, . . . , N}, where
+xc ∈R3 denotes the optimizable point locations. We em-
+Figure 3.
+The Coarse-to-ﬁne optimization strategy upsamples
+points and reduces point radii periodically during training, enable-
+ing fast convergence and detailed ﬁnal reconstruction.
+pirically choose to learn points in an unconstrained canon-
+ical space without enforcing them to correspond to a pre-
+deﬁned pose, and found that this leads to better geometry
+quality (implementation explained in Sec. 3.2).
+For optimization, we initialize with a sparse point cloud
+randomly sampled on a sphere and periodically upsam-
+ple the point cloud while reducing the rendering radii.
+This coarse-to-ﬁne optimization scheme enables fast con-
+vergence of training because the initial sparse points are ef-
+ﬁcient to deform and render, and can quickly approximate
+the coarse shape, whereas denser points in the late training
+stage lead to good reproduction of details. A schematic of
+this procedure is provided in Fig. 3. Furthermore, at the end
+of every epoch, we prune away invisible points that have
+3
+
+
+not been projected onto any pixels with visibility above a
+predeﬁned threshold, which further accelerates training.
+Our method disentangles the point colors into a pose-
+agnostic albedo component and a pose-dependent shading
+component (explained later in Sec. 3.3), where the shad-
+ing component is inferred from the point normals in the de-
+formed space. We ﬁrst discuss how to compute the normals
+and the albedo in canonical space, followed by the learned
+transformation of point locations and normals into the de-
+formed space (see Sec. 3.2).
+Canonical normals.
+Point normals are local geometric
+descriptors that can be estimated from neighboring point
+locations. However, estimating normals in this way yields
+poor results, especially when the points are sparse, noisy
+and irregularly sampled, as is the case during early training.
+To alleviate this issue, we propose to estimate the point nor-
+mals from an SDF deﬁned by the canonical points. Normals
+are then deﬁned as the spatial gradient of the SDF:
+nc = ∇xcSDF (xc) .
+(1)
+Speciﬁcally, we represent the SDF with an MLP and ﬁt
+the zero-level set to the canonical point locations using a
+data term and an Eikonal regularizer, deﬁned as:
+Lsdf = ∥SDF (xc)∥2 and Leik = (∥∇xeSDF (xe)∥−1)2 ,
+(2)
+where the Eikonal samples xe consist of the original and
+perturbed point locations [13]. We update the SDF using
+current point locations at each training step.
+Canonical albedo.
+We use an MLP to map the point loca-
+tions xc to the albedo colors a ∈R3, similar to [8]. Com-
+pared with directly modeling the albedo of each point as
+an individual per-point feature, the inductive bias of MLPs
+automatically enforces a local smoothness prior on albedo
+colors [2,3,14,42]. For efﬁciency, we use a shared MLP to
+compute the canonical normals and albedo in practice, i.e.,
+[SDF (xc) ; a] = MLPc (xc) .
+(3)
+3.2. Point Deformation
+In order to achieve controllable animations, PointAvatar
+is deformed using the same expression and pose parameters
+as FLAME [26], a parametric head model learned from 4D
+scans. Our deformation takes a two-step approach shown
+in Fig. 2. In the ﬁrst stage, we warp the canonical points
+xc to its location in an intermediate pose xo, which cor-
+responds to a predeﬁned mouth-opened canonical pose of
+the FLAME template. In the second stage, we use the tar-
+get FLAME expression and pose parameters to transform
+xo to the deformed space based on learned blendshapes and
+skinning weights. Our experiments (see Sec. 4.4) empiri-
+cally show that the proposed two-staged deformation helps
+to avoid bad local minima during optimization and yields
+more accurate geometries.
+To improve expression ﬁdelity and to account for ac-
+cessories such as eyeglasses, we learn personalized defor-
+mation blendshapes and skinning weights, similar to IMa-
+vatar [52]. Speciﬁcally, a coordinate-based MLP is used
+to map each canonical point xc to (1) an offset O ∈R3,
+which translates xc to its corresponding location in the
+FLAME canonical space xo; (2) ne expression blendshapes
+and np pose blendshapes, denoted as E ∈Rne×3 and
+P ∈Rnp×9×3; (3) LBS weights W ∈Rnj associated to
+the nj bones. The point location in deformed space xd is
+then computed as:
+xo = xc + O
+(4)
+xd = LBS (xo + BP (θ; P) + BE (ψ; E) , J (ψ) , θ, W) ,
+(5)
+where LBS and J deﬁne the standard skinning function and
+the joint regressor deﬁned in FLAME, and BP and BE de-
+note the linear combination of blendshapes, which outputs
+the additive pose and expression offsets from the anima-
+tion coefﬁcients θ and ψ and the blendshape bases P and E.
+Despite the similarity of this formulation to IMavatar [52],
+our forward deformation mapping only needs to be applied
+once in order to map canonical point locations xc to the
+deformed space, and therefore does not need the computa-
+tionally costly correspondence search of IMavatar [52].
+Normal deformation.
+The deformation mapping deﬁned
+in Eq. (5) is differentiable w.r.t. the input point locations.
+This allows us to transform canonical normals analytically
+with the inverse of the deformation Jacobian
+nd = lnc
+dxd
+dxc
+−1
+,
+(6)
+where l is a normalizing scalar to ensure the normals are of
+unit length. The formulation can be obtained via Taylor’s
+theorem. Please check Supp. Mat. for the detailed proof.
+3.3. Point Color
+The color of each point in the deformed space cd is ob-
+tained by multiplying the intrinsic albedo a ∈R3 with the
+pose-dependent lighting effects which we refer to as shad-
+ing sd ∈R3:
+cd = a ◦sd,
+(7)
+where ◦denotes the Hadamard product. As we assume our
+input video is captured under a ﬁxed lighting condition and
+camera position, we model the shading as a function of the
+4
+
+
+deformed point normals nd. In practice, we approximate
+their relation using a shallow MLP:
+sd = MLPs (nd)
+(8)
+By conditioning the albedo only on the canonical locations
+(see Sec. 3.1) and the shading only on the normal directions,
+our formulation achieves unsupervised albedo disentangle-
+ment. Despite that our lighting model is simple and mini-
+mally constrained, our method can perform rudimentary re-
+lighting by changing the shading component (see Sec. 4.2).
+3.4. Differentiable Point Rendering
+One advantage of our point-based representation is that
+it can be rendered efﬁciently using rasterization. We adopt
+PyTorch3D’s [38] differentiable point renderer.
+It splats
+each point as a 2D circle with a uniform radius, arranges
+them in z-buffers, and ﬁnally composites the splats us-
+ing alpha compositing. The alpha values are calculated as
+α = 1 −d2/r2, where d is the distance from the point
+center to the pixel center and r represents the splatting
+radius.
+Then, the transmittance values are calculated as
+Ti = Qi−1
+k=1(1−αk), where i denotes the index of the sorted
+points in the z-buffer. The point color values are integrated
+to produces the ﬁnal pixel color:
+cpix =
+X
+i
+αiTicd,i.
+(9)
+3.5. Training Objectives
+The efﬁciency of point-based rendering allows us to ren-
+der the whole image at each training step. This makes it
+possible to apply perceptual losses on the whole image,
+whereas implicit-based avatar methods are often limited to
+per-pixel objectives. Speciﬁcally, we adopt VGG feature
+loss [18], deﬁned as
+Lvgg (C) =
+Fvgg(C) −Fvgg(CGT)
+ ,
+(10)
+where C and CGT denote the predicted and ground truth
+image, and Fvgg(·) calculates the features from the ﬁrst four
+layers of a pre-trained VGG [41] network.
+In addition to Lvgg, we follow prior work and adopt the
+losses of IMavatar [52]:
+LRGB =
+C −CGT ,
+Lﬂame = 1
+N
+N
+X
+i=1
+(λe∥Ei −bEi∥2 + λp∥Pi −bPi∥2 + λw∥Wi −c
+Wi∥2),
+Lmask =
+M −MGT .
+Here, M and MGT denote the predicted and ground truth
+head mask, bE, bP and c
+W are pseudo ground truth deﬁned
+by the nearest FLAME vertex.
+The mask prediction at
+L1 ↓
+LPIPS ↓
+SSIM ↑
+PSNR ↑
+IMavatar [52]
+0.033; 0.050
+0.178; 0.261
+0.874; 0.770
+22.4; 18.7
+NerFace [11]
+0.030; 0.045
+0.126; 0.187
+0.877; 0.782
+22.7; 19.6
+Ours
+0.021; 0.036
+0.094; 0.145
+0.899; 0.802
+26.6; 22.3
+NHA [12]
+0.022;0.029
+0.086; 0.123
+0.890; 0.837
+25.7; 21.6
+Ours (no cloth)
+0.017; 0.021
+0.077; 0.100
+0.912; 0.863
+28.6; 25.8
+Table 2. Quantitative comparison. The ﬁrst and second num-
+ber in each cell represent scores for lab-capture sequences (IMa-
+vatar and NerFace datasets) and casual videos (smartphone, we-
+bcam and internet videos), respectively. PointAvatar outperforms
+implicit-based IMavatar and NerFace by a large margin in percep-
+tual quality reﬂected by LPIPS [51]. Compared to 3DMM-based
+NHA, our method not only generates complete avatars with shoul-
+ders and clothing, but also performs better for the head region.
+each pixel is obtained by mpix = P
+i αiTi, and the ground
+truth mask obtained using an off-the-shelf foreground
+estimator [19],
+Our total loss is
+L = λrgbLRGB+λmaskLmask+λﬂameLﬂame+λvggLvgg. (11)
+The loss weights can be found in Supp. Mat. together with
+other implementation details.
+4. Experiments
+Datasets.
+We compare our approach with state-of-the-art
+(SOTA) methods on 2 subjects from IMavatar [52] and 2
+subjects from NerFace [11]. Additionally, we evaluate dif-
+ferent methods on 1 subject collected from the internet, 4
+subjects captured with hand-held smartphones, and 1 sub-
+ject from a laptop webcam. These settings pose new chal-
+lenges to avatar methods due to limited head pose varia-
+tion, automatic exposure adjustment or low image resolu-
+tion. In Supp. Mat., we evaluate reconstructed point geom-
+etry on a synthetic dataset rendered from the MakeHuman
+project [6]. For all subjects, we use the same face-tracking
+results for all comparing methods.
+Baselines.
+We compare our method with three SOTA
+baselines, including (1) NerFace [11], which leverages dy-
+namic neural radiance ﬁelds [33], (2) neural head avatar
+(NHA) [12] based on 3D morphable mesh models [26]
+(3) and IMavatar [52], which builds on neural implicit
+surfaces [48] and learnable blendshapes.
+Together with
+our method, which represents the head geometry with de-
+formable point clouds, our experiments reveal the strength
+and weaknesses of each geometry representation in the sce-
+nario of head avatar reconstruction. Through our experi-
+ments, we demonstrate the efﬁciency, ﬂexibility and photo-
+realism achieved by point-based avatars.
+4.1. Comparison with SOTA Methods
+In Tab. 2, we quantitatively compare our point-based
+avatar method with SOTA baselines using conventional
+5
+
+
+DSLR (NerFace)
+DSLR (IMavatar)
+Internet video
+smartphone video
+webcam video
+NHA [12]
+IMavatar [52]
+NerFace [11]
+Ours
+GT
+Figure 4. Qualitative comparison. PointAvatar produces photo-realistic and detailed appearance compared to SOTA methods, especially
+apparent in skin details and hair textures. Our point-based method is also ﬂexible enough to capture challenging geometries such as
+eyeglasses and thin hair strands, which cannot be handled by mesh-based methods.
+6
+
+
+metrics including L1, LPIPS [51], SSIM and PSNR. Since
+NHA [12] only models the head region, we compare with
+NHA without considering the clothing region. PointAvatar
+achieves the best metrics among all methods on both lab-
+captured DSLR sequences and videos from more casual
+capture settings, e.g., with smartphones.
+Eyeglasses and detailed structures. In Fig. 4, we show
+qualitatively that our method can successfully handle the
+non-face topology introduced by eyeglasses, which pose se-
+vere challenges for 3DMM-based methods. NHA cannot
+model the empty space between the frame of the eyeglasses
+because of its ﬁxed topology and, instead, learns a convex
+hull painted with dynamic textures. In the second exam-
+ple of a man with a hair bun, even though the bun is topo-
+logically consistent with the template mesh, NHA still pro-
+duces a worse hair silhouette than other methods. IMavatar,
+based on implicit surfaces, is theoretically capable of mod-
+eling the geometry of eyeglasses, but it also fails to learn
+part of the thin frame of glasses. Furthermore, for IMavatar
+to learn such thin structures, accurate foreground segmen-
+tation masks are required, which are hard to obtain in-the-
+wild. In Supp. Mat., we show that our method can be trained
+without mask supervision or known background.
+Surface-like skin and volumetric hair. Both NHA and
+IMavatar enforce a surface constraint by design. While such
+constraint helps with surface geometry reconstruction and
+multi-view consistency, it also causes problems when mod-
+eling volumetric structures such as the curly hair in the third
+example. Our point-based method is free to model volumet-
+ric structures where needed, but also encourages surface-
+like point geometry in the skin and clothing regions via
+point pruning, which removes unseen inside points.
+We
+show that our method renders sharp and realistic images
+even for extreme head poses. In contrast, NerFace is a ﬂex-
+ible volumetric NeRF [33]-based avatar method. While it
+is capable of modeling thin structures of any topology, its
+under-constrained nature leads to poor geometry and com-
+promises rendering quality in uncommon poses. Even for
+near frontal poses shown in the ﬁrst and third examples, our
+method still produces sharper skin details than NerFace.
+4.2. Lighting Disentanglement
+Our method disentangles rendered colors into intrinsic
+albedo colors and normal-dependent shading values. By
+changing the shading component, we can alter the light-
+ing directions as shown in Fig. 5 (see Supp. Mat. for de-
+tails of relighting). In the following, we demonstrate that
+lighting disentanglement, along with the proposed normal
+estimation techniques, improves the geometry details of the
+reconstruction. In column 2 of Fig. 6, we show that, disen-
+tangling shading and albedo itself improves facial geome-
+try (see the cheek area). We further ablate two of our de-
+albedo
+normal
+shading
+rendering
+relit
+Figure 5. Self-supervised lighting disentanglement. PointAvatar
+disentangles albedo and normal-depedent shading from a single
+video captured with a ﬁxed lighting condition.
+After training,
+PointAvatar can be faithfully relit.
+(1) entangled (2) 1+disentangle (3) 2+SDF (4) 3+Jacobian
+Figure 6.
+Geometry ablation.
+Disentangling shading and
+albedo improves facial normals compared to an entangled ren-
+dering model. Moreover, obtaining canonical point normals from
+SDF further improved smoothness. Transforming normals with
+the spatial Jacobian of the deformation ﬁeld enables the capture of
+blendshape-related normal changes, e.g., around the nasal line.
+sign choices for obtaining better point normals. First, we
+compare our SDF-based normal estimation with direct nor-
+mal estimation, which calculates normals by approximating
+the local plane of neighboring points. Normals obtained
+through SDF are less noisy, especially in highly detailed re-
+gions such as the hair, eyes and mouth, where direct normal
+estimation often fails. Second, we compare our proposed
+normal transformation using the deformation Jacobian vs.
+transforming the normals simply with the rotation matrix of
+the point deformation. The latter ignores the spatial changes
+of blendshapes and LBS weights. As column 4 shows, our
+normal transformation method takes into account the effects
+of additive blendshapes, and is able to produce correct nor-
+mals around the nasal line when smiling.
+4.3. Training Efﬁciency
+In Tab. 3 and Fig. 7, we show that PointAvatar is con-
+siderably faster to train and render than implicit head avatar
+methods. Thanks to the coarse-to-ﬁne learning strategy and
+7
+
+
+Method
+Training time (hour)
+Rendering time per image (train)
+IMavatar
+48h
+100s
+NerFace
+54h
+4s
+Ours
+6h
+0.1s - 1.5s (varies with point numbers)
+Table 3. Training and rendering time. Compared to implicit-
+based methods, our method is signiﬁcantly faster in training and is
+able to render full-images much more efﬁciently.
+20.82
+20.78
+21.11
+23.48
+24.52
+24.30
+40m
+1h30m
+3h
+Figure 7. Training efﬁciency. PointAvatar converges much faster
+than implicit-based methods. Here we show NerFace [11] as an
+example, and indicate the average PSNR of the test set.
+wo/ VGG
+with VGG
+Figure 8. Ablation: VGG loss improves photo-realism compared
+to only using a per-pixel L1 loss. PointAvatar is able to render full
+images efﬁciently during training, enabling the usage of various
+image- and patch-based losses.
+point pruning, our method only needs to render a small
+number of points with large radii in early training stages,
+which signiﬁcantly speeds up training. With the ability to
+render full images efﬁciently during training, PointAvatar
+can be trivially combined with various image- and patch-
+based training objectives, which target certain properties,
+e.g., photo-realism, much more effectively than pixel-based
+losses. In Fig. 8, we ablate our VGG feature loss, revealing
+its signiﬁcant effect in boosting photo-realism.
+4.4. Ablation: Free Model Canonical Space
+As depicted in Fig. 9, having an additional freely-learned
+canonical space, compared to forcing the model to directly
+learn in a predeﬁned FLAME space, improves the canoni-
+cal point geometry and generalization to novel poses signif-
+icantly. A possible reason is that the deformations, modeled
+without canonical offset
+with canonical offset
+Figure 9. Ablation: canonical offset improves the canonical 3D
+geometry and therefore boosts generalization to novel head poses.
+For both cases, we show the canonical point representation (trans-
+formed to the FLAME canonical space if using canonical offset)
+and a deformed representation in a novel pose.
+by an MLP, are easier to optimize compared to point loca-
+tions. Without the canonical offset O, the model overﬁts
+and learns wrong canonical geometries.
+5. Discussion
+We propose PointAvatar, a deformable point-based
+avatar representation that features high ﬂexibility, efﬁcient
+rendering and straightforward deformation. We show that
+our method is able to handle various challenging cases in
+the task of head avatar modeling, including eyeglasses, vo-
+luminous hair, skin details and extreme head poses. Despite
+being trained only on a monocular video with ﬁxed lighting
+conditions, PointAvatar achieves detailed facial and hair ge-
+ometry and faithfully disentangles lighting effects from the
+intrinsic albedo.
+There are several exciting future directions.
+(1) Our
+shading MLP maps normal directions to pose-dependent
+lighting effects, without further disentangling them into en-
+vironment maps and surface reﬂectance properties, limiting
+relighting capability. Future works could leverage a more
+constrained physically-based rendering model. (2) We ren-
+der points with uniform radius but some regions require
+denser and ﬁner points to be modeled accurately, e.g., eyes
+and hair strands. Rendering with different point sizes could
+potentially achieve detailed reconstructions with less points,
+and speed up training and rendering further. (3) We focus
+on the explainability of our method, but future works could
+combine PointAvatar with 2D neural rendering to boost
+photo-realism. (4) Our method cannot faithfully model the
+reﬂection of eyeglass lenses, which can be improved by
+modeling transparencies and reﬂections [44].
+Acknowledgements Yufeng Zheng is supported by the Max
+Planck ETH Center for Learning Systems. Wang Yifan is
+partially funded by the SNF postdoc mobility fellowship.
+MJB has received research gift funds from Adobe, Intel,
+Nvidia, Meta/Facebook, and Amazon. MJB has ﬁnancial
+interests in Amazon, Datagen Technologies, and Meshca-
+pade GmbH. While MJB is a part-time employee of Mesh-
+capade, his research was performed solely at, and funded
+solely by, the Max Planck Society.
+8
+
+
+Supplemental Materials
+In this supplemental document, we provide the addi-
+tional experiments mentioned in the main paper in Sec. 1,
+implementation details for our method in Sec. 2, the proof
+for Jacobian-based normal transformation in Sec. 3, and dis-
+cussions about data capture ethics in Sec. 4. Additionally,
+we recommend checking out our supplemental video.
+1. Additional Results
+1.1. Results on the MakeHuman Dataset
+We evaluate the reconstructed surface geometry on the
+MakeHuman synthetic dataset rendered from [6]. We show
+that PointAvatar is not only capable of capturing volumetric
+structures as shown in the main paper, but also performs
+on par with state-of-the-art methods on surface geometry
+reconstruction, as shown in Fig. 1 and Tab. 1.
+NHA [12]
+IMavatar [52]
+Ours
+Ground-Truth
+Figure 1. Qualitative comparison of surface geometry. Our
+point-based avatar representation reconstructs comparable head
+geometry to surface-only representations such as meshes (NHA)
+and implicit surfaces (IMavatar).
+Method
+female 1
+female 2
+male 1
+male 2
+NHA [12]
+0.94
+0.95
+0.94
+0.94
+IMavatar [52]
+0.961
+0.966
+0.954
+0.955
+Ours
+0.954
+0.954
+0.944
+0.958
+Table 1.
+Quantitative comparison on the MakeHuman
+dataset [6]. We report the normal consistency metric for evalu-
+ating reconstructed surface geometry. The scores for NHA [12]
+and IMavatar [52] are obtained from their papers.
+We thank the authors of NHA [12] for kindly sharing this
+evaluation dataset with us.
+256
+256
+256
+256
+256
+256
+256
+256
+128
+128
+128
+128
+Deformation MLP
+Softmax
+Canonical MLP
+64
+64
+Shading MLP
+5
+150
+108
+Sigmoid
+256
+SDF
+Sigmoid
+3
+3
+1
+3
+Figure 3. Network architecture. We show the network archi-
+tectures of the canonical, deformation and shading MLPs. Except
+from the last layer, each linear layer is followed by weight normal-
+ization [40] and non-linear activation. We use the Softplus [10]
+function for the canonical and deformation MLP, and the ReLU
+activation for the shading MLP.
+1.2. Learning without Foreground Masks
+learned mask
+foreground
+background
+full
+Figure 2. Self-supervised foreground-background disentangle-
+ment. PointAvatar can be learned without mask supervision or
+known background.
+It is beneﬁcial to learn avatars without relying on fore-
+ground segmentation masks, because off-the-shelf segmen-
+tation networks often fail in in-the-wild scenarios. In Fig. 2,
+we show that PointAvatar is able to roughly disentangle
+foreground and background contents in a self-supervised
+manner. Note that NerFace [11] cannot be learned without
+known backgrounds.
+2. Implementation Details
+In this section, we provide implementation details re-
+garding network architectures, training and evaluation pro-
+cedures, and the preprocessing of videos.
+2.1. Network Architecture
+We show the architecture of the canonical, deformation
+and shading MLPs in Fig. 3.
+1
+
+
+2.2. Training Details
+Loss weights and optimization.
+We choose λrgb
+=
+1, λmask = 1, λﬂame = 1, and λvgg = 0.1 for most of our ex-
+periments, except for the experiment shown in Fig. 6 (main
+paper), where we used λrgb = 5, and λvgg = 0.05, and
+the experiment on synthetic data (Sec. 1.1 in Supp. Mat.),
+where we used λrgb = 10, and λvgg = 0. For the ﬂame loss,
+we choose λe = 1000, λp = 1000, and λw = 1. For op-
+timizing the canonical SDF, we use λSDF = 1, and λeik =
+0.1. We train our models using an Adam optimizer [23]
+for 63 epochs, with a learning rate of η = 1e−4, and
+β = (0.9, 0.999).
+Static bone transformation.
+In the pre-processing step,
+the FLAME tracking of the upper body is often unstable.
+We handle this problem via the introduction of an additional
+static bone, similar to IMavatar [52]. Since the upper body
+remains mostly static in the training video, the deformation
+MLP assigns large LBS weights to the static bone to re-
+duce shoulder motion under different FLAME pose conﬁg-
+urations. This trick effectively reduces shoulder jittering.
+Point upsampling and pruning.
+Every 5 epochs, we
+double the number of points and reduce the point rasteri-
+zation radii, which allows our method to capture ﬁner de-
+tails. The new point locations are obtained by perturbating
+the current points with random noises. The factor for radius
+reduction is carefully chosen: Assuming that points roughly
+form a surface, the radius should be decreased by a factor
+of 1/
+√
+2. We choose to reduce the point radii by a factor of
+0.75 in practice. Additionally, after each epoch, we prune
+away points that are invisible, i.e., not projected onto any
+pixels with compositing weights larger than a threshold. We
+choose 0.5 as the pruning threshold.
+2.3. Evaluation Details
+FLAME
+[26]
+parameter
+optimization.
+Similar
+to
+NHA [12], our method also ﬁne-tunes pre-tracked FLAME
+expression and pose parameters during training and evalu-
+ation. For training, the loss weights are elaborated in the
+main paper and in Sec. 2.2 of Supp. Mat. For test-time
+tracking optimization, we only use the RGB loss.
+Hole ﬁlling.
+Rendered images from PointAvatar may con-
+tain “white dot” artifacts. This happens due to the spar-
+sity of deformed point clouds which reveals the white back-
+ground. The issue mainly occurs around (1) stretched re-
+gions (e.g. neck), in this case, the deformation causes spar-
+sity; (2) regions that are infrequently observed during train-
+ing (e.g. proﬁle views), because unseen points are pruned
+during training (see Sec. 2.2 of Supp. Mat. for pruning strat-
+egy). In Fig. 4, we compare several post-processing meth-
+ods to address this artifact. (1) We apply erosion and dila-
+tion consecutively to the rendered images. This method ﬁlls
+most white dots but slightly blurs images. (2) We train a per-
+subject 2D neural network (NN) to remove white dots from
+the rendered images. This method robustly removes arti-
+facts and does not blur images, but it requires cumbersome
+per-subject NN training. More speciﬁcally, we augment GT
+images with white dots using the rendered mask, and train a
+2D NN to remove the added artifacts. We found the trained
+NN can remove artifacts from rendered images despite the
+domain gap, and also generalizes to unseen poses. (3) We
+increase point radii based on distances to neighbors before
+rasterization. This method principally tackles the sparsity
+problem in 3D space, but often falsely thickens thin struc-
+tures such as hair strands. We use the ﬁrst method in the
+paper due to its simplicity and effectiveness, but adaptive
+radii and neural networks could also be leveraged for better
+performance in some cases.
+orig. RGB
+(1) erode-dilate
+(2) 2D NN
+(3) adapt radii
+Figure 4. Point sparsity and white dot artifacts. We show the
+rendered image which contains white dot artifacts (orig. RGB),
+and reﬁned results from different post-processing methods.
+Relighting.
+Our method learns to disentangle albedo
+from pose-dependent lighting effects which we refer to as
+shading. Previous works that use MLP-based texture net-
+works transform 3D locations and normal directions into
+shaded colors. In contrast, we perform disentanglement by
+conditioning the albedo only on the canonical locations and
+the shading only on the normal directions. This is how we
+achieve unsupervised albedo disentanglement.
+We found our method allows for rudimentary relighting
+(1) by manipulating the normal directions of the shading
+component, which changes the light direction (please check
+the teaser and Fig. 5 in the main paper for horizontally-
+ﬂipped and rotated light directions), or (2) by discarding the
+learned shading and instead rendering with a default shad-
+ing model using the learned albedo and normals. The latter
+option allows for relighting in novel scenes. In the supple-
+mentary video (03:39), we use a diffused shading model to
+relight avatars, but it leads to less faithful appearances com-
+pared to the learned shading.
+2

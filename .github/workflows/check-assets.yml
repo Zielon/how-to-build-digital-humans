@@ -1,0 +1,101 @@
+name: Check Missing Assets
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'assets/data/publications.json'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check for missing assets
+        id: check
+        run: |
+          python scripts/check_assets.py \
+            --github-output /tmp/missing-assets.md \
+          && echo "status=ok" >> "$GITHUB_OUTPUT" \
+          || echo "status=missing" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update issue
+        if: steps.check.outputs.status == 'missing'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/missing-assets.md', 'utf8');
+            const title = 'Missing assets for publication entries';
+            const labels = ['assets'];
+
+            // Find existing open issue
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: labels.join(','),
+            });
+            const existing = issues.find(i => i.title === title);
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+              console.log(`Updated issue #${existing.number}`);
+            } else {
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels,
+              });
+              console.log(`Created issue #${issue.number}`);
+            }
+
+      - name: Close issue if all assets present
+        if: steps.check.outputs.status == 'ok'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Missing assets for publication entries';
+            const labels = ['assets'];
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: labels.join(','),
+            });
+            const existing = issues.find(i => i.title === title);
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: 'All assets are now present. Closing automatically.',
+              });
+              console.log(`Closed issue #${existing.number}`);
+            }

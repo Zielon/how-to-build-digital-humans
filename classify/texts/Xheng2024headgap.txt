@@ -1,0 +1,1150 @@
+Title: Headgap: Few-shot 3d head avatar via generalizable gaussian priors
+
+HeadGAP: Few-Shot 3D Head Avatar via Generalizable Gaussian Priors
+Xiaozheng Zheng1
+Chao Wen1†
+Zhaohu Li1
+Weiyi Zhang1
+Zhuo Su1
+Xu Chang1
+Yang Zhao1
+Zheng Lv1
+Xiaoyuan Zhang1
+Yongjie Zhang1
+Guidong Wang1
+Lan Xu2
+1ByteDance
+2ShanghaiTech University
+3D Gaussian 
+Head Prior Model
+Few-shot Input 
+3D Animatable Head Avatar
+Novel Identity
+Multiple 
+Cameras
+Multiple 
+Expressions
+Large-scale 3D Data
+Self- and Cross-reenactment
+Novel 
+Expression
+Figure 1. We present HeadGAP to create photo-realistic animatable 3D head avatars from only a few or even one image of the target
+person. Firstly, we utilize large-scale 3D data to learn 3D head prior with our designed 3D Gaussian head prior model. Secondly, we can
+use few-shot data to create 3D animatable avatars. Finally, we can animate the few-shot avatars with novel expressions.
+Abstract
+In this paper, we present a novel 3D head avatar creation
+approach capable of generalizing from few-shot in-the-wild
+data with high-fidelity and animatable robustness. Given
+the underconstrained nature of this problem, incorporat-
+ing prior knowledge is essential. Therefore, we propose a
+framework comprising prior learning and avatar creation
+phases. The prior learning phase leverages 3D head pri-
+ors derived from a large-scale multi-view dynamic dataset,
+and the avatar creation phase applies these priors for few-
+shot personalization.
+Our approach effectively captures
+these priors by utilizing a Gaussian Splatting-based auto-
+decoder network with part-based dynamic modeling. Our
+method employs identity-shared encoding with personalized
+latent codes for individual identities to learn the attributes
+of Gaussian primitives. During the avatar creation phase,
+we achieve fast head avatar personalization by leveraging
+inversion and fine-tuning strategies. Extensive experiments
+demonstrate that our model effectively exploits head priors
+and successfully generalizes them to few-shot personaliza-
+tion, achieving photo-realistic rendering quality, multi-view
+consistency, and stable animation.
+Project page: https://headgap.github.io/
+† Corresponding author
+1. Introduction
+Creating photo-realistic 3D avatars is a central challenge
+in computer graphics, encompassing applications such as
+movies, games, AR/VR, and the metaverse.
+There is a
+significant interest in generating digital avatars from real-
+world captures to create a precise digital copy of an actual
+person. These digital avatars can be animated and rendered
+from various viewpoints, maintaining high visual fidelity.
+Recent advances [41, 46, 73, 85, 87] have achieved
+photo-realistic rendering quality of digital humans. In par-
+ticular, 3D Gaussian Splatting (3DGS) [36] has been widely
+adopted for head avatars [13, 29, 47, 54, 70, 75] due to its
+efficient and realistic rendering capabilities. However, these
+advancements rely heavily on publicly available multi-
+view [40] or sequential datasets [24, 84], which are labor-
+intensive to capture and process for the average user. To ad-
+dress this limitation, many studies [12, 14, 19, 21, 81] aim to
+reduce the high data requirements for creating 3D avatars,
+allowing users to generate avatars from just a few images.
+Unfortunately, these methods often suffer from significant
+performance degradation compared to those [29, 54, 75]
+that utilize dense data for avatar creation. The challenge
+of generating few-shot personalized head avatars with high
+fidelity and stable animation remains unresolved.
+To this end, we propose HeadGAP to facilitate high-
+1
+arXiv:2408.06019v2  [cs.CV]  13 Jan 2025
+
+
+Head Prior Learning
+GAPNet
+GAPNet
+Avatar Personalization
+𝐳!..#
+𝐳∗
+Inverted 
+Avatar
+Finetuned 
+Avatar
+Target 
+Image
+Images  
+Meshes
+Images  
+Meshes
+Figure 2. HeadGAP framework. The prior learning phase uses dif-
+ferent IDs’ data to embed head priors into the GAPNet. The per-
+sonalization phase firstly optimizes identity codes to obtain the in-
+verted avatar, then updates the GAPNet to get the fine-tuned avatar.
+fidelity few-shot head avatar creation.
+As illustrated in
+Fig. 1, the core of HeadGAP lies in learning generalizable
+3D Gaussian head priors from large-scale data and leverag-
+ing them to create high-quality personalized head avatars
+with few-shot input. As shown in Fig. 2, the HeadGAP
+framework consists of two phases: 1) the prior learning
+phase and 2) the few-shot personalization phase.
+In the
+prior learning phase, multi-view dynamic data is used to
+embed 3D prior knowledge into GAPNet (GAussian Prior
+Network).
+The prior learning phase is conducted only
+once.
+Subsequently, the few-shot personalization phase
+uses the learned priors to create avatars of new identities by
+inversion and fine-tuning. This framework focuses on two
+perspectives that would allow GAPNet to learn effective
+priors: 1) To achieve high-quality, we introduce a 3DGS-
+based head representation boosted with part-based and dy-
+namic modeling. 2) For enhancing generalizability, we de-
+sign GAPNet in an auto-decoder manner, which constructs
+continuous part-based identity spaces that can serve as pow-
+erful generative priors to guide the few-shot creation. Ad-
+ditionally, we leverage mesh tracking priors by predicting
+Gaussian attributes relative to the tracked mesh [54].
+We
+conduct
+comprehensive
+experiments
+on
+the
+NeRSemble dataset [40] to substantiate our design choices
+and demonstrate our method’s superiority over existing
+approaches.
+To illustrate the robustness and practical
+applicability of our method, we present numerous avatars
+of novel identities generated from both public datasets and
+images captured with consumer-grade devices.
+In summary, our contributions can be listed as follows:
+• We introduce a novel framework that exploits generaliz-
+able 3D Gaussian priors for fast 3D head avatar person-
+alization using only a few input images. These avatars
+exhibit high fidelity and consistent animatable quality.
+• We present proper designs that effectively utilize part-
+based dynamic Gaussian head priors and generalize them
+for high-quality few-shot head avatar personalization.
+• We substantiate the efficacy and robustness of our frame-
+work through comprehensive experiments. Meanwhile,
+we showcase its potential in real scenarios by avatar cre-
+ation using images captured by consumer-grade devices.
+2. Related Work
+3D Animatable Head Avatar. Since the advent of 3D neu-
+ral implicit representations, remarkable progress has been
+made in creating animatable 3D head avatars from monocu-
+lar or multi-view videos with various expressions and poses.
+Existing works have explored varieties of avatar represen-
+tation.
+Some previous approaches [30, 38, 49] employ
+3DMM [5, 43] with neural textures.
+Many recent stud-
+ies [1, 2, 24, 25, 34, 41, 46, 73, 84, 87] focus on creating
+neural volumetric avatars. 3DMM [4, 5, 27, 43, 53] is of-
+ten employed in those approaches. More recently, point-
+based representations are widely adopted [13, 28, 29, 54,
+58, 70, 75, 85]. Among those works, 3DGS [36] is the most
+prevalent representation due to its efficient rendering and
+topological flexibility. Similar to these approaches, our ap-
+proach is also based on 3DGS. However, there exist signif-
+icant differences between previous works and ours, includ-
+ing our model being designed with 1) part-based dynamic
+modeling and designed for 2) 3DGS-based generative mod-
+eling rather than single-subject modeling.
+One-shot 2D Head Avatar.
+One-shot 2D head avatar
+synthesis has attracted lots of attention in recent years.
+Plenty of works leverage 2D generative models for talk-
+ing head synthesis at high fidelity.
+One part of those
+works [22, 26, 33, 55, 59, 66, 67, 82] learn latent de-
+formed features and feed them to 2D generators for face
+reenactment. Some other studies [6, 32, 78] map images
+to the latent space of a pre-trained StyleGAN2 [35]. While
+2D-based methods can produce photorealistic images, they
+struggle to preserve the 3D consistency. Therefore, sev-
+eral methods [14, 19, 20, 34, 37, 44, 45, 48, 50, 77, 80]
+pursue animatable 3D head synthesis. They often resort
+to monocular 3DMM [16, 23] for providing geometry or
+pose guidance. Another line of work for 3D-aware por-
+trait generations is also capable of few-shot avatar anima-
+tions. Lots of studies [9–11, 17, 31, 52, 57, 61] demon-
+strate that the combination of 3D representations and ad-
+versarial learning on monocular images makes it possible
+to learn a 3D-aware generator for multi-view image gener-
+ation. Many works [3, 62–64, 68, 69, 72] introduce 3DMM
+for animation control. These methods can be combined with
+advanced GAN inversion techniques [18, 42, 56, 71, 79]
+for head avatar reconstruction. However, those 2D-based
+approaches are still inferior in 3D consistency due to their
+representations and training schemes.
+Few-shot Head Avatar with Data-driven 3D Priors. We
+focus on the few-shot 3D avatar personalization with data-
+driven 3D priors from large-scale data. To solve this prob-
+lem, there are also some recent works [7, 8, 12, 76, 81]
+designed in this manner.
+Morphable Diffusion [12] in-
+troduces a multi-view consistent diffusion model to create
+head avatars from a single image. Preface [7] trains a NeRF-
+based auto-decoder generative model and achieves few-shot
+2
+
+
+𝑓!
+Part-based Feature 
+Point Cloud
+3DGS
+CNN
+3D Gaussian
+Point Cloud
+Local to Global 
+Transformation
+Mesh
+Tracking
+Part-based 
+Binding
+Input Images
+Rendered
+Image
+Local 
+Attributes
+Point-specific 
+Feature Encoding
+Part-specific 
+Identity Code
+𝝁!
+𝐞
+A"
+A"
+A#
+𝐡
+T
+D
+𝑓"
+M
+𝑓!
+M
+M!
+𝐳
+𝐟
+𝑓!
+M"
+Figure 3. Illustration of the GAPNet. Given the tracked meshes of the input images, GAPNet binds part-based Gaussian primitives with
+initialized features to the mesh. Then, it employs part-specific modules to predict the local attributes of each primitive. The local attributes
+are transformed into global ones for 3DGS rendering. Finally, the renderings are fed into the CNN to obtain the final rendered images.
+high-fidelity 3D static head creations. PhoneScan [8] ex-
+tends MVP [46] to an auto-encoder generative model and
+supports novel avatar creation with the phone-captured data.
+VRMM [76] is an auto-decoder generative model built upon
+MVP [46], which supports few-shot relightable avatar cre-
+ation. One2Avatar [81] adapts MonoAvatar [2] to an auto-
+decoder generative model based on a 3DMM-anchored neu-
+ral radiance field [51]. Similar to [7, 76, 81], we also design
+our model in an auto-decoder manner. Different from these
+approaches relying on volume rendering [7, 8, 76, 81] or
+diffusion model [12], our approach employs 3DGS for ren-
+dering. We concentrate on designing a 3DGS-based genera-
+tive model to achieve high-fidelity few-shot personalization
+with robust animations.
+3. Method
+In this section, we first introduce the preliminary (Sec. 3.1).
+Then, we detail our avatar representation designed for cre-
+ating head avatars with learned generalizable head prior
+knowledge (Sec. 3.2). Finally, we present our HeadGAP
+framework (Fig. 2), including 1) head prior learning phase
+(Sec. 3.3) and 2) few-shot personalization phase (Sec. 3.4).
+3.1. Preliminary
+3D Gaussian Splatting (3DGS) [36] proposes a point-
+based scene representation, where each point represents a
+Gaussian primitive that is described by a global space po-
+sition µ, rotation r, scale S, opacity α and color c. In the
+following, we let the following notation:
+A = {µ, r, S, α, c},
+I = R(A, πK,E)
+(1)
+denote the set of attributes A composing the Gaussian point
+cloud, and its tile-based differentiable rasterization R into
+an image I under the camera projection π described by in-
+trinsic and extrinsic parameters K and E respectively.
+GaussianAvatars [54] connects Gaussian primitives to the
+mesh faces. For each primitive, the position µ′, rotation r′,
+and scaling S′ are initialized in the local space. During ren-
+dering, these properties are converted into the global space:
+r = Rr′,
+µ = sRµ′ + T,
+S = sS′,
+(2)
+where R describes the orientation of the triangle face in
+the global space, s describes the scaling, and T describes
+the mean position of three vertices of a triangle face. For
+simplicity, we define T as the operation that transforms the
+local Gaussian attributes A′ to global ones:
+A = T (A′, M),
+M = {β, θ, ϕ, δ},
+(3)
+where M denotes the input FLAME parameters, consist-
+ing of shape parameters β, pose parameters θ, expression
+parameters ϕ, and static vertex offsets δ.
+3.2. Avatar Representation
+Our avatar representation is based on an auto-decoder prior
+model [7, 76, 81, 83] that can learn head prior knowledge
+from multiple identities and be used for head avatar creation
+from few-shot images. As illustrated in Fig. 3, our rep-
+resentation builds upon a point-based representation with
+part-based modeling, where each point is only responsible
+for one semantic part. Firstly, we initialize the part-based
+feature point cloud consisting of 1) part-based identity code
+and 2) point-specific feature encoding, based on the tracked
+mesh. Then, we conduct dynamic modeling by feeding the
+feature point cloud to the part-based multi-layer percep-
+tions (MLPs) to regress the Gaussian attributes of all the
+points for 3DGS rendering. Finally, we utilize a convolu-
+tional neural network (CNN) module to refine the 3DGS
+renderings to obtain the final rendered image. In the fol-
+lowing, we will describe those key components.
+Part-based Feature Point Cloud. For initializing the part-
+based feature point cloud based on the tracked mesh M, we
+first utilize UV-based initialization [70] to obtain the point
+cloud with n Gaussian primitives, with each pixel in the UV
+3
+
+
+map bound to one triangle of the mesh. The initialization
+contributes to more uniform primitives distributed on the
+head region than face-based initialization [54].
+Then, we set up the initial features for the point cloud.
+The features contains two types, including the 1) point-
+specific feature encodings f = {fi ∈Rc1}n
+i=1 and 2) part-
+specific identity codes z = {{zl
+j ∈Rc2}p
+l=1}k
+j=1, where
+p and k denote the part and identity number respectively.
+The point encodings f embeds identity-shared priors and the
+identity codes z serve as the identity codebook for the auto-
+decoder model. All the encodings are randomly initialized
+learnable parameters. The part of a primitive is determined
+by its parent triangle and the identity codes are the same for
+all the primitives belonging to the same part.
+Part-based Dynamic Gaussian Attributes Modeling. For
+simplicity, we use f and z to denote the per-point features
+belonging to a specific part p and also omit the part notation
+for other notations, unless otherwise stated. Given f and z,
+we regress dynamic local Gaussian attributes by:
+Ag = f M1
+p
+(f, z),
+h = f M2
+p
+(f, z, e, Ag),
+(4)
+where h is point appearance attribute, Ag = {µ′, r′, S′, α}
+denotes other attributes, and e := D(µ′) = T (µ′) −
+T (µ′
+neutral) is the point-specific dynamic signals obtained
+by subtracting the global neutral point position T (µ′
+neutral)
+from the global posed point position T (µ′). Both f M1
+p
+and
+f M2
+p
+are part-specific MLPs. We define the overall dynamic
+modeling as: Af = f M
+p (f, z) , where Af = Ag ∪{h} de-
+notes the final Gaussian attributes used for splatting.
+Part-based and dynamic modeling contribute to better
+few-shot performance, as shown in Sec. 4.5. The part-based
+modeling allows the specialized module to learn the partic-
+ular part’s priors, resulting in easier optimization and more
+powerful priors.
+The dynamic modeling employs point-
+specific expression signals e for predicting dynamic local
+attributes, which is better at capturing dynamic details than
+GaussianAvatars [54] using static local attributes.
+Gaussian Splatting with CNN refinement. Inspired by
+recent works [74, 75], we apply a screen-space CNN f C to
+refine the rendered results:
+[Irgb, Ih] = R(T (Af, M), πK,E),
+(5)
+I = f C([Irgb, Ih]),
+(6)
+where Af = {Af
+i }n
+i=1 denotes the final Gaussian attributes
+for all the points, Irgb denotes rendered RGB images, and
+Ih is a latent feature image used for the CNN refinement.
+Different from previous methods [74, 75], we do not con-
+duct super-resolution, but keep the input and output with the
+same resolution for refinement. We aim to use large-scale
+data to enable CNN to capture generalizable structured ap-
+pearance priors that are challenging to exploit by our 3DGS-
+based representation. As indicated in Sec. 4.5, using CNN-
+based refinement can indeed capture those priors to render
+more photo-realistic results for few-shot personalization.
+Overall Representation. The overall head avatar represen-
+tation H is defined formally:
+H : (M; f M, f C, f, z) 7→I ,
+(7)
+where f M = {f M
+l
+}p
+l=1 denotes the MLPs for all parts.
+3.3. Head Prior Learning
+We highly rely on the head’s prior knowledge to achieve
+high-fidelity avatar creation for the unconstrained problem
+with only a few input images. Among various priors, we
+aim at learning high-quality, animatable, and 3D-consistent
+head priors from available multi-view dynamic head data
+with multiple identities. Therefore, the goal for the prior
+learning stage is to learn k head avatars within the GAPNet,
+with the respective identity codes z1...k and other network
+parameters optimized. Before starting model training, we
+first conduct FLAME tracking for the training data to obtain
+M. Then, we use those data to jointly optimize M, f M,
+f C, f, and z with our total loss term:
+L =Lrec(I, I∗) + Lrec(Irgb, I∗)+
+λmLrec(Im, I∗
+m) + Lreg,
+(8)
+where Lrec and Lreg denote the image reconstruction loss
+and training regularization loss respectively. The ground
+truth image is denoted as I∗. To improve the fidelity of the
+mouth region, we further supervise mouth region Im with
+masked ground truth mouth region I∗
+m, inspired by FlashA-
+vatar [70]. Specifically, the image reconstruction loss:
+Lrec = λl1Ll1 + λssimLssim + λlpipsLlpips
+(9)
+consists of L1 loss Ll1, SSIM loss Lssim, and perceptual
+loss Llpips with the VGG as the backbone. Meanwhile, the
+training regularization loss:
+Lreg = λαLα + λsLs + λµLµ + λarapLarap,
+(10)
+includes opacity regularization Lα = ∥Iα−˜Imask∥1, primi-
+tive local scaling regularization Ls = ∥max(s, ϵs)∥2, primi-
+tive local position regularization Lµ = ∥max(µ, ϵµ)∥2, and
+ARAP (As-Rigid-As-Possible) regularization Larap [60].
+The opacity regularization Lα is used to constrain the Gaus-
+sian primitives to stay within the head region and their opac-
+ity accumulated to 1, which is computed between accumu-
+lated opacity image Iα and the head mask ˜Imask. We uti-
+lize the same thresholds ϵs = 0.6 and ϵµ = 1 for Ls and
+Lµ respectively as [54] to constraint the local scaling and
+position of the Gaussian primitives. The ARAP regulariza-
+tion Larap is employed for regularizing the optimization of
+static offset. All the λs described above are used for balanc-
+ing different loss terms.
+3.4. Few-shot Personalization
+After the prior learning phase, we encode dynamic head
+prior knowledge within GAPNet.
+Consequently, all the
+4
+
+
+Method
+Reference
+Input
+Frontal view
+All views
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+ID↑
+ROME [37]
+ECCV’22
+1 image
+0.237
+17.56
+0.813
+0.286
+15.45
+0.796
+0.658±0.119
+GOHA [45]
+NeurIPS’23
+1 image
+0.224
+15.85
+0.760
+0.308
+13.13
+0.736
+0.588±0.146
+VOODOO3D [65]
+CVPR’24
+1 image
+0.294
+17.07
+0.773
+0.310
+14.59
+0.752
+0.626±0.111
+HiDe-NeRF [44]
+CVPR’23
+1 image
+0.290
+15.63
+0.789
+0.368
+14.51
+0.784
+0.640±0.156
+Portrait4Dv1 [19]
+CVPR’24
+1 image
+0.180
+16.59
+0.796
+0.273
+14.52
+0.752
+0.674±0.143
+Portrait4Dv2 [20]
+ECCV’24
+1 image
+0.155
+17.77
+0.810
+0.269
+14.53
+0.757
+0.694±0.141
+GPAvatar [14]
+ICLR’24
+1 image
+0.180
+18.42
+0.827
+0.294
+13.83
+0.775
+0.631±0.169
+Ours-SV
+1 image
+0.142
+17.91
+0.829
+0.217
+14.75
+0.792
+0.768±0.113
+DiffusionRig [21]
+CVPR’23
+20 images
+0.220
+16.94
+0.811
+0.298
+14.88
+0.786
+0.817±0.112
+NHA† [30]
+CVPR’22
+mono video
+0.161
+17.42
+0.850
+0.266
+14.77
+0.807
+0.577±0.138
+FlashAvatar† [70]
+CVPR’24
+mono video
+0.146
+18.89
+0.854
+0.286
+16.56
+0.791
+–
+GaussianAvatars‡ [54]
+CVPR’24
+3 images
+0.320
+16.19
+0.723
+0.337
+15.80
+0.705
+–
+GaussianAvatars♦[54]
+CVPR’24
+3 videos
+0.147
+21.05
+0.852
+0.301
+16.62
+0.728
+–
+Ours
+3 images
+0.138
+21.67
+0.866
+0.144
+20.90
+0.868
+0.821±0.094
+Table 1. Quantitative comparisons with state-of-the-art methods on NeRSemble [40] dataset. We use colors to denote the
+first ,
+second
+and
+third places respectively. The results are averaged across novel-view and novel-pose.
+learned parameters of GAPNet can serve as powerful pri-
+ors to aid few-shot or even one-shot personalization.
+Prior to personalization, we employ a tracker to acquire
+the FLAME [43] parameters of the input image. Given in-
+put images with FLAME trackings, we first find the most
+similar avatar from the identity codebook through inver-
+sion. Specifically, we optimize part-specific linear combi-
+nation weights w ∈Rk×p×1 to obtain the identity code
+z∗= softmax(w) ⊙z ∈Rk×p×c2 used for rendering an
+avatar similar to the input. During the inversion optimiza-
+tion, we keep all the parameters of the network frozen ex-
+cept for w. Formally, given an input image I∗of the target
+identity, we optimize to render an image I that resembles
+the target identity. This procedure is optimized with the loss
+function in Eq. (8) with respect to w.
+Then, we start fine-tuning to update the network’s pa-
+rameters so that the avatar can capture the details of the tar-
+get identity from the inputs. We leverage prior knowledge in
+this procedure through three strategies. First, we use small
+learning rates for all parameters except f. Next, we exploit
+extracted part-based priors by excluding the fine-tuning for
+the mouth region, as modeling the highly flexible mouth re-
+gion with few inputs is challenging. Finally, we apply view
+regularization to prevent overfitting to the target view, in-
+spired by previous methods [56, 83]. Specifically, we con-
+straint the fine-tuning results of some reference views with
+neutral face {Ri}m
+i=1 to be close to the rendering results
+before fine-tuning { ˜Ri}m
+i=1, where m is the number of the
+generated reference views. With the prior knowledge, our
+personalized avatar achieves stable reenactment while pre-
+serving the details of the target identity. The fine-tuning is
+conducted by minimizing the loss function in Eq. (8):
+arg min
+ξ
+Lf = L(I, I∗) + λref
+m
+X
+i=1
+(L(Ri, ˜Ri)),
+(11)
+where ξ denotes all the learnable parameters, and λref is
+used to balance different loss terms.
+4. Experiments
+4.1. Setup
+Dataset.
+We utilize facial images of 164 subjects with
+16 camera viewpoints in the NeRSemble [40] dataset for
+experiments. We separated the data into training and test-
+ing sets, comprising 119 and 45 subjects respectively. The
+training sets are used for prior learning, while the testing
+sets are employed to quantitatively and qualitatively eval-
+uate few-shot personalization performance. We also con-
+structed an in-house dataset as part of the testing data. In
+addition to the leave-out testing data, we conduct experi-
+ments on data captured by consumer-grade devices to eval-
+uate the performance towards in-the-wild inputs.
+FLAME Tracking. Inspired by previous studies [54, 86],
+we designed a tracking algorithm that can optimize the
+FLAME [43] parameters with different numbers of input
+views. In the following experimental section, unless oth-
+erwise stated, the training data uses this tracking algorithm
+to obtain the ground truth 3DMM parameters. For the test
+data, we simplify the tracking to use sparse view inputs and
+provide the corresponding 3DMM parameters for testing.
+4.2. Implementation Details
+Model Detail. We divide the primitives into p = 11 parts
+according to the face masks from FLAME [43]. We utilize
+k = 119 identities for prior learning. All the MLPs f M
+consist of 4 layers and the CNN f C contains 6 layers.
+Training Detail. We adopt Adam [39] optimizer for the
+training. For prior learning, we set the batch size to 32.
+All parameters start with a learning rate of 1e−3, which de-
+creases using a cosine scheduler. The prior model is trained
+5
+
+
+ROME[37]
+GOHA[45]
+VOODOO[65]
+HiDe[44]
+P4Dv1[19]
+P4Dv2[20]
+GPAvatar[14]
+Ours-SV
+Ours
+Input
+GT
+Figure 4. Qualitative comparisons of our approach against state-of-the-art methods using a single image as input.
+on 8 A100 GPUs for 100K steps, taking around 2 days. For
+few-shot personalization, we use a batch size of 1. Both
+inversion and fine-tuning take 500 steps, totaling about 5
+minutes on an A100 GPU. Please refer to supplementary
+materials for more details.
+4.3. Baselines and Metrics
+Baselines. We classify baselines into two types based on
+their training approaches. The Type-I, like ours, uses multi-
+ID datasets to train prior features of the head, which can
+generalize to novel IDs, termed prior-based methods. The
+Type-II requires individual training for each person, termed
+per-subject optimization methods. For Type-I, due to the
+lack of available code for most head avatar generation meth-
+ods using a few views [8, 76, 81], we compare our method
+with approaches using a single image, including mesh-
+based methods [37] and the state-of-the-art tri-plane based
+methods [14, 19, 20, 44, 45, 65]. We also compare with
+3D-aware diffusion models [21] equipped with multi-view
+inputs. For Type-II, we compare our approach with meth-
+ods using Gaussian Splatting [54, 70] or explicit mesh [30]
+as 3D representations. Per-subject methods require more
+training data, so we provide these baselines with monocular
+video†, multi-view images‡, or multi-view videos♦.
+Metrics. We employ standard image quality metrics for
+our quantitative evaluations: 1) Peak Signal-to-Noise Ra-
+tio (PSNR), 2) Structure Similarity Index (SSIM), and 3)
+Learned Perceptual Image Patch Similarity (LPIPS), fol-
+lowing previous works [24, 54, 81]. Furthermore, we also
+report 4) ID that measures the identity similarity [15] be-
+tween the predictions and ground truth ones.
+4.4. Fast Avatar Personalization
+We compare avatar creation with the state-of-the-art on 3
+subjects (“074”, “175”, and “210’) of NeRSemble [40]. To
+conduct thorough comparisons, we categorize the baselines
+into methods utilizing: 1) a single image and 2) multiple
+images. We analyze the performance of various approaches
+for both frontal view and all views. We also present our re-
+sults using 1-shot and 3-shot inputs. The quantitative com-
+Input
+GT
+Ours
+DiffRig[21]
+FA†[70]
+GA‡[54]
+GA⬪[54]
+NHA†[30]
+Figure 5. Qualitative comparisons of our approach against state-
+of-the-art methods using few-shot input.
+parisons are listed in Tab. 1. We also illustrate qualitative
+comparisons in Fig. 4 and Fig. 5.
+One-shot personalization. For fair comparisons, our 1-
+shot results use personalized tracking data from a monoc-
+ular tracker MICA [86], referred to as “Ours-SV.” Since
+we rely on the neck pose from FLAME [43], and MICA
+lacks this, our performance degrades a lot. Despite this, our
+approach achieves
+the best or
+the second best results
+across all metrics, demonstrating its robustness.
+6
+
+
+GT
+Self-reenactment
+Cross-reenactment
+Figure 6. Our 3-shot (3-view of the neutral face) results on NeRSemble and our in-house data. From left to right, we show the ground
+truth, self-reenactment, and cross-reenactment. The lower right of the reenactment results presents one of the three inputs.
+Cross-reenactment
+Few-shot Input
+Driving Expression
+Figure 7. Our 3-shot results on in-the-wild data captured by iPad.
+An example of the input is shown on the left. The lower right of
+the reenactment results presents one of the three inputs.
+Few-shot personalization.
+Increasing the number of
+images significantly enhances the authenticity of the head
+avatar, so we focus on few-shot personalization. We com-
+pare our 3-shot results, using a more precise input mesh
+from our tracker, with other baseline methods. Under this
+setting, our approach achieves
+the best results across all
+metrics (Please note that for [54, 70], the presence of exces-
+sive artifacts makes it impossible to evaluate the ID met-
+rics).
+To better show our robustness, we illustrate more
+of our few-shot results in Fig. 6. To show the applicabil-
+ity of our approach in real-world scenarios, we also present
+avatars created from 3 images captured by an iPad in Fig. 7.
+We use these 3 RGB-D images for FLAME fitting. These
+results further demonstrate the generalization capability of
+our approach.
+4.5. Model Analysis
+We concentrate on few-shot personalization, thus, the ex-
+periments primarily examine how our designs affect final
+few-shot performance.
+Ablation. We use subjects “256” and “270” for conducting
+the ablation study. The ablation is divided into two parts,
+with the first part to validate our model designs and the sec-
+ond part to justify our few-shot strategies. Tab. 2 presents
+the quantitative results for the testing sequence. Moreover,
+we illustrate the qualitative results in Fig. 8.
+For model design ablations, we remove one component
+at a time to demonstrate their effectiveness. Excluding part-
+based modeling (“w/o Part”) causes a significant perfor-
+mance drop, as it hampers effective prior learning and part-
+based few-shot strategies. Not modeling dynamic informa-
+tion (“w/o Dynamic”) also degrades performance, making
+it challenging to capture details in highly dynamic regions
+(e.g., the mouth). Lastly, using CNN for refinement reduces
+artifacts and enhances detail realism (“w/o CNN”).
+3DGS-based methods have strong input-fitting capa-
+bilities, leading to overfitting with limited training data
+and poor generalization to novel views and expressions
+(“Base”). Thus, 3DGS-based methods heavily rely on prior
+knowledge for few-shot personalization. Using our prior
+model for inversion (“+ Inversion”) produces avatars simi-
+7
+
+
+Method
+LPIPS↓
+PSNR↑
+SSIM↑
+Prior model design:
+Full-model
+0.140
+22.87
+0.854
+w/o Part
+0.154
+22.21
+0.850
+w/o Dynamic
+0.148
+22.56
+0.853
+w/o CNN
+0.156
+22.01
+0.849
+Few-shot strategy:
+Base (w/o Prior)
+0.237
+19.25
+0.811
++ Inversion
+0.171
+19.67
+0.829
++ Finetune
+0.143
+22.08
+0.842
++ View Reg.
+0.140
+22.87
+0.854
+Table 2. Quantitative ablation study.
+The highlights denote the full-model.
+GT
+Ours
+w/o CNN
+w/o Dynamic
+w/o Part
+Base
++ Inversion + Finetune + View Reg.
+GT
+Figure 8. Qualitative ablation study. Please zoom in for more details.
+Fig.9a Quality w.r.t #personalizing data.
+Fig.9b Quality w.r.t #prior learning data.
+Fig.9c Quality w.r.t #primitives.
+lar to the input data with robust animation. Additional fine-
+tuning (“+ Finetune”) enhances realism with personalized
+details. View regularization (“+ View Reg.”) helps reduce
+novel-view artifacts.
+Quality w.r.t quantity of personalizing data. HeadGAP
+supports various numbers of inputs, allowing us to ana-
+lyze few-shot performance with different data amounts. The
+analysis has two parts: 1. Quantitative results with different
+numbers of views of the neutral face (Fig. 9a) show that
+performance improves as the number of views increases.
+2. Performance with 8 additional images of different frontal
+view expressions (Fig. 10) demonstrates that more inputs
+help the model capture personalized dynamic details.
+3 Views
++ 8 Exp.
+GT
+3 Views
++ 8 Exp.
+GT
+Figure 10. Comparisons between using 3-view data and 3-view
+with 8 additional expressions’ data of the frontal view.
+Quality w.r.t quantity of prior learning data. The large-
+scale prior learning data is the core of the high-fidelity few-
+shot personalization.
+Therefore, we conduct analysis to
+show our performance with varying amounts (IDs) of data
+for prior learning. As depicted in Fig. 9b, more prior learn-
+ing data makes the final avatar more realistic. Moreover, we
+do not observe significant saturation, indicating our model
+can benefit from more available 3D data. It is worth not-
+ing that our model is robust for different amounts of prior
+learning data due to our complete pipeline.
+Quality w.r.t quantity of primitives. We also evaluate our
+performance with varying numbers of Gaussian primitives.
+Fig. 9c proves our method can create more realistic avatars
+with more primitives. To balance the fidelity and efficiency,
+we utilize 80k primitives for our default model. We do not
+focus on finding the optimal method to control the number
+of primitives. We believe our approach could also benefit
+from other adaptive density control approaches [36].
+Network comparison. GAPNet is capable of adapting to
+different numbers of IDs for training. To demonstrate the
+network capability, we compare its performance for a sin-
+gle person against [54]. GAPNet achieves better perfor-
+mance in single-person modeling, with an LPIPS/PSNR of
+0.091/25.48 compared to GaussianAvatars’ 0.119/25.32.
+5. Conclusion
+In this paper, we present a novel approach for creating high-
+fidelity 3D head avatars with few-shot images.
+We first
+learn 3D Gaussian priors from large-scale 3D head data,
+then create avatars of the novel identities with the aid of
+the priors. To facilitate the learning of powerful and gen-
+eralizable priors, we develop GAPNet which can exploit
+3D part-based dynamic head priors and 2D structured head
+priors for creating high-fidelity avatars with robust anima-
+tions. The comprehensive experiments justify our designs
+and superiority. We also showcase our robustness by cre-
+ating avatars of plentiful identities from the public dataset
+and images captured by consumer-grade devices.
+8
+
+
+HeadGAP: Few-Shot 3D Head Avatar via Generalizable Gaussian Priors
+Supplementary Material
+A. Implementation Details
+Dataset.
+We partition the data into training and testing
+sets, comprising 119 and 45 subjects, respectively. Of these
+subjects, the data of 11 training subjects and 3 testing sub-
+jects are provided by [54] and others are processed by our
+FLAME tracking algorithm. For more information about
+the dataset, we highly encourage the reader to refer to the
+paper of NeRSemble [40] for further details.
+Model Detail.
+We divide the Gaussian primitives into
+p = 11 parts, including 1) “forehead”, 2) “nose”, 3) “eye”,
+4) “teeth”, 5) “lip”, 6) “ear”, 7) “hair”, 8) “boundary”, 9)
+“neck”, 10) “other face region”, and 11) “other”. The part
+for the primitives is determined by the face masks provided
+by FLAME [43]. The illustration of Gaussian primitives
+with different parts is shown in Fig. A. The primitive num-
+ber is set to n = 83, 651 by initializing from a UV map
+with a resolution of 300 × 300. The feature dimensions of
+identity-shared point encoding f, identity code z, and point
+appearance feature h are set to c1 = 48, c2 = 128, and
+c3 = 34 respectively. All the MLPs f M consist of 4 lay-
+ers. Meanwhile, the CNN f C contains 6 layers. The identity
+codebook z is initialized with zero.
+Training Detail. We adopt Adam [39] optimizer for the
+model training. For prior learning, we utilize k = 119 iden-
+tities and set the batch size to 32. For all the parameters, the
+learning rate begins at 1e−3 and decreases with the cosine
+scheduler. The prior model is trained on 8 A100 GPUs for
+100K steps, which takes around 2 days. The loss weights
+λm, λl1, λssim, λlpips, λα, λs, λµ, and λarap are set to 10,
+0.8, 0.2, 0.4, 1, 1, 0.01, and 1 respectively. For few-shot
+personalization, we set the batch size to 1. We set the learn-
+ing rate of the identity-shared point encoding f to 1e−3 and
+other parameters’ to 1e−5. Unless otherwise stated, we take
+500 steps for inversion and 500 steps for fine-tuning, which
+uses about 5 minutes in total with an A100 GPU. For view
+regularization, we generate m = 16 reference views similar
+to the camera setups of the NeRSemble dataset. The loss
+weights λref is set to 0.01. For 3-shot novel identities’ per-
+sonalization on NeRSemble, we utilize cameras with id “0”,
+“8”, and “15”. For our captured data, we select viewpoints
+similar to those of NeRSemble.
+About adaptive density control.
+To allow full control
+of primitive numbers, we do not utilize adaptive density
+control, opacity reset, and point pruning as GaussianA-
+vatars [54].
+Mesh
+Part-based Gaussian Primitives
+Figure A. Illustration of the FLAME mesh (left) and semantic part
+of our Gaussian primitives bound on the mesh (right). Different
+point colors represent different parts.
+B. Experiment Results
+B.1. Network Comparison
+GAPNet is capable of adapting to different numbers of IDs
+for training.
+To demonstrate the network capability, we
+compare its performance for a single person against Gaus-
+sianAvatars [54]. For a fair comparison of the network, we
+utilize the same adaptive density control approaches as [54].
+We also use the full training data of each single subject,
+similar to [54]. The mean quantitative results over subject
+“074”, “175”, and “210” are shown in Tab. A. GAPNet ob-
+tains better results in all metrics. We further illustrate the
+qualitative comparisons in Fig. B. Our model is capable
+of fitting the dynamic details of the training subject well,
+as shown in self-reenactment results. Moreover, our cross-
+reenactment performance is significantly more robust than
+GaussianAvatars. The robust animations further prove our
+model design is quite suitable for learning generalizable pri-
+ors across different subjects.
+Method
+LPIPS↓
+PSNR↑
+SSIM↑
+GaussianAvatars
+0.120
+25.21
+0.911
+Ours
+0.091
+25.48
+0.912
+Table A. Comparisons for single avatar creations.
+B.2. Prior Learning Results
+We show our prior learning results of the 119 identities in
+Fig. H. The visualized results show that our GAPNet can
+learn the appearance characteristics of different identities.
+9
+
+
+B.3. More Qualitative Results
+We present additional qualitative experimental results in
+Fig. C, Fig. D, and Fig. E. All subjects are novel IDs and
+were not seen during the training process.
+Fig. C shows self-reenactment results with novel-view
+renderings for different identities. Fig. D and Fig. E present
+cross-reenactment results from frontal and side views, re-
+spectively, demonstrating stable animations.
+The results indicate that our model effectively gener-
+alizes to data that differs from the NeRSemble dataset.
+Furthermore, it achieves consistent few-shot performance
+across diverse ethnicities and genders, thereby further rein-
+forcing its capacity for effective generalization.
+B.4. Head Avatar Editing
+Since our representation models textures using 3D Gaussian
+Splatting upon the base FLAME mesh, we can perform 1)
+texture interpolation between different identities using the
+same FLAME mesh, 2) texture swapping using the same
+FLAME mesh, and 3) geometry editing by swapping the
+FLAME mesh. The results are shown in Fig. F.
+B.5. More In-the-wild Results
+In this section, we present additional results on in-the-wild
+images. All result IDs are out-of-distribution samples be-
+yond the NeRSemble [40] dataset. Specifically, we capture
+monocular video data of each identity performing various
+expressions and select 12 images for avatar personalization.
+As shown in Fig. G, we present the cross-reenactment driv-
+ing results when providing the same facial expression mo-
+tion sequence. The results demonstrate that our method ex-
+hibits strong few-shot generalization capability even in in-
+the-wild settings.
+C. Further Discussions on Baselines
+We compare multiple baseline approaches for one-shot and
+few-shot personalization based on the number of input im-
+ages in the main text. In this section, we further elucidate
+the details of the experimental comparisons.
+C.1. Baseline taxonomy
+We categorize the baselines into two types based on whether
+they involve a process of learning priors.
+Type-I includes: ROME [37], GOHA [45], VOODOO
+3D [65],
+HiDe-NeRF [44],
+Portrait4Dv1 [19],
+Por-
+trait4Dv2 [20], GPAvatar [14] and DiffusionRig [21].
+Type-II
+includes:
+FlashAvatar
+[70],
+GaussianA-
+vatars [54] and NHA [30]
+C.2. Comparison with single-view baselines
+In one-shot personalization experiments, when driving
+novel expressions, tri-plane representation-based volume
+rendering methods [14, 19, 20, 44, 45, 65] require the driv-
+ing image as input. This might result in appearance leakage
+(e.g., dynamic details of new expressions). In contrast, our
+method uses only the tracking mesh of the driving image
+and models dynamic details through prior learning.
+C.3. Comparison with GS-based methods
+We show the comparison with GaussianAvatars [54] and
+FlashAvatar [70] in Fig. J. Although they do not focus
+on few-shot input like ours, we include comparisons be-
+cause we all use 3D Gaussian Splatting as a representation.
+We observe that they require a substantial overlap of input
+views or monocular videos with human heads rotated to dif-
+ferent orientations.
+In few-shot personalization experiments, as shown in
+the Fig. J, all per-subject optimization Gaussian Splatting-
+based baselines lack prior information and require indi-
+vidual training for each person.
+It can be observed that
+all baseline methods tend to overfit the training views
+and fail to extrapolate to unseen views. This qualitative
+comparison demonstrates the effectiveness and necessity
+of constructing priors for Gaussian Splatting. Due to the
+noticeable artifacts, FlashAvatar†, GaussianAvatars‡, and
+GaussianAvatars♦are infeasible for calculating meaningful
+ID similarity metrics. Therefore, we did not report their
+corresponding metrics in Tab.1 of the main text.
+D. Limitations and Future Works
+While our method can quickly construct personalized, high-
+fidelity, and realistic human head avatars, it still has the fol-
+lowing issues: (1) In cases where the subject wears glasses
+or has noticeable facial accessories, the avatar construction
+may exhibit artifacts (as depicted in Fig. K). A reason for
+this incapability is that our prior learning phase does not
+incorporate such samples for training. Including the corre-
+sponding data for training can potentially resolve this prob-
+lem. (2) The adoption of CNNs for refinement in screen
+space may result in view-dependent overfitting, which can
+induce flickering among different viewpoints and lead to
+quality degradation for certain unseen views during train-
+ing. Therefore, exploring more consistent refinement tech-
+niques in 3D space presents a promising avenue for further
+investigation. (3) Our method does not focus on modeling
+the subject’s clothing and hair. We believe that combining
+methods such as [47] to model hair or clothing separately
+is a promising research direction. (4) Additionally, lighting
+variation is important for the realism of head avatars. Cur-
+rently, we only consider uniform lighting. We believe that
+integrating relighting into the Gaussian Splatting is also a
+promising research direction for head avatars.
+10

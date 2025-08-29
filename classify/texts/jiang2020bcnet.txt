@@ -1,0 +1,456 @@
+Title: Bcnet: Learning body and cloth shape from a single image
+
+BCNet: Learning Body and Cloth Shape from A
+Single Image
+Boyi Jiang1, Juyong Zhang1⋆, Yang Hong1, Jinhao Luo1, Ligang Liu1, and
+Hujun Bao2
+1 University of Science and Technology of China
+2 State Key Lab of CAD&CG, Zhejiang University
+Abstract. In this paper, we consider the problem to automatically re-
+construct garment and body shapes from a single near-front view RGB
+image. To this end, we propose a layered garment representation on top
+of SMPL and novelly make the skinning weight of garment independent
+of the body mesh, which signiﬁcantly improves the expression ability of
+our garment model. Compared with existing methods, our method can
+support more garment categories and recover more accurate geometry.
+To train our model, we construct two large scale datasets with ground
+truth body and garment geometries as well as paired color images. Com-
+pared with single mesh or non-parametric representation, our method can
+achieve more ﬂexible control with separate meshes, makes applications
+like re-pose, garment transfer, and garment texture mapping possible.
+Code and some data is available at https://github.com/jby1993/BCNet.
+Keywords: clothed body reconstruction, 3D garment shape, 3D body
+shape, skinning weight
+1
+Introduction
+Applications like virtual try-on, VR/AR, and entertainment need detailed and
+accurate reconstruction of both body and dressed garments with simple input
+like color image. However, the variety of body shapes, postures and garment
+categories, makes it a very challenging problem. A simulation-based method [52]
+explores this problem, but their solution is dedicated and time-consuming. In
+this paper, we aim to automatically reconstruct both body and cloth shapes
+from just a single near-front view image, utilizing the powerful ﬁtting ability of
+the deep neural network.
+In recent years, body shape reconstruction from images has made signiﬁcant
+progress [23,36,24,29]. A common way is to infer the shape and pose parameter of
+a statistical body model, like SMPL [32]. These methods are robust for diﬀerent
+posture, but the reconstructed geometry is constrained to be within the model
+space, which can not capture the complex cloth shape.
+⋆Corresponding author. Email: juyong@ustc.edu.cn.
+arXiv:2004.00214v2  [cs.CV]  3 Aug 2020
+
+
+2
+B. Jiang et al.
+To infer detailed geometry beyond body shape, some non-parametric repre-
+sentations have been proposed [46,57,35,43]. These non-parametric representa-
+tions based on voxel and implicit function can recover arbitrary shapes. However,
+voxel representation is hard to recover shape details due to their large memory
+consumption for high resolution. Although implicit representation is more mem-
+ory eﬃcient, it may generate infeasible results like broken arms. Moreover, the
+lack of semantic information limits their applications like garment transfer.
+Expanding the representation ability of the statistical model of body shape is
+another solution. Several prior works [7,38,3,4] utilize the vertex displacements
+of body shape represented by SMPL to represent garment geometry. Under this
+conﬁguration, tight garments can be reconstructed. However, this representation
+cannot recover the feature of garment edges. More importantly, binding garments
+with SMPL points causes the problem that garments have the same skinning
+weights and connectivity with SMPL. Therefore, large scale displacements of
+loose garments may cause artifacts because of inappropriate skinning weights.
+More importantly, garments like skirts which have a diﬀerent topology with body
+shape, are beyond the representation range.
+Like Bhatnagar et al. [7], we train a model to reconstruct body mesh and
+layered garment meshes separately. The diﬀerence in input is that our method
+only requires a single RGB image and no additional semantic information and
+body rough A-pose constrain. Another diﬀerence is that our garment mesh is not
+bound with the body mesh, and can reconstruct more garment categories. To
+this end, we address three major challenges: learning a shared skinning weight
+network for all garments, garment detail inference, and dataset construction.
+Our method supports six garment categories, including upper garment, pants,
+and skirts with short and long templates for each type. For all garment types,
+we train a network to predict skinning weights related to SMPL’s skeleton. For
+each type, we use graph convolution to recover the details. To train the model,
+a dataset with various RGB images and their corresponding body and cloth
+shapes is needed. However, there is no available public datasets that satisfy our
+demands. Instead, for each type of garment, we design diﬀerent sizes of clothes
+dressed on diﬀerent SMPL neutral bodies and repose these clothes to various
+postures utilizing a physics engine. Besides, a commercial 3D human dataset
+with high-deﬁnition texture is added to increase the diversity of training data.
+Our method can infer both body and garment shapes from a single image
+with diﬀerent poses, and also supports loose garment types, like skirts. Based
+on the reconstruction results by our method, applications like garments and
+poses transferring between diﬀerent images can be achieved. In summary, the
+contributions of this work include the following aspects:
+– We present a novel garment representation on top of SMPL and a neural
+network-based method to reconstruct the shapes of body and garment from
+a single near-front viewpoint color image.
+– Rather than binding the skinning weight of garment with body mesh, we
+propose a generic skinning weights generating network, which enables our
+approach to support garments with diﬀerent topologies.
+
+
+BCNet
+3
+– We design a complete algorithm pipeline for dressed SMPL body data con-
+struction with diﬀerent types of garments. The constructed dataset, includ-
+ing synthetic images and clothed body shapes, will be publicly available.
+2
+Related Work
+Template-Free Clothed Human Estimation. Some non-parametric meth-
+ods based on voxel or implicit function have been proposed to address the com-
+plex topology of garments. BodyNet [46] directly infers a voxel representation of
+clothed bodies with a deep network. Due to the large memory cost for high reso-
+lution, high-frequency details are often missed. Jackson et al. [20] reconstruct the
+shape of humans via volumetric regression and show the ability to output ﬁne-
+scale details. Zheng et al. [57] infer clothed body volume representation with an
+initial aligned SMPL body, and combine image features to enhance reconstruc-
+tion details. Natsume et al. [35] propose a reconstruction method based on a
+multi-view framework using synthesizing new silhouettes from a single image.
+More recently, [43] proposes a promising clothed body reconstruction network
+using a memory-eﬃcient implicit representation. Template-free methods do not
+utilize the human body prior to obtain complex topology modeling ability, at
+the cost of lacking semantic information and control of reconstructed results.
+Template-Based Clothed Human Estimation. Based on human body sta-
+tistical model [32,5,21], many works can estimate naked body shape from im-
+age [23,27,38,36,9,14,54]. For better representation ability, a displacement vector
+is added for each vertex. [3,1,2] adopt this strategy to reconstruct clothed body
+with skin-tight garment. Alldieck et al. [4] estimate detailed normal and vector
+displacement on the UV map, which leads to ﬁner-scale details. Zhu et al. [59]
+model ﬁne-scale details by adding free-form 3D deformation on top of parametric
+model. Instead of using a single surface to represent both garment and body, [7]
+separates SMPL mesh to represent upper garment and pant independently, lead-
+ing to more ﬂexible control. However, binding garment vertices to body model
+strictly restricts the topology of support garment categories, and it is hard to
+represent more loose garment types, such as skirts.
+[39,55] also use separate
+body and garment templates to register clothed body motion sequences.
+Garment Dataset Construction. BUFF [56] supplies high-quality 4D scans
+of clothed bodies, but it only has 5 subjects and 2 suits for each subject. Lah-
+ner et al. [26] collect high-quality 4D scans of garments, but the method leaves
+out body reconstruction, and their dataset is not publicly available. Recently, [7]
+constructs a training dataset with garment and body shapes from real scan data,
+but the training dataset is also unavailable. Moreover, many prior works generate
+ground truth dataset based on physics-based simulation [29,28,44,49,12,17,40].
+[29,28] dress SMPL bodies and construct more truthful images than SURREAL [47].
+[49] simulates three types of garment and dress them on neutral SMPL bodies
+to learn garments design from sketches. All mentioned datasets do not meet our
+requirements. Therefore, we build a dataset containing a variety of garments and
+body types with diﬀerent sizes and postures.
+
+
+4
+B. Jiang et al.
+Fig. 1. The architecture of our proposed network. The CNN encodes image into latent
+feature, then we get reconstructed SMPL parameters ˆβ, ˆθ, ˆt and shared garment latent
+feature l with respective FC layers. From l, we reconstruct garment shape parameter ˆα
+and garment type scores {ˆu, ˆd} for upper and lower garment separately. With the clas-
+siﬁer, ˆα and ˆβ, we reconstruct neutral clothed body. Followed a displacement network
+and skinning weight network, we predict garment vertex displacements and skinning
+weights separately. Finally, utilizing predicted pose parameters ˆθ, ˆt and
+ˆ
+Wg, we re-pose
+neutral body and garments with displacements to reference posture.
+Garment Deformation Representation. How to represent the deformation
+of a garment is also related to our work. De Aguiar et al. [13] represent the gar-
+ment dynamic dressed on a speciﬁc virtual avatar with a linear combination of
+pre-computed multiple deformations. DRAPE [17] regresses garment deforma-
+tion from body shape with a technique derived from SCAPE [5]. Xu et al. [50]
+combine rotation and translation weights to approximate the non-local and non-
+linear clothing deformation and introduce a pose sensitive rigging scheme. Lah-
+ner et al. [26] recover high-frequency garment details from a normal map created
+from Generative Adversarial Network. Yang et al. [51] model garments with dif-
+ferent connectivity based on a body template and use PCA to parameterize
+garment deformation. Santesteban et al. [44] propose to deform base garment
+conditioned on body parameters and then add high-frequency wrinkles.
+3
+Algorithm
+The target of this work is to automatically reconstruct both body and cloth
+shapes from a single near-front view image. Our model currently supports six
+garment categories and can be easily extended to other new types. In the fol-
+lowing, we ﬁrst describe our garment representation model. Then, we introduce
+our network structure and training loss design.
+3.1
+Garment Model
+We use SMPL [32] as our parametric human body model. SMPL is a function
+which maps shape parameters β ∈R10 and pose parameters θ ∈R72 to a body
+
+
+BCNet
+5
+mesh Mb(β, θ) ∈R3|Vb|, where Vb is SMPL mesh vertices set. The mapping can
+be summarized as the following equation:
+Mb(β, θ) = W (Tb(β, θ), J(β), θ, Wb),
+Tb(β, θ) = B + Bsβ + Bpθ,
+(1)
+where SMPL applies linear displacement bases Bs and Bp on a T-posed template
+mesh B, and then utilize standard skeleton skinning operation W to get posed
+body mesh. J(β) ∈R24×3 is SMPL body’s neutral skeleton and Wb ∈R|Vb|×24
+is the skinning weights of each vertex of SMPL.
+As most clothes follow the deformations of the body, we compute our garment
+mesh Mg ∈R3|Vg| similarly based on the skin deformation of SMPL:
+Mg(α, β, θ, D) = W (Tg(α, D), J(β), θ, Wg(α, β)),
+Tg(α, D) = G+Bgα+D.
+(2)
+For each garment category, a T-posed template mesh G is deﬁned. On top of the
+base mesh, we add linear displacement deformation Bg controlled by PCA coeﬃ-
+cients α ∈R64. This low dimensional representation is eﬀective in capturing size
+variations of a speciﬁc garment category under T-pose. To deform garments with
+dressed SMPL body, we share garment pose parameter θ with SMPL and use
+SMPL’s skeleton J(β) as the binding skeleton of the garment. Instead of directly
+using the skinning weights of SMPL, a neural network is utilized to estimate the
+skinning weights Wg of the garment. This design makes garment mesh indepen-
+dent with SMPL mesh and makes our garment model can support more garment
+topology than SMPL+D methods [7,38,3], if providing corresponding garment
+training data. To capture variations caused by diﬀerent pose and interaction be-
+tween clothing and body, we add a high-frequency displacement D ∈R3|Vg| for
+vertices of the clothing. In this paper, for the conciseness of writing symbol, we
+denote the displacement directly as D instead of a function of latent dependent
+variables, such as α, θ.
+3.2
+Image to Dressed Body
+Given a near-front view RGB image depicting a posed subject dressed on spe-
+ciﬁc garments, our model estimates its body shape, pose parameters and global
+translation with ˆβ ∈R10, ˆθ ∈R72,ˆt ∈R3 and the garment parameters ˆα ∈R64
+and ˆD. Our model mainly consists of four modules: image encoder, classiﬁcation
+module, skinning weight network, and displacement network. Fig. 1 shows our
+algorithm pipeline, and we will discuss the details of the last two modules.
+Our image encoder uses the feature extraction of ResNet-18 [19] and average
+pooling the ﬁnal feature map to 8×8 size. From the map, a fully connected layer
+is used to get the latent feature. Then, four fully connected layers are used to
+predict shape parameters ˆβ, pose parameters ˆθ, translation ˆt and shared garment
+latent feature l ∈R256. For pose parameters, instead of directly predicting the
+axis-angle representation parameters ˆθ, we predict vectorized rotation matrices
+R ˆ
+(θ) ∈R24×9 of all joints, where R is the Rodrigues rotation transformation.
+This strategy makes training more stable and continuous [27,37,38].
+
+
+6
+B. Jiang et al.
+From shared garment latent l, two fully connected layers are used to predict
+upper and lower garment classify scores ˆu ∈R2 and ˆd ∈R4 separately. Then, we
+concatenate ˆβ and l as input of a two-layer Multi-layer perceptron(MLP) [41]
+to predict neutral garment shape parameters ˆα. After that, utilizing skinning
+weight and displacement networks, we get garment skinning weights
+ˆ
+Wg and
+high-frequency displacements ˆD, respectively. Finally, with predicted pose pa-
+rameters, we can reconstruct the body shapes and dressed garments together.
+3.3
+Skinning Weight Network
+It is an open problem to estimate skinning weights for an arbitrary character
+given a binding skeleton hierarchy. Recently, Liu et al. [30] proposed the ﬁrst
+generic network to infer the skinning weights of various characters binding to
+the mutative skeleton hierarchy. Inspired by [30], we design our skinning weight
+network to infer weights for neutral garments, and the network makes weights
+computation fast, diﬀerentiable and garment type independent.
+Our network predicts the skinning weights of a speciﬁc neutral garment
+Tg(ˆα, 0) binding to the skeleton J of corresponding neutral SMPL body Tb(ˆβ, 0).
+We compute all distances of each vertex of Tg(ˆα, 0) to each joint point of J.
+Then, the coordinate, normal, and distances of each vertex of Tg(ˆα, 0) are con-
+catenated as the input feature for the network, and it computes the weights for
+all vertices. Our network uses MLP to change the vertex feature dimension and
+utilizes standard Residual Block [19] to extract features. Besides, we use graph
+convolution to aggregate the neighborhood information. In order to make our
+network applicable to diﬀerent garment categories, we use GAT [48] graph con-
+volution, whose ﬁlter weight learning is independent of mesh connectivity, and
+the weight is determined by the input feature on vertices only. This characteris-
+tic makes our network based on GAT suitable for diﬀerent garment types. The
+architecture details can be found in the supplementary.
+3.4
+Displacement Network
+The shape structure of the garment can be well reconstructed based on the
+PCA coeﬃcients α. However, high-frequency details, such as folds caused by
+diﬀerent pose, are beyond the representation ability of the linear model. We
+train a displacement network to regress the displacement of each garment vertex
+on top of the base mesh. For the displacement, we use a similar network structure
+with the skinning weight network. To improve the regression ability, we train an
+independent network for each garment category rather than a general network
+for all types. Moreover, we use spiral graph convolution [10] for each garment
+category, which has state-of-the-art regression ability for meshes with the same
+connectivity. To capture high frequency information, we project each vertex of
+deformed base garment Mg(ˆα, ˆβ, ˆθ, 0) on the image, and crop the 32×32 patch
+centered on the projected vertex. Then, for each vertex, we use a shared MLP to
+encode its patch into a latent feature, and concatenate the feature with shared
+
+
+BCNet
+7
+garment latent l, predicted SMPL shape parameter ˆβ, garment shape parameter
+ˆα as well as its coordinate, normal and skinning transformation together as its
+input feature for the displacement network. The details of the neural network
+are given in the supplementary.
+3.5
+Loss Function
+With our constructed dataset, ground truth shape and pose parameters are
+available for all training data, thus it is natural to adopt supervised training.
+In this part, we denote predicted Mg(ˆα, ˆβ, ˆθ, ˆD) and Mb(ˆβ, ˆθ)) as ˆMg and ˆMb
+separately. In the following, we will give the details on how to design the loss
+terms.
+Losses on shape parameters. We directly adopt the MSE between pre-
+dicted and ground truth shape parameters. The loss for SMPL body parameters
+and garment parameters are separately deﬁned as:
+LBp = ∥ˆβ −β∥2
+2 + ∥
+ˆ
+R(θ) −R(θ)∥2
+2 + ∥ˆt −t∥2
+2,
+LGp = ∥ˆα −α∥2
+2.
+(3)
+Losses on geometry. We supervise reconstructed geometries and joints
+with ground truth data. JB is the mapping to output posed 3D joints of SMPL
+body Mb.
+– Losses on reconstructed garment geometry and reconstructed body joints
+are separately deﬁned as:
+LG = ∥ˆMg −Mg∥2
+2,
+LJ3D = ∥JB( ˆMb) −JB(Mb)∥2
+2.
+(4)
+– Losses on displacements D. To improve detail reconstruction ability, we use
+ℓ1 loss for each vertex of D and ℓ2 loss on laplacian coordinates of D. L
+represents the laplacian coordinates mapping from a 3D mesh.
+LD1 = | ˆD −D|,
+LD2 = ∥L( ˆD) −L(D)∥2
+2.
+(5)
+Losses of projection. We use Π to represent the camera projection of 3D
+geometries. All our training data share a common camera intrinsic matrix. The
+loss of body projections and garment projections are separately deﬁned as:
+LB2D = ∥Π( ˆMb) −Π(Mb)∥2
+2,
+LG2D = ∥Π( ˆMg) −Π(Mg)∥2
+2.
+(6)
+Losses of classiﬁcation. We use standard softmax loss to penalize the
+classiﬁcation error of ˆu and ˆd relative to ground truth garment types.
+Losses of interpenetration. During training, inferred garments and body
+are easy to occur interpenetration. We use a simple yet eﬀective interpenetration
+term inspired by [18] to alleviate this problem:
+Lint(P, Q) =
+X
+{i,j}∈C(P,Q)
+ReLU(−nT
+qj(pi −qj))/N,
+(7)
+
+
+8
+B. Jiang et al.
+where P,Q are two interpenetrated meshes. C(P, Q) represents the valid corre-
+sponding pairs between P and Q, and these pairs are ﬁltered based on distances
+and normal angles. This loss penalizes vertex pi that is inside the local plane
+deﬁned by its corresponding point qj and its normal nqj. We use this loss on
+reconstructed neutral garments and body as well as posed garments and body
+separately:
+Linters = Lint(Tg(ˆα, 0), Tb(ˆβ, 0)) + Lint( ˆMg, ˆMb)
+(8)
+Loss of Skinning Weight Network. As discussed in [30], the weight vec-
+tor {ωij|j ∈|J(β)|} of Wg is a selection of diﬀerent bones with diﬀerent prob-
+abilities. We use the Kullback-Leibler divergence loss to measure the distance
+between predicted weights distribution ˆ
+ωij and ground truth distribution ωij:
+Lws =
+|Vg|
+X
+i=1
+24
+X
+j=1
+ˆωij(log ˆωij
+ωij
+).
+(9)
+To train the whole network, we ﬁrst train the skinning weight network with
+loss in Eq. (9), and then train other parts together by ﬁxing the skinning weight
+network.
+4
+Dataset Construction
+4.1
+Skinning Weight Dataset
+To train our skinning weight network, we need some neutral garments with
+ground truth skinning weights. Our network training adapts to any weight cal-
+culation method. For simpleness, we compute garment weights from the dressed
+SMPL body.
+For vertex pi of the garment, we select K vertices from dressed body mesh,
+based on distance, normal angle, and segmentation prior. Segmentation prior is
+some information we can utilize, such as corresponding vertices of right trouser
+leg must belong to the right leg of body mesh. From selected K vertices of body,
+we average their skinning weights with IDW(inverse distance weighting) as the
+skinning weight of pi. After all vertices’ weights have been computed, we apply
+Laplacian smoothing [45] to remove noises and artifacts.
+With this method, for all garment types, we construct a skinning weights
+dataset, which includes 48000 neutral garments for training, and 6467 for test.
+4.2
+Synthetic Dataset Construction
+As there does not exist publicly available dataset containing pairs of the color
+image and corresponding body and cloth shapes, we construct the dataset with
+a physics-based simulation method. The dataset construction process can be
+divided into four steps: sewing pattern design, neutral garment synthesis, posed
+
+
+BCNet
+9
+Fig. 2. Our synthesis process of a pant. First, we generate a random sewing pattern
+based on neutral body type. Then, we stitch the pattern on the skeleton and inﬂate the
+skeleton to its original shape to generate the neutral pant. Finally, we skinning deform
+the skeleton and neutral pant to a posture, and simulate the ﬁnal pant with gravity by
+inﬂating the posed skeleton.
+garment simulation and rendering. [49] proposed a novel method to synthesize
+neutral garments. We extend their method to support more garment types and
+posed garments generation.
+As shown in Fig. 2, we ﬁrst design the pant sewing pattern based on body
+type. Then, around the neutral skeleton, we connect the sewing lines of the front
+and back pattern and shorten the length gradually. The sewing lines are stitched
+together after all lengths of the sewing line are less than a threshold. To simulate
+the realistic result of the garment draped on the neutral body, we inﬂate the
+skeleton and add gravity. For posed garment simulation, we deform the neutral
+garment to target pose with generated skinning weights and inﬂate the body and
+add gravity to simulate the posed garment. In this work, we assume that both
+the human body and the garment are in a statically stable state. Therefore, we
+sample discrete pose instead of simulating the whole motion sequence.
+After generating the garment shapes, the synthetic images are rendered by
+following the methods in [29,28,47]. By randomly selecting body textures from
+SURREAL [47], garment textures from Fabrics [22] and DTD [11], background
+images from Places365-Standard dataset [58] and global illumination from hun-
+dreds HDR images, we can render near-front view dressed body images with
+abundant variations.
+Fig. 3. Some examples from our synthetic dataset(left three) and HD texture
+dataset(right three).
+
+
+10
+B. Jiang et al.
+We implement the abovementioned pipeline using the simulator NvFlex[15]
+and Blender[8]. We utilize 3048 body shape of SPRING dataset [53], and ran-
+domly generate neutral clothes dressed on them. For posed garment, we select
+55 motion sequences from CMU Mocap [34], whose poses have been converted
+to SMPL pose parameters with MoSh [31]. For each motion sequence, we ran-
+domly select 10 diﬀerent persons with 4 sets of diﬀerent clothing separately and
+sample pose parameters every 30 frames. Finally, we get 168602 dressed bodies
+as training data and 8874 as test data. The left part of Fig. 3 shows several
+examples of our synthetic images.
+Fig. 4. Two examples of rigged avatar registration. We show the scanned meshes with
+and without texture, reconstructed geometries and garment with texture in each group.
+4.3
+HD Texture Dataset
+Although synthetic samples are visually realistic, they still have a noticeable
+domain diﬀerence with real images. Therefore, we process another dataset with
+high-deﬁnition (HD) textures. We purchase 104 and 181 rigged avatar from Ren-
+derPeople [42] and Axyz [6], respectively. These avatars have high-quality geom-
+etry and realistic texture. We use Mixamo [33] to drive avatars and get about
+89425 posed meshes as training data and 4386 as test data. The abovementioned
+rendering pipeline is used to produce high-quality images, and the right part of
+Fig. 3 shows some examples. Because the body and clothes part of the scanned
+mesh are not separated, and the connectivities of scanned meshes are not con-
+sistent, we need to process these meshes to our representation via the following
+two steps.
+Rigged registration. For a rigged mesh with A- or T-pose, we segment it
+to garment and skin parts. We optimize garment shape parameters α, displace-
+ments D, body parameters β, θ and translation t to register our representation
+to the avatar. We penalize the point-to-plane distance for both reconstructed
+garment and body. And we use Eq. (7) to reduce the interpenetration among
+them. To get a size matching garment, we adopt the rendered silhouette loss uti-
+lizing [25]. And we add ℓ2 regular term for garment and body parameters. With

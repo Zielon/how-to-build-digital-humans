@@ -1,0 +1,895 @@
+<div class="add-form" id="add-form">
+
+  <div style="margin-bottom:1rem;">
+    <button class="add-btn" id="btn-example">Fill example</button>
+  </div>
+
+  <!-- === 1. Paper Metadata === -->
+  <div class="add-form-section">
+    <h3>Paper metadata</h3>
+
+    <div class="add-field" id="field-key">
+      <label>Citation key <span class="required">*</span></label>
+      <input type="text" id="add-key" placeholder="e.g. AuthorSurname2024keyword" />
+      <div class="add-field-hint">Auto-generated from author + year + title. You can edit it.</div>
+      <div class="add-error-msg">Citation key is required</div>
+    </div>
+
+    <div class="add-field" id="field-title">
+      <label>Title <span class="required">*</span></label>
+      <input type="text" id="add-title" placeholder="Paper title" />
+      <div class="add-error-msg">Title is required</div>
+    </div>
+
+    <div class="add-field" id="field-authors">
+      <label>Authors <span class="required">*</span></label>
+      <input type="text" id="add-authors" placeholder="First Last, First Last, ..." />
+      <div class="add-field-hint">Comma-separated list of authors</div>
+      <div class="add-error-msg">At least one author is required</div>
+    </div>
+
+    <div class="add-field-row">
+      <div class="add-field" id="field-year">
+        <label>Year <span class="required">*</span></label>
+        <input type="number" id="add-year" min="1990" max="2030" placeholder="2024" />
+        <div class="add-error-msg">Year is required</div>
+      </div>
+
+      <div class="add-field" id="field-entry-type">
+        <label>Entry type</label>
+        <select id="add-entry-type">
+          <option value="inproceedings">inproceedings</option>
+          <option value="article">article</option>
+          <option value="misc">misc</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="add-field" id="field-venue">
+      <label>Venue</label>
+      <select id="add-venue">
+        <option value="">-- Select venue --</option>
+        <option value="CVPR">CVPR</option>
+        <option value="ECCV">ECCV</option>
+        <option value="ICCV">ICCV</option>
+        <option value="TOG (SIGGRAPH)">SIGGRAPH (TOG)</option>
+        <option value="SIGGRAPH Asia">SIGGRAPH Asia</option>
+        <option value="NeurIPS">NeurIPS</option>
+        <option value="ICLR">ICLR</option>
+        <option value="ICML">ICML</option>
+        <option value="AAAI">AAAI</option>
+        <option value="3DV">3DV</option>
+        <option value="WACV">WACV</option>
+        <option value="BMVC">BMVC</option>
+        <option value="arXiv">arXiv</option>
+        <option value="__other__">Other...</option>
+      </select>
+    </div>
+    <div class="add-field" id="field-venue-other" style="display:none;">
+      <label>Venue (custom)</label>
+      <input type="text" id="add-venue-other" placeholder="Enter venue name" />
+    </div>
+  </div>
+
+  <!-- === 2. Links === -->
+  <div class="add-form-section">
+    <h3>Links <span style="font-weight:400;font-size:0.82rem;color:var(--text-muted)">(at least one required)</span></h3>
+
+    <div class="add-field" id="field-arxiv">
+      <label>arXiv / PDF URL</label>
+      <input type="url" id="add-arxiv" placeholder="https://arxiv.org/pdf/..." />
+    </div>
+
+    <div class="add-field" id="field-webpage">
+      <label>Project page URL</label>
+      <input type="url" id="add-webpage" placeholder="https://project-page.github.io/" />
+    </div>
+
+    <div class="add-field" id="field-code">
+      <label>Code repository URL</label>
+      <input type="url" id="add-code" placeholder="https://github.com/..." />
+    </div>
+
+    <div class="add-field" id="field-video">
+      <label>Video URL</label>
+      <input type="url" id="add-video" placeholder="https://youtu.be/..." />
+    </div>
+
+    <div class="add-error-msg" id="links-error" style="display:none;">At least one link is required</div>
+  </div>
+
+  <!-- === 3. Classification === -->
+  <div class="add-form-section">
+    <h3>Classification <span class="required">*</span></h3>
+
+    <div class="add-field" id="field-table-type">
+      <label>Table type <span class="required">*</span></label>
+      <div class="add-radio-group">
+        <label><input type="radio" name="add-table-type" value="avatar"> Avatar</label>
+        <label><input type="radio" name="add-table-type" value="assets"> Assets</label>
+        <label><input type="radio" name="add-table-type" value="dataset"> Dataset</label>
+      </div>
+      <div class="add-error-msg">Please select a classification type</div>
+    </div>
+
+    <!-- Avatar fields -->
+    <div class="add-cls-fields" id="cls-avatar">
+      <div class="add-field">
+        <label>Contents</label>
+        <select id="cls-av-contents">
+          <option value="">--</option>
+          <option value="Face">Face</option>
+          <option value="Full-body">Full-body</option>
+          <option value="Hair">Hair</option>
+          <option value="Hands">Hands</option>
+          <option value="Garment">Garment</option>
+          <option value="Teeth">Teeth</option>
+          <option value="Tongue">Tongue</option>
+        </select>
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Data Type</label>
+          <select id="cls-av-data-type">
+            <option value="">--</option>
+            <option value="Real">Real</option>
+            <option value="Synthetic">Synthetic</option>
+            <option value="Real + Synthetic">Real + Synthetic</option>
+          </select>
+        </div>
+        <div class="add-field">
+          <label>Data Modality</label>
+          <select id="cls-av-data-modality">
+            <option value="">--</option>
+            <option value="Single image">Single image</option>
+            <option value="Multi-view images">Multi-view images</option>
+            <option value="Monocular video">Monocular video</option>
+            <option value="Multi-view video">Multi-view video</option>
+            <option value="Text">Text</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-field">
+        <label>Needed Assets</label>
+        <input type="text" id="cls-av-needed-assets" placeholder="e.g. Tracked 3DMM, Cameras" />
+      </div>
+      <div class="add-field">
+        <label>Input</label>
+        <input type="text" id="cls-av-input" placeholder="e.g. One, Multi-view video" />
+      </div>
+      <div class="add-field">
+        <label>Additional Priors</label>
+        <input type="text" id="cls-av-additional-priors" placeholder="e.g. FLAME, ArcFace" />
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Req. Optimization</label>
+          <select id="cls-av-req-optimization">
+            <option value="">--</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </div>
+        <div class="add-field">
+          <label>Creation Speed</label>
+          <select id="cls-av-creation-speed">
+            <option value="">--</option>
+            <option value="Instant (<1min)">Instant (&lt;1min)</option>
+            <option value="Fast (<1h)">Fast (&lt;1h)</option>
+            <option value="Medium (<6h)">Medium (&lt;6h)</option>
+            <option value="Slow (>6h)">Slow (&gt;6h)</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Animation Signal</label>
+          <input type="text" id="cls-av-animation-signal" placeholder="e.g. 3DMM expr, Skeleton" />
+        </div>
+        <div class="add-field">
+          <label>Animation Speed</label>
+          <select id="cls-av-animation-speed">
+            <option value="">--</option>
+            <option value="Real-time (>30 FPS)">Real-time (&gt;30 FPS)</option>
+            <option value="Interactive (5-30 FPS)">Interactive (5-30 FPS)</option>
+            <option value="Offline (<5 FPS)">Offline (&lt;5 FPS)</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Lighting Control</label>
+          <select id="cls-av-lighting-control">
+            <option value="">--</option>
+            <option value="None">None</option>
+            <option value="Relighting">Relighting</option>
+          </select>
+        </div>
+        <div class="add-field">
+          <label>Image Synthesis</label>
+          <select id="cls-av-image-synthesis">
+            <option value="">--</option>
+            <option value="Mesh">Mesh</option>
+            <option value="NeRF">NeRF</option>
+            <option value="3DGS">3DGS</option>
+            <option value="Neural Rendering">Neural Rendering</option>
+            <option value="Diffusion">Diffusion</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-field">
+        <label>Image Refinement</label>
+        <select id="cls-av-image-refinement">
+          <option value="">--</option>
+          <option value="No">No</option>
+          <option value="Yes">Yes</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Assets fields -->
+    <div class="add-cls-fields" id="cls-assets">
+      <div class="add-field">
+        <label>Contents</label>
+        <select id="cls-as-contents">
+          <option value="">--</option>
+          <option value="Face">Face</option>
+          <option value="Full-body">Full-body</option>
+          <option value="Hair">Hair</option>
+          <option value="Hands">Hands</option>
+          <option value="Garment">Garment</option>
+          <option value="Teeth">Teeth</option>
+        </select>
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Data Type</label>
+          <select id="cls-as-data-type">
+            <option value="">--</option>
+            <option value="Real">Real</option>
+            <option value="Synthetic">Synthetic</option>
+            <option value="Real + Synthetic">Real + Synthetic</option>
+          </select>
+        </div>
+        <div class="add-field">
+          <label>Data Modality</label>
+          <select id="cls-as-data-modality">
+            <option value="">--</option>
+            <option value="Single image">Single image</option>
+            <option value="Multi-view images">Multi-view images</option>
+            <option value="Monocular video">Monocular video</option>
+            <option value="Multi-view video">Multi-view video</option>
+            <option value="Text">Text</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-field">
+        <label>Needed Assets</label>
+        <input type="text" id="cls-as-needed-assets" placeholder="e.g. Tracked 3DMM" />
+      </div>
+      <div class="add-field">
+        <label>Input</label>
+        <input type="text" id="cls-as-input" placeholder="e.g. Multi-view images" />
+      </div>
+      <div class="add-field">
+        <label>Additional Priors</label>
+        <input type="text" id="cls-as-additional-priors" placeholder="e.g. None reported" />
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Creation Speed</label>
+          <select id="cls-as-creation-speed">
+            <option value="">--</option>
+            <option value="Instant (<1min)">Instant (&lt;1min)</option>
+            <option value="Fast (<1h)">Fast (&lt;1h)</option>
+            <option value="Medium (<6h)">Medium (&lt;6h)</option>
+            <option value="Slow (>6h)">Slow (&gt;6h)</option>
+          </select>
+        </div>
+        <div class="add-field">
+          <label>Lighting Control</label>
+          <select id="cls-as-lighting-control">
+            <option value="">--</option>
+            <option value="None">None</option>
+            <option value="Relighting">Relighting</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Representation</label>
+          <input type="text" id="cls-as-representation" placeholder="e.g. Strands, Mesh" />
+        </div>
+        <div class="add-field">
+          <label>Simulation Ready</label>
+          <select id="cls-as-simulation-ready">
+            <option value="">--</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dataset fields -->
+    <div class="add-cls-fields" id="cls-dataset">
+      <div class="add-field">
+        <label>Body Parts</label>
+        <select id="cls-ds-body-parts">
+          <option value="">--</option>
+          <option value="Faces">Faces</option>
+          <option value="Full-body">Full-body</option>
+          <option value="Hair">Hair</option>
+          <option value="Hands">Hands</option>
+          <option value="Garment">Garment</option>
+        </select>
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Data Type</label>
+          <select id="cls-ds-data-type">
+            <option value="">--</option>
+            <option value="Real">Real</option>
+            <option value="Synthetic">Synthetic</option>
+            <option value="Real + Synthetic">Real + Synthetic</option>
+          </select>
+        </div>
+        <div class="add-field">
+          <label>Data Modality</label>
+          <select id="cls-ds-data-modality">
+            <option value="">--</option>
+            <option value="Single image">Single image</option>
+            <option value="Multi-view images">Multi-view images</option>
+            <option value="Monocular video">Monocular video</option>
+            <option value="Multi-view video">Multi-view video</option>
+            <option value="Meshes">Meshes</option>
+            <option value="Text">Text</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-field-row">
+        <div class="add-field">
+          <label>Size</label>
+          <input type="text" id="cls-ds-size" placeholder="e.g. 425" />
+        </div>
+        <div class="add-field">
+          <label># Cameras</label>
+          <input type="text" id="cls-ds-cameras" placeholder="e.g. 16" />
+        </div>
+      </div>
+      <div class="add-field">
+        <label>Is Calibrated</label>
+        <select id="cls-ds-calibrated">
+          <option value="">--</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="add-field" style="margin-top:0.75rem;">
+      <label>Note <span style="font-weight:400;font-size:0.82rem;color:var(--text-muted)">(optional)</span></label>
+      <textarea id="add-note" rows="2" placeholder="Any additional notes about this entry..."></textarea>
+    </div>
+  </div>
+
+  <!-- === 4. BibTeX === -->
+  <div class="add-form-section">
+    <h3>BibTeX <span class="required">*</span></h3>
+    <div class="add-field" id="field-bibtex">
+      <textarea id="add-bibtex" rows="6" placeholder="Paste your BibTeX entry here..." style="font-family:monospace;font-size:0.82rem;"></textarea>
+      <div class="add-error-msg">BibTeX entry is required</div>
+    </div>
+  </div>
+
+  <!-- === Action buttons === -->
+  <div class="add-actions">
+    <button class="add-btn add-btn-primary" id="btn-preview">Preview JSON</button>
+    <button class="add-btn add-btn-primary" id="btn-add-dataset">Add to dataset</button>
+    <button class="add-btn add-download-btn" id="btn-dl-entry" style="display:none;">Download new entry (JSON)</button>
+    <button class="add-btn add-download-btn" id="btn-dl-full" style="display:none;">Download full publications.json</button>
+    <button class="add-btn add-download-btn" id="btn-dl-diff" style="display:none;">Download diff (.patch)</button>
+  </div>
+
+  <!-- Preview panel -->
+  <div class="add-preview" id="preview-panel" style="display:none;">
+    <h4 id="preview-heading">Preview</h4>
+    <div class="add-preview-content" id="preview-content"></div>
+  </div>
+
+  <!-- Diff panel -->
+  <div class="add-preview" id="diff-panel" style="display:none;">
+    <h4 id="diff-heading">Diff</h4>
+    <div class="diff-viewer" id="diff-content"></div>
+  </div>
+
+  <!-- Instructions -->
+  <div class="add-instructions">
+    <h4>How to submit your entry</h4>
+    <ol>
+      <li>Fill in the form and click <strong>"Add to dataset"</strong></li>
+      <li>Review the diff below</li>
+      <li>Download the updated <code>publications.json</code> or the <code>.patch</code> file</li>
+      <li>Submit a Pull Request on GitHub:
+        <ul>
+          <li>Fork the repository</li>
+          <li><strong>Option A:</strong> Replace <code>assets/data/publications.json</code> with your downloaded file</li>
+          <li><strong>Option B:</strong> Apply the downloaded patch:
+            <pre style="background:#f1f5f9;padding:0.4rem 0.6rem;border-radius:4px;margin:0.3rem 0;font-size:0.8rem;overflow-x:auto;"><code>cd how-to-build-digital-humans
+git apply entry.patch</code></pre>
+          </li>
+          <li>Open a Pull Request</li>
+        </ul>
+      </li>
+    </ol>
+    <h4>Automated checks</h4>
+    <p style="margin:0.3rem 0 0.5rem;font-size:0.88rem;color:var(--text-muted);">
+      When you open a PR that modifies <code>publications.json</code>, a CI check will
+      automatically validate your entry (schema, venue, links, duplicates) and post
+      the results as a PR comment.
+    </p>
+    <h4>Building locally</h4>
+    <p style="margin:0.3rem 0 0.2rem;font-size:0.88rem;color:var(--text-muted);">
+      After applying your changes to <code>publications.json</code>, run the following
+      to fetch thumbnails, abstracts, and rebuild the site:
+    </p>
+    <pre style="background:#f1f5f9;padding:0.4rem 0.6rem;border-radius:4px;margin:0.3rem 0;font-size:0.8rem;overflow-x:auto;"><code>./deploy.sh</code></pre>
+  </div>
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  var pubData = null;       // loaded publications.json
+  var newEntry = null;       // built from form
+  var updatedData = null;    // pubData + newEntry
+  var diffText = "";
+
+  // --- Load publications data on tab activation ---
+  function loadPublicationsData() {
+    if (pubData) return Promise.resolve(pubData);
+    var BUILD_VERSION = document.documentElement.getAttribute("data-build") || Date.now();
+    return fetch("assets/data/publications.json?v=" + BUILD_VERSION)
+      .then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function(data) {
+        pubData = data;
+        return data;
+      })
+      .catch(function(err) {
+        console.error("Failed to load publications.json:", err);
+        return null;
+      });
+  }
+
+  // Start loading immediately
+  loadPublicationsData();
+
+  // --- Auto-generate citation key ---
+  function generateKey() {
+    var authors = document.getElementById("add-authors").value.trim();
+    var year = document.getElementById("add-year").value.trim();
+    var title = document.getElementById("add-title").value.trim();
+
+    if (!authors || !year) return;
+
+    // Extract first author surname
+    var firstAuthor = authors.split(",")[0].trim();
+    var parts = firstAuthor.split(/\s+/);
+    var surname = parts[parts.length - 1];
+    surname = surname.charAt(0).toUpperCase() + surname.slice(1).toLowerCase();
+
+    // First meaningful word from title
+    var titleWords = title.split(/\s+/);
+    var keyword = "";
+    var skip = ["a", "an", "the", "for", "of", "in", "on", "to", "and", "with", "from", "towards", "via"];
+    for (var i = 0; i < titleWords.length; i++) {
+      var w = titleWords[i].toLowerCase().replace(/[^a-z]/g, "");
+      if (w && skip.indexOf(w) < 0) {
+        keyword = w.charAt(0).toUpperCase() + w.slice(1);
+        break;
+      }
+    }
+
+    var keyEl = document.getElementById("add-key");
+    keyEl.value = surname + year + keyword.toLowerCase();
+  }
+
+  document.getElementById("add-authors").addEventListener("blur", generateKey);
+  document.getElementById("add-year").addEventListener("blur", generateKey);
+  document.getElementById("add-title").addEventListener("blur", generateKey);
+
+  // --- Venue "Other" toggle ---
+  document.getElementById("add-venue").addEventListener("change", function() {
+    document.getElementById("field-venue-other").style.display =
+      this.value === "__other__" ? "" : "none";
+  });
+
+  // --- Classification radio toggle ---
+  var radios = document.querySelectorAll("input[name='add-table-type']");
+  for (var ri = 0; ri < radios.length; ri++) {
+    radios[ri].addEventListener("change", function() {
+      document.getElementById("cls-avatar").classList.toggle("is-visible", this.value === "avatar");
+      document.getElementById("cls-assets").classList.toggle("is-visible", this.value === "assets");
+      document.getElementById("cls-dataset").classList.toggle("is-visible", this.value === "dataset");
+    });
+  }
+
+  // --- Build entry from form ---
+  function buildEntryFromForm() {
+    var key = document.getElementById("add-key").value.trim();
+    var title = document.getElementById("add-title").value.trim();
+    var authors = document.getElementById("add-authors").value.trim();
+    var year = document.getElementById("add-year").value.trim();
+    var entryType = document.getElementById("add-entry-type").value;
+
+    var venueEl = document.getElementById("add-venue");
+    var venue = venueEl.value === "__other__"
+      ? document.getElementById("add-venue-other").value.trim()
+      : venueEl.value;
+
+    var arxiv = document.getElementById("add-arxiv").value.trim() || null;
+    var webpage = document.getElementById("add-webpage").value.trim() || null;
+    var code = document.getElementById("add-code").value.trim() || null;
+    var video = document.getElementById("add-video").value.trim() || null;
+
+    // Classification
+    var tableTypeEl = document.querySelector("input[name='add-table-type']:checked");
+    var tableType = tableTypeEl ? tableTypeEl.value : "";
+    var classification = null;
+
+    if (tableType === "avatar") {
+      var fields = {};
+      var av = function(id) { var el = document.getElementById(id); return el ? el.value : ""; };
+      fields["Contents"] = av("cls-av-contents");
+      fields["Data Type"] = av("cls-av-data-type");
+      fields["Data Modality"] = av("cls-av-data-modality");
+      fields["Needed Assets"] = av("cls-av-needed-assets");
+      fields["Input"] = av("cls-av-input");
+      fields["Additional Priors"] = av("cls-av-additional-priors");
+      fields["Req. Optimization"] = av("cls-av-req-optimization");
+      fields["Creation Speed"] = av("cls-av-creation-speed");
+      fields["Animation Signal"] = av("cls-av-animation-signal");
+      fields["Lighting Control"] = av("cls-av-lighting-control");
+      fields["Animation Speed"] = av("cls-av-animation-speed");
+      fields["Image Synthesis"] = av("cls-av-image-synthesis");
+      fields["Image Refinement"] = av("cls-av-image-refinement");
+      // Remove empty values
+      var cleaned = {};
+      for (var fk in fields) { if (fields[fk]) cleaned[fk] = fields[fk]; }
+      classification = { table_type: "avatar", fields: cleaned };
+    } else if (tableType === "assets") {
+      var afields = {};
+      var as = function(id) { var el = document.getElementById(id); return el ? el.value : ""; };
+      afields["Contents"] = as("cls-as-contents");
+      afields["Data Type"] = as("cls-as-data-type");
+      afields["Data Modality"] = as("cls-as-data-modality");
+      afields["Needed Assets"] = as("cls-as-needed-assets");
+      afields["Input"] = as("cls-as-input");
+      afields["Additional Priors"] = as("cls-as-additional-priors");
+      afields["Creation Speed"] = as("cls-as-creation-speed");
+      afields["Lighting Control"] = as("cls-as-lighting-control");
+      afields["Representation"] = as("cls-as-representation");
+      afields["Simulation Ready"] = as("cls-as-simulation-ready");
+      var acleaned = {};
+      for (var afk in afields) { if (afields[afk]) acleaned[afk] = afields[afk]; }
+      classification = { table_type: "assets", fields: acleaned };
+    } else if (tableType === "dataset") {
+      var dfields = {};
+      var ds = function(id) { var el = document.getElementById(id); return el ? el.value : ""; };
+      dfields["Body Parts"] = ds("cls-ds-body-parts");
+      dfields["Data Type"] = ds("cls-ds-data-type");
+      dfields["Data Modality"] = ds("cls-ds-data-modality");
+      dfields["Size"] = ds("cls-ds-size");
+      dfields["# Cameras"] = ds("cls-ds-cameras");
+      dfields["Is Calibrated"] = ds("cls-ds-calibrated");
+      var dcleaned = {};
+      for (var dfk in dfields) { if (dfields[dfk]) dcleaned[dfk] = dfields[dfk]; }
+      classification = { table_type: "dataset", fields: dcleaned };
+    }
+
+    var note = document.getElementById("add-note").value.trim() || null;
+
+    return {
+      key: key,
+      title: title,
+      authors: authors,
+      year: year,
+      venue: venue,
+      entry_type: entryType,
+      links: {
+        webpage: webpage,
+        code: code,
+        video: video,
+        arxiv: arxiv
+      },
+      classification: classification,
+      note: note,
+      skip_reason: null
+    };
+  }
+
+  // --- Validation ---
+  function validate() {
+    var ok = true;
+
+    function check(id, valid) {
+      var el = document.getElementById(id);
+      if (el) el.classList.toggle("has-error", !valid);
+      if (!valid) ok = false;
+    }
+
+    var key = document.getElementById("add-key").value.trim();
+    check("field-key", key.length > 0);
+
+    var title = document.getElementById("add-title").value.trim();
+    check("field-title", title.length > 0);
+
+    var authors = document.getElementById("add-authors").value.trim();
+    check("field-authors", authors.length > 0);
+
+    var year = document.getElementById("add-year").value.trim();
+    check("field-year", year.length > 0);
+
+    var hasLink = document.getElementById("add-arxiv").value.trim() ||
+                  document.getElementById("add-webpage").value.trim() ||
+                  document.getElementById("add-code").value.trim() ||
+                  document.getElementById("add-video").value.trim();
+    var linksErr = document.getElementById("links-error");
+    if (linksErr) linksErr.style.display = hasLink ? "none" : "block";
+    if (!hasLink) ok = false;
+
+    // Classification required
+    var tableTypeEl = document.querySelector("input[name='add-table-type']:checked");
+    var hasClassification = tableTypeEl && tableTypeEl.value !== "";
+    check("field-table-type", hasClassification);
+
+    // BibTeX required
+    var bibtex = document.getElementById("add-bibtex").value.trim();
+    check("field-bibtex", bibtex.length > 0);
+
+    return ok;
+  }
+
+  // --- Clear validation on input ---
+  var formEl = document.getElementById("add-form");
+  formEl.addEventListener("input", function(e) {
+    var field = e.target.closest(".add-field");
+    if (field) field.classList.remove("has-error");
+    var linksErr = document.getElementById("links-error");
+    if (linksErr) linksErr.style.display = "none";
+  });
+
+  // --- Generate unified diff ---
+  function generateDiff(originalJson, updatedJson) {
+    var origLines = originalJson.split("\n");
+    var newLines = updatedJson.split("\n");
+
+    var lines = [];
+    lines.push("--- a/assets/data/publications.json");
+    lines.push("+++ b/assets/data/publications.json");
+
+    // Find where the arrays diverge (the new entry is inserted in sorted position)
+    // Simple approach: diff from the end since the closing ']' moves
+    var origLen = origLines.length;
+    var newLen = newLines.length;
+
+    // Find first differing line
+    var firstDiff = 0;
+    for (var i = 0; i < Math.min(origLen, newLen); i++) {
+      if (origLines[i] !== newLines[i]) {
+        firstDiff = i;
+        break;
+      }
+    }
+
+    // Find last matching lines from bottom
+    var lastOrigMatch = origLen - 1;
+    var lastNewMatch = newLen - 1;
+    while (lastOrigMatch > firstDiff && lastNewMatch > firstDiff &&
+           origLines[lastOrigMatch] === newLines[lastNewMatch]) {
+      lastOrigMatch--;
+      lastNewMatch--;
+    }
+
+    var ctxBefore = Math.max(0, firstDiff - 3);
+    var ctxAfter = Math.min(newLen - 1, lastNewMatch + 3);
+
+    lines.push("@@ -" + (ctxBefore + 1) + "," + (lastOrigMatch - ctxBefore + 4) +
+               " +" + (ctxBefore + 1) + "," + (lastNewMatch - ctxBefore + 4) + " @@");
+
+    // Context before
+    for (var c = ctxBefore; c < firstDiff; c++) {
+      lines.push(" " + origLines[c]);
+    }
+
+    // Removed lines from original
+    for (var d = firstDiff; d <= lastOrigMatch; d++) {
+      lines.push("-" + origLines[d]);
+    }
+
+    // Added lines in new
+    for (var a = firstDiff; a <= lastNewMatch; a++) {
+      lines.push("+" + newLines[a]);
+    }
+
+    // Context after
+    for (var ca = lastNewMatch + 1; ca <= Math.min(newLen - 1, lastNewMatch + 3); ca++) {
+      lines.push(" " + newLines[ca]);
+    }
+
+    return lines.join("\n");
+  }
+
+  // --- Render diff with highlighting ---
+  function renderDiff(diffStr) {
+    var lines = diffStr.split("\n");
+    var html = "";
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var escaped = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@")) {
+        html += '<span class="diff-hdr">' + escaped + '</span>';
+      } else if (line.startsWith("+")) {
+        html += '<span class="diff-add">' + escaped + '</span>';
+      } else if (line.startsWith("-")) {
+        html += '<span class="diff-del">' + escaped + '</span>';
+      } else {
+        html += escaped + "\n";
+      }
+    }
+    return html;
+  }
+
+  // --- Download helper ---
+  function downloadFile(content, filename, mime) {
+    var blob = new Blob([content], { type: mime || "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // --- Insert entry in sorted position (year desc, then title asc) ---
+  function insertSorted(arr, entry) {
+    var result = arr.slice();
+    var entryYear = parseInt(entry.year, 10) || 0;
+    var entryTitle = (entry.title || "").toLowerCase();
+    var insertIdx = result.length; // default: append at end
+
+    for (var i = 0; i < result.length; i++) {
+      var iy = parseInt(result[i].year, 10) || 0;
+      var it = (result[i].title || "").toLowerCase();
+      if (entryYear > iy || (entryYear === iy && entryTitle < it)) {
+        insertIdx = i;
+        break;
+      }
+    }
+
+    result.splice(insertIdx, 0, entry);
+    return result;
+  }
+
+  // --- Fill example button ---
+  document.getElementById("btn-example").addEventListener("click", function() {
+    // Metadata
+    document.getElementById("add-key").value = "Smith2024photorealistic";
+    document.getElementById("add-title").value = "Photorealistic Head Avatars from Monocular Video";
+    document.getElementById("add-authors").value = "John Smith, Jane Doe, Alex Johnson";
+    document.getElementById("add-year").value = "2024";
+    document.getElementById("add-entry-type").value = "inproceedings";
+    document.getElementById("add-venue").value = "CVPR";
+    document.getElementById("field-venue-other").style.display = "none";
+
+    // Links
+    document.getElementById("add-arxiv").value = "https://arxiv.org/pdf/2024.12345";
+    document.getElementById("add-webpage").value = "https://example-project.github.io/";
+    document.getElementById("add-code").value = "https://github.com/example/photo-avatars";
+    document.getElementById("add-video").value = "https://youtu.be/dQw4w9WgXcQ";
+
+    // Classification: Avatar
+    var avatarRadio = document.querySelector("input[name='add-table-type'][value='avatar']");
+    avatarRadio.checked = true;
+    document.getElementById("cls-avatar").classList.add("is-visible");
+    document.getElementById("cls-assets").classList.remove("is-visible");
+
+    document.getElementById("cls-av-contents").value = "Face";
+    document.getElementById("cls-av-data-type").value = "Real";
+    document.getElementById("cls-av-data-modality").value = "Monocular video";
+    document.getElementById("cls-av-needed-assets").value = "Tracked 3DMM, Cameras";
+    document.getElementById("cls-av-input").value = "Monocular video";
+    document.getElementById("cls-av-additional-priors").value = "FLAME";
+    document.getElementById("cls-av-req-optimization").value = "Yes";
+    document.getElementById("cls-av-creation-speed").value = "Fast (<1h)";
+    document.getElementById("cls-av-animation-signal").value = "3DMM expr";
+    document.getElementById("cls-av-animation-speed").value = "Real-time (>30 FPS)";
+    document.getElementById("cls-av-lighting-control").value = "None";
+    document.getElementById("cls-av-image-synthesis").value = "3DGS";
+    document.getElementById("cls-av-image-refinement").value = "No";
+
+    // Note
+    document.getElementById("add-note").value = "";
+
+    // BibTeX
+    document.getElementById("add-bibtex").value =
+      "@inproceedings{Smith2024photorealistic,\n" +
+      "  author    = {Smith, John and Doe, Jane and Johnson, Alex},\n" +
+      "  title     = {Photorealistic Head Avatars from Monocular Video},\n" +
+      "  booktitle = CVPR,\n" +
+      "  year      = {2024},\n" +
+      "}";
+
+    // Clear any validation errors
+    var errFields = document.querySelectorAll(".has-error");
+    for (var i = 0; i < errFields.length; i++) errFields[i].classList.remove("has-error");
+    var linksErr = document.getElementById("links-error");
+    if (linksErr) linksErr.style.display = "none";
+  });
+
+  // --- Preview button ---
+  document.getElementById("btn-preview").addEventListener("click", function() {
+    if (!validate()) return;
+    newEntry = buildEntryFromForm();
+    var json = JSON.stringify(newEntry, null, 2);
+    document.getElementById("preview-content").textContent = json;
+    document.getElementById("preview-panel").style.display = "";
+    document.getElementById("diff-panel").style.display = "none";
+  });
+
+  // --- Add to dataset button ---
+  document.getElementById("btn-add-dataset").addEventListener("click", function() {
+    if (!validate()) return;
+    newEntry = buildEntryFromForm();
+
+    loadPublicationsData().then(function(data) {
+      if (!data) {
+        alert("Could not load publications.json. Please make sure it exists.");
+        return;
+      }
+
+      updatedData = insertSorted(data, newEntry);
+      var originalJson = JSON.stringify(data, null, 2);
+      var updatedJson = JSON.stringify(updatedData, null, 2);
+
+      diffText = generateDiff(originalJson, updatedJson);
+
+      // Show preview
+      document.getElementById("preview-content").textContent = JSON.stringify(newEntry, null, 2);
+      document.getElementById("preview-panel").style.display = "";
+
+      // Show diff
+      document.getElementById("diff-content").innerHTML = renderDiff(diffText);
+      document.getElementById("diff-panel").style.display = "";
+
+      // Show download buttons
+      document.getElementById("btn-dl-entry").style.display = "";
+      document.getElementById("btn-dl-full").style.display = "";
+      document.getElementById("btn-dl-diff").style.display = "";
+    });
+  });
+
+  // --- Download buttons ---
+  document.getElementById("btn-dl-entry").addEventListener("click", function() {
+    if (!newEntry) return;
+    downloadFile(JSON.stringify(newEntry, null, 2), "new-entry.json");
+  });
+
+  document.getElementById("btn-dl-full").addEventListener("click", function() {
+    if (!updatedData) return;
+    downloadFile(JSON.stringify(updatedData, null, 2), "publications.json");
+  });
+
+  document.getElementById("btn-dl-diff").addEventListener("click", function() {
+    if (!diffText) return;
+    downloadFile(diffText, "entry.patch", "text/plain");
+  });
+
+})();
+</script>

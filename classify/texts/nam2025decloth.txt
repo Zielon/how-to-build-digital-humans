@@ -1,0 +1,1266 @@
+Title: DeClotH: Decomposable 3D Cloth and Human Body Reconstruction from a Single Image
+
+DeClotH: Decomposable 3D Cloth and Human Body Reconstruction
+from a Single Image
+Hyeongjin Nam1,3
+Donghwan Kim1
+Jeongtaek Oh2
+Kyoung Mu Lee1,2
+1Dept. of ECE&ASRI, 2IPAI, Seoul National University, 3KRAFTON
+{namhjsnu28, dh971106, ohjtgood, kyoungmu}@snu.ac.kr
+https://hygenie1228.github.io/DeClotH/
+Abstract
+Most existing methods of 3D clothed human reconstruc-
+tion from a single image treat the clothed human as a sin-
+gle object without distinguishing between cloth and human
+body. In this regard, we present DeClotH, which separately
+reconstructs 3D cloth and human body from a single im-
+age. This task remains largely unexplored due to the ex-
+treme occlusion between cloth and the human body, mak-
+ing it challenging to infer accurate geometries and textures.
+Moreover, while recent 3D human reconstruction methods
+have achieved impressive results using text-to-image dif-
+fusion models, directly applying such an approach to this
+problem often leads to incorrect guidance, particularly in
+reconstructing 3D cloth. To address these challenges, we
+propose two core designs in our framework. First, to alle-
+viate the occlusion issue, we leverage 3D template models
+of cloth and human body as regularizations, which provide
+strong geometric priors to prevent erroneous reconstruction
+by the occlusion. Second, we introduce a cloth diffusion
+model specifically designed to provide contextual informa-
+tion about cloth appearance, thereby enhancing the recon-
+struction of 3D cloth. Qualitative and quantitative experi-
+ments demonstrate that our proposed approach is highly ef-
+fective in reconstructing both 3D cloth and the human body.
+1. Introduction
+Reconstructing 3D cloth and human body from a single im-
+age is an essential task for various applications including
+virtual try-on and AR/VR. In recent years, numerous 3D
+clothed human reconstruction methods [1, 17, 20, 59] have
+emerged with the advent of diffusion models [18]. Although
+these methods achieve impressive reconstruction quality,
+they are inherently designed not to decompose the 3D cloth
+and human body, limiting their downstream applications.
+In this regard, we tackle the more challenging task of sepa-
+Input image
+3D reconstructions
+Input image
+(a) Simplified pipeline of DeClotH
+Input image
+3D reconstructions
+Human
+Diffusion
+Cloth
+Diffusion
+(b) Decomposable 3D cloth and human reconstruction
+3D cloth & body 
+templates
+3D reconstructions
+Figure 1. Overview of DeClotH. Given a single image, our frame-
+work reconstructs 3D cloth and human body based on the 3D cloth
+and body templates.
+rately reconstructing the 3D cloth and human body directly
+from a single image, as illustrated in Fig. 1.
+Despite the potential applications of decomposable 3D
+cloth and human body reconstruction, it has not been ex-
+tensively explored. One major problem is severe occlusion
+between the cloth and human body, with cloth covering sub-
+stantial portions of the human body surface. Such an oc-
+clusion makes it difficult to infer the overall geometry and
+texture of the invisible parts between 3D cloth and human
+body. Additionally, image evidence (e.g., cloth silhouette)
+of the input image is often imperfect due to occlusion, lead-
+ing to reconstruction that can overfit to the imperfect evi-
+dence. For these reasons, the reconstruction of decompos-
+arXiv:2503.19373v1  [cs.CV]  25 Mar 2025
+
+
+“red hoodie”
+“blue t-shirt”
+“yellow sneakers”
+“gray suit jacket”
+“orange lossy pants”
+“white short skirt”
+Condition image
+Generated image
+Generated image
+Condition image
+Generated image
+Generated image
+StableDiffusion
+StableDiffusion
+ClothDiffusion (Ours)
+ClothDiffusion (Ours)
+Figure 2. Comparison between an existing diffusion model and
+ClothDiffusion. Unlike the representative diffusion model, Sta-
+bleDiffusion [47], our ClothDiffusion generates cloth-specific im-
+ages and can be controlled by cloth and human body templates.
+able 3D cloth and human body is considerably more chal-
+lenging than the previous tasks, which do not account for
+the occlusion between cloth and human body.
+Recently, score distillation sampling (SDS) [45] loss
+function has gained popularity in the 3D clothed human re-
+construction literature [1, 17, 20, 59] for inferring the ge-
+ometry and texture of the occluded human parts. The SDS
+loss enhances reconstruction quality by leveraging the im-
+age prior knowledge of a pre-trained text-to-image diffu-
+sion model. Although employing the diffusion model is
+also promising for reconstructing 3D cloth, we observe that
+naively using such a strategy can provide incorrect guid-
+ance about cloth appearance. As shown in Fig. 2, a rep-
+resentative diffusion model, StableDiffusion [47], typically
+generates images that focus on both cloth and human body,
+rather than the cloth itself. Since its image prior knowledge
+contains a mixture of both cloth and human body, the dif-
+fusion model is unsuitable for reconstructing 3D cloth from
+the human body separately. Furthermore, the generated im-
+ages exhibit excessive diversity in scale, position, and cloth
+deformation, making it difficult to guide reconstruction of
+the actual cloth regions.
+To address the above challenges, we present DeClotH
+(Decomposable 3D Cloth and Human body reconstruc-
+tion), a template-based optimization framework designed
+for reconstructing 3D cloth and the human body from a
+single image. This framework utilizes 3D template models
+of cloth and human body as strong geometric priors for re-
+construction to mitigate erroneous results caused by occlu-
+sion. The 3D template models represent the typical shapes
+of real-world clothes and human bodies by parameterizing
+them into a low-dimensional latent space.
+For example,
+SMPLicit [8] parameterizes 3D clothes with cloth style and
+looseness, and SMPL [36] parameterizes 3D human bodies
+with human pose and shape. Based on these template mod-
+els, we design a template regularization loss function, which
+constrains the reconstructed 3D cloth and human body to
+be close to their 3D template models. Such constraints re-
+duce heavy reliance on the imperfect image evidence caused
+by occlusions in the input image, leading to more plausible
+shapes for 3D cloth and human body. Consequently, lever-
+aging 3D template models of cloth and the human body,
+our framework produces robust reconstructions under se-
+vere occlusion between the cloth and human body.
+Additionally, we devise a new diffusion model, ClothD-
+iffusion, which overcomes the drawbacks of the existing
+diffusion model (i.e., StableDiffusion [47]) for 3D cloth
+reconstruction.
+Unlike StableDiffusion, which generates
+mixed content of cloth and human body, ClothDiffusion is
+specifically trained to generate only cloth images, as shown
+in Fig. 2. This attribute of ClothDiffusion is highly benefi-
+cial for reconstructing 3D cloth, by providing prior image
+knowledge specialized for cloth geometry and texture. Ad-
+ditionally, ClothDiffusion can be controlled by incorporat-
+ing 3D template models as regional information for guid-
+ance. From the 3D template models, we extract a cloth sil-
+houette and a human skeleton and forward them to ClothD-
+iffusion. By applying this regional information, ClothD-
+iffusion can provide appropriate guidance that aligns with
+the actual cloth shape and human pose of the input image.
+Thus, utilizing ClothDiffusion leads to the delicate geome-
+try and texture of 3D cloth along with reconstructing the 3D
+human body.
+Our
+extensive
+experiments
+demonstrate
+that
+De-
+ClotH produces significantly more accurate reconstruction
+results than baseline methods, for both 3D cloth and human
+body. Our contributions can be summarized as follows.
+• We present DeClotH, which reconstructs a decomposable
+3D cloth and human body from a single image, allowing
+various applications.
+• To address occlusion in reconstruction, we propose using
+3D template models of the cloth and human body as ben-
+eficial constraints during reconstruction.
+• To improve the reconstruction of 3D cloth, we introduce
+a cloth diffusion model that provides contextual informa-
+tion specialized in cloth geometry and texture.
+2. Related works
+3D clothed human reconstruction. Most of the pioneering
+works [2, 3, 9, 14, 15, 19, 21, 33, 41, 42, 48, 49, 52, 54, 55,
+62–64] of 3D clothed human reconstruction train their net-
+works based on 3D scan data, such as RenderPeople [46]
+and THuman2.0 [57] datasets. PIFuHD [49] introduced a
+coarse-to-fine framework to learn the high-resolution ge-
+ometry of 3D clothed humans.
+PHORHUM [3] photo-
+realistically reconstructs the 3D clothed humans while in-
+
+
+ferring shading. ECON [55] proposed a method that com-
+bines human normal maps with a 3D parametric human
+body for fine geometric details. Recently, several works [1,
+17, 20, 30] have leveraged a pre-trained text-to-image dif-
+fusion model [47] to reconstruct the geometry and texture
+of 3D clothed humans, utilizing the strong prior knowledge
+of the diffusion model.
+HumanSGD [1] proposed a hu-
+man mesh inpainting method with a shape-guided diffusion
+model. SiTH [17] presented a two-stage pipeline that pre-
+dicts a back-view image and reconstructs a 3D clothed hu-
+man based on the front- and back-view images. TeCH [20]
+utilized a Visual Question Answering (VQA) module to ob-
+tain descriptive text prompts from the image as input to the
+diffusion model. The existing methods reconstruct the 3D
+clothed human as one unified mesh, which cannot be de-
+composed into the 3D cloth and human body components.
+On the other hand, our DeClotH enables the separation of
+3D cloth and human body from the reconstructions, allow-
+ing for a wide range of applications.
+3D template models. 3D template models of cloth and hu-
+man body are essential for recent 3D clothed human recon-
+struction [4, 8, 10, 22, 38, 65] and 3D human body recon-
+struction [5–7, 23, 27–29, 32, 37, 40, 58]. These reconstruc-
+tion methods predict the parameters of their respective 3D
+template models to reconstruct 3D clothes or human bod-
+ies. BCNet [22] presented a 3D clothed human reconstruc-
+tion system that predicts the PCA coefficients of 3D cloth
+template models. ClothWild [38] leveraged a weakly su-
+pervised learning strategy for 3D clothed humans by using
+a 3D cloth template model, SMPLicit [8]. HMR [23] pro-
+posed a 3D human body reconstruction framework with ad-
+versarial loss to learn plausible 3D pose and shape of the 3D
+human body template model, SMPL [36]. PIXIE [12] pro-
+posed a 3D human reconstruction method that estimates 3D
+hand pose and facial expression using SMPL-X [44]. These
+template-based reconstruction methods have a critical draw-
+back because they are constrained by pre-defined template
+topology. Due to this limitation, they generally reconstruct
+an overly smoothed mesh that does not capture the actual
+wrinkles of the clothes. On the other hand, our framework
+covers fine details through the template-based optimization,
+integrating image evidence (e.g., cloth silhouettes) with 3D
+template models in the reconstruction.
+3D cloth decomposition. Encouraged by recent attention
+to 3D virtual try-on, several works [24, 51, 53, 56, 66]
+have proposed methods to decompose 3D clothes from a
+3D human scan, multi-view images, or a video. SIZER [51]
+introduced a method to segment 3D cloth meshes from a
+3D human scan by voting on mesh vertices corresponding
+to cloth labels. 4D-DRESS [53] leveraged graph cut opti-
+mization to decompose 3D clothes from a 3D human scan.
+GALA [24] proposed a method to utilize a text-to-image
+diffusion model as a valuable prior to decomposition. Com-
+pared to these methods, our framework tackles a much more
+challenging task, reconstructing decomposed 3D cloth and
+human body from a single image.
+3. DeClotH
+Fig. 3 illustrates the overall pipeline of our DeClotH. Given
+an input image I and a target cloth type C, our framework
+optimizes both the target 3D cloth mesh Mcloth and the 3D
+human mesh Mbody not wearing the 3D cloth. To simplify
+the description, we refer to the 3D human without the tar-
+get cloth as the “human body”. In the following sections,
+we first describe the 3D geometry representation (Sec. 3.1)
+and image preprocessing (Sec. 3.2) for the optimization of
+3D cloth and human body. Subsequently, we provide de-
+tailed descriptions of three core loss functions in our frame-
+work: template regularization loss (Sec. 3.3), cloth SDS
+loss (Sec. 3.4), and human SDS loss (Sec. 3.5). Finally,
+we explain the overall optimization process (Sec. 3.6).
+3.1. 3D geometric representation (DMTet)
+In our framework, Deep Marching Tetrahedra [50] (DMTet)
+is utilized as the 3D geometric representation of 3D cloth
+and human body. DMTet represents 3D geometry with a
+deformable tetrahedral grid (XT , T), where XT denotes
+3D vertices of the tetrahedral grid and T defines the tetra-
+hedral structure. Specifically, the MLP network of DMTet
+predicts the signed distance value from the 3D geometry
+surface for each vertex of the grid. We adopt two DMTets
+to represent 3D cloth and human body in a canonical pose
+(A-pose), respectively. To obtain 3D cloth mesh Mcloth and
+3D human body mesh Mbody from the DMTets, we extract
+meshes via the Marching Tetrahedra [11] (MT) algorithm
+and transform the meshes via a linear blend skinning (LBS),
+which is pre-defined in the SMPL+H [36] human model.
+3.2. Image preprocessing
+To optimize DMTets of 3D cloth and human body, we
+gather multiple optimization targets: normal map N, sil-
+houette S, and 3D template meshes (Mt
+cloth and Mt
+body).
+Normal & silhouette estimator. The normal maps N of the
+front and back views are obtained by the normal estimator
+of ECON [55] from the input image. The silhouettes S of
+cloth and human are acquired by running the off-the-shelf
+segmentation method, SAM [26], given input image I and
+text prompt (tcloth, thuman).
+ClothNet.
+ClothNet predicts a 3D cloth template mesh
+Mt
+cloth of the target cloth from the input image. We use
+ClothWild [38] as ClothNet, which achieves state-of-the-art
+performance on in-the-wild images.
+BodyNet. BodyNet predicts the 3D body template mesh
+Mt
+body, by estimating the 3D human pose and shape of the
+SMPL + H model [36] from the input image. We modify
+PIXIE [12] to infer SMPL+H and use it as BodyNet.
+
+
+Cloth SDS loss
+(Sec. 3.4)
+“Brown button up shirt”, “a man, black short hair, wearing blue short jeans”
+Cloth template mesh 
+(𝐌!"#$%
+$
+)
+Text prompt (𝑃!"#$%, 𝑃&#'()
+Input image 
+(I)
+Rendering in other view
+Rendering in front & back view
+𝑃!"#$%
+Cloth sil. + human skel.
+(𝐒!"#$%&'()")
+Human skeleton (𝐒'()")
+Human skeleton (𝐒'()")
+Lrecon
+Image (𝐈)
+Lcloth-SDS
+Lhuman-SDS
+Human
+Diffusion
+Human
+Diffusion
+Body template mesh 
+(𝐌&#'(
+$
+)
+Output meshes 
+(𝐌#$%&', 𝐌(%)*)
+Cloth
+Net
+Body
+Net
+Rendering for cloth
+Rendering for body
+Normal 
+&
+Silhouette
+Estimator
+Lhuman-SDS
+Template
+regularization loss
+(Sec. 3.3)
+Normal (𝐍)
+Silhouette (𝐒)
+𝑃&#'(
+𝑃!"#$%)&#'(
+Preprocessing
+(Sec. 3.2)
+(Sec. 3.1)
+Cloth mesh (𝐌!"#$%)
+Human body mesh (𝐌&#'()
+Lcloth-t
+Lbody-t
+(Sec. 3.1)
+Cloth DMTet
+Body DMTet
+Human SDS loss
+(Sec. 3.5)
+Cloth
+Diffusion
+Figure 3. Overall pipeline of DeClotH. Given an input image I, DeClotH optimizes 3D cloth and human body, represented by DMTets
+(Sec. 3.1). For the optimization, we extract normal map N, silhouette S, and 3D template meshes (Mt
+cloth and Mt
+body) (Sec. 3.2). Subse-
+quently, the 3D cloth and human body are optimized by three core loss functions: template regularization loss (Sec. 3.3), cloth SDS loss
+(Sec. 3.4), and human SDS loss (Sec. 3.5).
+3.3. Template regularization loss
+The template regularization losses, Lcloth-t and Lbody-t, en-
+force optimized 3D cloth and human body meshes to be
+close to their 3D template meshes (Mt
+cloth and Mt
+body). The
+loss functions are defined as
+  L_{\te x t {cloth-t}} = \lVert \mathcal {R}_{\text {sil}}(\mathbf {M_{\text {cloth}}}, \mathbf {k}) - \mathcal {R}_{\text {sil}}(\mathbf {M^{\text {t}}_{\text {cloth}}}, \mathbf {k}) \rVert _2, \\ L_{\text {body-t}} = \lVert \mathcal {R}_{\text {sil}}(\mathbf {M_{\text {body}}}, \mathbf {k}) - \mathcal {R}_{\text {sil}}(\mathbf {M^{\text {t}}_{\text {body}}}, \mathbf {k}) \rVert _2,
+(2)
+where Rsil is a silhouette renderer, and k is a camera pa-
+rameter for the rendering. These losses constrain the pro-
+jected 3D meshes to be close to the projection of their
+3D template meshes. ClothNet and BodyNet, which pro-
+duce the 3D template meshes, are trained on in-the-wild
+datasets containing various images with occlusions. The
+3D template meshes exhibit high robustness against occlu-
+sions, leveraging learned data-driven knowledge from the
+in-the-wild datasets. Consequently, the template regulariza-
+tion loss prevents the erroneous reconstruction of 3D cloth
+and human body from occlusion.
+3.4. Cloth SDS loss
+Cloth SDS loss Lcloth-SDS supervises the geometry and tex-
+ture of 3D cloth, particularly for regions that are not visi-
+ble in the front view. Our cloth SDS loss follows the basic
+formulation of SDS loss proposed by DreamFusion [45].
+Given a 3D mesh parameterized with ϕ, the SDS loss up-
+dates ϕ based on the rendered image x of the 3D mesh, im-
+age condition c, and text prompt P for the diffusion model.
+The gradient of the SDS loss is calculated as
+  \begin {s pl i t} \nabla _ {\ ph i }  L_{\
+te xt {SDS}}(\mathbf {x}, \mathbf {c}, P) = \mathbb {E}[w_t (\hat {\epsilon }(\mathbf {x}_{t}; \mathbf {c}, P, t) - \epsilon ) \frac {\partial \mathbf {x}_{t}}{\partial \phi }], \end {split} 
+(3)
+where t denotes a noise level, xt is a rendered image with
+noise, and wt is a weighting variable dependent on the noise
+level t. This loss function computes the distance between
+the predicted noise ˆϵ(·) and the sampled noise ϵ from the
+diffusion model. Accordingly, the SDS loss guides the 3D
+mesh rendering to follow a visually coherent appearance
+that aligns with the image condition and text prompt.
+Unlike the basic SDS loss, the cloth SDS loss function
+exploits a new diffusion model, ClothDiffusion, instead of
+StableDiffusion [47]. ClothDiffusion is trained to gener-
+ate cloth-specific images using cloth silhouettes and human
+skeletons as conditioning inputs. Cloth SDS loss supervises
+the rendered normal maps and RGB images as follows:
+  L^{
+\text {no r m}}_{\t
+ext {cloth-SDS}} = L_{\text {SDS}}(\mathbf {N}^{\mathbf {k}}_{\text {cloth}}, \mathbf {S}^{\mathbf {k}}_{\text {cloth+skel}}, P_{\text {cloth}}), \\ L^{\text {rgb}}_{\text {cloth-SDS}} = L_{\text {SDS}}(\mathbf {I}^{\mathbf {k}}_{\text {cloth}}, \mathbf {S}^{\mathbf {k}}_{\text {cloth+skel}}, P_{\text {cloth}}),
+(5)
+where Nk
+cloth and Ik
+cloth are the normal map and the RGB im-
+age rendered from the 3D cloth mesh Mcloth with a camera
+parameter k. The Sk
+cloth+body is a combination of two sil-
+houettes of 3D cloth template mesh Mt
+cloth and 3D human
+skeleton extracted from the 3D body template mesh Mt
+body.
+The cloth SDS loss provides rich contextual information on
+cloth appearances using cloth-specific prior knowledge of
+ClothDiffusion. Additionally, cloth SDS loss can accurately
+guide the reconstruction of cloth regions by utilizing cloth
+silhouettes and human skeletons as regional information.
+3.5. Human SDS loss
+Human loss of SDS Lhuman-SDS supervises the geometry and
+texture of the occluded parts of both the 3D cloth and the
+human body. This loss is based on HumanDiffusion, an-
+
+
+other diffusion model that generates human images condi-
+tioned on human skeletons. We adopt pre-trained weights
+of ControlNet [60] for the HumanDiffusion. Human SDS
+loss function supervises the rendered normal map and RGB
+image as follows:
+  \be
+gin {spli t } L^{\t
+ext { no
+rm}}_ {\text
+ {human-
+SDS}} = L_{ \t
+ext { SDS}}(\mathbf {N}^{\mathbf {k}}_{\text {body}}, \mathbf {S}^{\mathbf {k}}_{\text {skel}}, P_{\text {body}}) \qquad \qquad \\ \qquad \qquad + L_{\text {SDS}}(\mathbf {N}^{\mathbf {k}}_{\text {cloth+body}}, \mathbf {S}^{\mathbf {k}}_{\text {skel}}, P_{\text {cloth+body}}), \end {split} 
+(6)
+  \b
+egin {spl i t} L^{\
+text {r
+gb}}_ {\text
+ {human-
+SDS}} = L_{ \t
+ext { SDS}}(\mathbf {I}^{\mathbf {k}}_{\text {body}}, \mathbf {S}^{\mathbf {k}}_{\text {skel}}, P_{\text {body}}) \qquad \qquad \\ \qquad \qquad + L_{\text {SDS}}(\mathbf {N}^{\mathbf {k}}_{\text {cloth+body}}, \mathbf {S}^{\mathbf {k}}_{\text {skel}}, P_{\text {cloth+body}}), \end {split} 
+(7)
+where Nk
+body and Ik
+body are the normal map and the RGB im-
+age rendered from the 3D human body mesh Mbody. Fur-
+ther, Nk
+cloth+body and Ik
+cloth+body are rendered from composi-
+tion of the 3D cloth and human body meshes (Mcloth and
+Mbody). Sk
+skel is the rendered image from 3D human skele-
+ton extracted from the 3D body template mesh Mt
+body. By
+incorporating human skeletons, the human SDS loss pro-
+vides accurate guidance for human regions.
+3.6. Optimization procedure
+Based on the above loss functions, we optimize the 3D cloth
+mesh Mcloth and the 3D human body mesh Mbody through
+two stages: geometry stage and texture stage.
+Geometry stage. In the geometry stage, we optimize the
+DMTets of 3D cloth and human body by minimizing loss
+function Lgeo, defined as follows:
+  \b e gin {spl i t} L_{\ t ext {
+geo}} = L _ {\tex
+t {cloth- t }} +
+ L_{\text {body-t}} + L^{\text {norm}}_{\text {cloth-SDS}} + L^{\text {norm}}_{\text {human-SDS}} + L^{\text {geo}}_{\text {recon}}. \end {split} 
+(8)
+Lgeo
+recon is defined as
+  \b
+egin { split} L ^{\t e xt {geo}}_{\text {recon}} &= L_{\text {normal}} + L_{\text {sil}} + L_{\text {pen}}. \end {split} 
+(9)
+Lnormal is the L2 distance between rendered normal maps
+and their optimization targets N in the front and back view.
+Lsil is the L2 distance between the rendered silhouettes and
+their optimization targets S in the front and back view.
+Lnormal and Lsil are calculated for both the cloth and the hu-
+man body. Lpen penalizes intersection between the 3D cloth
+and human body meshes.
+Texture stage. In the texture stage, we optimize the tex-
+ture of the meshes (Mcloth and Mbody) obtained from the
+geometry stage. To this end, we construct MLP networks
+(Ψcloth and Ψhuman) that predict RGB color given the vertex
+coordinate of the mesh. These MLP networks are trained
+by minimizing the loss function Ltex, defined as:
+  \b e gin 
+{split} L _ {\te
+xt {tex}}  &= L
+^{\text {rgb}}_{\text {cloth-SDS}} + L^{\text {rgb}}_{\text {human-SDS}} + L^{\text {tex}}_{\text {recon}}. \end {split} 
+(10)
+Ltex
+recon is a combination of L2 and LPIPS [61] distances be-
+tween rendered RGB images and their optimization target
+(i.e., I) in the front and back view. Ltex
+recon is calculated for
+both cloth and human body.
+ClothDiffusion
+“white and blue sport shirt”
+Text prompt (𝑃!"#$%)
+CLIP
+Encoder
+Noise (𝝐)
+Predicted 
+noise (#𝝐)
+Cloth sil. + Human skel.
+(𝐒!"#$%&'()")
+Cloth image 
+(Icloth)
+Cloth
+Net
+Body
+Net
+Cloth sil. + Human skel. 
+(𝐒!"#$%&'()")
+Image (I)
+If 3D GTs exist
+Rendering
+Silhouette 
+Estimator
+Cloth image (Icloth)
+ControlNet
+StableDiffusion (UNet)
+(a) Data collection
+(b) Architecture of ClothDiffusion
+BLIP
+“...”
+Text prompt 
+(𝑃!"#$%)
+…
+…
+Figure 4.
+Training process of ClothDiffusion.
+We train the
+ClothDiffusion based on our collected cloth-specific training data.
+The ClothDiffusion follows ControlNet architecture with the pre-
+trained StableDiffusion.
+4. ClothDiffusion
+Fig. 4 shows the training process of ClothDiffusion, which
+is used in the cloth SDS loss.
+4.1. Training data collection
+To train ClothDiffusion, we collect three data types: 1) cloth
+images, 2) conditional images for generation, and 3) text
+prompts. The cloth images are obtained by running the sil-
+houette estimator [26] from images of the training datasets.
+The conditional images are acquired by projecting a 3D
+cloth template mesh and a human skeleton extracted from
+a 3D body mesh. The 3D cloth and human templates are
+derived from an image using ClothNet and BodyNet un-
+less 3D ground-truths (GTs) are available in the training
+datasets. The text prompts are acquired from BLIP [31], a
+state-of-the-art image captioning method. The acquired text
+prompt provides detailed descriptions of cloth color, shape,
+and style in the cloth image.
+4.2. Learning cloth generation
+ClothDiffusion consists of two networks:
+StableDiffu-
+sion [47] and ControlNet [60]. StableDiffusion estimates
+noise, given a latent embedding of a cloth image with sam-
+pled noise.
+ControlNet takes a conditional image (i.e.,
+cloth silhouette and human skeleton) and gives additional
+information for StableDiffusion to generate a plausible im-
+age based on the conditional image. Using the pre-trained
+weights of StableDiffusion, we train ControlNet and par-
+tial layers of StableDiffusion while keeping its other lay-
+ers frozen, following the fine-tuning strategy of ControlNet.
+This fine-tuning strategy allows ClothDiffusion to generate
+realistic cloth images by leveraging the strong prior knowl-
+edge embedded in the pre-trained StableDiffusion.
+
+
+5. Experiments
+5.1. Datasets
+4D-DRESS. 4D-DRESS [53] contains high-quality 3D
+scans of 64 clothing sequences, with diverse human poses.
+This dataset is used solely for evaluation purposes.
+For
+each clothing sequence in 4D-DRESS, we randomly sam-
+ple one human pose and render the corresponding 3D scan
+from pre-defined camera viewpoints to obtain the test im-
+ages. The evaluation set includes 64 test images, and 124
+clothes appear in the test images.
+THuman2.0. THuman2.0 [57] contains 3D scans of 525
+clothed humans. From all scans, we uniformly sample 52
+scans for evaluation. As THuman2.0 does not contain GTs
+of 3D cloth, we generate 3D cloth pseudo-GTs by running
+GALA [24] on the 3D human scans. We obtain test images
+by rendering the 3D scans with pre-defined camera view-
+points. The evaluation set includes 52 test images, and 104
+clothes appear in the test images.
+Training datasets of ClothDiffusion. DeepFashion [35],
+SHHQ [13], MSCOCO [34], and THuman2.0 [57] are used
+to train ClothDiffusion. DeepFashion [35] and SHHQ [13]
+are large-scale datasets that contain diverse images of
+clothed humans. We use the official training set from Deep-
+Fashion and uniformly sample 10,000 images from SHHQ.
+MSCOCO [34] contains a wide variety of human poses, and
+we utilize its official training set. THuman2.0 [57] provides
+multi-view images of clothed people, excluding duplicates
+from the evaluation set.
+5.2. Evaluation metrics
+3D geometry reconstruction. We evaluate the geometry
+of 3D reconstructions by measuring CD (chamfer distance)
+and NC (normal consistency), following Huang et al. [20].
+Specifically, we apply Procrustes alignment on the recon-
+structed 3D meshes based on the SMPL-X meshes of 3D
+GTs. With the aligned 3D meshes, we measure CD and NC
+between reconstructed and GT meshes. To measure NC, we
+calculate the average L2 distance between normal images of
+reconstructed and GT meshes, rendered at {0◦, 90◦, 180◦,
+270◦} from fixed viewpoints.
+3D texture reconstruction.
+We evaluate the texture of
+3D reconstructions, using PSNR (peak signal-to-noise ra-
+tio) and LPIPS [61]. (learned perceptual image patch simi-
+larity). Before evaluation, we align the reconstructions with
+3D human GT poses to eliminate the influence of geometric
+errors. Then, we calculate PSNR and LPIPS between RGB
+images of reconstructed and GT meshes rendered at {0◦,
+90◦, 180◦, 270◦} as in the NC measurement.
+2D image generation of diffusion model. To verify the
+feasibility of our proposed ClothDiffusion, we evaluate
+the generated images from the diffusion model via CLIP-
+Score [16] and Cloth-IoU. CLIP-Score [16] measures the
+BCNet
+ClothWild + PIXIE
+(ClothNet & BodyNet)
+DeClotH
+(Ours)
+Input image
+Figure 5. Effects of the optimization process of DeClotH.
+4D-DRESS (cloth)
+4D-DRESS (cloth+human)
+Methods
+CD↓
+NC↓
+CD↓
+NC↓
+BCNet [22]
+4.387
+0.046
+3.925
+0.090
+SMPLicit [8]
+4.080
+0.038
+3.605
+0.091
+ClothWild [38] + PIXIE [12]
+(ClothNet & BodyNet)
+4.100
+0.038
+3.526
+0.087
+DeClotH (Ours)
+3.902
+0.037
+3.292
+0.079
+Table 1. Effectiveness of the DeClotH’s optimization process
+compared to 3D template meshes of ClothNet and BodyNet.
+correlation between cloth text prompts and generated im-
+ages.
+Cloth-IoU measures a proportion of the intersec-
+tion between generated cloth images and GT counterparts.
+Specifically, we extract cloth silhouettes from the generated
+images by running SAM [26] with cloth text prompts. Then,
+we calculate the IoU between the extracted silhouettes and
+GT counterparts. The cloth text prompts for evaluation are
+obtained by running BLIP [31] from the test images.
+5.3. Ablation study
+We carry out the ablation study on 4D-DRESS [53]. As 4D-
+DRESS does not contain 3D human body scans excluding
+clothes, we compare methods in two tracks: evaluating 3D
+cloth (cloth) and evaluating the composition of 3D cloth and
+the human body (cloth + human).
+Effectiveness of template-based optimization. Fig. 5 and
+Tab. 1 show that our optimization framework produces sig-
+nificantly more realistic 3D reconstruction results, com-
+pared to the 3D template meshes from ClothNet and Bo-
+dyNet. ClothNet and BodyNet are model-based methods
+that estimate the shape of pre-defined 3D template mod-
+els of cloth and human body.
+Thereby, their 3D tem-
+plate meshes cannot deviate from the topology of the tem-
+plate models. Our framework, DeClotH builds upon these
+
+
+(a) w/o reg. loss
+(b) w/o Lcloth-t
+(c) w/o Lhuman-t
+(d) Ours
+Input image
+Figure 6. Effects of template regularization loss.
+4D-DRESS (cloth)
+4D-DRESS (cloth + human)
+Lcloth-t
+Lbody-t
+CD↓
+NC↓
+PSNR↑
+LPIPS↓
+CD↓
+NC↓
+PSNR↑
+LPIPS↓
+✗
+✗
+8.245
+0.047
+28.959
+0.051
+3.880
+0.093
+22.992
+0.071
+✗
+✓
+8.386
+0.047
+29.028
+0.055
+3.567
+0.084
+23.149
+0.070
+✓
+✗
+4.078
+0.038
+30.828
+0.038
+3.586
+0.085
+23.422
+0.067
+✓
+✓
+3.902
+0.037
+31.582
+0.033
+3.292
+0.079
+23.921
+0.065
+Table 2. Ablation studies for template regularization loss.
+3D template meshes by optimizing the 3D cloth and hu-
+man body with the optimization targets (e.g., normal maps
+and silhouettes), which have rich geometric information in
+the input image.
+Through the optimization process, our
+framework can reconstruct fine geometric details, such as
+cloth wrinkles, while keeping the overall shape of 3D tem-
+plates. Furthermore, our framework reconstructs the texture
+of cloth and human body along with the geometry, resulting
+in more lifelike reconstructions.
+Effectiveness of template regularization loss. Fig. 6 and
+Tab. 2 show that the template regularization loss signifi-
+cantly drops the 3D reconstruction error, especially when
+the cloth and human body are occluded. Without the tem-
+plate regularization loss, the optimization of 3D cloth and
+human body highly relies on the optimization targets (e.g.,
+cloth silhouette) of the front views. Our proposed template
+regularization loss reduces the heavy reliance, by using the
+3D template models as helpful supervision for the occluded
+parts. Thus, the template regularization loss alleviates the
+occlusion issue and enhances the 3D reconstruction in both
+the cloth and the human body.
+Effectiveness of cloth & human SDS loss.
+Fig. 7 and
+Tab. 3 show that the cloth and human SDS losses are much
+more effective in reconstructing geometry and texture than
+vanilla SDS loss (i.e., LSD-SDS) that uses StableDiffusion
+for reconstruction guidance. As shown in Fig. 7 (c), the re-
+constructed 3D jacket has an artifact near the boundary be-
+tween cloth and human body, when using the vanilla SDS
+loss. This artifact indicates that StableDiffusion has inad-
+equate prior knowledge to separately reconstruct 3D cloth
+from the human body. On the other hand, the cloth SDS
+loss using ClothDiffusion effectively supervises the 3D ge-
+ometry to follow the desired cloth shape.
+Ablation on ClothDiffusion network. Tab. 4 shows our
+(a) w/o SDS loss
+(b) Lcloth-SDS →LSD-SDS (c) Lhuman-SDS →LSD-SDS
+(d) Ours
+Input image
+Figure 7. Effects of cloth and human SDS loss.
+4D-DRESS (cloth)
+4D-DRESS (cloth + human)
+Lcloth-SDS
+Lhuman-SDS
+CD↓
+NC↓
+PSNR↑LPIPS↓
+CD↓
+NC↓
+PSNR↑LPIPS↓
+✗
+✗
+4.704
+0.041
+28.151
+0.047
+3.635
+0.086
+22.895
+0.083
+→LSD-SDS
+✓
+4.922
+0.040
+30.310
+0.041
+3.711
+0.085
+23.267
+0.068
+✓
+→LSD-SDS
+3.955
+0.037
+31.295
+0.034
+3.601
+0.085
+23.389
+0.067
+✓
+✓
+3.902
+0.037
+31.582
+0.033
+3.292
+0.079
+23.921
+0.065
+Table 3. Ablation studies for cloth and human SDS loss.
+4D-DRESS (cloth)
+Networks
+CLIP-Score↑
+Cloth-IoU↑
+StableDiffusion [47]
+0.696
+0.112
+HumanDiffusion [60]
+0.683
+0.454
+ClothDiffusion (Ours)
+0.713
+0.548
+Table 4. Ablation studies for ClothDiffusion network.
+proposed ClothDiffusion is superior to other diffusion mod-
+els in generating cloth images. StableDiffusion [47] and
+HumanDiffusion [60] commonly produce images that con-
+tain not only cloth but also other contents (e.g., human body
+and background scene). Thus, StableDiffusion and Human-
+Diffusion have a low CLIP-Score [16] on text prompts that
+describe clothes only. On the other hand, ClothDiffusion
+has a high CLIP-Score since it is specialized to generate
+cloth images without including other contents. Addition-
+ally, ClothDiffusion achieves the highest Cloth-IoU among
+the diffusion models, since ClothDiffusion takes a cloth sil-
+houette with a human skeleton as a condition, accurately
+guiding the region where the cloth will be generated. Such
+superiority of ClothDiffusion in generating cloth images is
+beneficial in accurate guidance for reconstructing 3D cloth.
+5.4. Comparison with state-of-the-art methods
+We compare our method with recent 3D cloth decom-
+position and 3D clothed human reconstruction methods:
+GALA∗[24], SiTH [17] + GALA [24], and TeCH [20] +
+GALA [24].
+GALA∗is a modified version of the orig-
+inal GALA to take a single image as input instead of a
+3D scan. Specifically, GALA∗only applies loss functions
+corresponding to the front view, ignoring other view direc-
+tions. SiTH + GALA and TeCH + GALA are two-stage
+reconstruction methods that first reconstruct a 3D clothed
+human, as one unified mesh, and decompose the 3D cloth
+
+
+DeClotH (Ours)
+GALA*
+SiTH + GALA
+Input image
+TeCH + GALA
+Figure 8. Qualitative comparison with 3D cloth decomposition and 3D clothed human reconstruction methods: GALA∗[24],
+SiTH [17]+GALA [24], and TeCH [20]+GALA [24], on 4D-DRESS [53] and THuman2.0 [57]. ∗denotes the algorithm is modified to
+take a single image as input instead of a 3D scan. We highlight their representative failure cases with red circles.
+4D-DRESS (cloth)
+4D-DRESS (cloth + human)
+THuman2.0 (cloth)
+THuman2.0 (cloth + human)
+Methods
+CD↓
+NC↓
+PSNR↑
+LPIPS↓
+CD↓
+NC↓
+PSNR↑
+LPIPS↓
+CD↓
+NC↓
+PSNR↑
+LPIPS↓
+CD↓
+NC↓
+PSNR↑
+LPIPS↓
+GALA∗[24]
+5.790
+0.049
+25.363
+0.068
+3.451
+0.102
+19.490
+0.117
+2.211
+0.059
+26.553
+0.050
+2.132
+0.118
+22.183
+0.079
+SiTH [17] + GALA [24]
+6.980
+0.046
+27.725
+0.064
+3.737
+0.087
+22.009
+0.102
+2.486
+0.062
+28.615
+0.056
+1.828
+0.094
+25.009
+0.060
+TeCH [20] + GALA [24]
+5.043
+0.039
+29.123
+0.045
+3.334
+0.083
+23.140
+0.076
+2.112
+0.051
+29.584
+0.044
+1.900
+0.091
+25.618
+0.048
+DeClotH (Ours)
+3.902
+0.037
+31.582
+0.033
+3.292
+0.079
+23.921
+0.065
+1.756
+0.044
+30.612
+0.032
+1.812
+0.089
+25.421
+0.046
+Table 5. Quantitative comparison with existing 3D cloth decomposition and 3D clothed human reconstruction methods.
+mesh from the reconstructed 3D clothed human mesh.
+Fig. 8 and Tab. 5 show the superior performance of our
+DeClotH compared to the prior arts on 4D-DRESS [53]
+and THuman2.0 [57].
+GALA∗[24] highly relies on the
+front view, which results in undesirable appearances, es-
+pecially when the cloth is occluded. On the other hand,
+DeClotH produces much more robust results from occlu-
+sion by using 3D template models of cloth and human body
+as strong geometric priors for reconstruction.
+The two-
+stage reconstruction methods, SiTH [17] + GALA [24] and
+TeCH [20] + GALA [24], also suffer from undesirable ar-
+tifacts of reconstruction results, such as torn clothes. The
+reason for such artifacts is that the 3D geometric error of
+the first stage, 3D clothed human reconstruction, fatally
+propagates to the second stage, 3D cloth decomposition.
+The 3D clothed human reconstruction contains inevitable
+3D geometric errors because of the ill-posedness of recon-
+struction. The error of the first stage would be a bad source
+for the 3D cloth decomposition method, resulting in a fail-
+ure of decomposition. Compared to the two-stage recon-
+struction methods, DeClotH is a one-stage reconstruction
+method that is free from the above issue.
+Additionally,
+while the two-stage methods do not consider the geometries
+of the cloth and human body during the reconstruction, De-
+ClotH effectively guides the geometries by leveraging 3D
+template models and ClothDiffusion. We provide further
+discussion in the supplementary material.
+6. Conclusion
+We introduce DeClotH, a novel and powerful framework
+that reconstructs decomposable 3D cloth and human body
+from a single image. Based on 3D template models of cloth
+and human body, our proposed template regularization loss
+and cloth diffusion model effectively infer geometry and
+texture in the invisible regions of 3D cloth and human body.
+As a result, our framework significantly outperforms base-
+line methods, qualitatively and quantitatively.
+Acknowledgements.
+This work was supported in part
+by the IITP grants [No.2021-0-01343, Artificial Intelli-
+gence Graduate School Program (Seoul National Univer-
+sity), No. 2021-0-02068, and No.2023-0-00156], and the
+NOTIE grant (No. RS-2024-00432410) by the Korean gov-
+ernment.
+
+
+DeClotH: Decomposable 3D Cloth and Human Body Reconstruction
+from a Single Image
+Supplementary Material
+In this supplementary material, we present additional
+technical details and more experimental results that could
+not be included in the main manuscript due to the lack of
+pages. The contents are summarized below:
+• S1. Controlling reconstruction results
+• S2. Evaluation of pose deformation
+• S3. Evaluation with POR Score
+• S4. Implementation details
+• S5. Discussion of two-stage reconstruction
+• S6. Limitations and future works
+• S7. More qualitative results
+S1. Controlling reconstruction results
+Our proposed DeClotH has the advantage of easily modi-
+fying the reconstructed results for virtual try-on and pose
+deformation. Fig. S1 illustrates the examples of control-
+ling the reconstruction results. First, we can transfer the re-
+constructed 3D clothes into a new 3D avatar, by fitting 3D
+clothes based on the SMPL+H human model (blue part of
+the figure). Second, by forwarding new SMPL+H pose pa-
+rameters to the linear blend skinning (LBS) of our pipeline,
+we can animate the reconstruction results (green part of the
+figure). Like these examples, reconstructing separate 3D
+geometries is highly useful for applying human reconstruc-
+tion systems for various downstream applications.
+S2. Evaluation of pose deformation
+We demonstrate that our DeClotH is also superior to exist-
+ing methods in applying pose deformation to reconstruction
+results. For the evaluation, we deform the reconstruction
+results with GT human pose parameters of 4D-DRESS [53]
+test set. 4D-DRESS contains sequences of 3D cloth and hu-
+man scans, driven by human pose parameters. Using these
+pose parameters, we deform the reconstructed meshes to
+follow the first pose of each sequence. Then, we evalu-
+ate the deformed meshes based on the GT 3D scans cor-
+responding to the first pose.
+The evaluation results are
+shown in Tab. S1, indicating our DeClotH has the advan-
+tage over other methods for animating reconstruction results
+with novel human poses.
+S3. Evaluation with POR Score
+We provide more quantitative comparison results through
+POR Score (pixel-wise object removal score) proposed by
+Virtual try-on
+Pose deformation
+Input image
+Reconstruction results
+3D cloth transfer
+Pose deformation results
+Input image
+3D avatar
+Figure S1. Examples for controlling 3D reconstruction results.
+Our reconstruction results are editable, such as virtual try-on and
+pose deformation.
+Kim et al. [24]. The POR Score is devised to evaluate the
+quality of 3D decomposition in the absence of 3D cloth
+GT scans. This metric measures the proportion of remain-
+ing cloth pixels in rendered human body images, after per-
+forming cloth decomposition. Specifically, given a recon-
+structed 3D human body with the target cloth removed,
+we render 30 images using uniformly distributed camera
+viewpoints. Subsequently, we run the off-the-shelf image
+segmentation method, SAM [26], to obtain the cloth seg-
+mentation corresponding to the cloth prompt.
+Here, the
+cloth prompts are acquired by running the image captioning
+method, BLIP [31]. From the obtained segmentations, the
+POR Score measures the ratio of pixels classified as the tar-
+
+
+4D-DRESS (cloth)
+4D-DRESS (cloth + human)
+Methods
+CD↓
+NC↓
+PSNR↑LPIPS↓
+CD↓
+NC↓
+PSNR↑LPIPS↓
+GALA∗[24]
+5.251
+0.044
+25.390
+0.069
+2.844
+0.088
+19.454
+0.117
+SiTH [17] + GALA [24]
+6.560
+0.042
+27.578
+0.065
+3.364
+0.078
+21.886
+0.102
+TeCH [20] + GALA [24]
+4.425
+0.033
+29.271
+0.044
+2.422
+0.059
+23.276
+0.070
+DeClotH (Ours)
+2.782
+0.030
+31.489
+0.033
+2.271
+0.055
+23.369
+0.067
+Table S1. Quantitative comparisons of pose deformation with
+3D cloth decomposition and 3D cloth human reconstruction
+methods.
+Methods
+POR Score↓
+GALA∗[24]
+0.418
+SiTH [17] + GALA [24]
+0.246
+TeCH [20] + GALA [24]
+0.225
+DeClotH (Ours)
+0.218
+Table S2. Quantitative comparisons of POR Score [24] with
+3D cloth decomposition and 3D cloth human reconstruction
+methods, on 4D-DRESS [53].
+get cloth in the image. A lower POR Score indicates better
+performance of the 3D cloth decomposition. As shown in
+Tab. S2, our framework also outperforms the other methods
+in POR Score, which demonstrates that DeClotH achieves
+better results in 3D cloth and human body decomposition.
+S4. Implementation details
+Network architecture. The DMTets, which are optimized
+at the geometry stage, are implemented by using two fully-
+connected layers with 32 hidden dimensions and ReLU ac-
+tivations. The DMTets take the 3D vertex coordinates of the
+tetrahedral grid (XT , T) as input, where the coordinates are
+normalized between -0.5 and 0.5. Then, the coordinates are
+encoded by a hash positional encoding [39] with a maxi-
+mum resolution of 1024 and 16 resolution levels. The MLP
+networks, which are optimized at the texture stage, are im-
+plemented by using a fully-connected layer with 32 hidden
+dimension and ReLU activations. The MLP networks take
+the mesh coordinates as input, after applying the hash posi-
+tional encoding with a maximum resolution of 2048. Addi-
+tionally, we implement a MLP network, which takes cam-
+era parameter k and produces adaptive background colors
+of the rendering pipeline, using two fully-connected layers.
+Optimization details. PyTorch [43] is used for the imple-
+mentation. In both the geometry and texture stages, we use
+Adam optimizer [25] with 4000 optimization steps. The
+initial learning rate is set to 0.001 and reduced by an ex-
+ponential scheduler, η = 0.001 × 0.1step/4000. During the
+optimization process, we render 3D cloth and human body
+based on the spherical coordinate system, (r, θ, ϕ), where
+r denotes the distance from the spherical origin, θ denotes
+the elevation angle, and ϕ denotes the azimuth angle. We
+3D human scan (GT)
+3D cloth decomposition
+Rendered images 
+Cloth silhouettes
+GALA
+TeCH + GALA
+Rendered images 
+Cloth silhouettes
+GALA
+GALA
+Input image
+``
+TeCH
+3D reconstruction
+3D cloth decomposition
+(b) Domain gap in rendered images
+(a) Error propagation of 3D human reconstruction
+GALA
+TeCH + GALA
+Input image
+``
+TeCH
+3D reconstruction
+3D human scan (GT)
+GALA
+3D cloth decomposition
+3D cloth decomposition
+GALA
+Figure S2. Failure examples of two-stage reconstruction meth-
+ods: (a) propagation of 3D reconstruction error and (b) domain
+gap in rendered images.
+set r ∈[0.7, 1.3], θ ∈[−30◦, 30◦], and ϕ ∈[−180◦, 180◦],
+with uniform sampling. To capture fine details of human
+faces, we additionally use zoomed-in camera views for the
+rendering. Specifically, we set the spherical origin to the
+3D position of SMPL+H head keypoint, r ∈[0.3, 0.4],
+θ ∈[−90◦, 90◦], and ϕ ∈[−90◦, 90◦]. All the experiments
+are conducted with an NVIDIA Quadro RTX 8000 GPU.
+Training details for ClothDiffusion. To train ClothDiffu-
+sion described in Sec. 4, we adopt StableDiffusion [47] in
+version 1.5. The weights of ClothDiffusion are updated by
+Adam optimizer [25] with 200k training steps and a mini-
+batch size of 8. The learning rate is set to 10−5. We train
+the model with an NVIDIA Quadro RTX 8000 GPU.
+S5. Discussion of two-stage reconstruction
+In this section, we provide a deep discussion about the ad-
+vantages of our DeClotH compared to the two-stage recon-
+struction methods, SiTH [17] + GALA [24] and TeCH [20]
++ GALA [24]. We suggest that the two-stage reconstruction
+methods have two drawbacks: 1) propagation of 3D recon-
+struction error and 2) domain gap in the rendered images.

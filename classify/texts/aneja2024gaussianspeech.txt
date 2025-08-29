@@ -1,0 +1,1328 @@
+Title: GaussianSpeech: Audio-Driven Gaussian Avatars
+
+GaussianSpeech: Audio-Driven Gaussian Avatars
+Shivangi Aneja1
+Artem Sevastopolsky1
+Tobias Kirschstein1
+Justus Thies2,3
+Angela Dai1
+Matthias Nießner1
+1Technical University of Munich
+2MPI-IS, T¨ubingen
+3TU Darmstadt
+Catastrophic
+Economic
+[silence]
+[Ca][tas][troph]  [ic]
+[e-] [co] [no] [mic]
+Figure 1. Given input speech signal, GaussianSpeech can synthesize photorealistic 3D-consistent talking human head avatars. Our method
+can generate realistic and high-quality animations, including mouth interiors such as teeth, wrinkles, and specularities in the eyes. We
+handle diverse facial geometry, including hair buns and mustaches/beards, while effectively synchronizing to the audio signal.
+Abstract
+We introduce GaussianSpeech1, a novel approach that
+synthesizes high-fidelity animation sequences of photo-
+realistic, personalized 3D human head avatars from spo-
+ken audio. To capture the expressive, detailed nature of
+human heads, including skin furrowing and finer-scale fa-
+cial movements, we propose to couple speech signal with
+3D Gaussian splatting to create realistic, temporally co-
+herent motion sequences. We propose a compact and ef-
+ficient 3DGS-based avatar representation that generates
+expression-dependent color and leverages wrinkle- and
+perceptually-based losses to synthesize facial details, in-
+cluding wrinkles that occur with different expressions. To
+enable sequence modeling of 3D Gaussian splats with au-
+dio, we devise an audio-conditioned transformer model ca-
+pable of extracting lip and expression features directly from
+audio input. Due to the absence of high-quality dataset
+of talking humans in correspondence with audio, we cap-
+tured a new large-scale multi-view dataset of audio-visual
+sequences of talking humans with native English accents
+and diverse facial geometry. GaussianSpeech consistently
+achieves state-of-the-art quality with visually natural mo-
+tion, while encompassing diverse facial expressions and
+styles.
+1Project Page:
+https://shivangi- aneja.github.io/
+projects/gaussianspeech
+1. Introduction
+Generating animated sequences of photorealistic 3D head
+avatars from spoken audio is important for many graph-
+ics applications, including immersive telepresence, movies,
+and virtual assistants. In particular, rendering photorealistic
+views of such animated avatars from various viewpoints is
+crucial for realistic, immersive digital media, for instance,
+telepresence to a meeting room requires a photorealistic ap-
+pearance for all viewpoints of the people in the room, or
+AR/VR where users can freely change their viewpoint.
+Creating such photorealistic animated 3D avatars from
+audio remains challenging, as it requires maintaining pho-
+torealistic fidelity throughout the animation sequence, as
+well as from various viewpoints. Existing work thus fo-
+cuses on addressing these objectives independently; vari-
+ous works focus on re-enacting videos in the 2D domain
+[3, 9, 21, 32, 33, 40, 46, 48, 69, 70, 72], creating front-
+view video animations, while others focus on animating 3D
+face geometry from audio [18, 44, 55, 67]. In contrast, we
+aim to create innately 3D audio-driven avatars enabling 3D-
+consistent, free-viewpoint photorealistic synthesis needed
+for immersive digital communication.
+In order to characterize audio-driven 3D animation of a
+person from multi-view input, we propose to represent an-
+imated head sequences with explicit 3D Gaussian points,
+leveraging the detailed and expressive representation space
+1
+arXiv:2411.18675v1  [cs.CV]  27 Nov 2024
+
+
+of 3D Gaussian Splatting (3DGS) [30]. 3DGS offers a flex-
+ible representation capable of handling complex and irreg-
+ular facial geometry and appearance (e.g., different skin
+tones, beard, skin creasing) and real-time rendering, mak-
+ing it a well-suited choice for facial animation.
+Thus, we design an efficient, personalized 3D Gaussian
+avatar representation from multi-view input observations
+of a person, containing relatively few Gaussian splats in
+order to make sequence modeling of photorealistic 3DGS
+tractable and allowing us to operate at real-time rendering
+rates. This is achieved through learning expression- and
+view-dependent color, and our losses focusing on percep-
+tual face quality using a face recognition network, as well
+as focusing on fine-scale details through wrinkle detection.
+Our efficient, high-quality avatar can handle the nuances
+of the facial geometry, like skin tone variation and dynamic
+wrinkles. We then use this person-specific avatar to guide
+audio-driven head animation, enabled by our transformer-
+based sequence model. We learn lip motion features and
+wrinkle features directly from audio to obtain expression
+input to train our transformer model, enabling photorealistic
+generation of a coherent animation sequence.
+To create high-fidelity, audio-driven animated 3D head
+avatars, we require high-resolution multi-view data paired
+with high-quality audio recordings.
+Existing multiview
+datasets [31, 62] unfortunately lack either high-quality
+video or high-quality audio captures.
+In the absence of
+large-scale and high-quality paired audio-multiview data of
+people speaking, we collected a new multiview dataset with
+16 cameras for 6 native English participants captured at 30
+fps and 3208x2200 resolution with overall recordings of
+∼3.5 hours, an order of magnitude larger than the existing
+datasets. We will make the dataset and the corresponding
+3D face trackings publicly available for research purposes.
+In this work, we introduce a novel approach for high-
+fidelity and multi-view consistent sequence animation of
+photorealistic 3D head avatars for content creation appli-
+cations. To summarize, our contributions are:
+• The first transformer-based sequence model for audio-
+driven head animation synthesis of a lightweight 3DGS
+based avatar. By animating our optimized 3DGS avatar
+directly with our transformer model, we achieve tempo-
+rally coherent animation sequences while characterizing
+fine-scale face details and speaker-specific style.
+• A new high-quality audio-video dataset, comprising high-
+resolution 16-view dataset of 6 native English speakers
+(Standard American & British). The dataset has a total of
+2500 sequences, with overall recordings of ∼3.5 hours.
+2. Related Work
+Audio-driven facial animation plays an important role in
+digital media.
+Here we discuss audio-driven animation
+methods generating different output representations.
+2.1. 2D-Based Methods.
+There is a large corpus of works in the field of 2D
+audio-driven facial animation operating on monocular RGB
+videos, synthesizing 2D sequences directly [5–8, 11, 14,
+20, 22, 23, 26, 28, 38, 41, 47, 50, 51, 57, 59–61, 63,
+64, 66, 68, 73, 74].
+However, these methods operate in
+pixel space and can produce very limited side views. An-
+other line of work also operating on frontal RGB videos
+but using intermediate 3D representations are based on
+3DMMs [16, 25, 49, 52, 56, 71]. Although these meth-
+ods generate photorealistic results, they use 3DMMs as a
+proxy to improve the animation quality and are still limited
+to frontal and limited side views. In contrast, we model
+head avatars with explicit 3D Gaussian points, thus, en-
+abling simultaneous free-viewpoint rendering for different
+viewpoints which is critical for telepresence applications.
+2.2. Parametric Model Based Methods.
+Another promising line of work is to animate 3D facial
+geometry directly. A vast majority of these works model
+speech-conditioned animation for either artist-designed
+template meshes [12, 13, 18, 29, 44, 54, 55, 67] or blend-
+shapes for 3D parametric head model [1, 39]. While these
+methods can faithfully match facial motion with the speech
+signal and can be rendered from different viewpoints, they
+do not model any appearance or texture information and
+cannot handle complex and irregular facial geometry. The
+synthesized animations, therefore, do not look realistic.
+Compared to these, our method optimizes a 3DGS-based
+avatar and models appearance using expression and view-
+dependent color, generating photorealistic results.
+2.3. Radiance Fields Based Methods.
+Recent speech-driven animation methods based on radiance
+fields [21, 32, 35, 40, 46, 69, 70] have gained popularity due
+to their ability to model directly from images. Neural Ra-
+diance Fields (NeRF) [37] possess the capability to render
+a scene from arbitrary viewpoints, however, existing audio-
+driven methods utilizing NeRF are designed for monocular
+videos.
+Concurrent to ours, few recent works [9, 24, 33]
+leverage 3DGS [30] for generating audio-driven talking
+heads. GaussianTalker [9] and TalkingGaussian [33] focus
+on improving the rendering speed for monocular videos.
+EmoTalk3D [24] can synthesize multi-view renders, how-
+ever these methods generate sequences frame-by-frame,
+thus suffer from jitter and scaling artefacts.
+In contrast,
+our method synthesizes multi-view consistent and tem-
+porally smooth results, including fine-scale details like
+dynamic wrinkles, by leveraging a transformer-based se-
+quence model and an efficient 3DGS-based avatar.
+2
+
+
+greasy
+your
+don’t
+carry
+she
+had
+Figure 2. Random frames selected for each participant (top) from
+the dataset and corresponding zoom-in for the mouth region (bot-
+tom). We captured a gender-balanced dataset of native speakers
+with different English accents and diverse facial geometry includ-
+ing different skin tones, beard and glasses to maximize diversity.
+3. Multi-View Audio-Visual Dataset
+We collected a novel dataset consisting of six native English
+speakers captured using a multiview rig of 16 cameras (see
+Supp.). We record sequences at 30 FPS at 3208 x 2200 res-
+olution. To achieve quality and diversity, we specifically
+capture native English speakers with different accents, in-
+cluding American, British, and Canadian. We selected par-
+ticipants aged 20-50 with different genders and facial geom-
+etry including beard and glasses to increase the diversity,
+see Fig. 2. We collected 415 sequences for every subject,
+leading to an overall recording time of 30-35 minutes for
+each of the 16 cameras. The spoken sentences are chosen
+from the TIMIT [19] corpus to maximize the phonetic di-
+versity. Our dataset stands out from the existing datasets in
+terms of quality and quantity.
+While certain datasets with audio-visual talking faces ex-
+ist, they are limited in quality. The RAVDESS dataset [36]
+contains a set of native speakers, but it has only 2 unique se-
+quences per participant with North American accent, while
+we captured three different English accents and 415 unique
+sentences. The MEAD dataset [62] captured the partici-
+pants with 250 unique sentences per participant. However,
+they focus on emotional speech synthesis due to which they
+capture only 40 unique natural expression/emotion per par-
+ticipant at a relatively lower resolution. The Nersemble [31]
+dataset captures the participants at high resolution, but it
+only contains 10 audio sequences per participant. Closest
+to ours is MultiFace [65], which captured participants in a
+spherical rig of 150 cameras; however, it captured only 50
+audio sequences per participant. Our dataset contains 415
+sequences for every subject at high resolution, an order of
+magnitude larger than existing datasets, see Tab. 1. We plan
+to release our entire dataset to the research community.
+4. Method
+Our method operates in two stages. First, we develop a
+lightweight and high-quality avatar initialization based on
+GaussianAvatars (Sec. 4.1). Next, we train a transformer-
+Multi-View 
+Input
+Optimized 3DGS Avatar
+Wrinkle Regularization
+Volume-based Pruning
+3DGS Parameters
+X #gaussians
+Color MLP      ￼θcolor
+Mouth Subdivision
+Shape              ￼
+Expression       ￼
+Translation      ￼
+Rotation          ￼
+Vertex Offset   ￼
+   
+β
+ψ
+t
+θ
+Δβ
+Face Tracking
+X  #frames
+Positon            ￼
+Scaling            ￼
+Rotation          ￼
+Opacity           ￼ 
+Latents            ￼
+μ
+s
+q
+α
+z
+Figure 3. Person-specific 3D Avatar: We compute 3D face track-
+ing and bind 3D Gaussians to the triangles of the tracked FLAME
+mesh. We apply volume-based pruning to prevent optimization
+to generate large amount of Gaussians, and apply subdivision of
+mesh triangles in the mouth region. We train color MLP θcolor to
+synthesize expression & view dependent color. We apply wrinkle
+regularization and perceptual losses to improve photorealism.
+based sequence model to animate our initialized avatar con-
+ditioned on personalized audio features (Sec. 4.2). Since
+our method requires 3D face tracking, we compute them
+from our multiview sequence dataset, similar to [42].
+4.1. Avatar Initialization
+We propose an efficient optimization strategy to compute a
+3DGS-based Gaussian avatar representation. We found that
+naively training GaussianAvatar [42] generates blurred/low-
+quality textures, especially, for scenarios with rapid facial
+movement like faster talking speed/head motion. In addi-
+tion, GaussianAvatar can not effectively handle dynamic
+wrinkles.
+Therefore, we introduce expression-dependent
+colors and propose several regularizations to improve qual-
+ity of our avatars described below and shown in Fig. 3.
+Volume-Based Pruning. We modify the pruning strat-
+egy used by GaussianAvatar. Instead of pruning 3D Gaus-
+sian splats based on a given opacity threshold ϵopacity, we
+select top 25,000 Gaussians with maximum opacity and 3D
+Gaussian’s scale volume combined at every pruning step as
+Gi = σi · (sx · sy · sz),
+(1)
+where σi refers to ith Gaussian’s opacity and sx, sy, sz
+refers to its scale along x, y, and z axis. Even when the op-
+timization generates excessive splats during densification,
+Dataset
+# Cam
+# Unique
+Resolution
+Duration
+Native
+Sentences
+(in minutes/camera)
+RAVDESS [36]
+1
+2
+1920 x 1080
+0.1 min
+✓
+MEAD [62]
+8
+250
+1920 x 1080
+20 min
+✗
+EmoTalk3D [24]
+11
+N/A
+512 x 512
+20 min
+✗
+Nersemble [31]
+16
+10
+3208 x 2200
+1 min
+✗
+MultiFace [65]
+150
+50
+2048 x 1334
+4 min
+✗
+Ours
+16
+415
+3208 x 2200
+35 min
+✓
+Table 1. Existing Audio-Video Dataset Comparison per partic-
+ipant in the datasets. Compared to existing datasets, ours is an
+order of magnitude larger and higher resolution. All datasets are
+captured at standard 30 fps.
+3
+
+
+this top-k pruning ensures that the optimized avatar does not
+contain too many 3D Gaussian splats. However, this leads
+to degradation in quality by removing small transparent 3D
+splats and generates blurry results. We, thus, propose to add
+additional regularizations to improve quality.
+Expression-dependent Color. Instead of learning SH
+Color for 3D Gaussians, our method generates color with
+a lightweight two-layer color MLP θcolor to faithfully syn-
+thesize dynamic wrinkles. Given a FLAME [34] expression
+code ψ and viewing direction v, we synthesize view- and
+expression-dependent color ci as:
+ci = θcolor(ψ; zi; v).
+(2)
+Note that we additionally learn per Gaussian latent features
+zi for sharper colors.
+Perceptual Losses.
+To improve the sharpness of the
+color generated by θcolor, we add a global and patch-based
+perceptual loss. The global perceptual loss Lglobal is based
+on the content and style features of the pre-trained face
+recognition model ArcFace [15]. The content loss Lcontent
+and style loss Lstyle are defined as:
+Lcontent =
+K
+X
+k=1
+ϕk(Irender) −ϕk(Igt)
+
+1,
+(3)
+Lstyle =
+K
+X
+k=1
+Gk(Irender) −Gk(Igt)
+
+1,
+(4)
+where ϕk and Gk refer to the feature maps and Gram matri-
+ces [27] for the layer k respectively. Irender and Igt refer to
+the rendered and ground-truth multiview image.
+Lglobal = Lcontent + Lstyle.
+(5)
+Lglobal explained above improves the quality of the tex-
+ture globally, however, it shows limited improvements for
+fine-scale skin areas and less observed regions like the
+mouth interior. We, therefore, employ a VGG-based loss
+on local image patches based on content features of the pre-
+trained VGG backbone as:
+Lpatch = 1
+J
+J
+X
+j=1
+K
+X
+k=1
+ζk(Ij
+render) −ζk(Ij
+gt)
+
+1,
+(6)
+where Ij
+render and Ij
+gt refer to the jth local patch regions from
+the rendered and ground-truth multiview images. We use
+128 × 128 patches and sample 16 local patches uniformly
+for the facial area by employing alpha matting.
+Wrinkle Regularization. Naive optimization of Gaus-
+sianAvatar [42] cannot represent skin creasing and fine-
+scale wrinkles, since it learns a constant color for the avatar,
+irrespective of facial expression. To overcome this, we in-
+troduce a lightweight color MLP θcolor that can generate
+expression-dependent wrinkles. We employ a novel wrin-
+kle feature loss Lwrinkle which focuses on refining dynamic
+wrinkles. Specifically, we run an off-the-shelf wrinkle de-
+tector [45] to extract wrinkle features and apply a content
+loss on its feature detection backbone during optimization:
+Lwrinkle =
+K
+X
+k=1
+Ψk(Irender) −Ψk(Igt)
+
+1.
+(7)
+Note that our method synthesizes wrinkles faithfully for
+avatars whose captured data includes dynamic wrinkles
+when speaking; if the avatar did not display wrinkles during
+speech, our method will not generate them.
+Mouth Region Subdivision. Since the mouth interior
+(especially teeth) is less frequently observed compared to
+other facial regions, the standard 3DGS-based densifica-
+tion cannot generate sufficient Gaussians for the mouth to
+synthesize high quality results. To address this, before op-
+timization, we subdivide the triangles which are used to
+initialize the Gaussians corresponding to the teeth in the
+FLAME mesh using a uniform four-way subdivision. By
+doing so, we begin with a high density of Gaussians for the
+teeth, compensating for low gradient magnitude in this area,
+ensuring that teeth appear detailed and realistic.
+To summarize, we optimize our 3DGS-based avatar us-
+ing Ltotal loss as:
+Ltotal = Lrgb + λposLposition + λsLscaling
++ λgLglobal + λpLpatch + λwLwrinkle,
+(8)
+where Lrgb, Lposition, Lscaling are defined in [42] (also ex-
+plained in Supp. doc).
+4.2. Sequence Model Training
+GaussianSpeech performs high-fidelity and temporally-
+consistent generative synthesis of avatar motion sequences,
+conditioned on audio signal. To characterize complex face
+motions and fine-scale movements like dynamic wrinkles,
+we employ a transformer-based sequence model. We pre-
+dict mesh animations with our sequence model and refine
+the dynamic motion attributes of the 3D Gaussian Splats of
+our optimized avatar to be consistent with audio features.
+An overview of our approach is illustrated in Fig. 4.
+Audio Encoding. We employ the state-of-the-art pre-
+trained speech model Wav2Vec 2.0 [2] to encode the audio
+signal. Specifically, we use the audio feature extractor made
+up of temporal convolution layers (TCN) to extract audio
+feature vectors {ai}Na
+i=1 from the raw waveform, followed
+by a Frequency Interpolation layer to align the input audio
+signal {ai}Na
+i=1 (captured at frequency fa = 16kHz) with our
+dataset {ai}Ne
+i=1 (captures at framerate fe = 30FPS).
+Lip Features. A stacked multi-layer Lip Transformer
+Encoder processes these resampled audio features and pre-
+dicts personalized lip content feature vectors c1:T . To avoid
+4
+
+
+Speech 
+Waveform
+Wav2Vec 2.0 
+(Frozen)
+3DGS Rasterization
+Frequency Interpolation
+Temporal Convolutional 
+Network
+Linear Projection
+Positional Encoding
+MultiHead (MH) 
+Self-Attention
+MH Audio Expression 
+Cross-Attention
+Feed Forward
+Vertex Mapper
+…
+…
+…
+∼
+∼
+∼
+{Voffset}
+1:T
+Vertex Offsets
+…
+Optimized 3DGS Avatar 
++
+μ
+Position
+Scaling
+Rotation
+Opacity
+s
+q
+α
+θcolor
+z
+…
+Template
+…
+Animation (Canonical)
+Lip Transformer 
+Encoder
+Wrinkle Transformer 
+Encoder
+…
+…
+c1
+…
+c2
+cT
+w1
+…
+w2
+wT
+…
+Lip Features
+…
+Wrinkle Features
+Expression   
+Encoder
+e1
+…
+e2
+eT
+Expression2Latent
+…
+1
+1
+1
+1
+1
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+Concat
+cw1
+…
+cw2
+cwT
+…
+ℳ
+M ×
+Figure 4. Method Overview. From the given speech signal, GaussianSpeech uses Wav2Vec 2.0 [2] encoder to extract generic audio
+features and maps them to personalized lip feature embeddings c1:T with Lip Transformer Encoder and wrinkle features w1:T with Wrinkle
+Transformer Encoder. Next, the Expression Encoder synthesizes FLAME expressions e1:T which are then projected via Expression2Latent
+MLP and concatenated with c1:T for input to the motion decoder. The motion decoder employs a multi-head transformer decoder [58]
+consisting of Multihead Self-Attention, Cross-Attention, and Feed Forward layers. The concatenated lip-expression features are fused into
+the decoder via cross-attention layers with alignment mask M. The decoder then predicts FLAME vertex offsets {V offset}1:T which gets
+added to the template mesh T to generate vertex animation in canonical space. During training, these are then fed to our optimized 3DGS
+avatar (Sec. 4.1) and the color MLP θcolor and gaussian latents z are further refined via re-rendering losses [30].
+learning spurious correlation between upper face motion
+and audio, the Lip Transformer Encoder is trained with only
+lip vertices from the FLAME mesh with L2-reconstruction
+loss autoregressively as:
+Llip =
+N
+X
+n=1
+
+T
+X
+t=1
+lt
+gt −lt
+pred
+
+2
+
+n,
+(9)
+where T refers to the number of frames per sequence and
+N total sequences, lgt and lpred refer to the ground truth and
+predicted lip vertices, respectively.
+Wrinkle Features. Similarly, our Wrinkle Transformer
+Encoder conditioned on audio and lip features predicts per-
+sonalized wrinkle feature vectors w1:T . The Wrinkle Trans-
+former Encoder is trained with wrinkle features extracted
+using a wrinkle detector [45] from the RGB frames as:
+Lwrinkle =
+N
+X
+n=1
+
+T
+X
+t=1
+wt
+gt −wt
+pred
+
+2
+
+n,
+(10)
+where wgt and wpred refer to the ground truth and predicted
+wrinkle vertices respectively.
+Expression Features. Using personalized lip features
+c1:T and wrinkle features w1:T obtained above, we train
+the Expression Encoder Eexp.
+Specifically, we concate-
+nate lip and wrinkle features to obtain combined features
+cw1:T =
+
+c1:T ; w1:T 
+. These combined features are fed
+to our Expression Encoder which predicts FLAME expres-
+sions as e1:T
+pred = Eexp(cw1:T ) and is trained with:
+Lexpr =
+N
+X
+n=1
+
+T
+X
+t=1
+et
+gt −et
+pred
+
+2
+
+n,
+(11)
+where egt and epred refers to the ground truth and predicted
+FLAME expression parameters, respectively.
+Audio-Conditioned Animation. We train a transformer
+decoder [58] network to synthesize mesh Vertex Offsets
+
+V offset
+	1:T , where T refers to the number of frames in a
+sequence. During training, we first project the predicted ex-
+pression parameters e1:T
+pred via the Expression2Latent MLP
+E to the latent space of our model and concatenate it with
+lip features c1:T to obtain combined lip-expression motion
+features m1:T =
+
+c1:T ; E(e1:T )
+
+.
+These motion features m1:T are then processed through
+transformer decoder, and the Vertex Mapper MLP to syn-
+thesize Vertex Offsets
+
+V offset
+	1:T in canonical space. We
+leverage a look-ahead binary target mask T ∈RN×N in the
+multi-head self-attention layer to prevent the model from
+peeking into the future frames. The (i, j)th element of the
+matrix with 1 ≤i, j ≤N is:
+Tij =
+(
+True
+if i ≤j
+False
+else
+(12)
+Input motion features m1:T are fused into the trans-
+former with the multi-head audio expression cross-attention
+layer via the alignment mask M. The binary mask M ∈
+5
+
+
+RN×N is a Kronecker delta function δij such that the mo-
+tion features for ith timestamp attend to vertex features at
+the jth timestamp if and only if i = j:
+M = δij =
+(
+True
+if i = j
+False
+if i ̸= j
+(13)
+The vertex offsets are obtained as:
+
+V offset
+	1:T = D
+
+m1:T  T , M
+
+,
+(14)
+where D refers to the transformer decoder network. These
+predicted offsets
+
+V offset
+	1:T are added to the template
+mesh T to obtain mesh animation in canonical space as:
+
+V pred
+	1:T = T +
+
+V offset
+	1:T .
+(15)
+The Expression2Latent MLP E and the transformer decoder
+D are jointly trained with an L2-reconstruction loss:
+Lvertices =
+N
+X
+n=1
+
+T
+X
+t=1
+V t
+gt −V t
+pred
+
+2
+
+n,
+(16)
+The predicted vertices
+
+V pred
+	1:T are fed to our Opti-
+mized 3DGS avatar (Sec. 4.1) and color related attributes
+of the avatar are further refined. We propose an alternating
+training strategy for the task as explained below.
+(a) In the first step, we predict vertex displacements
+(from the rest pose) in the canonical space for the entire
+sequence (Eq. 14). This learns the optimal parameters for
+transformer D and Expression2Latent MLP E as:
+E∗, D∗= arg min
+E,D
+Lvertices
+(17)
+(b) In the second step, we predict the 3D Gaussian at-
+tributes with our Optimized 3DGS avatar (Sec. 4.1) and ren-
+der the full animation sequence.
+The color MLP θcolor of our optimized avatar is condi-
+tioned on predicted FLAME expression epred and per Gaus-
+sian latent zi, in addition to view direction v, and predicts
+the view- and expression-dependent color as:
+ci = θcolor(epred; zi; v).
+(18)
+The predicted image Ipred is obtained with the differentiable
+renderer R from Kerbl et al. [30] as:
+Ipred = R
+ {µi, si, qi, ci}1:G, [R | t]
+
+,
+(19)
+where µi, si, qi refers to the optimized avatar’s position,
+scale, and rotations, respectively, and G defines the total
+number of Gaussians. The predictions are supervised with
+the photometric loss Lphoto for the sequence:
+Lphoto =
+T
+X
+t=1
+(Lrgb + λgLglobal + λpLpatch)t ,
+(20)
+In this step, we refine per-Gaussian latents zi and Color
+MLP θcolor with audio-conditioned expressions:
+θ∗
+color, {z∗
+i }1:G =
+arg min
+θcolor,{zi}1:G Lphoto
+(21)
+Overall, we optimize two losses in the alternating fash-
+ion: (a) Lvertices which learns audio-conditioned facial mo-
+tion and (b) Lphoto which refines the optimized avatar for
+more accurate and photorealistic appearance. We do not re-
+fine the position, scale, rotation, and opacity; empirically,
+we found that they did not make a noticeable difference in
+the overall quality.
+5. Results
+We evaluate GaussianSpeech on the tasks of (a) Avatar Rep-
+resentation and (b) Audio-Driven Animation. For (a), we
+evaluate standard perceptual image quality metrics SSIM,
+PSNR and LPIPS. For audio-driven animation, we evaluate
+lip synchronization LSE-D [41] as well as perceptual qual-
+ity metrics. We train personalized avatars for different iden-
+tities. Following GaussianAvatars [42], we train on all 15
+cameras except the frontal and report results on the frontal
+camera for all our experiments. All images are resized to
+1604 × 1100 during training. For avatar reconstruction, we
+use 30 short sequences. For audio-driven animation, we use
+300 sequences for training and 50 for val and test set each.
+We encourage readers to watch the Supplementary Video
+for visual comparison of all results.
+5.1. Avatar Reconstruction
+Compared to GaussianAvatars [42], our proposed avatar ini-
+tialization can generate high-quality results with as few as
+30-35k points (see Fig. 5 and Tab. 2). The perceptual loss
+helps increase the sharpness in the texture with fewer points.
+The wrinkle regularization helps to model dynamic wrin-
+kles. Teeth subdivision helps with the better mouth inte-
+rior. Color MLP helps synthesize sharper texture. Our full
+avatar initialization with all regularization achieves the best
+results. We train our method on all except frontal camera
+and report results for the frontal camera. For these experi-
+ments, we show results for the most expressive actor from
+our dataset (Subject 4) and refer to Suppl. doc for others.
+5.2. Audio-Driven Animation
+Baseline Comparisons.
+We compare our method against
+recent state-of-the-art methods.
+For NeRF- and 3DGS-
+based methods, we train on frontal camera since these meth-
+ods are designed for monocular settings.
+There are no
+sequence models for audio-driven animation of 3D head
+avatars, thus, we combine audio-to-mesh animation meth-
+ods [18, 55, 67] with current state-of-the-art mesh-to-3D
+avatar creation method [42]. We report results on the front
+6
+
+
+GaussianAvatars
+Ours w/o wrinkle
+Ours w/o mouth sub.
+Ground Truth
+Barb’s
+Graduation
+[silence]
+Ours w/o color MLP
+Ours (Full)
+Ours w/o perceptual
+Figure 5. Avatar Reconstruction: GaussianAvatars [42] produces blurry results and cannot handle dynamic wrinkles. For our method,
+without perceptual loss it cannot synthesize sharp textures for global & local less observed regions like teeth, wrinkle regularization helps
+to model dynamic wrinkles, mouth faces subdivision helps with the better mouth interior and Color MLP helps synthesize sharper colors
+and accurate dynamic wrinkles. Our full avatar initialization technique with all regularization achieves the best results.
+Faceformer 
++ G.A.
+CodeTalker 
++ G.A.
+Imitator 
++ G.A.
+RAD-NeRF
+ER-NeRF
+SyncTalk
+Ours 
+Ground Truth 
+well
+two
+[silence]
+now
+well
+two
+[silence]
+now
+TalkingGaussian 
+GaussianTalker 
+Figure 6. Baseline Comparison: We show comparisons against NeRF-based, 3DGS-based and FLAME animation methods combined with
+GaussianAvatars (G.A.) [42]. NeRF-based methods (RAD-NeRF [53], ER-NeRF [32] and SyncTalk [40]) produce artifacts in texture as
+well as incorrect mouth articulations. 3DGS-based methods (TalkingGaussian [33] & GaussianTalker [9]) can synthesize better lip-sync but
+produces blurry texture especially for mouth interior. Generalized FLAME animation methods (Faceformer [18], CodeTalker [67]) show
+blurred mouth interiors, personalized methods (Imitator [55]) produce better mouth interiors, however, the lip closures and synchronization
+is inaccurate. Our method outperforms all baselines both in lip-sync and photorealism.
+7
+
+
+w/o alignment
+w/o wrinkle features
+Ground Truth
+work
+stop
+w/o audio finetune
+Ours (Full)
+w/o Color MLP & 
+latent finetune
+Further
+Figure 7. Ablation Study. Left-to-right: (1) Alignment mask is critical to properly infuse audio information into the sequence model. (2)
+Audio fine-tuning helps the method generate better lip sync. (3) Without wrinkle features, the model can not produce dynamic wrinkles.
+(4) Without fine-tuning Color MLP and latent features, the model produces bad mouth interiors and inaccurate dynamic wrinkles. Our full
+model with all the components achieves best results.
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+# Gaussians ↓
+GaussianAvatar [42]
+26.53
+0.9087
+0.1487
+98083
+Ours (w/o perceptual)
+27.03
+0.9116
+0.1447
+31875
+Ours (w/o wrinkle reg.)
+28.10
+0.9216
+0.1312
+33998
+Ours (w/o mouth subdivision)
+28.35
+0.9321
+0.1244
+34917
+Ours (w/o Color MLP)
+28.93
+0.9366
+0.1235
+32792
+Ours (Full)
+29.90
+0.9495
+0.1104
+32379
+Table 2. Avatar Reconstruction: With fewer Gaussian points, our
+method achieves superior quality compared to the alternate ap-
+proaches. Perceptual loss increases the sharpness, wrinkle reg-
+ularization models dynamic wrinkles, mouth subdivision learns
+better mouth interior, Color MLP synthesizes sharper colors and
+accurate dynamic wrinkles. The full avatar initialization with all
+regularizations achieves the best results.
+Method
+LSE-D ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+NeRF
+
+
+
+RAD-NeRF [53]
+13.17
+13.15
+0.8007
+0.2741
+ER-NeRF [32]
+13.08
+15.94
+0.8269
+0.2512
+SyncTalk [40]
+12.50
+18.24
+0.8759
+0.1920
+3DGS
+ TalkingGaussian [33]
+12.38
+20.29
+0.8890
+0.1745
+GaussianTalker [9]
+12.19
+20.32
+0.8984
+0.1724
+FLAME
+
+
+
+Faceformer [18] + G.A.
+11.86
+22.18
+0.9105
+0.1608
+CodeTalker [67] + G.A.
+11.68
+22.23
+0.9118
+0.1595
+Imitator [55] + G.A.
+11.61
+22.83
+0.9207
+0.1519
+Ours
+11.25
+24.73
+0.9362
+0.1286
+Table 3. Baseline Comparisons: we compare with NeRF-based,
+3DGS-based and mesh-based (FLAME [34]) baselines. We com-
+bine FLAME-based methods with 3DGS via GaussianAvatars
+(G.A.) [42]. Our method achieves superior results in both in per-
+ceptual quality as well as lip synchronization (LSE-D).
+camera for fairness, since some methods are designed only
+for front/single camera only. We report results averaged
+over all subjects, see Fig. 6 and Tab. 3. Our method con-
+sistently achieves better results than baselines both in terms
+of perceptual quality and lip synchronization.
+Method
+LSE-D ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+w/o alignment
+12.66
+21.02
+0.9104
+0.1855
+w/o audio finetune
+11.78
+22.73
+0.9355
+0.1198
+w/o wrinkle features
+11.28
+23.14
+0.9311
+0.1162
+w/o color MLP & latent finetune
+11.32
+23.96
+0.9367
+0.1133
+Ours (Full)
+11.15
+24.97
+0.9470
+0.1101
+Table 4. Ablation study. Without alignment mask, the model ig-
+nores the audio signal. Audio fine-tuning helps to improve lip
+sync. Wrinkle features help with dynamic wrinkles and overall
+realism. Finetuning Color MLP and latents rectifies the inaccurate
+mouth interior. Our full model achieves the best results.
+Ablation Study.
+Finally,
+we ablate different design
+choices of our method on most expressive actor from our
+dataset (Subject 4) in Fig. 7 and Tab. 4. Alignment mask
+is critical for accurately infusing audio features into the se-
+quence model. Without audio fine-tuning refers to using
+generic audio features without any personalization of lip
+encoder, without audio model fine-tuning the model pro-
+duces incorrect lip synchronization. Without wrinkle fea-
+tures refers to setting without using wrinkle features for pro-
+ducing FLAME expressions. Without wrinkle features the
+method cannot produce dynamic wrinkles. Without fine-
+tuning Color MLP & latent features with predicted expres-
+sions from our Expression encoder, the method produces
+bad mouth interiors and inaccurate dynamic wrinkles. Our
+full model with all components achieves best results. We
+refer readers to supplemental video for visual comparison.
+8
+
+
+6. Conclusion
+In this work, we propose a novel approach to create high-
+fidelity and photorealistic 3D head avatars that can be ani-
+mated from audio input. We designed the first transformer-
+based sequence model for audio-driven head animation of
+3DGS based avatar. Our sequence model is made possi-
+ble by a lightweight and compact avatar initialization based
+on 3D Gaussian Splatting. We proposed several regular-
+ization techniques to handle dynamic wrinkles, skin creas-
+ing and sharpness of the texture. Our method produces (a)
+photorealistic and high-quality 3D head avatars that can be
+rendered from arbitrary viewpoints (b) visually natural ani-
+mations like skin creasing during talking. We believe this
+is an important first step towards enabling the animation
+of detailed and lightweight 3D head avatar, which can en-
+able many new possibilities for content creation and digital
+avatars for immersive telepresence.
+7. Acknowledgments
+This work was supported by the ERC Starting Grant
+Scan2CAD (804724), the Bavarian State Ministry of
+Science and the Arts and coordinated by the Bavarian
+Research Institute for Digital Transformation (bidt), the
+German Research Foundation (DFG) Grant “Making Ma-
+chine Learning on Static and Dynamic 3D Data Practical,”
+the German Research Foundation (DFG) Research Unit
+“Learning and Simulation in Visual Computing”.
+We
+would like to thank Shenhan Qian for help with tracking.
+References
+[1] Shivangi Aneja, Justus Thies, Angela Dai, and Matthias
+Nießner. Facetalk: Audio-driven motion diffusion for neural
+parametric head models. In Proc. IEEE Conf. on Computer
+Vision and Pattern Recognition (CVPR), 2024. 2
+[2] Alexei Baevski, Henry Zhou, Abdelrahman Mohamed, and
+Michael Auli. wav2vec 2.0: A framework for self-supervised
+learning of speech representations, 2020. 4, 5, 16
+[3] Yunpeng Bai, Yanbo Fan, Xuan Wang, Yong Zhang, Jingx-
+iang Sun, Chun Yuan, and Ying Shan. High-fidelity facial
+avatar reconstruction from monocular video with generative
+priors. In Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition (CVPR), pages 4541–
+4551, 2023. 1
+[4] Lukas Biewald. Experiment tracking with weights and bi-
+ases, 2020. Software available from wandb.com. 15
+[5] Lele Chen, Zhiheng Li, Ross K. Maddox, Zhiyao Duan, and
+Chenliang Xu. Lip movements generation at a glance, 2018.
+2
+[6] Lele Chen, Ross K Maddox, Zhiyao Duan, and Chenliang
+Xu. Hierarchical cross-modal talking face generation with
+dynamic pixel-wise loss. In Proceedings of the IEEE Con-
+ference on Computer Vision and Pattern Recognition, pages
+7832–7841, 2019.
+[7] Lele Chen, Guofeng Cui, Celong Liu, Zhong Li, Ziyi Kou, Yi
+Xu, and Chenliang Xu. Talking-head generation with rhyth-
+mic head motion. arXiv preprint arXiv:2007.08547, 2020.
+[8] Kun Cheng, Xiaodong Cun, Yong Zhang, Menghan Xia,
+Fei Yin, Mingrui Zhu, Xuan Wang, Jue Wang, and Nannan
+Wang. Videoretalking: Audio-based lip synchronization for
+talking head video editing in the wild. In SIGGRAPH Asia
+2022 Conference Papers, New York, NY, USA, 2022. Asso-
+ciation for Computing Machinery. 2
+[9] Kyusun Cho, Joungbin Lee, Heeji Yoon, Yeobin Hong,
+Jaehoon Ko, Sangjun Ahn, and Seungryong Kim.
+Gaus-
+siantalker: Real-time talking head synthesis with 3d gaus-
+sian splatting. In Proceedings of the 32nd ACM International
+Conference on Multimedia, page 10985–10994, New York,
+NY, USA, 2024. Association for Computing Machinery. 1,
+2, 7, 8, 16, 18
+[10] J. S. Chung and A. Zisserman. Out of time: automated lip
+sync in the wild. In Workshop on Multi-view Lip-reading,
+ACCV, 2016. 17
+[11] Joon Son Chung, Amir Jamaludin, and Andrew Zisserman.
+You said that?, 2017. 2
+[12] Daniel Cudeiro, Timo Bolkart, Cassidy Laidlaw, Anurag
+Ranjan, and Michael Black. Capture, learning, and synthesis
+of 3D speaking styles. In Proceedings IEEE Conf. on Com-
+puter Vision and Pattern Recognition (CVPR), pages 10101–
+10111, 2019. 2, 18
+[13] Radek Danˇeˇcek, Kiran Chhatre, Shashank Tripathi, Yandong
+Wen, Michael Black, and Timo Bolkart. Emotional speech-
+driven animation with content-emotion disentanglement. In
+SIGGRAPH Asia 2023 Conference Papers, New York, NY,
+USA, 2023. Association for Computing Machinery. 2
+[14] Dipanjan Das, Sandika Biswas, Sanjana Sinha, and Brojesh-
+war Bhowmick. Speech-driven facial animation using cas-
+caded gans for learning of motion and texture. In Computer
+Vision – ECCV 2020: 16th European Conference, Glas-
+gow, UK, August 23–28, 2020, Proceedings, Part XXX, page
+408–424, Berlin, Heidelberg, 2020. Springer-Verlag. 2
+[15] Jiankang Deng, Jia Guo, Tongliang Liu, Mingming Gong,
+and Stefanos Zafeiriou. Sub-center arcface: Boosting face
+recognition by large-scale noisy web faces.
+In Computer
+Vision – ECCV 2020: 16th European Conference, Glas-
+gow, UK, August 23–28, 2020, Proceedings, Part XI, page
+741–757, Berlin, Heidelberg, 2020. Springer-Verlag. 4
+[16] Michail Christos Doukas, Stefanos Zafeiriou, and Viktoriia
+Sharmanska. Headgan: One-shot neural head synthesis and
+editing. In Proceedings of the IEEE/CVF International Con-
+ference on Computer Vision (ICCV), pages 14398–14407,
+2021. 2
+[17] William Falcon et al.
+Pytorch lightning.
+GitHub. Note:
+https://github. com/PyTorchLightning/pytorch-lightning, 3
+(6), 2019. 15
+[18] Yingruo Fan, Zhaojiang Lin, Jun Saito, Wenping Wang, and
+Taku Komura. Faceformer: Speech-driven 3d facial anima-
+tion with transformers.
+In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR), 2022. 1, 2, 6, 7, 8, 16, 18
+[19] J. S. Garofolo, L. F. Lamel, W. M. Fisher, J. G. Fiscus, D. S.
+9
+
+
+Pallett, and N. L. Dahlgren. Darpa timit acoustic phonetic
+continuous speech corpus cdrom, 1993. 3, 19
+[20] Jiazhi Guan, Zhanwang Zhang, Hang Zhou, Tianshu HU,
+Kaisiyuan Wang, Dongliang He, Haocheng Feng, Jingtuo
+Liu, Errui Ding, Ziwei Liu, and Jingdong Wang. Stylesync:
+High-fidelity generalized and personalized lip sync in style-
+based generator. In Proceedings of the IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition (CVPR),
+2023. 2
+[21] Yudong Guo, Keyu Chen, Sen Liang, Yongjin Liu, Hujun
+Bao, and Juyong Zhang. Ad-nerf: Audio driven neural ra-
+diance fields for talking head synthesis. In IEEE/CVF Inter-
+national Conference on Computer Vision (ICCV), 2021. 1,
+2
+[22] Anchit Gupta, Rudrabha Mukhopadhyay, Sindhu Balachan-
+dra, Faizan Farooq Khan, Vinay P. Namboodiri, and C. V.
+Jawahar. Towards generating ultra-high resolution talking-
+face videos with lip synchronization. In Proceedings of the
+IEEE/CVF Winter Conference on Applications of Computer
+Vision (WACV), pages 5209–5218, 2023. 2
+[23] Siddharth Gururani, Arun Mallya, Ting-Chun Wang, Rafael
+Valle, and Ming-Yu Liu. Space: Speech-driven portrait ani-
+mation with controllable expression, 2022. 2
+[24] Qianyun He, Xinya Ji, Yicheng Gong, Yuanxun Lu, Zhengyu
+Diao, Linjia Huang, Yao Yao, Siyu Zhu, Zhan Ma, Songchen
+Xu, Xiaofei Wu, Zixiao Zhang, Xun Cao, and Hao Zhu.
+Emotalk3d: High-fidelity free-view synthesis of emotional
+3d talking head. In European Conference on Computer Vi-
+sion (ECCV), 2024. 2, 3
+[25] Xinya Ji,
+Hang Zhou,
+Kaisiyuan Wang,
+Wayne Wu,
+Chen Change Loy, Xun Cao, and Feng Xu. Audio-driven
+emotional video portraits.
+In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition
+(CVPR), 2021. 2
+[26] Xinya Ji, Hang Zhou, Kaisiyuan Wang, Qianyi Wu, Wayne
+Wu, Feng Xu, and Xun Cao. Eamm: One-shot emotional
+talking face via audio-based emotion-aware motion model.
+In ACM SIGGRAPH 2022 Conference Proceedings, 2022. 2
+[27] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. Perceptual
+losses for real-time style transfer and super-resolution, 2016.
+4
+[28] Prajwal K R, Rudrabha Mukhopadhyay, Jerin Philip, Ab-
+hishek Jha, Vinay Namboodiri, and C V Jawahar. Towards
+automatic face-to-face translation.
+In Proceedings of the
+27th ACM International Conference on Multimedia, page
+1428–1436, New York, NY, USA, 2019. Association for
+Computing Machinery. 2
+[29] Tero Karras, Timo Aila, Samuli Laine, Antti Herva, and
+Jaakko Lehtinen. Audio-driven facial animation by joint end-
+to-end learning of pose and emotion. ACM Trans. Graph., 36
+(4), 2017. 2
+[30] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Transactions on Graphics, 42
+(4), 2023. 2, 5, 6, 16, 17
+[31] Tobias Kirschstein, Shenhan Qian, Simon Giebenhain, Tim
+Walter, and Matthias Nießner. Nersemble: Multi-view ra-
+diance field reconstruction of human heads.
+ACM Trans.
+Graph., 42(4), 2023. 2, 3, 19
+[32] Jiahe Li, Jiawei Zhang, Xiao Bai, Jun Zhou, and Lin Gu.
+Efficient region-aware neural radiance fields for high-fidelity
+talking portrait synthesis. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision (ICCV), pages
+7568–7578, 2023. 1, 2, 7, 8, 16, 18
+[33] Jiahe Li, Jiawei Zhang, Xiao Bai, Jin Zheng, Xin Ning, Jun
+Zhou, and Lin Gu. Talkinggaussian: Structure-persistent 3d
+talking head synthesis via gaussian splatting. In Computer
+Vision – ECCV 2024, pages 127–145, Cham, 2025. Springer
+Nature Switzerland. 1, 2, 7, 8, 15, 16, 18
+[34] Tianye Li, Timo Bolkart, Michael. J. Black, Hao Li, and
+Javier Romero. Learning a model of facial shape and ex-
+pression from 4D scans. ACM Transactions on Graphics,
+(Proc. SIGGRAPH Asia), 36(6):194:1–194:17, 2017. 4, 8,
+13, 17
+[35] Xian Liu, Yinghao Xu, Qianyi Wu, Hang Zhou, Wayne
+Wu, and Bolei Zhou.
+Semantic-aware implicit neural
+audio-driven video portrait generation.
+arXiv preprint
+arXiv:2201.07786, 2022. 2
+[36] Steven R. Livingstone and Frank A. Russo.
+The Ryer-
+son Audio-Visual Database of Emotional Speech and Song
+(RAVDESS), 2018. 3
+[37] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik,
+Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis, 2020. 2
+[38] Soumik Mukhopadhyay, Saksham Suri, Ravi Teja Gadde,
+and Abhinav Shrivastava. Diff2lip: Audio conditioned dif-
+fusion models for lip-synchronization. In Proceedings of the
+IEEE/CVF Winter Conference on Applications of Computer
+Vision (WACV), pages 5292–5302, 2024. 2
+[39] Ziqiao Peng, Haoyu Wu, Zhenbo Song, Hao Xu, Xiangyu
+Zhu, Jun He, Hongyan Liu, and Zhaoxin Fan.
+Emotalk:
+Speech-driven emotional disentanglement for 3d face anima-
+tion. In Proceedings of the IEEE/CVF International Confer-
+ence on Computer Vision (ICCV), pages 20687–20697, 2023.
+2
+[40] Ziqiao Peng, Wentao Hu, Yue Shi, Xiangyu Zhu, Xiaomei
+Zhang, Jun He, Hongyan Liu, and Zhaoxin Fan. Synctalk:
+The devil is in the synchronization for talking head synthesis.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), 2024. 1, 2, 7, 8, 16,
+18
+[41] K R Prajwal, Rudrabha Mukhopadhyay, Vinay P. Nambood-
+iri, and C.V. Jawahar.
+A lip sync expert is all you need
+for speech to lip generation in the wild. In Proceedings of
+the 28th ACM International Conference on Multimedia, page
+484–492, New York, NY, USA, 2020. Association for Com-
+puting Machinery. 2, 6, 16
+[42] Shenhan Qian, Tobias Kirschstein, Liam Schoneveld, Davide
+Davoli, Simon Giebenhain, and Matthias Nießner.
+Gaus-
+sianavatars: Photorealistic head avatars with rigged 3d gaus-
+sians. arXiv preprint arXiv:2312.02069, 2023. 3, 4, 6, 7, 8,
+13, 16, 17
+[43] Ravi Ramamoorthi and Pat Hanrahan. An efficient represen-
+tation for irradiance environment maps. In Proceedings of
+10

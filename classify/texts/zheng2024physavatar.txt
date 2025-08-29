@@ -1,0 +1,492 @@
+Title: Physavatar: Learning the physics of dressed 3d avatars from visual observations
+
+PhysAvatar: Learning the Physics of Dressed 3D
+Avatars from Visual Observations
+Yang Zheng1⋆, Qingqing Zhao1⋆, Guandao Yang1, Wang Yifan1, Donglai
+Xiang2, Florian Dubost3, Dmitry Lagun3, Thabo Beeler3, Federico Tombari3,4,
+Leonidas Guibas1, and Gordon Wetzstein1
+1 Stanford University
+2 Carnegie Mellon University
+3 Google
+4 Technical University of Munich
+Abstract. Modeling and rendering photorealistic avatars is of crucial
+importance in many applications. Existing methods that build a 3D
+avatar from visual observations, however, struggle to reconstruct clothed
+humans. We introduce PhysAvatar, a novel framework that combines in-
+verse rendering with inverse physics to automatically estimate the shape
+and appearance of a human from multi-view video data along with the
+physical parameters of the fabric of their clothes. For this purpose, we
+adopt a mesh-aligned 4D Gaussian technique for spatio-temporal mesh
+tracking as well as a physically based inverse renderer to estimate the in-
+trinsic material properties. PhysAvatar integrates a physics simulator
+to estimate the physical parameters of the garments using gradient-
+based optimization in a principled manner. These novel capabilities en-
+able PhysAvatar to create high-quality novel-view renderings of avatars
+dressed in loose-fitting clothes under motions and lighting conditions
+not seen in the training data. This marks a significant advancement
+towards modeling photorealistic digital humans using physically based
+inverse rendering with physics in the loop. Our project website is at:
+https://qingqing-zhao.github.io/PhysAvatar.
+Keywords: neural rendering · physics · dynamic modeling · 3D avatar
+1
+Introduction
+Digital avatars are a vital component in numerous applications, ranging from
+virtual reality and gaming to telepresence and e-commerce [26,43,101]. A realistic
+3D avatar of a person can be readily obtained from visual observations, such
+as multi-view image [116] and video [6] data. The task of rendering animated
+3D avatars from novel viewpoints or when performing unseen motions, however,
+presents considerable challenges, particularly when the avatar wears loose-fitting
+garments. Accurately rendering the dynamics of garments in conditions that are
+not observed in the training data necessitates a holistic approach that not only
+⋆Equal Contribution
+arXiv:2404.04421v2  [cs.GR]  9 Apr 2024
+
+
+2
+Yang Zheng et al.
+(b)
+(a)
+(c)
+Fig. 1: PhysAvatar is a novel framework that captures the physics of dressed 3D avatars
+from visual observations, enabling a wide spectrum of applications, such as (a) anima-
+tion, (b) relighting, and (c) redressing, with high-fidelity rendering results.
+models the shape and appearance of the person but also the physical behavior
+of their clothes, including friction and collision.
+Learning 3D scene representations from visual data is the core problem ad-
+dressed by inverse rendering—a field that has recently shown remarkable progress
+in estimating the geometry and appearance of static and dynamic scenes from
+multi-view images and videos [105, 106]. In the context of reconstructing 3D
+avatars, the ability to explicitly control the motions of the avatar in post pro-
+cessing becomes imperative. Most existing methods for reconstructing animat-
+able avatars drive the animation through an underlying skeleton using linear
+blending skinning (LBS) [64], which adequately models the dynamics of humans
+dressed in tight-fitting clothes [1,7,23,80,99,119]. With this approach, garments
+are treated as a rigidly attached part of the body adhering to piece-wise linear
+transformations, which results in motions that appear rigid and unconvincing
+in many cases [79, 120, 134]. Several successful attempts to introduce non-rigid
+deformations through pose-dependent geometry adjustments, such as wrinkles,
+have recently been made [18,57,59,60,114], although these methods are prone to
+overfitting to the body poses and motion sequences observed during training. A
+key problem is that most existing 3D avatar reconstruction approaches neglect to
+model the dynamics of loose garments in a physically accurate manner, leading
+to unrealistic fabric behavior and issues like self-penetration. To our knowledge,
+only the work of Xiang et al. [118] includes a physics-based approach to inverse
+rendering of digital humans, but their approach requires a tedious manual search
+process to find the parameters that model the dynamic behavior of their cloth
+fabrics with reasonable accuracy.
+
+
+PhysAvatar
+3
+Here, we introduce PhysAvatar, a novel approach to 3D avatar reconstruc-
+tion from multi-view video data. PhysAvatar combines inverse rendering with
+“inverse physics” in a principled manner to not only estimate the shape and
+appearance of the avatar but also physical parameters, including density and
+stiffness, of the fabrics modeling their (loose) clothes. Our approach includes
+several parts: Given the reconstructed 3D mesh of the garment in one frame,
+we first leverage mesh-aligned 4D Gaussians [117] to track surface points of the
+garment across all frames of the input video sequence. This process establishes
+dense correspondences on the 3D garment. These data are used as supervision
+in an inverse physics step, where the physical parameters of the fabric are opti-
+mized using a finite-difference approach [50,123]. Finally, we employ a physically
+based inverse renderer [78] to jointly estimate ambient lighting and the surface
+material. By leveraging the refined geometry from our simulation step, the in-
+verse renderer can effectively factor in pose-dependent effects, such as shadows
+caused by self-occlusion, resulting in accurate appearance reconstruction that
+enables the avatar to be rendered in novel lighting conditions.
+PhysAvatar offers a comprehensive solution for reconstructing clothed human
+avatars from multi-view video data to perform novel view and motion synthesis
+with state-of-the-art realism. The key contributions of our work include:
+1. The introduction of a new inverse rendering paradigm for avatars created
+from real-world captures that incorporates the physics of loose garments in
+a principled manner;
+2. A pipeline that includes accurate and efficient mesh reconstruction and track-
+ing using 4D Gaussians; automatic optimization of the garments’ physical
+material properties; and accurate appearance estimation using physically
+based inverse rendering.
+PhysAvatar demonstrates a novel path to learning physical scene properties from
+visual observations by incorporating inverse rendering with physics constraints.
+Code will be available upon publication.
+2
+Related Work
+2.1
+Scene Reconstruction from Visual Observations
+Reconstructing 3D scenes from visual observations is grounded in classic ap-
+proaches, such as Structure from Motion (SfM) [77, 93, 96]. Recently, this field
+has witnessed a paradigm shift towards inverse rendering techniques that esti-
+mate the shape and appearance of a scene from visual input [105,106]. Among
+the many representations developed in this area are neural (radiance) fields [75,
+95], neural volumes, surfaces, and signed distance fields [63, 73, 83, 94, 113, 122]
+as well as differentiable rasterization techniques for meshes [39, 61] and point
+clouds [40,41,48,124]. Recent inverse rendering approaches are capable of mod-
+eling dynamic scenes [25, 84, 89, 108] and enable sophisticated post-capture de-
+formations [36,126].
+
+
+4
+Yang Zheng et al.
+2.2
+Animatable Avatars
+One central requirement for generating full-body digital humans is to enable
+animations driven by skeleton-level control [42,71]. To this end, early works on
+avatar reconstruction primarily relied on skinning techniques, which successfully
+model the dynamics of bodies with minimal or tight clothing [3,64]. Clothing is
+an integral part of everyday human appearance, captured by the saying “clothes
+make the (wo)man”. Reconstructing their dynamic behavior from visual data,
+however, remains a challenge. Several different types of representations have
+been explored for clothed avatars, including meshes [68] with dynamic textures
+[4, 33, 131], neural surface [16, 90, 107] and radiance fields [14, 18, 24, 27, 44–46,
+86,87,99,133], point sets [66,67,69], and 3D Gaussians [34,58,82,134]. Many of
+these works condition the deformation of clothing on the body pose and some
+predict future dynamics based on a small number of frames [32,33,82].
+We now discuss recent research most closely related to ours. TAVA [53] learns
+a deformable neural radiance field of humans or animals using a differentiable
+skinning method like SNARF [17]. ARAH [115] models 3D avatars using SDF
+representations and proposes an SDF-based volume rendering method to recon-
+struct the avatar in canonical space. GS-Avatar [34] achieves real-time animation
+by leveraging a learned 3D Gaussian predictor. Although these methods show
+reasonable effectiveness on humans wearing tight garments, they struggle with
+loose garments because their LBS-based deformation module cannot accommo-
+date the complex dynamics of loose clothing. To address this limitation, Xiang
+et al. [118] incorporate a cloth simulator based on the eXtended Position Based
+Dynamics (XPBD) formulation [70] into a deep appearance model to reconstruct
+realistic dynamics and appearance. However, they require tedious manual adjust-
+ments of physical parameters to produce reasonable garment motion, and the
+code is not publicly available. Concurrent with our work, AniDress [14], while
+using physics-based simulation, only uses the simulation to produce a garment
+rigging model. This can cause inaccuracy in cloth dynamics modeling and unre-
+alistic motion artifacts. In contrast, we estimate the physical parameters through
+a principled gradient-based inverse physics approach and accurately recover the
+shape and (relightable) appearance using a physically based inverse renderer,
+achieving high-fidelity results on novel motions.
+2.3
+Physics-Based Simulation
+Physics-based simulation of cloth [5, 62, 88, 103, 109, 111, 125, 127] has been ex-
+tensively studied and is particularly useful for modeling complicated dynamic
+effects in interaction with human bodies, such as large deformations, wrinkling,
+and contact. In this work, we adopt the Codimensional Incremental Potential
+Contact (C-IPC) solver [52] for its robustness in handling complicated body–
+cloth collision by the log-barrier penalty function [51]. We refer readers to dedi-
+cated surveys [37,54] for a comprehensive review, and focus on works that solve
+the inverse parameter estimation problem. One line of work uses specialized
+
+
+PhysAvatar
+5
+devices to simultaneously measure forces and deformation in a controlled set-
+ting [47,74,112,128]. Our work falls into the category that estimates physical pa-
+rameters directly from imagery of garments worn on human subjects [12,31,97].
+For this purpose, some differentiable simulators have been developed and ap-
+plied to the optimization problem [55], but only for specific types of solvers,
+such as Projective Dynamics [56] and XPBD [98]. The heavy runtime cost of
+high-quality physics-based simulation motivates research in neural cloth simula-
+tion. Early works create datasets of garments simulated on human bodies [8,30],
+and then train the network to predict garment deformation in a supervised man-
+ner [19,81,91,110]. Recently, more attention has been paid to the self-supervised
+formulation that applies the elasticity energy defined in traditional simulation
+to predict garments, thereby training the network to act like a simulation solver,
+including both the (quasi-) static [9,11,22,49,92] and the dynamic [10,28] cases.
+Most of these works focus on making forward predictions that resemble tra-
+ditional simulators without solving inverse parameter estimation on real-world
+garment data, except CaPhy [100]. CaPhy estimates the Saint Venant-Kirchhoff
+(StVK) elasticity parameters of clothing from 4D scans but only predicts pose-
+dependent clothing deformation in a quasi-static manner. In addition, all the
+works mentioned above treat simulation as a separate problem without model-
+ing the photorealistic appearance. By comparison, our work builds avatars with
+physically based appearance and dynamics that are optimized for faithfulness to
+the real human capture in a holistic manner.
+3
+Method
+Given multi-view videos as input, our goal is to reconstruct a 3D avatar that
+can be realistically animated and rendered under novel motions and novel views.
+The core pipeline (Fig. 2) consists of three primary components: 1. Mesh track-
+ing (Sec. 3.1)—given multi-view videos and a reconstructed mesh at the initial
+time step as input, we track the deformation of the geometry, which provides the
+geometry reference for the ensuing physics simulation; 2. Physics-based dynamic
+modeling (Sec. 3.2)—with the tracked meshes as reference, we estimate the gar-
+ments’ physical properties using a physics simulator; the simulator, together with
+the estimated physical parameters are used to generate novel motion; 3. Physics-
+based appearance refinement (Sec. 3.3)—given the tracked geometry, we further
+enhance the appearance estimation through a physics-based differentiable ren-
+derer, which considers self-occlusion and thus eliminate artifacts such as baked-in
+shadows. In the following, we delve into the details of each component.
+3.1
+Mesh Tracking
+Given multiview videos of T frames and C views, {I1:T,1:C}, and an initial mesh
+(\Ve rts _1, \mathbf {F}), with vertices V1 and faces F, that can be obtained via any existing
+static scene reconstruction methods, our goal is to accurately track the mesh de-
+formation through the video sequence \mathbf {V}_{1:T} , which will be used as reference in the
+
+
+6
+Yang Zheng et al.
+Mesh Tracking 
+(Sec. 3.1)
+Multi-view video data 
+Dynamic Modeling 
+(Sec. 3.2)
+Gradient Based Optimization
+Appearance Modeling 
+(Sec. 3.3)
+Output
+Physics 
+Simulator 
+Physics Based 
+Rendering 
+Engine
+Operation Flow
+Gradient Flow
+Test Time Flow
+Input
+Test-time Input Motion 
+Time
+(b)
+(a)
+(c)
+(d)
+(e)
+(f)
+Fig. 2: Method Overview: (a) PhysAvatar takes multi-view videos and an initial
+mesh as input. We first perform (b) dynamic mesh tracking (Sec. 3.1). The tacked mesh
+sequences are then used for (c) garment physics estimation with a physics simulator
+combined with gradient-based optimization (Sec. 3.2); (d) and appearance estimation
+through physics-based differentiable rendering (Sec. 3.3). At test time, (e) given a
+sequence of body poses (f), we simulate garment dynamics with the learned physics
+parameters and employ physics-based rendering to produce the final images.
+subsequent physics simulation. However accurately tracking mesh deformation
+from visual observation is very challenging. Inspired by the robust and real-time
+tracking performance from dynamic 3D Gaussians [65], we use 3D Gaussians as
+a surrogate representation for mesh tracking.
+We adapt 3D Gaussians to align with the reconstructed mesh surface. Fol-
+lowing the definition of dynamic 3D Gaussians, at frame t, each Gaussian is
+parameterized with position {\ m athbf {p}}_{t}\in \R ^{3}, rotation quaternion {\ m athbf {q}}_{t}\in \R ^{4}, color {\ m athbf {c}}_{t}\in \R ^{3},
+scale {\ m athbf {s}}_{t}\in \R ^{3} and opacity o_ { t}\in \R _{+}. To couple the Gaussians with the mesh, we
+attach one Gaussian at the barycenter of each face f ∈F, and determine the
+Gaussians’ quaternions from the attached triangle. Specifically, the rotation of
+each Gaussian is computed from the rotation of its local frame, whose x- and
+z-axis are defined using the longest triangle edge at t = 1 and the face normal
+respectively. Furthermore, we set the last scaling factor, which corresponds to
+the scaling in face normal direction, to be a small constant value, ensuring the
+Gaussian lies on the mesh surface. The Gaussians can then be rendered in a
+differentiable manner [40] and we optimize their parameters by minimizing the
+loss [65] between the rendered images and the reference images:
+  \Loss  {
+render} = \lamb
+da 
+\ l ef t  \ | \Ima
+g
+e _{i,t}-\
+h
+at {\Image }_{i,t} \right \|_1+ \left (1-\lambda \right )\cdot \text {SSIM}\left (\Image _{i,t}, \hat {\Image }_{i,t}\right ), \label {loss:render} 
+(1)
+where ˆIi,t denotes the image rendered from the perspective of the i-th camera
+at time t. Note that since the Gaussians’ position and rotation are bound to
+the mesh, the optimization of the mesh vertices will implicitly optimize the
+parameters of the Gaussians. At the first time step, we optimize color, scale,
+
+
+PhysAvatar
+7
+t=12
+t=600
+t=900
+t=300
+Fig. 3: Our method can robustly track a dynamic mesh from input images, providing
+accurate long-term correspondences. Here we show the rendered images overlaid with
+the Gaussian trajectories from the previous 12 frames and the optimized meshes.
+and opacity. In the following frames 1 < t \leq T, we fix the opacity and scale, and
+optimize Gaussian colors {\mathbf {c}}_{t} and mesh vertices \mathbf {V}_t.
+In addition to the photometric loss, we apply the following regularization
+terms to preserve the local geometric features: 1) an isometry loss \mathcal {L}_{\textrm {iso}} [65] that
+preserves edge length through the training sequence, 2) a normal loss \mathcal {L}_{\textrm {normal}}
+that encourages smooth mesh surfaces, enhancing mesh deformation accuracy
+and stability. Denoting the vertex and the triangle of the mesh at frame t as {\mathbf {v}}_t
+and {\mathbf {f}}_{t}, the normal of a face as { \mathbf {n}}\left ( \cdot \right ), and the 1-ring neighbors N \left (\cdot \right ), the losses
+are formally defined as:
+  \L o
+s
+s {
+i
+so}
+&
+=\frac {
+1}{\ l ef
+t | \ Ver t s 
+\rig
+ht  |}\
+s
+um 
+_{\rvv \ i
+n \
+V
+erts
+ 
+} \
+sum _{
+\r v v  '\i n  N\ l
+eft  ( \rvv _{1} \right )}\frac {\left (\left \Vert \rvv _{1} - \rvv '_{1}\right \Vert _2 - \left \Vert \rvv _{t} - \rvv '_{t}\right \Vert _2\right )}{\left |N\left ( \rvv \right )\right |},\label {loss:iso}\\ \Loss {normal}&=\frac {1}{\left |\Faces \right |}\sum _{\rvf _{t}\in \Faces }\sum _{\rvf _{t}'\in N\left (\rvf \right )}\left (1 - \rvn \left (\rvf _t\right ) \cdot \rvn \left (\rvf '_t\right )\right ). \label {loss:normal}
+(3)
+The full loss used for mesh tracking is defined as:
+  \Lo s s {mesh } =\Loss  {render}+\lambda _i\Loss {iso} + \lambda _n\Loss {normal}, 
+(4)
+where we set λi = 10 and λn = 0.1 during our training. With the introduced
+losses, our method can reconstruct a smooth mesh sequence with accurate cor-
+respondences, as shown in Fig. 3.
+3.2
+Physics Based Dynamic Modeling
+Given the tracked meshes, (V1:T , F), we estimate the physical properties of
+the garments such that the simulation of their dynamics matches the reference
+tracked meshes. Once learned, these parameters can be used to simulate the
+garment under novel motions and novel views.
+Garment Material Model and Simulation. We model the elastodynamics
+of the garment by equipping each simulation mesh with the discrete shell hinge
+bending energy [29,102] and isotropic StVK elastic potential [15,20]. Specifically,
+we estimate density ρ, membrane stiffness κs, and bending stiffness κb of the gar-
+ment given the visual observations. For our generic use cases, it is reasonable to
+
+
+8
+Yang Zheng et al.
+assume homogeneous physical properties for each garment piece, i.e., the den-
+sity, membrane stiffness, and bending stiffness can be parameterized using scalar
+values, denoted as ρ, κs, and κb. In choosing the simulators, we consider differen-
+tiability and quality. Unfortunately, the development of differentiable simulators
+suitable for our application remains an open research question. Current imple-
+mentations, such as those documented in [56], cannot be directly applied due
+to limitations in modeling complex body colliders. Therefore, we propose to use
+the state-of-the-art robust and stable cloth simulator C-IPC [52] that guaran-
+tees no interpenetration with frictional contact. While C-IPC is differentiable,
+it lacks an implementation of accurate analytical gradients; hence, we use finite
+difference methods to estimate the gradients for parameter updates. Specifically,
+we employ an open-source implementation of C-IPC [52] as our cloth simulator,
+which is a state-of-the-art simulator achieving high-fidelity garment simulation
+with stability and convergence (see [52] for a comprehensive review of the base
+algorithm and implementation).
+Garment Material Estimation. From the reconstructed mesh, we segment
+out the garment vertices to obtain ground truth garment mesh sequences ( bVg
+1:T , bFg).
+The cloth simulator, f(·), takes as input the current garment state—position
+and velocity (Vg
+t , ˙Vg
+t )—the garment’s physical properties (ρ, κs, κb), the body
+collider {VC
+t , FC}, and garment boundary vertices Vb
+t+1, and step size \Delta t. The
+boundary vertices of the garment are points of the garment that are in permanent
+contact with the human body, such as the shoulder region for draped garments.
+We employ the SMPL-X body model [64] as the body collider {VC
+t+1, FC}, ex-
+tracting SMPL-X body shapes and poses from the video data during the pre-
+processing (see Sec. 4). The garment and the boundary vertices are manually
+annotated once on the initial mesh \mathbf {V}_{1} for the entire simulation. The simulation
+function predicting the garment shape in the next frame can be written as below:
+  
+\Ve r ts ^
+g _ {t+
+1 }  =
+ f(\ Ve
+rts ^g _{t }, \dot {\Verts }^g_{t}, \Verts _{t+1}^b, \mathbf {V}^C_{t+1}, \rho , \stiffs , \stiffb , \Delta t). \label {eq:simulator} 
+(5)
+We find the optimal physical parameters by minimizing the difference between
+the simulated and the reconstructed garment meshes. Formally, the optimization
+objective can be expressed as:
+ \b
+egin {aligned} \ min  _{ \
+l
+e
+ft 
+\{\
+rho  ,\s
+tiffs
+ 
+, \stiffb \right \}} & \Loss {sim}(\rho , \stiffs , \stiffb ) = \sum _{t=0}^{T} \|\Verts ^g_{t+1} - \widehat {\Verts }_{t+1}^{g}\|_2^2 \label {eq:garment_opt} \end {aligned},
+(6)
+where \mathbf {V}^g_{1} = \widehat {\mathbf {V}}^{g}_
+1
+and \m
+athbf {V}^g_{t+1} is computed by Eq. (5). We estimate gradients via
+a numerical approach using finite differences [50]. This method is particularly
+feasible in our context due to the low-dimensional nature of the optimization
+problem, which involves only three scalar parameters. We employ the forward
+difference formula for gradient estimation:
+  \fr
+ac
+ {\parti a l \ Los s { s im}}{\p art ial \rho } &\approx \left ( \Loss {\text {sim}}(\rho +\delta _\rho , \stiffs , \stiffb ) - \Loss {sim}(\rho , \stiffs , \stiffb ) \right ) / {\delta _\rho }. \label {eq:fd}
+(7)
+
+
+PhysAvatar
+9
+PBR Ours
+GT
+PBR w/o Opt
+Before Optimization
+After Optimization
+(a)
+(b)
+Fig. 4: Ablation study on appearance estimation: (a) Initial texture map T extracted
+from Gaussian splatting (left) has baked-in shadows highlighted in the red boxes; post-
+optimization (right), the baked-in shadows are substantially removed. (b) Rendering
+comparisons demonstrate that our method with the optimized texture map more closely
+aligns with the ground truth.
+Where δρ is a hyperparameter for forward difference gradient estimation. The
+gradients for other parameters are estimated using the same approach, and the
+parameters are subsequently updated using the Adam optimizer.
+Animation. At test time, we have the initial mesh {\mathbf {V}_1,\Faces _1
+} and we are given a
+sequence of novel human body poses, e.g., provided by skeleton parameters such
+as SMPL [64]. Using standard LBS, we obtain the boundary locations \m
+athbf {V}^b_{t+1}. We
+assume the initial garment is at rest, i.e., ˙V0 = 0. We use the same garment
+segmentation, boundary points, and SMPL body collider points as during train-
+ing, and use Eq. (5) to simulate the deformation of the garment. This is then
+combined with the body, driven by LBS, to create the holistic animation.
+3.3
+Physics Based Appearance Modeling
+While tracking with dynamic Gaussians jointly estimates the garments appear-
+ance, it does not account for light–surface interactions, consequently the recon-
+structed appearance contains baked-in shadows, causing uncanny visual artifacts
+when rendered in novel views and motions (see Fig. 4). In this step, given the
+mesh sequence \left  (\Verts _{1:T}, \Faces \right ) and the per-frame mesh colors {\mathbf {c}}_{1:T} reconstructed from
+Section 3.1, we utilize Mitsuba3 [78]—a physics-based differentiable Monte Carlo
+renderer—to enhance the appearance reconstruction. For this purpose, we use
+a time-invariant diffuse texture map \rmT to model the appearance. The value
+\rmT is initialized from the average Gaussian colors from the tracking step (Sec-
+tion 3.1),
+P
+1<t≤T (c(x)t)/T. For the environment lighting, since the capture studio
+is typically equipped with uniform point light arrays, we can approximate the
+environment lighting as an ambient illumination, parameterized with a global
+L_ { a}\in \R ^{3}.
+
+
+10
+Yang Zheng et al.
+PhysAvatar
+GT
+TAVA
+GS-Avatar
+Fig. 5: Qualitative results on test poses from the ActorHQ [38] dataset. Our method
+PhysAvatar achieves state-of-the-art performance in terms of geometry detail and ap-
+pearance modeling.
+We optimize for \rmT and L_{a} using the photometric loss defined in Eq. (8) for
+all training views and frames \le ft (i,t\right ), where \mathcal {R} denotes the rendering function and
+c_{i,t} the camera pose:
+  \L o ss 
+{rgb}=\min _{\left \{ \texture , L_a \right \}} \sum _{i,t}\left \|\Image _{i,t}-\render \left (\texture , L_a, \Verts _t, c_{i,t}\right )\right \|^2_2. \label {eq:pbr}
+(8)
+At test time, we can swap the ambient light with more complex illuminations,
+and produce realistic rendering in arbitrary views and body poses (see Sec. 4.4).
+4
+Experiments
+In this section, we explain our experimental setup and results. We recommend
+watching the supplementary video for better visualization.
+4.1
+Experimental setup
+Data Preparation. We choose four characters from the ActorHQ [35] dataset
+for our experiments, including two female characters with loose dresses, one fe-
+male character wearing a tank top and loose-fitting pants, and one male character
+with a short-sleeved shirt and khaki shorts, as shown in Fig. 1. For each char-
+acter, we use the ground truth mesh provided by the dataset and re-mesh it to
+obtain a simulation-ready initial mesh, i.e., one where the triangles have similar
+areas, to enhance the performance of garment simulation. We then segment the

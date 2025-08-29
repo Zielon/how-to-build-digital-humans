@@ -1,0 +1,1376 @@
+Title: Relightablehands: Efficient neural relighting of articulated hand models
+
+RelightableHands: Efﬁcient Neural Relighting of Articulated Hand Models
+Shun Iwase1,2∗
+Shunsuke Saito2
+Tomas Simon2
+Stephen Lombardi2
+Timur Bagautdinov2
+Rohan Joshi2
+Fabian Prada2
+Takaaki Shiratori2
+Yaser Sheikh2
+Jason Saragih2
+1Carnegie Mellon University
+2Reality Labs Research
+Directional Light
+Near-ﬁeld Light
+Environment Map
+Student Model Rendering (21ms)
+Two Hand Rendering (32ms)
+Figure 1. Neural Relighting of Animatable Hands. Our model-based neural rendering approach enables high-ﬁdelity rendering of hands
+with various poses, views, and illuminations. Our student model is highly efﬁcient enough to render in real-time.
+Abstract
+We present the ﬁrst neural relighting approach for ren-
+dering high-ﬁdelity personalized hands that can be ani-
+mated in real-time under novel illumination. Our approach
+adopts a teacher-student framework, where the teacher
+learns appearance under a single point light from images
+captured in a light-stage, allowing us to synthesize hands
+in arbitrary illuminations but with heavy compute. Using
+images rendered by the teacher model as training data, an
+efﬁcient student model directly predicts appearance under
+natural illuminations in real-time. To achieve generaliza-
+tion, we condition the student model with physics-inspired
+illumination features such as visibility, diffuse shading, and
+specular reﬂections computed on a coarse proxy geometry,
+maintaining a small computational overhead. Our key in-
+sight is that these features have strong correlation with sub-
+sequent global light transport effects, which proves sufﬁ-
+cient as conditioning data for the neural relighting network.
+Moreover, in contrast to bottleneck illumination condition-
+ing, these features are spatially aligned based on underlying
+geometry, leading to better generalization to unseen illumi-
+nations and poses. In our experiments, we demonstrate the
+efﬁcacy of our illumination feature representations, outper-
+forming baseline approaches. We also show that our ap-
+proach can photorealistically relight two interacting hands
+∗This work was done during an internship at Meta
+at real-time speeds. https://sh8.io/#/relightable hands
+1. Introduction
+Neural rendering approaches have signiﬁcantly ad-
+vanced photorealistic face rendering [42, 56, 68] in recent
+years. These methods use deep neural networks to model
+the light transport on human skin [11, 14, 31, 65], directly
+reproducing physical effects such as subsurface scattering
+by reconstructing real images. However, despite the suc-
+cess of neural relighting, extending this approach to animat-
+able hand models poses a unique challenge: generalization
+across articulations.
+Unlike faces, hands have many joints, and the state of
+a single joint affects all child joints.
+This leads to ex-
+tremely diverse shape variations even within a single sub-
+ject.
+Changes in pose drastically affect the appearance
+of hands, creating wrinkles, casting shadows, and inter-
+reﬂecting across topologically distant regions. Rendering
+these effects is challenging because sufﬁciently accurate ge-
+ometry and material properties required for photorealism
+are difﬁcult to obtain, and even then, path tracing to suf-
+ﬁcient accuracy is computationally expensive. The use of
+simpliﬁed geometric and appearance models (such as linear
+blend skinning and reduced material models) allow faster
+computation but come at a noticeable degradation in render-
+ing ﬁdelity. So far, photorealistic rendering of animatable
+arXiv:2302.04866v1  [cs.CV]  9 Feb 2023
+
+
+hands with global illumination effects in real-time remains
+an open problem.
+In this work, we aim to enable photorealistic rendering
+of a personalized hand model that can be animated with
+novel poses, in novel lighting environments, and supports
+rendering two-hand interactions. To this end, we present
+the ﬁrst neural relighting framework of a parameteric 3D
+hand model for real-time rendering. Speciﬁcally, we build a
+relightable hand model to reproduce light-stage captures of
+dynamic hand motions.
+Inspired
+by
+[4],
+we
+capture
+performances
+under
+spatiotemporal-multiplexed illumination patterns, where
+fully-on illumination is interleaved to enable tracking of the
+current state of hand geometry and poses. We use a two-
+stage teacher-student approach to learn a model that gener-
+alizes to natural illuminations outside of the capture system.
+We ﬁrst train a teacher model that infers radiance given a
+point-light position, a viewing direction, and light visibil-
+ity. As this model directly learns the mapping between an
+input light position and output radiance, it can accurately
+model complex reﬂectance and scattering on the hand with-
+out the need for path tracing. To render hands in arbitrary
+illuminations, we treat natural illuminations as a combina-
+tion of distant point-light sources by using the linearity of
+light transport [9]. We then take renderings from the teacher
+model as pseudo ground-truth to train an efﬁcient student
+model that is conditioned on the target environment maps.
+However, we found that the student model architecture
+used in [4] for faces leads to severe overﬁtting when applied
+to relightable hands. This is caused by the architecture de-
+sign of holistically conditioning a bottleneck representation
+with the target lighting environment. This representation
+makes it difﬁcult to reproduce geometric interactions be-
+tween lights and hand pose, such as those required to cast
+shadows from the ﬁngers onto the palm across all possible
+ﬁnger conﬁgurations.
+Therefore, motivated by recent neural portrait relight-
+ing works [42,63], we instead propose to compute spatially
+aligned lighting information using physics-inspired illumi-
+nation features, including visibility, diffuse shading, and
+specular reﬂections. Because these features are based on
+geometry and approximate the ﬁrst bounce of light trans-
+port, they show strong correlation with the full appearance
+and provide sufﬁcient conditioning information to infer ac-
+curate radiance under natural illuminations. In particular,
+visibility plays a key role in disentangling lights and pose,
+reducing the learning of spurious correlations that can be
+present in limited training data. However, computing vis-
+ibility at full geometric resolution for every single light is
+too computationally expensive for real-time rendering. To
+address this, we propose using a coarse proxy mesh that
+shares the same UV parameterization as our hand model for
+computing the lighting features. We compute the features at
+vertices of the coarse geometry, and use barycentric inter-
+polation to create texel-aligned lighting features. Our fully
+convolutional architecture learns to compensate for the ap-
+proximate nature of the input features and infers both local
+and global light transport effects. This way, our model can
+render appearance under natural illuminations at real-time
+framerates as shown in Figure 1.
+Our study shows that both integrating visibility informa-
+tion and spatially aligned illumination features are impor-
+tant for generalization to novel illuminations and poses. We
+also demonstrate that our approach supports rendering of
+two hands in real-time, with realistic shadows cast across
+hands.
+Our contributions can be summarized as follows:
+• The ﬁrst method to learn a relightable personalized
+hand model from multi-view light-stage data that sup-
+ports high-ﬁdelity relighting under novel lighting en-
+vironments.
+• An illumination representation for parametric model
+relighting that is spatially aligned, leading to signiﬁ-
+cant improvements in generalization and accuracy of
+shadows under articulation.
+• An efﬁcient algorithm to compute spatially-aligned
+lighting features with visibility and shading informa-
+tion incorporated using a coarse proxy mesh, enabling
+real-time synthesis.
+2. Related Work
+In the following, we review image-space and model-
+based relighting approaches as well as hand modeling tech-
+niques.
+Hand Modeling Modeling human hands has been exten-
+sively studied in both computer vision and graphics. Early
+work primarily focuses on tracking geometry and modeling
+articulation. Various hand shape representations have been
+proposed including simple shape primitives [41, 46, 58],
+sum of 3D Gaussians [54, 55], sphere mesh [59], and tri-
+angle meshes [3, 8, 48, 60]. MANO [48] presents a para-
+metric mesh model that learns identity variations as well
+as pose dependent deformations. Facilitated by such para-
+metric models and accurate joint detection methods [52],
+estimating 3D hand poses is now possible from RGB-D
+inputs [33, 38] or images [34, 36, 71]. They are also ex-
+tended to two hands [25, 37] and object interactions [16].
+While these approaches show impressive robustness, geo-
+metric ﬁdelity remains limited. To further improve ﬁdelity
+of geometry modeling, anatomical priors from medical im-
+ages [27, 62, 70] and physics-based volumetric prior [53]
+allows modeling more accurate surface deformation, es-
+pecially around articulation and contacts. Self-supervised
+
+
+learning enables the learning of more personalized articu-
+lated models in an end-to-end manner with a mesh repre-
+sentation [35] and neural ﬁelds [1,10,21,50].
+The appearance of hands is also essential for realistic
+animation.
+HTML [45] builds a database of hand tex-
+tures to create a parameteric texture space that can be ﬁt
+to novel hands.
+Neural rendering approaches based on
+volumetric representation have been extended to articula-
+tion modeling, compensating for inaccurate geometry by
+using view-dependent appearance [40, 44]. In particular,
+LISA [7] demonstrates the modeling of animatable hands
+from multi-view images. However, these approaches pre-
+integrate illuminations into the appearance model, and re-
+lighting is not supported. NIMBLE [27] captures diffuse,
+normal, and specular maps from a light-stage and build a
+PCA appearance space. While reﬂactance maps allow re-
+lighting, physically-based rendering requires expensive ray-
+tracing and is sensitive to geometry quality, while linear
+appearance models have limited capacity for compensating
+geometry errors.
+In contrast, our work proposes an end-to-end model for
+geometry and relightable appearance by leveraging neu-
+ral rendering techniques. By directly reproducing complex
+light transport effects using neural rendering, our method
+can achieve signiﬁcantly more efﬁcient photorealistic re-
+lighting.
+Image-space Human Relighting Image-space relighting
+has been pioneered by Devebec et al. [9], where faces under
+novel illuminations are generated by making use of the lin-
+earity of light transport from a one-light-at-a-time (OLAT)
+capture. A follow-up work by Wenger et al. [64] enables
+dynamic relighting by warping adjacent frames with time-
+multiplexed illumination patterns. The learning-based ap-
+proach of Xu et al. [66] proposes to interpolate light po-
+sitions from sparse observations, and a similar approach is
+extended to light-stage captures by upsampling light direc-
+tions [57]. Meka et al. [32] also infer OLAT images from a
+pair of spherical gradient illuminations, enabling dynamic
+captures.
+In contrast to these approaches based on sin-
+gle point lights, Sun et al. [56] directly regress faces un-
+der natural illuminations using deep neural networks. A
+parallel line of work aims to decompose images into ge-
+ometry and reﬂectances, enabling physically based relight-
+ing [17, 18, 20, 23, 39, 51]. Recent works leverage the best
+of learning-based relighting and material decomposition by
+feeding physics-inspired relighting results from the estima-
+tion into another network to produce a ﬁnal relighting im-
+age [19, 42, 63, 68].
+Despite plausible relighting results,
+image-space approaches typically suffer from temporal and
+view inconsistency artifacts during animation or novel-view
+rendering, as they lack a 3D parameterization of the scene.
+Model-based Human Relighting In contrast to image-
+space neural relighting approaches, we can leverage a 3D
+template-model for animation and novel-view rendering.
+Yamaguchi et al. [67] infer skin reﬂectance from a sin-
+gle image in a shared UV space, allowing them to relight
+faces from different views. Zhang et al. [69] also lever-
+age a shared UV space to relight novel-views of human
+performance captures with global light transport. Unfor-
+tunately, this approach only supports a playback of existing
+performances and cannot create new animations. To enable
+animatable relighting for facial performance, Bi et al. [4]
+presents DRAM, a deep relightable appearance model that
+is conditioned on viewing direction and expression latent
+codes. While their approach enables efﬁcient relighting for
+real-time animation using a teacher-student framework, we
+observe that the bottleneck lighting encoding without vis-
+ibility information in their student model leads to severe
+overﬁtting when applied to hand relighting. EyeNeRF [24]
+enables the joint learning of geometry and relightable ap-
+pearance of a moving eyeball model. Compared to eyes,
+hands exhibit signiﬁcantly more diverse pose variations,
+making explicit visibility incorporation essential. Relight-
+ing4D [6] learns relightable materials of an articulated hu-
+man under a single unknown illumination, but the ﬁdelity of
+relighting is limited bu the expressiveness of their paramet-
+ric BRDF model. In contrast to these methods, our approach
+enables relighting of articulate hand models that can be ani-
+mated with a wide range of poses. In addition, the proposed
+lighting encoding makes our relightable model generaliz-
+able to novel poses and illuminations while retaining real-
+time performance.
+3. Preliminaries
+Data Acquisition.
+We use a multiview calibrated capture
+system consisting of 106 cameras and 460 white LED lights
+to capture both fully-lit and partially-lit images of hands in
+motion, using a setup similar to [4]. Images are captured at
+4096 × 2668 resolution at 90 frames per second. We repre-
+sent the state of a hand using pose parameters, and estimate
+them for all the frames in the following way: for fully-lit
+frames, we perform skeletal hand tracking using a person-
+alized Linear Blend Skinning (LBS) model. Speciﬁcally,
+we ﬁrst obtain 3D reconstruction meshes using [15] and de-
+tect 3D hand keypoints using [26] with a ResNet backbone
+and RANSAC-based triangulation. An LBS model is per-
+sonalized using reconstructions and keypoints on a collec-
+tion of key frames, and is used for skeletal tracking [12] to
+estimate pose parameters for fully-lit frames. For partially-
+lit frames, we perform spherical linear interpolation of the
+pose parameters from adjacent fully-lit frames. Our dataset
+contains independently captured sequences of right and left
+hands. We collected 92, 313 and 88, 413 frames for Subject
+1’s hands and 22, 754 and 22, 354 frames for Subject 2 from
+106 cameras. 80% of the segments are used for training and
+the rest for testing.
+
+
+Ground-Truth
+Hand
+Pose
+OLAT Textures {𝑪!
+" }
+𝒢(𝜃)
+Geometry
+Decoder
+𝒥!(𝜃)
+Joint Feature Encoder
+Differentiable
+Ray Marching
+Weighted
+Sum
+U-Net
+MVP Geometry
+Loss
+Prediction
+𝐂!
+Visibility {𝐕𝒍" 𝑘}
+𝐅#$ , 𝐅%
+$,'
+wS×𝑤S×S (×𝐿)
+wS×𝑤S×6S (×𝐿)
+wS×𝑤S×3S (×𝐿)
+𝒍"
+𝒗
+Local View 
+and 
+Light Directions
+𝜃
+𝜃
+X
+i1zyBf6K64YfKI=">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
+/mX1f23Tn/6k6fOvC97P6l/H5iOZH0=</latexit>tk, Rk, sk, Ok
+Ck
+L
+AOLAT
+Figure 2. Overview of the teacher model. Our texture decoder U-Net takes as input view and light directions in local primitive coordinates,
+and visibility at each voxel in the primitives. Input pose parameters are encoded into joint features, and fed into the bottleneck layer of
+U-Net. The output OLAT textures are aggregated by the weighted sum using the intensity of each light. The network weights are trained
+in an end-to-end manner via inverse rendering losses.
+Articulated Geometry Modeling.
+We adopt the articu-
+lated mixture of volumetric primitives (MVP) [47], which
+extends the original work of MVP [30] to articulated ob-
+jects. As demonstrated in [47], the articulated MVP im-
+proves ﬁdelity over mesh-based representations due to its
+volumetric nature while being computationally efﬁcient for
+real-time rendering. Additionally, it only requires a coarse
+mesh from an LBS model as guidance, in contrast to prior
+mesh-based works [2, 29], which rely on precise surface
+tracking.
+Given a coarse articulated mesh M = {V, T , F, θ} with
+vertices V, texture coordinates T , faces F, and hand pose
+parameters θ representing joint angles, we decode a set
+of volumetric primitives. Speciﬁcally, our pose-dependent
+hand geometry is modeled by N primitives, where the k-th
+primitive is deﬁned by Pk = {tk, Rk, sk, Ck, Ok}, com-
+prising the primitive center location tk ∈R3, rotation
+Rk ∈SO(3), per-axis scale sk ∈R3, and voxels that con-
+tain color Ck ∈R3×S×S×S and opacity Ok ∈RS×S×S
+for each primitive, where S denotes the resolution of voxels
+on each axis. To explicitly model articulations, primitives
+are loosely attached to the articulated mesh M produced
+by LBS. Given pose θ, the geometry decoder G(θ) predicts
+residual rotations, translations, and scale together with the
+opacity of primitives {Ok}N
+k=1. The texture decoder C(θ)
+predicts the color of primitives {Ck}N
+k=1. Both color and
+opacity decoders employ a sequence of 2D transpose con-
+volutions, and the channel dimension in the last layer ad-
+ditionally stacks the depth-axis of each primitive’s voxels.
+The decoded primitives {Pk}N
+k=1 are rendered using differ-
+entiable ray marching [30]; we refer to [47] for details.
+In this work, we ﬁrst train the articulated MVP [47] from
+fully-lit images without relighting to obtain a personalized
+geometry decoder G(θ). After training, we discard the non-
+relightable texture decoder C(θ) and learn a relightable ap-
+pearance decoder.
+4. Method
+Our goal is to build a relightable appearance model for
+hands that can be rendered under natural illuminations in
+real-time from a light-stage capture based on point lights.
+To this end, we use a similar teacher-student framework as
+proposed in [4], but extend it to articulated MVPs. The
+teacher model learns OLAT relightable textures using the
+partially-lit frames. Because the teacher model computes
+illumination for single point light sources, it generalizes to
+arbitrary illuminations due to the linearity of light trans-
+port [9]. However, multiple OLAT textures need to be gen-
+erated to obtain a rendering under natural illumination. This
+leads to signiﬁcant computational overheads for rendering
+(∼30s per frame). Thus, we use the teacher OLAT model to
+synthesize images under natural illuminations, and train an
+efﬁcient student model that can be conditioned by an envi-
+ronment map to match with the pseudo ground-truth gener-
+ated by the teacher model.
+4.1. Teacher Model
+Our teacher model AOLAT predicts the appearance of the
+hand model under OLAT as follows:
+{Ci
+k}k = AOLAT(θ, v, li, {V(li)k}k),
+(1)
+where v is the viewer’s position, li is the position of i-th
+point light, and V(li)k∈RS×S×S are the visibility maps
+from the primitive to light li computed using Deep Shadow
+Maps [28]. Instead of OLAT, our partially lit frames use
+L=5 grouped lights to increase brightness and reduce mo-
+tion blur.
+By leveraging the linearity of light transport,
+Raymarching from each light to primitives and accumulating opacity.
+
+
+Differentiable
+Ray Marching
+3×128×128
+9×128×128
+Hand Pose 𝜃
+𝒢(𝜃)
+Geometry
+Decoder
+𝒥!(𝜃)
+Joint Feature
+Encoder
+Loss
+Texture
+Decoder
+Visibility-Aware
+Specular Feature
+Visibility-Aware
+Diffuse Feature  
+LBS(𝜃)
+Environment Map
+MVP Geometry
+Student Prediction
+Teacher 
+Target
+𝑑!
+𝑠!
+Ray Tracing
+𝑬
+Z
+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</latexit>tk, Rk, sk, Ok
+Concatenate
+64×128×128
+Ck
+n
+QN7057Q/1v1beHdM=">Ax/3iclVvbtzIEdXmulFu3uQlQF6IyMZuAlm
+QbCPJ4+ouWaP76OrxGhxODYcWb2b3cCQPZoH8S4A8ZHXfEWe8zep7mazqjm
+UFxFgiXVOs8nuPtV1hkP38zgScnX1v5/94Ic/+vFPfvr5zxZ/otf/urXT7
+4zaXIxkUAF0EWZ8V13xcQRylcyEjGcJ0X4Cf9GK76d5uKvyqhEFGWduVDm8
+TP0yjYRT4EqF3T37XS3w5Cvx4uj57N+1JuJdTSMvZ7N2TpdWVf3jzR+sVQd
+LC9XPybsvVv/TG2TBOIFUBrEvxJu1Vy+nfqFjIYZou9sYDcD+78EN7gYeo
+nIN5O9RBm3jNEBt4wK/BfKj2N8jOmfiLEQ9LHluqGRZNTYBv3ZiyHf307jdJ
+8LCENzIWG49iTmafmwxtEBQyfsADPygivFcvGPmFH0ictcVn6sc72r7yDte7
+e97W9s7+0X53/jo3NPUYt9LONfNQqx3E9mi4vPvEO/uPMEXganXHjZ0Av8
+3ByrARcwhKI0lDd0yAqI2GbDaNwXACOJ4VJkCWJnw6mPQRjGMrZdNqDxPuq
+g8d/nM3m2gS4DFDYVps6amtXROGo7uxMBW2tZJbNt0sb2vRz6TMEtoQ0dz
+7apx+7aZ/1iLvm3Rf6xFYFsEj7UY2BYD1QKXYQ9HF6sRer6H7dWawxDzZuDh
+3CRuH3iswNmbtbfYS3/oLa2pTrCXHb0oZtVQUbDsxdkEiucBZuHKYg+71NMK
+w6W1qVnAb3sYTXUHbafj7UbSj1e8HRSDkJgvau2FWjHkTY87tsedZo+alpPM
+XnPpRXV4dlGHo6oCl7YMz6M/QGdsvRy6dXcacv1OfboJe/qlR7OuVH1J6cDl
+W9uvkoBZz5aOrATYs4+t2eft5x9Zs/S+TzJ6ixbqSfGXF3omalz8JGpaXY4K
+gCaXbL+l7O90izxvp+Od+3n3qAi6BObpky+GDGbJs8Pmin3GeQ+Gpfkw32
+1U323drHuFP6F5b3T2/Plzv8yigTcWamuKhl6eCRFhXTFd57GPqVP1/jdq
+c0x0xqGaNizOlVm/97kFVHm3VHm9/bEY45DUHvwatMH1ouL4jlIqlbVfPn
+z8qE7w7Pw4zLB6jpGWcyJm7qxt9cqCsq7mRrtu1lu6soK318NB1H19ejPoO
+ietf+9Jc5Oa46ZVjZypT6HmdtXRpxbFnN9U70l9/ol7vh1pfQG8a3X86A1Xg
+oMoVmKN1QFu6NhAHVX9DeMsKzStjwyvD6sGSPWT6Vqz2sgCE2E2rX3UVrNB6
+cfRgDd4Z46LZGqo2VyXIGT7CZqZ1SOCXKgal4soztKqPp1hF1nilX4R+ZitVt
+8g/anxd2lWJNjr0x5CT2d2OosG7RPTd5k+MYHLBMQMXGZADLgMEDN0mSExoc
+uExIxcZkRM5DIRMe9d5j0xdy5zR0zsMvFMy7hIvEhgxqLjHjyozc6s4L3fi
+ykN8jSL6WnfC7K8UHtPM7CeEnVd+r2ndJVM5fJiMldJifmg8t8IKZwmYIY4T
+KCGOkykpixy4yJKV2mJGbiMhNi7l3mnpgHl3kg5qPLfJwZm2cTACtzVm/vZ
+UkU5NK/SFLm/q+5chkiW2hY8YzjsN9glulAHBLDHKAcEsK0ogmKVEOSY5U
+MZEsySoRwRzDKhHBPM0qB8TzDLgfKOYJYAZUxwzOCE4ITBbKL5DGcEMzGXOc
+FMyeUHgpmMy4JgpuFSECz4ohIs2+eES7ckmOm2nBDMRFveE8wUWz4QzORafiT
+YanU7BvV5WX/aK1p0C0Z0rfsyGOW17sxg5Ne6N4PRYOvuDEaIrfszGDW27tB
+gJNm6R4PRZesujdyj+zQYhbu1GBk2rpXg9Fqc7e2XOJyCece3YnBSLd1Lwa
+j39bdGIyIW/djMEpu3ZHByLl1Twaj6dZdGYywW/dlMOpu3ZnBSLx1bwaj89b
+dGYzYW/dnMIp/fIfGXCioHYoyTrlxzqlTbJB8AaDNwneZPAWwVsM3iZ4m8E
+7BO8weJfgXQbvEbzH4H2C9xn8muDXD4g+IDBHYI7D4k+JDBRwQfMfiY4GM
+GnxB8wuBTgk8ZfEbwGYPCT5ncJfgLoMvCL5g8CXBlwy+IviKwdcEXzP4huA
+bBt8SfPv49uqKDozqmEbXmX619Bi3wblNl9vk3JbLbXFu2+W2Obfjcjuc23W
+5Xc7tudwe5/Zdbp9zr13uNecOXO6Acx2X63Du0OUOXfkckecO3a5Y86duNwJ
+505d7pRzZy53xrlzlzvnXNflupy7cLkLzl263CXnrlzuinPXLnfNuRuXu+Hc
+rctZ2V9yC1F+BP05Aj+7rtbnlkKU/t51mLJ2EC9hIpG7YkV7vrhsoIZ0jcI
++RDtQhAh96G9ByLkOcrqTshpaJ+BCPkL7S4QIVehPQUi5CW0k0CEHIT2D4iQ
+b9CuARFyC9orIBKzeTAIOQPtCxBJ2fwZhFyA9gCIUO3XlR8Rqvi63iNCdV5X
+eUQEm3CDUE0vq2Vhi1IahOq3rt6IUNXWNRsRqtW6UiNCFVrXZ0Ta3KhrQ0s/
+zkdqvfXfWoFlvxKH1oUF6aMWPZmoqNhP+gN1hjkgIksgVLj+S7CWpJKjBbBD
+RPA3QSIKE3Wq/kuwFW4l2nog0ym/6kSq41QrAFKNQBG9RUCdRGKNAhRSjO
+kCIU5ogivF12ryjI9xShGO/Y3EyVCOuRT5UAbYSTyWYRxZexKZkq0dkIRfeBI
+hRcwWZqoRWT9BUicxGONFsmlFgJUorglFKx7ilBUDxShoD7Oqu+8sM7eG
+1zXWNQZ1VZdWRGhiqrKSJUR3UVRYSqp6diFDN1BUTEaqUuk4iQvVRV0dEq
+CrqmogI1UJdCRGhCqjrHyJU93TVQ4Sqna51iFCN0xUOEapsuq4hQvVMVzNEq
+IrpGoYI1S5duRChiqXrFSJUp3SVQoSqk65NiFBN0hUJEapEug4hQvVHVx9Eq
+OromoMI1RpdaRC5ZStIdaHPy0JyMqo24h4esdmzqa+YTpX+9eCqHFbcucljr
+aIupEJ9EbwFQewXgKIarasdCK9ozJ4YRupRKaRBNojSEDvzx7FCxLA+TmZTo
+Z7ynoN8rIN+Fg+r5v+/QyTsPmkNhX6O0JTN6v+9FPqamjS+MtUMPXLDYuR/u
+WmxSgD5JbFKAfktsUoC+SOxSgP5K7FKBPknsUoF+S+xSgb5GuLUT7IA4tRs
+iOxSgn5KHFKCvkcUoL+SxSgz5InFKDfkqcUoO+SZxSg/5LnFKENk12KUI/
+LCYpQl8tJilCfymKUKfLaYpQr8sZilC3y1mLGkaGQdws/Hxk2tJ9zA+fjRr
+jBYNJFuMlgka4xWBSR7jNYBJIuMNg0ki4y2CSbjHYFJKuM9gEkv4msGkl/
+CAwSZsMNgUk14yGASTnjEYNJOeMxgk94wmBSUHjKYBJReMZg0lF4zmCSUt
+hlMKkpvGAwCSq8ZDBpKrxiMkqvGYwKSu8YTCJK7xlsHX8uLVk3UT1H6TF
+xig1DSltgklKQltgjVynrmbelvMsYCPN8TID28dAwDb3vZ60PgK1yOIuFNsnE
+8QAgj8IT+3gO95Ljw1Js7WYwdqfd4D5Hb6m/zLVfqe/QFUmdYpdQEqfYI5S
+0KfYJWmK14SMsUBoSRM0SGUdCkOCSVZiNCSZXimFASpTghlDQpTgklSYo
+zQkmR4pxQEqToEkp6FBeEkhzFJaGkRnFKIlRXBNKWhQ3hJIUxS2h9SOXFH0
+f6I8QvnYUplAIAfQc2/sofrFKFUNyhCiW5ShNLcog3u2KUEQ7FKF4dil
+C0exRhGLZpwhF8poiFMcBRSiKDkUohkOKUARHFOHiH1OEi35CES72KUW4yGc
+U4eKeU4SL2qUIF/OCIlzES4pw8a4owkW7pgX64YiXKRbdr3KaVUuSy0Z8CW
+TxnHhlqLyV7+Mh0ls0GVvEslRNpYe2h1vgiUth8I1RECOyHFD1eVlrQHdcM4I
+grZL0PBLoA0TNBwTaMsEDc8E2jRBwzWBtk3Q8E2gjRM0nBNo6wQN7wTaPEHD
+PYG2T9DwT6ANFDQcFGgLBQ0PBdpEQcNFgbZR0PBRoI0UNJwUaCsFDS8F2kxB
+w02BtlPQ8FOgDRU0HBVoSwUNTwXaVEHDVYG2VdDwVaCNFTScFWhrBQ1vBdpc
+QcNdgbZX0PBXoA0WMIeFnxSw5MhiDN4HUARP6iXlga+9L0QUiw2qg4Eqj0
+/liVHle2uWo6m+bvpr0imepAFz7VKyR5VERY8pz63cH+w+63OnXQNRFsD42
++rZviIx8iZ/U3Us4LU94y5NZ280k2QDiTw1EN6hHYqK561SNTj7VKJdRPICq
+ZU8H9d3XZ+A2IbNg5Av13qw/lpn+BAWFc4eNF1hz06a+x+qU+RsYgNPOhC3tC
+iRw07HtTIhaCPQzNLdx7OexH8CsfqOmUwEz75lXHbvT656/Pasr3nbzRjqCv
+bTabJnM17bG7tmkrM5bpBxMbP3VyigHBWP0lrUoGkMaoGkZQNLsW2VAm/
+j21tECzHRaLTL/EZB6yzfeSx2M1+o/qSYDLHnRm/A2mg87cAl76Bd2BCpr9S
+/zjF7j2RcZans8twGZWEq0CJdCrLB4WfqIeSI0mWYEGVfgPwnva+ebFU/X2j
+n7nfJyat1BFjusv9NtjT3sQx6yNfSD6zNvAogpn6pfD5jvkKi32JQLNp2y1
+uoV0mwc6pqpTXEkYVl3LzJvkIHqbhLdRTkMIn+l8QpyViSxeng/m3a+WZ21k
+FkKiltr4+REn/eijcsVk7cwWgudb3pROpQPzdTJ/UI9HMZtw1fJcg641wo/BC
+9KvTSrDL2E+xVvc5QJNT2ZMoDByNvCz74pfCm8fpbdrSw6j3Oc7U7Z8WfUO
+NFqG8A/aW1dGnGqp90jTEo/YutVqxmf79SIsuCqr3vCLQfb8PuZnE36Bf
+h3i4vniytNf/Dw/zB5YuVtT+vDp9tfT1i+o/Q3y+8PuFPyx8tbC28JeFrx
+f2Fk4WLhaChW8X/r7wz4Xv1v629o+179b+Zr+4LPqnN8uOD9r/4fK+1YzQ
+=</latexit>Aenv
+𝐂!
+wS×𝑤S×3S
+Relit Texture
+Figure 3. Overview of the student model. Given a hand pose and a target envmap, the visibility-aware diffuse and specular features are
+computed on the coarse LBS mesh. These features are then projected onto UV map and fed into the texture decoder together with the joint
+encoding. Finally, the predicted texture is rendered to image space via differentiable ray marching for supervision.
+the ﬁnal color {Ci
+k} under these lights is computed as the
+weighted sum of primitive colors for each light:
+Ck =
+L
+X
+i=1
+biCi
+k,
+(2)
+where bi is the intensity of each light and L is the total num-
+ber of lights.
+Compared to a mesh-based OLAT teacher model for
+face relighting [4], we made several important modiﬁca-
+tions in the architecture design to support hand relighting
+with a hybrid mesh-volumetric representation. In [4], view-
+dependent intrinsic feature maps are generated at 512×512
+resolution, and per-texel features are further transformed by
+an MLP together with the incoming light direction to infer
+radiance. However, an MVP-based decoder requires signiﬁ-
+cantly larger channel dimensions to represent the additional
+volumetric depth axis. Hence, decoding radiance at every
+single voxel using an MLP is not computationally tractable.
+To address this, we adopt a U-Net architecture that takes
+as input reshaped visibility maps and spatially aligned light
+and view directions.
+Namely, for each primitive k and
+light i, light directions are encoded as Fk,i
+l
+∈R3×S×S×S
+and viewing directions as Fk
+v ∈R3×S×S×S. These are ar-
+ranged into UV space as in [30, 47] to produce volumetric
+texture maps of size {Fk
+v}N
+k=1∈R3×wS×wS×S, with w=64
+the number of primitives per side of the UV map layout, and
+N = w×w the total number of primitives, and similarly for
+light directions. Figure 2 illustrates the overall architecture
+of the teacher model.
+While the spatially aligned light directions are computed
+in a model-centric space in [4], this global parameterization
+leads to severe overﬁtting for articulated objects because it
+ignores local orientation changes produced by articulation.
+To address this, we propose to reorient view and light direc-
+tions into primitive-centric coordinates. More speciﬁcally,
+the view directions Fk
+v at each primitive k are represented
+as follows:
+
+Fk
+v
+
+j = R⊺
+k (v −pk,j) ||v −pk,j||−1
+2 ,
+(3)
+where [·]j indexes voxels inside the primitive, R⊺
+k is the in-
+verse rotation matrix of the k-th primitive and pk,j denotes
+the 3D location of the j-th voxel inside the k-th primitive.
+Similarly, the light directions Fk,i
+l
+are expressed as follows:
+h
+Fk,i
+l
+i
+j = R⊺
+k (li −pk,j) ||li −pk,j||−1
+2 ,
+(4)
+where l is the location of the point light.
+Additionally, joint features are input at the lowest res-
+olution level of the U-Net layer such that the resulting
+appearance explicitly accounts for pose-dependent texture
+changes, such as small wrinkles, that may not be repre-
+sented by the primitive geometry. We use a spatially aligned
+joint feature encoder Jt(θ)∈R64×64×64 in UV space as
+in [2]. Our loss is expressed by
+L = λMSELMSE + λV GGLV GG + λnegLneg,
+(5)
+where LMSE is the mean-squared error between ground-
+truth and rendered images, LV GG is the weighted sum of
+the VGG feature loss at each layer, Lneg is a regularization
+term and penalizes the texture with a negative intensity:
+Lneg =
+γ
+NS3
+N
+X
+k
+|| max(−Ck, 0)||2
+2,
+(6)
+with weight schedule γ = exp
+
+−max
+
+ηneg
+t
+t−ts , 0
+
+where t is the number of current iterations, and ts is the
+iteration when the regularization loss starts decaying.
+4.2. Student Model
+Our student model Aenv predicts the appearance of the
+hand model under natural illuminations represented as en-
+
+
+w/ Visibility
+w/o Visibility
+Diffuse
+Specular
+Diffuse
+Specular
+Figure 4. Effect of visibility integration. The visibility integra-
+tion based on ray tracing leads to accurate encoding of shadow
+information in both specular and diffuse features.
+vironment maps E ∈RM×3 as follows:
+{Ck} = Aenv(θ, E).
+(7)
+The principal challenge in the student model is efﬁcient
+light encoding that can be generalized to illuminations and
+poses unseen during training. The state-of-the-art model-
+based approach for face relighting [4] introduces an efﬁcient
+hypernet architecture conditioned on a 512-dimensional
+bottleneck representation of a 16 × 32 environment map.
+We ﬁnd that such a bottleneck illumination representation
+is difﬁcult to generalize because it loses the spatial geome-
+try of illumination by collapsing it into a single vector. As
+we demonstrate in our evaluation (Sec. 5.2), this issue is
+even more pronounced for relightable hands, as it is non-
+trivial to disentangle global light transport between such
+bottleneck illumination and pose features. A similar obser-
+vation has been made for portrait relighting, where methods
+based on image-aligned light features [42, 68] outperform
+an approach using a bottleneck representation [56]. Inspired
+by this success, we propose a spatially aligned illumination
+representation tailored for model-based hand relighting that
+accurately accounts for self-occlusion due to pose changes.
+Namely, we produce our texel-aligned feature represen-
+tation by casting M rays (one per envmap location) from
+each vertex and compute a weighted sum of envmap values
+to produce diffuse and specular components. We incorpo-
+rate the visibility information by setting the contribution of
+rays hitting other mesh parts to zero. Figure 4 shows the ef-
+fect of the visibility integration. In practice, we use a coarse
+mesh to compute per-vertex features, which are then pro-
+jected to texel-aligned space via barycentric interpolation.
+The projected features are fed into a fully convolutional de-
+coder, retaining the spatial alignment between features and
+the output appearance {Ck}. Figure 3 illustrates the overall
+architecture of the student model.
+More precisely, the diffuse feature di ∈R3 at vertex i is
+represented with Lambertian BRDF computed as follows:
+di =
+M
+X
+m=1
+E(rm
+i )hi(rm
+i ) max(ni · rm
+i , 0) ,
+(8)
+where E(rm
+i ) ∈R3 is the vector of the envmap intensity
+sampled along the ray direction rm
+i
+∈R3 (based on a far-
+ﬁeld environment assumption), hi(rm
+i ) is a binary visibility
+term, and ni ∈R3 is a vertex normal. The specular fea-
+ture si(α) ∈R3 is represented with Phong specular BRDF
+computed as
+si(α) =
+M
+X
+m=1
+E(rm
+i )hi(rm
+i ) max(ˆvi · rm
+i , 0)α ,
+(9)
+where α is a shininess coefﬁcient, and ˆvi is the view direc-
+tion reﬂected around the normal. To account for spatially
+varying material properties on hands, we take specular fea-
+tures with multiple shininess values (16, 32, 64). The fea-
+ture maps are also concatenated with spatially aligned joint
+features Js(θ)∈R64×128×128.
+Note that we train the student model Aenv using the same
+losses used for the teacher model (Eq.5).
+4.3. Implementation Details
+To train the teacher and student models, we use
+Adam [22] optimizer and set the hyperparameters λMSE,
+λV GG, and λneg to 1.0, 1.0, and 0.01 respectively. We train
+each of the geometry module, teacher model, and student
+model for 100, 000 iterations with the learning rate of 0.001,
+and batch size of 4, 2, and 4, respectively, on NVIDIA V100
+and A100. In addition, we use N=4096 primitives whose
+per-axis resolution S is 16. We describe the detailed net-
+work architecture in the supplemental. To reduce redun-
+dancy in our training data in terms of poses, we adopt im-
+portance sampling based on kernel density estimation using
+the subset of tracked hand vertices in root-normalized co-
+ordinates. We generate 25, 000 images with 1000 frames
+and 25 cameras to train the student model. To compute
+the texel-aligned lighting features, we use envmap of size
+M=512(16×32), and coarse mesh with 2825 vertices. The
+visibility is computed with a GPU-accelerated triangle-ray
+intersection using NVIDIA OptiX [43].
+5. Experimental Results
+We evaluate our method using 2 subjects with left, right
+and two hands captured in a light-stage as described in
+Sec. 3.
+For evaluation, we exclude several segments to
+assess the generalization of our model to novel poses. To
+evaluate the generalization of the student model to novel il-
+lumination, we use 3094 high-resolution HDR environment
+maps consisting of the ones in [13] and [56]. We use 2560
+
+
+GT
+Ours
+Figure 5. Qualitative results of the teacher model. We evaluate
+our method using the ground-truth images captured in the light-
+stage. Our approach successfully models inter-reﬂection, shadow,
+and subsurface scattering.
+of them for training and 534 for evaluation. Note that the
+two-hand sequences are used only for teacher model evalu-
+ation. We also compare our approach with the state-of-the-
+art model-based relighting method [4]. As [4] was origi-
+nally proposed for face relighting, we make several modiﬁ-
+cations for fair comparison. Please refer to the supplemental
+for details.
+We report mean squared error (MSE) and Structural Sim-
+ilarity Index (SSIM) to measure the quality of the generated
+images by the teacher and student models. To solely eval-
+uate the quality of hands, we remove the background by
+using a mask image obtained from the tracked hand geom-
+etry.
+5.1. Evaluation of Teacher Models
+We ﬁrst evaluate the effectiveness of the proposed
+teacher model using the images captured with the light-
+stage as ground-truth.
+Qualitative Evaluation. We evaluate the quality of the im-
+ages generated by our model against the real images cap-
+tured in the light-stage. As shown in Figure 5, our teacher
+model is able to reproduce diverse pose-dependent appear-
+ance under multiple point-light sources, such as shadows on
+the wrinkles and reﬂection on the skin and nails.
+Ablation on Visibility Conditioning. Table 3 shows that
+the visibility input signiﬁcantly improves the accuracy on
+all the metrics especially for the two hand sequences. As
+shown in Figure 6, while the model without visibility input
+can overﬁt to training poses by relying on the joint infor-
+mation, it does not generalize to unseen poses or two hand
+cases. Thus, the visibility conditioning is essential to gen-
+eralize beyond training pose and light distributions.
+5.2. Evaluation of Student Models
+Table 2 shows that our method achieves the best MSE
+and SSIM scores on all the metrics under unseen hand poses
+Ground-Truth
+w/ Visibility
+w/o Visibility
+Figure 6.
+Ablation on visibility conditioning of the teacher
+model. The lack of visibility features leads to incorrect shadows.
+and illumination settings. Since we do not have ground-
+truth real images under natural illumination, we use test
+images generated by the teacher model for evaluation. To
+conﬁrm the effectiveness of our method, we compare our
+method against the latest model-based relighting method [4]
+and perform ablation study on visibility awareness and
+specular features.
+Comparison to Bottleneck Light Conditioning. To eval-
+uate the effectiveness of our spatially aligned lighting fea-
+tures, we compare against a bottleneck light representation
+with a hyper-network proposed in [4]. For fair compari-
+son, we replace our illumination encoding with their hyper-
+network while retaining everything else. Figure 7 shows
+that a bottleneck-based light encoding fails to match the
+overall intensity compared to the ground-truth. Moreover,
+it lacks ﬁne-grained illumination effects such as reﬂection
+from grazing angles and soft shadows. In contrast, our spa-
+tially aligned representation even without the proposed vis-
+ibility integration signiﬁcantly improves the ﬁdelity of re-
+construction. This observation is also strongly supported
+by our quantitative evaluation as shown in Table 2.
+Ablation on Visibility Integration. We also evaluate the
+effectiveness of the proposed efﬁcient visibility integration
+for computing features. Figure 7 and Table 2 show that,
+compared to the model without the visibility integration, our
+full model achieves more faithful reconstruction of shadows
+even for novel poses and illuminations.
+Ablation on Specular Features. We also validate the im-
+portance of specular features in the student model. Figure 7
+and Table 2 illustrate that our specular feature provides suf-
+ﬁcient information to reproduce specular highlight despite
+having the feature computed on a coarse proxy geometry.
+This suggests that spatially aligned lighting features are es-
+sential for achieving generalizable neural relighting.
+Runtime Analysis. One of our key contributions is the ef-
+ﬁcient rendering speed. While the teacher model takes ap-
+
+
+Subject 1
+Subject 2
+MSE (×10−3) ↓
+SSIM ↑
+MSE (×10−3) ↓
+SSIM ↑
+Right
+Left
+Both
+Right
+Left
+Both
+Right
+Left
+Both
+Right
+Left
+Both
+Ours
+4.9126
+5.8608
+15.7589
+0.9790
+0.9805
+0.9536
+8.8205
+7.9357
+22.3559
+0.9541
+0.9559
+0.9075
+w/o Visibility
+7.3201
+7.8870
+22.8308
+0.9773
+0.9792
+0.9488
+9.7104
+9.9781
+26.5647
+0.9536
+0.9543
+0.9050
+Table 1. Quantitative comparison of the teacher model. We measure the MSE and SSIM metrics on the right, left, and two-hand
+sequences. The result shows that conditioning visibility signiﬁcantly improves generalization to test poses and illuminations.
+Subject 1
+Subject 2
+MSE (×10−3) ↓
+SSIM ↑
+MSE (×10−3) ↓
+SSIM ↑
+Right
+Left
+Both
+Right
+Left
+Both
+Right
+Left
+Both
+Right
+Left
+Both
+DRAM [4]
+31.1372
+24.4368
+64.2035
+0.9904
+0.9927
+0.9752
+30.6582
+24.7238
+70.4215
+0.9901
+0.9898
+0.9665
+Ours
+5.4076
+5.9600
+4.3474
+0.9961
+0.9960
+0.9915
+5.7977
+7.2598
+4.5196
+0.9952
+0.9954
+0.9881
+w/o Specular
+5.7660
+7.2631
+5.0732
+0.9956
+0.9952
+0.9914
+7.1569
+7.4892
+4.9008
+0.9948
+0.9943
+0.9881
+w/o Visibility
+6.6110
+8.1886
+11.6771
+0.9955
+0.9948
+0.9893
+7.8589
+8.5550
+9.1859
+0.9938
+0.9938
+0.9862
+Table 2. Quantitative evaluation of the student model. Our student model outperforms the state-of-the-art model-based relighting
+method [4] by a large margin. In addition, the proposed visibility and specular features integration signiﬁcantly improve the generalization
+to unseen poses and natural illuminations.
+DRAM [4]
+w/o Visibility
+w/o Specular Feature
+Ours
+Ground-Truth (Teacher)
+Figure 7. Qualitative comparison of the student model. A model-based relighting method [4] fails to reproduce the precise color and
+ﬁne-grained shading effects. Our model without visibility integration or specular features also lacks pose-dependent shadow or specular
+highlight respectively. In contrast, our full model successfully reproduces both effects. The green and red bounding boxes denote success
+and failure cases respectively.
+proximately 30 seconds to generate a texture with an en-
+vmap by aggregating over 512(= 16 × 32) light sources,
+the student model achieves 48 fps (21 ms) for a single hand
+and 31 FPS (32 ms) for two hands on NVIDIA V100.
+6. Discussion and Future Work
+We introduced the ﬁrst model-based neural relighting for
+articulated hand models to enable photorealistic rendering
+of personalized hands under various illuminations in real-
+time. We successfully extend the teacher-student frame-
+work to build articulated models using a mesh-volumetric
+hybrid representation from multi-view light-stage capture
+data. The hybrid representation allows us to use a coarse
+mesh to efﬁciently compute physics-inspired light features
+as input conditioning for the proposed student model. Our
+experiments show that the spatially aligned light representa-
+tion and explicit visibility integration are critical for highly
+generalizable relighting to novel poses and illuminations.
+Limitations and Future Work.
+Our student model cur-
+rently does not support inter-reﬂection by other nearby ob-
+jects due to far-ﬁeld light assumption, which can be par-
+tially addressed by taking surroundings as a spatially vary-
+ing envmap. Future work also includes extending the pro-
+posed approach to clothed bodies, where computing visi-
+bility at a coarse mesh would not be sufﬁcient for recov-
+ering ﬁne-level shading caused by clothing deformations.
+Another exciting direction is to build a universal relightable
+hand model that spans inter-subject variations. As demon-
+strated by recent work on face modeling [5], such a univer-
+sal model would enable adaptation from in-the-wild inputs.
+
+
+References
+[1] Thiemo Alldieck, Hongyi Xu, and Cristian Sminchisescu.
+imghum: Implicit generative models of 3d human shape and
+articulated pose. In ICCV, 2021. 3
+[2] Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabian
+Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser
+Sheikh, and Jason Saragih. Driving-signal aware full-body
+avatars. TOG. 4, 5
+[3] Luca Ballan, Aparna Taneja, J¨urgen Gall, Luc Van Gool, and
+Marc Pollefeys.
+Motion capture of hands in action using
+discriminative salient points. In ECCV, 2012. 2
+[4] Sai Bi, Stephen Lombardi, Shunsuke Saito, Tomas Simon,
+Shih-En Wei, Kevyn Mcphail, Ravi Ramamoorthi, Yaser
+Sheikh, and Jason Saragih.
+Deep relightable appearance
+models for animatable faces. TOG, 2021. 2, 3, 4, 5, 6, 7,
+8, 12
+[5] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz,
+Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi,
+Shih-En Wei, Danielle Belko, Shoou-I Yu, et al. Authentic
+volumetric avatars from a phone scan. TOG. 8
+[6] Zhaoxi Chen and Ziwei Liu.
+Relighting4d:
+Neural re-
+lightable human from videos. In ECCV, 2022. 3, 12, 13
+[7] Enric Corona, Tomas Hodan, Minh Vo, Francesc Moreno-
+Noguer, Chris Sweeney, Richard Newcombe, and Lingni
+Ma. Lisa: Learning implicit shape and appearance of hands.
+In CVPR, 2022. 3
+[8] Martin de La Gorce, David J Fleet, and Nikos Para-
+gios. Model-based 3d hand pose estimation from monocular
+video. PAMI, 2011. 2
+[9] Paul Debevec, Tim Hawkins, Chris Tchou, Haarm-Pieter
+Duiker, Westley Sarokin, and Mark Sagar.
+Acquiring the
+reﬂectance ﬁeld of a human face. In SIGGRAPH, 2000. 2, 3,
+4
+[10] Boyang Deng, JP Lewis, Timothy Jeruzalski, Gerard Pons-
+Moll, Geoffrey Hinton, Mohammad Norouzi, and Andrea
+Tagliasacchi.
+Neural articulated shape approximation.
+In
+ECCV, 2020. 3
+[11] Graham Fyffe, Andrew Jones, Oleg Alexander, Ryosuke
+Ichikari, and Paul Debevec. Driving high-resolution facial
+scans with video performance capture. TOG, 2014. 1
+[12] Juergen Gall, Carsten Stoll, Edilson De Aguiar, Christian
+Theobalt, Bodo Rosenhahn, and Hans-Peter Seidel. Motion
+capture using joint skeleton tracking and surface estimation.
+In CVPR, 2009. 3
+[13] Marc-Andr´e Gardner, Kalyan Sunkavalli, Ersin Yumer, Xi-
+aohui Shen, Emiliano Gambaretto, Christian Gagn´e, and
+Jean-Franc¸ois Lalonde. Learning to predict indoor illumi-
+nation from a single image. TOG, 2017. 6
+[14] Abhijeet Ghosh, Graham Fyffe, Borom Tunwattanapong, Jay
+Busch, Xueming Yu, and Paul Debevec. Multiview face cap-
+ture using polarized spherical gradient illumination. TOG,
+2011. 1
+[15] Kaiwen Guo, Peter Lincoln, Philip Davidson, Jay Busch,
+Xueming Yu, Matt Whalen, Geoff Harvey, Sergio Orts-
+Escolano, Rohit Pandey, Jason Dourgarian, et al. The re-
+lightables: Volumetric performance capture of humans with
+realistic relighting. TOG, 2019. 3
+[16] Yana Hasson, Gul Varol, Dimitrios Tzionas, Igor Kale-
+vatykh, Michael J Black, Ivan Laptev, and Cordelia Schmid.
+Learning joint reconstruction of hands and manipulated ob-
+jects. In CVPR, 2019. 2
+[17] Andrew Hou, Michel Sarkis, Ning Bi, Yiying Tong, and Xi-
+aoming Liu. Face relighting with geometrically consistent
+shadows. In CVPR, 2022. 3
+[18] Andrew Hou, Ze Zhang, Michel Sarkis, Ning Bi, Yiying
+Tong, and Xiaoming Liu. Towards high ﬁdelity face relight-
+ing with realistic shadows. In CVPR, 2021. 3
+[19] Chaonan Ji, Tao Yu, Kaiwen Guo, Jingxin Liu, and Yebin
+Liu. Geometry-aware single-image full-body human relight-
+ing. In ECCV, 2022. 3
+[20] Yoshihiro Kanamori and Yuki Endo.
+Relighting humans:
+Occlusion-aware inverse rendering for full-body human im-
+ages. SIGGRAPH Asia, 2018. 3
+[21] Korrawe Karunratanakul, Adrian Spurr, Zicong Fan, Otmar
+Hilliges, and Siyu Tang. A skeleton-driven neural occupancy
+representation for articulated hands. In 3DV, 2021. 3
+[22] Diederick P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. In ICLR, 2015. 6
+[23] Manuel Lagunas, Xin Sun, Jimei Yang, Ruben Villegas, Jian-
+ming Zhang, Zhixin Shu, Belen Masia, and Diego Guti´errez.
+Single-image full-body human relighting. In Eurographics
+Symposium on Rendering, 2021. 3
+[24] Gengyan Li, Abhimitra Meka, Franziska Mueller, Marcel C.
+Buehler, Otmar Hilliges, and Thabo Beeler.
+Eyenerf: A
+hybrid representation for photorealistic synthesis, animation
+and relighting of human eyes. SIGGRAPH, 2022. 3
+[25] Mengcheng Li, Liang An, Hongwen Zhang, Lianpeng Wu,
+Feng Chen, Tao Yu, and Yebin Liu.
+Interacting attention
+graph for single image two-hand reconstruction. In CVPR,
+2022. 2
+[26] Wenbo Li, Zhicheng Wang, Binyi Yin, Qixiang Peng, Yum-
+ing Du, Tianzi Xiao, Gang Yu, Hongtao Lu, Yichen Wei,
+and Jian Sun. Rethinking on multi-stage networks for hu-
+man pose estimation. arXiv:1901.00148, 2019. 3
+[27] Yuwei Li, Longwen Zhang, Zesong Qiu, Yingwenqi Jiang,
+Nianyi Li, Yuexin Ma, Yuyao Zhang, Lan Xu, and Jingyi Yu.
+Nimble: A non-rigid hand model with bones and muscles.
+SIGGRAPH, 2022. 2, 3
+[28] Tom Lokovic and Eric Veach. Deep shadow maps. In SIG-
+GRAPH, 2000. 4
+[29] Stephen Lombardi, Jason Saragih, Tomas Simon, and Yaser
+Sheikh. Deep appearance models for face rendering. TOG,
+2018. 4
+[30] Stephen Lombardi,
+Tomas Simon,
+Gabriel Schwartz,
+Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. Mix-
+ture of volumetric primitives for efﬁcient neural rendering.
+TOG, 2021. 4, 5, 12
+[31] Wan-Chun Ma, Tim Hawkins, Pieter Peers, Charles-Felix
+Chabert, Malte Weiss, and Paul Debevec. Rapid acquisition
+of specular and diffuse normal maps from polarized spheri-
+cal gradient illumination. In EGSR, 2007. 1
+[32] Abhimitra Meka, Christian Haene, Rohit Pandey, Michael
+Zollh¨ofer, Sean Fanello, Graham Fyffe, Adarsh Kowdle,
+Xueming Yu, Jay Busch, Jason Dourgarian, et al.
+Deep
+
+
+reﬂectance ﬁelds: high-quality facial reﬂectance ﬁeld infer-
+ence from color gradient illumination. TOG. 3
+[33] Gyeongsik Moon, Ju Yong Chang, and Kyoung Mu Lee.
+V2v-posenet: Voxel-to-voxel prediction network for accu-
+rate 3d hand and human pose estimation from a single depth
+map. In CVPR, 2018. 2
+[34] Gyeongsik Moon and Kyoung Mu Lee. I2l-meshnet: Image-
+to-lixel prediction network for accurate 3d human pose and
+mesh estimation from a single rgb image. In ECCV, 2020. 2
+[35] Gyeongsik Moon, Takaaki Shiratori, and Kyoung Mu Lee.
+Deephandmesh: A weakly-supervised deep encoder-decoder
+framework for high-ﬁdelity hand mesh modeling. In ECCV,
+2020. 3
+[36] Franziska Mueller,
+Florian Bernard,
+Oleksandr Sotny-
+chenko, Dushyant Mehta, Srinath Sridhar, Dan Casas, and
+Christian Theobalt. Ganerated hands for real-time 3d hand
+tracking from monocular rgb. In CVPR, 2018. 2
+[37] Franziska Mueller, Micah Davis, Florian Bernard, Oleksandr
+Sotnychenko, Mickeal Verschoor, Miguel A Otaduy, Dan
+Casas, and Christian Theobalt. Real-time pose and shape
+reconstruction of two interacting hands with a single depth
+camera. TOG, 2019. 2
+[38] Franziska Mueller, Dushyant Mehta, Oleksandr Sotny-
+chenko, Srinath Sridhar, Dan Casas, and Christian Theobalt.
+Real-time hand tracking under occlusion from an egocentric
+rgb-d sensor. In ICCV, 2017. 2
+[39] Thomas
+Nestmeyer,
+Jean-Franc¸ois
+Lalonde,
+Iain
+A.
+Matthews, and Andreas M. Lehrmann. Learning physics-
+guided face relighting under directional light.
+In CVPR,
+2020. 3
+[40] Atsuhiro Noguchi, Xiao Sun, Stephen Lin, and Tatsuya
+Harada. Neural articulated radiance ﬁeld. In ICCV, 2021.
+3
+[41] Iason Oikonomidis, Nikolaos Kyriazis, and Antonis A Argy-
+ros. Efﬁcient model-based 3d tracking of hand articulations
+using kinect. In BMVC, 2011. 2
+[42] Rohit Pandey, Sergio Orts-Escolano, Chloe LeGendre,
+Christian Haene, Soﬁen Bouaziz, Christoph Rhemann, Paul
+Debevec, and Sean Fanello. Total relighting: Learning to re-
+light portraits for background replacement. In TOG, 2021.
+1, 2, 3, 6
+[43] Steven G Parker, James Bigler, Andreas Dietrich, Heiko
+Friedrich, Jared Hoberock, David Luebke, David McAllis-
+ter, Morgan McGuire, Keith Morley, Austin Robison, et al.
+Optix: a general purpose ray tracing engine. TOG. 6
+[44] Sida Peng, Yuanqing Zhang, Yinghao Xu, Qianqian Wang,
+Qing Shuai, Hujun Bao, and Xiaowei Zhou. Neural body:
+Implicit neural representations with structured latent codes
+for novel view synthesis of dynamic humans.
+In CVPR,
+2021. 3
+[45] Neng Qian, Jiayi Wang, Franziska Mueller, Florian Bernard,
+Vladislav Golyanik, and Christian Theobalt. HTML: A Para-
+metric Hand Texture Model for 3D Hand Reconstruction and
+Personalization. In ECCV, 2020. 3
+[46] James M Rehg and Takeo Kanade. Visual tracking of high
+dof articulated structures: an application to human hand
+tracking. In ECCV, 1994. 2
+[47] Edoardo Remelli, Timur Bagautdinov, Shunsuke Saito,
+Chenglei Wu, Tomas Simon, Shih-En Wei, Kaiwen Guo, Zhe
+Cao, Fabian Prada, Jason Saragih, and Yaser Sheikh. Driv-
+able volumetric avatars using texel-aligned features. 2022.
+4, 5
+[48] Javier Romero, Dimitrios Tzionas, and Michael J. Black.
+Embodied hands: Modeling and capturing hands and bod-
+ies together. SIGGRAPH Asia, 2017. 2
+[49] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net:
+Convolutional networks for biomedical image segmentation.
+In Nassir Navab, Joachim Hornegger, William M. Wells, and
+Alejandro F. Frangi, editors, MICCAI, 2015. 12
+[50] Shunsuke Saito, Jinlong Yang, Qianli Ma, and Michael J
+Black. Scanimate: Weakly supervised learning of skinned
+clothed avatar networks. In CVPR, 2021. 3
+[51] Soumyadip Sengupta, Angjoo Kanazawa, Carlos D. Castillo,
+and David W. Jacobs. Sfsnet: Learning shape, refectance and
+illuminance of faces in the wild. In CVPR, 2018. 3
+[52] Tomas Simon, Hanbyul Joo, Iain Matthews, and Yaser
+Sheikh. Hand keypoint detection in single images using mul-
+tiview bootstrapping. In CVPR, 2017. 2
+[53] Breannan Smith, Chenglei Wu, He Wen, Patrick Peluse,
+Yaser Sheikh, Jessica K Hodgins, and Takaaki Shiratori.
+Constraining dense hand surface tracking with elasticity.
+TOG. 2
+[54] Srinath Sridhar, Franziska Mueller, Antti Oulasvirta, and
+Christian Theobalt.
+Fast and robust hand tracking using
+detection-guided optimization. In CVPR, 2015. 2
+[55] Srinath Sridhar, Antti Oulasvirta, and Christian Theobalt. In-
+teractive markerless articulated hand motion tracking using
+rgb and depth data. In ICCV, 2013. 2
+[56] Tiancheng Sun, Jonathan T. Barron, Yun-Ta Tsai, Zexiang
+Xu, Xueming Yu, Graham Fyffe, Christoph Rhemann, Jay
+Busch, Paul Debevec, and Ravi Ramamoorthi. Single image
+portrait relighting. TOG, 2019. 1, 3, 6
+[57] Tiancheng Sun, Zexiang Xu, Xiuming Zhang, Sean Fanello,
+Christoph Rhemann, Paul Debevec, Yun-Ta Tsai, Jonathan T
+Barron,
+and Ravi Ramamoorthi.
+Light stage super-
+resolution:
+continuous high-frequency relighting.
+TOG,
+2020. 3
+[58] Andrea Tagliasacchi, Matthias Schr¨oder, Anastasia Tkach,
+Soﬁen Bouaziz, Mario Botsch, and Mark Pauly.
+Robust
+articulated-icp for real-time hand tracking.
+In Computer
+graphics forum, 2015. 2
+[59] Anastasia Tkach, Mark Pauly, and Andrea Tagliasacchi.
+Sphere-meshes for real-time hand modeling and tracking.
+TOG, 2016. 2
+[60] Dimitrios Tzionas, Luca Ballan, Abhilash Srikantha, Pablo
+Aponte, Marc Pollefeys, and Juergen Gall. Capturing hands
+in action using discriminative salient points and physics sim-
+ulation. IJCV, 2016. 2
+[61] Bruce Walter, Stephen R. Marschner, Hongsong Li, and Ken-
+neth E. Torrance. Microfacet models for refraction through
+rough surfaces. In ESGR, 2007. 12, 13
+[62] Bohan Wang, George Matcuk, and Jernej Barbiˇc. Hand mod-
+eling and simulation using stabilized magnetic resonance
+imaging. TOG. 2

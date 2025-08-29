@@ -1,0 +1,738 @@
+Title: Dresscode: Autoregressively sewing and generating garments from text guidance
+
+DressCode: Autoregressively Sewing and Generating Garments from Text
+Guidance
+KAI HE, ShanghaiTech University and Deemos Technology Co., Ltd., China
+KAIXIN YAO, ShanghaiTech University and NeuDim Technology Co., Ltd., China
+QIXUAN ZHANG, ShanghaiTech University and Deemos Technology Co., Ltd., China
+JINGYI YU∗, ShanghaiTech University, China
+LINGJIE LIU∗, University of Pennsylvania, USA
+LAN XU∗, ShanghaiTech University, China
+Fig. 1. Our DressCode generates CG-friendly customized garments with sewing patterns and PBR textures under natural text guidance, enabling post-editing,
+animation, and high-quality rendering.
+Apparel’s significant role in human appearance underscores the importance
+of garment digitalization for digital human creation. Recent advances in
+3D content creation are pivotal for digital human creation. Nonetheless,
+garment generation from text guidance is still nascent. We introduce a
+∗Corresponding author.
+Authors’ addresses: Kai He, hekai@shanghaitech.edu.cn, ShanghaiTech University and
+Deemos Technology Co., Ltd., Shanghai, China; Kaixin Yao, yaokx2023@shanghaitech.
+edu.cn, ShanghaiTech University and NeuDim Technology Co., Ltd., Shanghai, China;
+Qixuan Zhang, zhangqx1@shanghaitech.edu.cn, ShanghaiTech University and Deemos
+Technology Co., Ltd., Shanghai, China; Jingyi Yu, yujingyi@shanghaitech.edu.cn, Shang-
+haiTech University, Shanghai, China; Lingjie Liu, lingjie.liu@seas.upenn.edu, University
+of Pennsylvania, Philadelphia, USA; Lan Xu, xulan1@shanghaitech.edu.cn, Shang-
+haiTech University, Shanghai, China.
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+© 2024 Copyright held by the owner/author(s).
+ACM 0730-0301/2024/7-ART72
+https://doi.org/10.1145/3658147
+text-driven 3D garment generation framework, DressCode, which aims to de-
+mocratize design for novices and offer immense potential in fashion design,
+virtual try-on, and digital human creation. We first introduce SewingGPT, a
+GPT-based architecture integrating cross-attention with text-conditioned
+embedding to generate sewing patterns with text guidance. We then tai-
+lor a pre-trained Stable Diffusion to generate tile-based Physically-based
+Rendering (PBR) textures for the garments. By leveraging a large language
+model, our framework generates CG-friendly garments through natural
+language interaction. It also facilitates pattern completion and texture edit-
+ing, streamlining the design process through user-friendly interaction. This
+framework fosters innovation by allowing creators to freely experiment
+with designs and incorporate unique elements into their work. With compre-
+hensive evaluations and comparisons with other state-of-the-art methods,
+our method showcases superior quality and alignment with input prompts.
+User studies further validate our high-quality rendering results, highlighting
+its practical utility and potential in production settings. Our project page is
+https://IHe-KaiI.github.io/DressCode/.
+CCS Concepts: • Computing methodologies →Computer graphics.
+Additional Key Words and Phrases: Garment Generation, Sewing Patterns,
+Autoregressive Model
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+arXiv:2401.16465v4  [cs.CV]  15 Jun 2024
+
+
+72:2
+•
+Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu, and Lan Xu
+ACM Reference Format:
+Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu, and Lan Xu. 2024.
+DressCode: Autoregressively Sewing and Generating Garments from Text
+Guidance. ACM Trans. Graph. 43, 4, Article 72 (July 2024), 13 pages. https:
+//doi.org/10.1145/3658147
+1
+INTRODUCTION
+Apparel substantially influences the appearance of us humans, and
+hence garment digitalization has emerged as a vital component of
+digital human creation. An effective digital garment creation tool
+should enable users to customize garments to depict the individu-
+ality and diversity that make up our physical world, with various
+garment traits like sewing patterns, styles, or materials. The creation
+process also needs to match specific themes and be convenient, as
+simple as chatting with AI agents like ChatGPT.
+Recent years have witnessed tremendous progress in text-driven
+asset generation, triggered by the large-scale language models [Achiam
+et al. 2023; Radford et al. 2021]. It democratizes the accessible text-
+driven creation of diverse assets for novices, including images [Rom-
+bach et al. 2022], generic 3D objects [Liu et al. 2023b; Poole et al.
+2022], human hair [Zhou et al. 2023], face or body [Liao et al. 2023;
+Zhang et al. 2023a]. What is still missing is the garment. Moreover,
+naively applying avatar or general generation [Liao et al. 2023; Poole
+et al. 2022] for the garment category is suboptimal since they turn
+to generate mesh or neural fields that are incompatible with digital
+garment production workflow.
+In contrast, for our graphics community, the dominant representa-
+tion of garments is sewing patterns, which facilitates both physical
+simulation and animation in a CG-friendly fashion [Autodesk, INC.
+2019; Blender Foundation 2022]. For sewing pattern generation,
+early methods [Berthouzoz et al. 2013; Umetani et al. 2011] only use
+simple partial modules in the workflow like parsing or draping to
+3D. With the consolidation of more advanced datasets [Korosteleva
+and Lee 2021], recent work enables sewing pattern generation from
+point clouds [Korosteleva and Lee 2022] or images [Liu et al. 2023d].
+However, they largely overlook the generation through more natural
+language interactions, let alone handling the vivid generation with
+desired texture patterns or physically-based materials, which could
+significantly speed up the preliminary stage of garment design. Fur-
+thermore, through the natural interactions of text prompts, novices
+without professional skills in complex design software can directly
+describe and transform their ideas into creations. This significantly
+lowers the design barriers, allowing more newcomers to participate
+in the creative process. Most importantly, generative models intro-
+duce diversity to designed text prompts, generate varied types of
+garments conforming to the prompts, and hence stimulate designer
+creativity.
+In this paper, we propose DressCode, a 3D garment generation
+framework that generates high-quality garments via natural lan-
+guage interaction. As illustrated in Figure 1, DressCode allows
+users to customize garments with preferred sewing patterns and
+physically-based texture details through text interaction. The re-
+sulting garments can be seamlessly integrated with CG pipelines,
+supporting post-editing and animation while ensuring high-quality
+rendering.
+Notably, the garments’ highly symmetric and structured nature,
+with uniform panels and stitching, leads to convenient conversion
+from sewing patterns to discrete “codes.” To this end, inspired by
+powerful language generation apt for this nature, we introduce
+SewingGPT, a GPT-based architecture for sewing pattern genera-
+tion. Specifically, we adopt a novel quantization process to translate
+the sewing patterns into token sequences and subsequently utilize a
+decoder-only Transformer with text-conditioned embedding for to-
+ken prediction. We utilize the pre-trained CLIP [Radford et al. 2021]
+model to encode prompts as conditional embeddings, benefiting
+from CLIP’s generalized capability in multimodal understanding.
+For effective training, we apply GPT-4V [Achiam et al. 2023] on
+the existing dataset [Korosteleva and Lee 2021] to detail diverse
+garment types and shapes with rich text prompts. Once trained, our
+SewingGPT autoregressively generates quantized sewing patterns
+with efficient text interactions, which have been unseen before.
+To achieve high-quality garment rendering, we progressively
+tailor a pre-trained Stable Diffusion model [Rombach et al. 2022]
+to generate tile-based Physically-based Rendering (PBR) textures
+from text prompts. We first fine-tune the U-Net architecture [Ron-
+neberger et al. 2015] of the diffusion model within latent space
+to generate the diffuse attribute, and then fine-tune the various
+VAE [Kingma and Welling 2013] decoders to generate normal and
+roughness maps separately. We showcase the capability of Dress-
+Code to generate CG-friendly garments with rich sewing patterns
+and PBR textures from text prompts. We also demonstrate the ver-
+satility of our approach, including a ChatGPT-like conversational
+agent for interactive garment generation, garment completion from
+partial inputs, and user-friendly texture editing. To summarize, our
+main contributions include:
+• We propose a first text-driven garment generation pipeline
+with high-quality garment sewing patterns and physically-
+based textures.
+• We introduce a novel generative paradigm for sewing patterns
+as a sequence of tokens, achieving high-quality autoregressive
+generation via text guidance.
+• We tailor a diffusion model for vivid texture generation of gar-
+ments from text prompts and showcase interaction-friendly
+applications for garment generation, completion, and editing.
+2
+RELATED WORK
+Garment Sewing Pattern Modeling. Sewing pattern representa-
+tion is vital for garment modeling. Recent studies have delved into
+sewing pattern reconstruction [Jeong et al. 2015; Pietroni et al. 2022;
+Sharp and Crane 2018; Su et al. 2022; Wang et al. 2018; Yang et al.
+2018], generation [Shen et al. 2020], draping [Berthouzoz et al. 2013;
+De Luigi et al. 2023; Li et al. 2023b] and editing [Bartle et al. 2016;
+Qi et al. 2023; Umetani et al. 2011]. Early research [Chen et al. 2015]
+employs a search in a pre-defined database of 3D garment parts for
+garment reconstruction. Studies [Jeong et al. 2015; Su et al. 2020;
+Yang et al. 2018] use parametric sewing patterns, optimizing them
+for garment reconstruction from images. [Wang et al. 2018] ad-
+vances this by applying deep learning to discern a shape space for
+sewing patterns and various input modalities. [Bang et al. 2021;
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+
+
+DressCode: Autoregressively Sewing and Generating Garments from Text Guidance
+•
+72:3
+Sharp and Crane 2018] utilize surface flattening for sewing pattern
+reconstruction from 3D human models.
+Recently, some work [Goto and Umetani 2021; Korosteleva and
+Lee 2022; Zhu et al. 2020] adopt data-driven approaches for recon-
+struction. [Goto and Umetani 2021] utilizes a deep network with
+surface flattening for sewing pattern reconstruction from 3D ge-
+ometries. [Korosteleva and Lee 2021] generates a sewing pattern
+dataset covering a wide range of garment shapes and topologies.
+NeuralTailor [Korosteleva and Lee 2022] offers advanced sewing
+pattern reconstruction using a hybrid network to predict garment
+panels and stitching information from point cloud input. [Chen
+et al. 2022] introduces a CNN-based model capable of predicting
+garment panels from single images, using PCA to simplify the panel
+data structure. [Liu et al. 2023d] creates a comprehensive dataset
+featuring diverse garment styles and human poses and introduces a
+two-level Transformer network, achieving state-of-the-art sewing
+pattern reconstruction from single images. [Korosteleva and Sorkine-
+Hornung 2023] designs the first DSL for garment modeling, enabling
+users to do rich garment designs using interchangeable, parame-
+terized components. [Li et al. 2023a] proposes a novel approach to
+recover garment materials and patterns with optimization using
+differentiable simulation. While these solutions yield notable re-
+sults, a gap persists in user-friendliness and practicality compared
+to direct communication of outcomes through natural language.
+Furthermore, prior studies have largely overlooked generating gar-
+ment color, texture, and material, essential elements for creating
+high-quality garments.
+Text-to-3D Generation. Recent breakthroughs in the text-to-image
+domain [Ho et al. 2020; Rombach et al. 2022; Zhang et al. 2023b]
+have enhanced interest in text-guided 3D content generation. Early
+work [Jain et al. 2022] introduces a text-to-3D method guided by
+CLIP [Radford et al. 2021]. [Poole et al. 2022; Wang et al. 2023a]
+present the Score Distillation Sampling (SDS) algorithm, elevating
+pre-trained 2D diffusion models for the 3D generation. [Metzer et al.
+2023] optimizes Neural Radiance Fields (NeRF) [Mildenhall et al.
+2021] in the latent space. [Chen et al. 2023a; Lin et al. 2023] optimize
+efficient mesh representations [Munkberg et al. 2022; Shen et al.
+2021] for higher quality generation. [Seo et al. 2023] integrates 3D
+awareness into 2D diffusion for improving text-to-3D generation
+consistency. Subsequent studies [Chen et al. 2023b; Lugmayr et al.
+2022; Richardson et al. 2023] focus on texturing pre-existing meshes,
+balancing speed and quality. Despite their innovations, SDS-based
+methods faced challenges with over-saturation. [Tsalicoglou et al.
+2023] proposes a novel method to refine mesh textures for more
+realistic generations. ProlificDreamer [Wang et al. 2023b] intro-
+duces the Variational Score Distillation (VSD) method to mitigate
+over-saturation effectively. Furthermore, several studies [Liu et al.
+2023a; Shi et al. 2023b; Ye et al. 2023; Zhao et al. 2023] explored 3D
+generation using multi-view diffusion. Concurrently, some research
+[Huang et al. 2023; Liu et al. 2023c,b; Long et al. 2023; Melas-Kyriazi
+et al. 2023; Qian et al. 2023; Raj et al. 2023; Shi et al. 2023a; Tang et al.
+2023; Wu et al. 2023; Xu et al. 2023] concentrates on reconstruct-
+ing 3D content from a single image through distillation, achieving
+high-fidelity textured meshes from 2D diffusion priors. Additionally,
+some studies [Erkoç et al. 2023; Nash et al. 2020; Siddiqui et al. 2023;
+Yu et al. 2023] delve into shape generation. [Yu et al. 2023] generates
+high-quality 3D shapes with Unsigned Distance Field (UDF) through
+Diffusion models. [Nash et al. 2020; Siddiqui et al. 2023] employ au-
+toregressive models for mesh structure generation. Although some
+general object generation methods [Mildenhall et al. 2021; Poole
+et al. 2022; Qiu et al. 2023; Wang et al. 2023a,b; Yu et al. 2023] can
+produce garments, their practicality in CG environments is limited.
+Very Recent work, Garment3DGen [Sarafianos et al. 2024] enables
+users to generate textured 3D garments from single images or text
+prompts based on a 3D base mesh. These 3D outputs, mostly mesh-
+based or derived from implicit fields, lack adaptability for fitting
+different bodies and layering multiple garments, common needs in
+garment design. Furthermore, the textures, typically produced via
+optimization or multi-view reconstruction, are often low-resolution
+and blurry, neglecting the structured UV mapping of garments, re-
+sulting in poor topology challenging for subsequent CG processing.
+3
+SEWING PATTERN GENERATION
+Inspired by powerful language generative models, we introduce
+SewingGPT, a GPT-based autoregressive model for sewing pat-
+tern generation with text prompts. We first convert sewing pat-
+tern parameters into a sequence of quantized tokens and train a
+masked Transformer decoder, integrating cross-attention with text-
+conditioned embeddings. After training, our model can generate
+token sequences autoregressively based on user conditions. The gen-
+erated sequences are then de-quantized to reconstruct the sewing
+patterns.
+3.1
+Sewing Pattern Quantization
+Pattern representation. We utilize the sewing pattern templates
+from [Korosteleva and Lee 2022], which cover a wide variety of
+garment shapes. Each sewing pattern includes 𝑁𝑃panels {𝑃𝑖}𝑁𝑃
+𝑖=1
+and stitching information𝑆. Each panel 𝑃𝑖forms a closed 2D polygon
+with 𝑁𝑖edges {𝐸𝑖,𝑗}𝑁𝑖
+𝑗=1. Each edge 𝐸𝑖,𝑗consists of four parameters
+(𝑣𝑥, 𝑣𝑦,𝑐𝑥,𝑐𝑦), where (𝑣𝑥, 𝑣𝑦) represents the edge’s start point, and
+(𝑐𝑥,𝑐𝑦) represents the control point of the Bezier curve. Since the
+panels form closed polygons, we do not need to store the edges’
+endpoints. The 3D placement of each panel is indicated by rotation
+quaternion 𝑅𝑖∈SO(3) and translation vector 𝑇𝑖∈R3. For stitching
+information, we utilize per-edge stitch tags {𝑆𝑖,𝑗}𝑁𝑖
+𝑗=1 and stitch flags
+{𝑈𝑖,𝑗}𝑁𝑖
+𝑗=1 for each panel 𝑃𝑖, obtained from the stitching information
+𝑆. Each stitch tag 𝑆𝑖,𝑗∈R3 is based on the 3D placement of the
+corresponding edge, and each stitch flag is a binary flag with 𝑈𝑖,𝑗=
+{0, 1} indicating whether there is a stitch on this edge. We follow a
+similar approach to that used in [Korosteleva and Lee 2022], which
+utilizes Euclidean distance between tags as a similarity measure. To
+restore the stitching information from stitch tags and stitch flags,
+we filter out free and connected edges with stitch flags and then
+compare the stitch tags of all pairs of connected edges.
+Quantization. For each panel, we first utilize a similar data prepro-
+cessing approach to that used in [Korosteleva and Lee 2022], which
+standardizes all edge vectors and control points to maintain the data
+within a standard normal distribution, and normalizes its 3D place-
+ment to ensure all values are between 0 and 1. Then, we quantize all
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+
+
+72:4
+•
+Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu, and Lan Xu
+Fig. 2. Overview of our SewingGPT pipeline. We quantize sewing patterns to the sequence of tokens and adopt a GPT-based architecture to generate the
+tokens autoregressively. Our SewingGPT enables users to generate highly diverse and high-quality sewing patterns under text prompt guidance.
+Fig. 3. Details of our quantization. We present an example of a part of a
+sleeveless dress, including a skirt panel (Panel 1) and a top panel (Panel 2).
+Assuming 𝑁1 < 𝑁2 = 𝐾, we require zero-padding for tokens from Panel 1.
+parameters, subsequently converting them into tokens. Specifically,
+for panel 𝑃𝑖, we model all parameters as discrete variables by multi-
+plying predefined constants𝐶𝐸,𝐶𝑅,𝐶𝑇,𝐶𝑆by edge vectors, rotation,
+translation, and stitching feature vectors respectively, and maintain
+stitching flags as 0 or 1. We flatten and concatenate 𝑁𝑖edges, one
+rotation quaternion, one translation vector, 𝑁𝑖stitching vectors,
+and 𝑁𝑖stitching flags, into a sequence of tokens. We carefully se-
+lect these constants to offer a good trade-off between maintaining
+the fidelity of sewing patterns and managing the vocabulary size.
+Overall, we can represent the quantization process as
+T (𝑃𝑖,𝑆) = 𝐶𝐸{𝐸𝑖,𝑗}𝑁𝑖
+𝑗=1 ⊕𝐶𝑅𝑅𝑖⊕𝐶𝑇𝑇𝑖⊕𝐶𝑆{𝑆𝑖,𝑗}𝑁𝑖
+𝑗=1 ⊕{𝑈𝑖,𝑗}𝑁𝑖
+𝑗=1 (1)
+where we denote T as the quantization function, and ⊕as the linear
+concatenation of tokens. These tokens are then formed into a linear
+sequence. We set a maximum limit, denoted as 𝐾, for the number
+of edges in each panel. To maintain a uniform token count across
+panels, we apply zero-padding to panels with 𝑁𝑖< 𝐾. Subsequently,
+all panels are flattened and merged into a single sequence, start-
+ing with a start token and ending with an end token. Owing to
+the uniformity of token counts for each panel, inserting padding
+tokens between panels is not required. Consequently, the resultant
+sequence, as illustrated in Figure 3, denoted as F seq, spans a length
+of 𝐿𝑡= (8𝐾+ 7)𝑁𝑃, with each token denoted by 𝑓𝑛for 𝑛= 1, . . . , 𝐿𝑡.
+Eventually, we can represent it as
+F seq = {T (𝑃𝑖,𝑆) + 𝐶}𝑁𝑃
+𝑖=1,
+(2)
+where C is a constant to ensure all tokens are non-negative.
+3.2
+Generation with Autoregressive Model
+Utilizing GPT-based architectures, we adopt a decoder-only trans-
+former to generate token sequences for sewing patterns. Inspired
+by PolyGen [Nash et al. 2020], we design the triple embedding for
+each input token: positional embedding, denoting which panel it
+belongs to; parameter embedding, classifying the token as edge coor-
+dinates, rotation, translation, or stitching feature vectors; and value
+embedding for the quantized sewing pattern values. The source
+tokens are then input into the transformer decoder to predict the
+probability distribution of the next potential token at each step.
+Consequently, the objective is to maximize the log-likelihood of the
+training sequences:
+L = −
+𝐿𝑡
+Ö
+𝑖=1
+𝑝(𝑓𝑖| 𝑓<𝑖;𝜃) .
+(3)
+By optimizing this objective, our SewingGPT learns the intricate re-
+lationships among the shape, placement, and stitching information
+of each panel. In the inference stage, target tokens begin with the
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+
+
+DressCode: Autoregressively Sewing and Generating Garments from Text Guidance
+•
+72:5
+Fig. 4. Examples of our data captions. We utilize the rendered images
+and ask GPT-4V with the designed prompt for detailed captions.
+start token and are recursively sampled from the predicted distri-
+bution 𝑝
+
+ˆ𝑓𝑖| ˆ𝑓<𝑖;𝜃
+
+until the end token. Following autoregressive
+token sequence generation, we reverse token quantization, convert-
+ing the generated data to its original sewing pattern representation.
+Conditional Generation with Text Prompts. To guide the sewing
+pattern generation, our model integrates cross-attention with text-
+conditioned embeddings h. Initially, we utilize the CLIP model to
+obtain the CLIP embedding from input text prompts. Then, we
+project it into a feature embedding through a trainable compact
+Multilayer Perceptron (MLP) to condense the dimensionality of
+CLIP embeddings, matching the Transformer’s dimensionality. This
+approach also boosts memory efficiency and inference speed. Subse-
+quently, the Transformer decoder conducts cross-attention with the
+feature embedding [Li et al. 2022]. We train the model with pairwise
+data, facilitating condition-specific token generation.
+3.3
+Implementation Details
+Dataset. We utilize the extensive sewing pattern garment dataset
+from [Korosteleva and Lee 2021], notable for its comprehensive
+range of sewing patterns and styles of garments, including shirts,
+hoods, jackets, dresses, pants, skirts, jumpsuits, vests, etc. Our ex-
+periments use approximately 19264 samples across 11 fundamental
+categories. Each garment in the dataset contains a sewing pattern
+file, a 3D garment mesh draped on a T-pose human model, and a
+rendered image. We employ the GPT-4V [Achiam et al. 2023] to
+generate captions for garments from the rendered images of the
+front view and the back view. For each garment, we first prompt
+GPT-4V to generate its common name (e.g., hood, T-shirt, blouse)
+if available, followed by a request for specific geometric features
+(e.g., long sleeves, wide garment, deep collar), as demonstrated in
+Figure 4. We combine these two descriptions to form the caption
+for each garment. In our experiments, we use the pre-defined order
+of panels in the dataset for training. Additionally, We utilize about
+90% of the data from each category for training and the remaining
+for validation.
+Training. We set 𝐾= 14, and the maximum length of tokens is
+1500. Our decoder-only Transformer consists of 24 layers with posi-
+tion embedding dimensionality of𝑑𝑝𝑜𝑠= 512, parameter embedding
+dimensionality of 𝑑𝑝𝑎𝑟𝑎= 512, value embedding dimensionality of
+𝑑𝑣𝑎𝑙= 512, and text feature embedding dimensionality of 𝑑𝑓= 512.
+We set constants 𝐶𝐸= 50,𝐶𝑅= 1000,𝐶𝑇= 1000,𝐶𝑆= 1000 and,
+𝐶= 1000. Our CLIP embeddings have a dimension of 𝑑CLIP = 1024,
+and condensed feature embeddings have a dimension of 𝑑feature =
+512. We train our model using Adam optimizer, with a learning rate
+of 10−4 and a batch size of 4. The model is trained on a single A6000
+GPU for 30 hours.
+4
+CUSTOMIZED GARMENT GENERATION
+With SewingGPT, we have the capability to generate diverse sewing
+patterns directly from text prompts. Recognizing appearance’s cru-
+cial role in the CG pipeline, we aim to generate corresponding
+Physically-based Rendering (PBR) textures for these patterns, align-
+ing more closely with garment design workflows. By leveraging
+the SewingGPT and PBR texture generator, our framework Dress-
+Code further utilizes a large language model to create customized
+garments for users through natural language interaction.
+4.1
+PBR Texture Generation
+In some production software commonly utilized by fashion design-
+ers, designers often create the texture of the garments after com-
+pleting the pattern design. For garments, designers usually employ
+tile-based and physically-based textures such as diffuse, roughness,
+and normal maps to enhance the realistic appearance of the fabric.
+Therefore, to generate customized garments, we tailor a pre-trained
+Stable Diffusion [Rombach et al. 2022] and employ a progressive
+training approach to generate PBR textures guided by text.
+Latent Diffusion Finetuning. Text-to-image generation has ad-
+vanced significantly with the latent diffusion model (LDM). Existing
+foundation models, such as Stable Diffusion, trained on billions of
+data points, demonstrate extensive generalization capabilities. As
+the original LDM is trained on natural images, adapting it to gener-
+ate tile-based images is necessary. To achieve this while maintaining
+the model’s generalizability, we collect a PBR dataset with captions
+and fine-tune the pre-trained LDM on this dataset. We freeze the
+original encoder E and decoder D, fine-tuning the U-Net denoiser
+at this stage. During inference, our fine-tuned LDM is capable of
+generating tile-based diffuse maps using text prompts.
+VAE Finetuning. As we can generate high-quality and tile-based
+diffuse maps, achieving realistic CG rendering requires us to further
+generate normal maps 𝑈𝑛and roughness maps 𝑈𝑟based on our gen-
+erated diffuse maps 𝑈𝑑. In addition to the pretrained LDM encoder
+E and decoder D, we fine-tune another two specific decoders D𝑛
+and D𝑟. With a denoised texture latent code 𝑧by text input, which
+can be decoded into diffuse maps through 𝐷, we utilize D𝑛and D𝑟
+to decode 𝑧into normal maps and roughness maps respectively.
+4.2
+Customized Generation through User-friendly
+Interaction
+Guided by natural language. Following the implementation of
+generating sewing patterns and textures through text prompts, our
+framework in practical scenarios enables designers to interact with
+the generator using natural language instead of relying on dataset-
+like formatted prompts. We adopt GPT-4 [Achiam et al. 2023] with
+content learning to interpret users’ natural language inputs, sub-
+sequently producing shape prompts and texture prompts. These
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+
+
+72:6
+•
+Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu, and Lan Xu
+Fig. 5. Overview of our entire DressCode pipeline for customized garment generation. We employ a large language model to obtain shape prompts
+and texture prompts with natural language interaction and utilize the SewingGPT and a fine-tuned Stable Diffusion for high-quality and CG-friendly garment
+generation.
+Fig. 6. Examples of our multiple garments draping process. Starting
+with initial sewing patterns, we first drape the inside T-shirt, followed by
+draping the outside jacket onto the model’s body.
+prompts are then fed to the SewingGPT and the PBR texture genera-
+tor, respectively. Once sewing patterns are generated, we stitch them
+onto a T-pose human model. Subsequently, the generated garments,
+along with PBR textures, seamlessly integrate into industrial soft-
+ware, allowing for animation with the human model and rendering
+under various lighting, ensuring vivid, realistic results.
+Multiple garments draping. Production settings usually necessi-
+tate generating multiple clothing items (e.g., daily outfits like pants,
+T-shirts, and jackets) simultaneously. Past 3D content generation
+studies based on mesh or implicit fields face challenges in effectively
+achieving layered draping of multiple garments on a target human
+model. The adoption of sewing pattern representation enables the
+respective generation of multiple garments and their natural drap-
+ing onto the human model. In our work, for T-pose results, we use
+the Qualoth simulator [Choi and Ko 2002] as the physics simulator.
+We utilize the same material parameters and 3D human model from
+[Korosteleva and Lee 2021]. In the process of draping multiple gar-
+ments, we employ an automated sequential multi-garment draping
+technique, as depicted in Figure 6. Specifically, for a set of clothes,
+we drape the garment onto the model’s body from the inside out.
+After each simulation, we combine the mesh of the simulated gar-
+ment and the human model, then perform the next simulation with
+the subsequent garment.
+Fig. 7. Examples of pattern completion. Given an incomplete pattern,
+our method infers reasonable sewing pattern completions with various text
+prompts.
+Pattern Completion. Benefiting from the autoregressive model,
+our method can complete the entire sewing pattern by utilizing
+probabilistic predictions provided by the model upon receiving
+partial pattern information. Additionally, inputting a text prompt
+can guide the model in completing the sewing patterns. Our work,
+as illustrated in Figure 7, demonstrates that with a given sleeve, our
+model adapts to complete various sewing patterns based on different
+prompts. This enables users to design partial patterns manually and
+utilize SewingGPT for inspiration and completion of the garments
+guided by the text prompts.
+Texture Editing. In the majority of recent 3D generation tasks,
+the inability to produce structured UV maps has been a significant
+impediment, particularly for generating garments. However, our
+generation method, utilizing sewing pattern representation, enables
+the creation of distinct and structured UV mappings of each panel.
+This facilitates convenient texture editing at specific locations, allow-
+ing efficient post-processing on the textures. As shown in Figure 8,
+we demonstrate the SIGGRAPH icon drawn on a cream-colored T-
+shirt’s diffuse map and a duck seamlessly blended with the original
+grey-colored pants’ diffuse map by creating hand-made sketches
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+
+
+DressCode: Autoregressively Sewing and Generating Garments from Text Guidance
+•
+72:7
+Fig. 8. Examples of texture editing. By manually drawing or creating
+sketches with text prompts, our method facilitates user-friendly texture
+editing.
+with text prompts in the masked areas (refer to stable-diffusion-
+webui [AUTOMATIC1111 2022] for detailed implementation).
+5
+EXPERIMENTS
+In this section, we first conduct qualitative and quantitative compar-
+ison experiments with other state-of-the-art 3D generation methods
+to demonstrate the generation capability of our method. We then
+present ablation studies and validation to evaluate our pipeline. Fur-
+thermore, we conduct a qualitative comparison experiment with
+parametric templates and perform a comprehensive user study to
+showcase our results compared to other methods. We also verify
+our results in Marvelous Designer [CLO3D 2024]; we manually load
+generated garments into the software and then animate the gar-
+ments with the human model in non-T-pose. We then show a results
+gallery in Figure 9 of generated high-quality garments using our
+method with various text prompts, including generated sewing pat-
+terns, PBR textures, draping results on a T-pose human model, and
+animated results with various poses under different illuminations.
+5.1
+Comparison of 3D Garment Generation
+Comparisons on sewing pattern generation. We show some quali-
+tative comparisons with two state-of-the-art sewing pattern works
+[Korosteleva and Lee 2022; Liu et al. 2023d] in Figure 10, where we
+present the panel prediction, draped garment on a T-pose human
+model, and corresponding inputs for each method. Given that Neu-
+ralTailor is designed for 3D point cloud inputs and trained on open-
+surface meshes, we utilize a 3D generation method Surf-D [Yu et al.
+2023] using the UDF representation to create meshes conditioned
+on specific garment categories as inputs (denoted as NeuralTai-
+lor*). Note that Surf-D is trained on the Deep Fashion3D dataset.
+Although our method supports complex prompts, we only select cat-
+egory names such as skirt and sleeveless dress, which are presented
+in the Deep Fashion3D dataset, in our experiment as prompts to
+ensure a fair comparison. For Sewformer, designed for image inputs,
+we utilize DALLE-3 [Betker et al. 2023] to synthesize input images
+from text prompts (denoted as Sewformer*). While Sewformer is
+trained on images of human models wearing both upper and lower
+garments, we synthesize the images with the same rule and extract
+partial target panels from predicted results for comparison. For the
+first row of Figure 10, our generated image involves a model wear-
+ing both a top shirt and a skirt, not only a sole skirt, which aligns
+Wonder3D*
+RichDreamer
+Ours
+CLIP score ↑
+0.302
+0.324
+0.327
+Runtime ↓
+∼4 mins
+∼4 hours
+∼3 mins
+PBR Texture
+%
+!
+!
+Texture Editing
+%
+%
+!
+Draping
+%
+%
+!
+Table 1. Quantitative and characteristic comparisons on different
+methods. Compared to other methods, our method achieves the highest
+CLIP score and yields several CG-friendly characteristics.
+with the training dataset in Sewformer. For fairness, we manually
+extract skirt patterns from Sewformer predictions, as shown in the
+comparison. Since the generated input meshes are mostly out of
+the domain of NeuralTailor’s training dataset, the results appear
+as distorted panels and fail to be stitched together. Sewformer is
+trained on a new dataset with better generalization; nevertheless, it
+also encounters issues with irregular and distorted panels, as well
+as poor garments after stitching. Our method, yielding more accu-
+rate results, demonstrates robust generation capabilities with text
+prompts.
+Comparisons on text-to-3D generation. We evaluate the quality
+of our customized garment generation with various 3D generation
+methods in Figure 11. We present qualitative comparisons with
+two state-of-the-art 3D content generation methods: Wonder3D
+[Long et al. 2023], a 3D creation method from single images, and
+RichDreamer [Qiu et al. 2023], a text-to-3D work, generating with
+PBR textures. We adopt DALLE-3 [Betker et al. 2023] to synthesize
+image inputs for Wonder3D (denoted as Wonder3D*). Wonder3D
+takes about 4 minutes to generate garments but fails to retain fine
+detail and fidelity to the input images, yielding poor geometry. Rich-
+Dreamer takes approximately 4 hours to optimize and yield more
+realistic results; however, the generated garments are still blurry
+for rendering. Furthermore, these generated garments are close-
+surface meshes, as shown in Figure 11, and fail to adapt to human
+bodies. In contrast, our method takes about 1 minute to generate
+sewing patterns, and overall about 3 minutes to generate the simu-
+lated garments. It facilitates draping garments on human models in
+various poses and generating high-quality tile-based PBR textures,
+achieving realistic rendering.
+Additionally, we adopt the CLIP score to quantitatively measure
+different methods. We generate 15 garments with highly diverse
+text prompts using each method. Then, we render the generated
+3D garments with textures and calculate the CLIP score using the
+given text prompts. Although our method does not optimize the 3D
+models for fitting the rendered images to text prompts better, our
+model achieves the highest CLIP score, demonstrating the effective-
+ness of our method. These general 3D methods are more broadly
+applicable than to only 3D garments. However, we also compare
+several characteristics among different methods, highlighting the
+advantages of our CG-friendly asset generation in the specific 3D
+garment domain. The results are shown in Table 1.
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+
+
+72:8
+•
+Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu, and Lan Xu
+Fig. 9. Our results gallery of DressCode. We generate sewing patterns, PBR textures, and garments in diverse poses and lighting conditions, guided by
+various text prompts.
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+
+
+DressCode: Autoregressively Sewing and Generating Garments from Text Guidance
+•
+72:9
+Fig. 10. Qualitative comparisons on sewing patterns. Major errors on panels are marked with red edges. The inputs of each method from left to right are
+meshes, images, and texts, respectively, which are shown along with the results.
+Fig. 11. Qualitative comparisons on text-to-3D generation. Images on
+the right side of our methods are the draped garments on human models.
+Images on the right top of other methods are the top view of each garment.
+We show our results yield high-quality rendering and the capability to drape
+on human bodies.
+Fig. 12. Ablation on embeddings. Better sewing patterns are generated
+with our designed parameter embedding and positional embedding.
+5.2
+Ablation Study
+We evaluate the performance of our triple embedding used in Sewing-
+GPT in Figure 12. We first train the model with only value embed-
+ding (denoted as w/o pos & w/o param). The results are highly
+disordered, with strongly distorted panels, containing mismatched
+stitching information. We then incorporate the parameter embed-
+ding (denoted as w/o pos), facilitating the model to learn categories
+(e.g., edge coordinates, rotation parameters, translation parameters,
+or stitching feature vectors) of each token in a panel, and the results
+show the better shape of each panel, yet it is still distorted and
+lacking enough panels. Lastly, we further incorporate the positional
+embedding (denoted as full), enabling the model to distinguish be-
+tween different panels and the number of panels, leading to the best
+and complete results.
+5.3
+Validation
+To validate our methods, we design two experiments, as shown
+in Figure 13. Firstly, we test text prompts from the holdout set as
+done for training and compare the results in the dataset with our
+generated outputs. In the first two rows of Figure 13, we test two
+data points from outside the training dataset and observe that the
+generated results correspond well to the input prompts. Notably, in
+the dress example in the first row, although our generated result
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.
+
+
+72:10
+•
+Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu, and Lan Xu
+Fig. 13. Validation. We validate our generated garments with the text
+prompts from our dataset out of training and in the wild. Our results align
+well with the text prompts, demonstrating the effectiveness of our method.
+Fig. 14. Qualitative comparison with Parametric Templates. The user
+inputs the prompt “a loose night-robe,” and we show the results from Para-
+metric Templates and our proposed SewingGPT.
+includes a waistband while the reference example does not, this
+still aligns well with the “fitted waist” attribute mentioned in the
+prompt. Furthermore, we test an image in the wild from the Deep
+Fashion3D dataset [Zhu et al. 2020] and utilize the method described
+in Section 3.3 with GPT-4V [Achiam et al. 2023] to generate the
+caption. This serves as the input to qualitatively compare our result
+with the reference image, revealing that our result closely resembles
+the input image. This demonstrates that our work effectively bridges
+the gap between conceptual textual descriptions and their practical,
+visual counterparts in garment design.
+Fig. 15. Examples from our user study. We present two cases for users
+to select the best results from three options: A, B, and C. The left group of
+results is generated by Ours, RichDreamer, and Wonder3D*, respectively, and
+the right group of results is generated by Wonder3D*, Ours, and RichDreamer,
+respectively. The generation method of each image is not disclosed to the
+users.
+Table 2. Quantitative results of user study. It demonstrates the higher
+user preference for our method compared to other methods.
+5.4
+Comparison with Parametric Templates
+[Korosteleva and Lee 2021] propose a method of a flexible descrip-
+tion structure for specifying parametric sewing pattern templates.
+An intuitive idea is that we can control the parameters of the pre-
+defined parametric sewing pattern templates to generate diverse
+garments (denoted as Parametric Templates). To facilitate interac-
+tion through natural language and benefit from the strong capability
+of content learning in ChatGPT, we employ GPT-4 [Achiam et al.
+2023] in our experiment, designing prompts to enable its role as
+a garment design assistant, providing formatted outputs. Subse-
+quently, we inquire about the description of garments, prompting it
+to output parameters for a specific template. As illustrated in the
+middle left of Figure 14, GPT-4 responds with several parameters
+when we ask with “a loose night-robe.” We qualitatively compare
+the results from Parametric Templates and our SewingGPT in Fig-
+ure 14, observing that both methods generate reasonable results.
+Nevertheless, our proposed SewingGPT is more adaptable to the di-
+verse categories of data, as it does not require selecting pre-defined
+templates and designing prompts specifically for ChatGPT’s content
+learning. Additionally, our methods enable us to extend beyond such
+parametrized datasets for more complex sewing patterns.
+5.5
+User Study
+We conduct a comprehensive user study to evaluate the quality of
+our generated customized garments, particularly their alignment
+with given text prompts and overall quality. Given 20 text prompts,
+ACM Trans. Graph., Vol. 43, No. 4, Article 72. Publication date: July 2024.

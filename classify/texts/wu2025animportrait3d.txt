@@ -1,0 +1,1107 @@
+Title: Text-based Animatable 3D Avatars with Morphable Model Alignment
+
+Text-based Animatable 3D Avatars with Morphable Model Alignment
+YIQIAN WU, ETH Zürich; State Key Lab of CAD&CG, Zhejiang University, Switzerland
+MALTE PRINZLER, ETH Zürich, Switzerland
+XIAOGANG JIN∗, State Key Lab of CAD&CG, Zhejiang University, China
+SIYU TANG, ETH Zürich, Switzerland
+Prompt: “A 40-year-old gentleman with a chiseled jawline, slightly graying hair slicked back into a neat undercut, 
+dressed in a navy pinstriped suit, a red tie complementing his fair complexion - confidently walking through a bustling city street”
+Prompt: “A three-year-old girl with rosy cheeks, 
+her blue hair cut into bob style; she wears a white dotted dress with white collar and cuffs”
+Fig. 1. Our method generates high-quality, realistic, and animatable 3D avatars from text descriptions which can be driven with morphable model parameters.
+We show the rendered results of our generated avatars from various camera angles, with expressions and body poses sampled from the NeRSemble dataset
+[Kirschstein et al. 2023].
+The generation of high-quality, animatable 3D head avatars from text has
+enormous potential in content creation applications such as games, movies,
+and embodied virtual assistants. Current text-to-3D generation methods
+typically combine parametric head models with 2D diffusion models us-
+ing score distillation sampling to produce 3D-consistent results. However,
+they struggle to synthesize realistic details and suffer from misalignments
+between the appearance and the driving parametric model, resulting in un-
+natural animation results. We discovered that these limitations stem from
+ambiguities in the 2D diffusion predictions during 3D avatar distillation,
+specifically: i) the avatar’s appearance and geometry is underconstrained
+by the text input, and ii) the semantic alignment between the predictions
+and the parametric head model is insufficient because the diffusion model
+alone cannot incorporate information from the parametric model. In this
+work, we propose a novel framework, AnimPortrait3D, for text-based realis-
+tic animatable 3DGS avatar generation with morphable model alignment,
+∗Corresponding author.
+Authors’ addresses: Yiqian Wu, ETH Zürich; State Key Lab of CAD&CG, Zhejiang
+University, Zürich, Switzerland, onethousand1250@gmail.com; Malte Prinzler, ETH
+Zürich, Zürich, Switzerland, malte.prinzler@tuebingen.mpg.de; Xiaogang Jin, State
+Key Lab of CAD&CG, Zhejiang University, Hangzhou, China, jin@cad.zju.edu.cn; Siyu
+Tang, ETH Zürich, Zürich, Switzerland, siyu.tang@inf.ethz.ch.
+and introduce two key strategies to address these challenges. First, we tackle
+appearance and geometry ambiguities by utilizing prior information from a
+pretrained text-to-3D model to initialize a 3D avatar with robust appearance,
+geometry, and rigging relationships to the morphable model. Second, we
+refine the initial 3D avatar for dynamic expressions using a ControlNet that
+is conditioned on semantic and normal maps of the morphable model to
+ensure accurate alignment. As a result, our method outperforms existing
+approaches in terms of synthesis quality, alignment, and animation fidelity.
+Our experiments show that the proposed method advances the state of the
+art in text-based, animatable 3D head avatar generation. Code and model
+for this paper are at AnimPortrait3D.
+CCS Concepts: • Computing methodologies →Computer vision.
+Additional Key Words and Phrases: Animatable 3D avatar generation, Gauss-
+ian splatting, diffusion models
+1
+INTRODUCTION
+The creation of 3D human avatars is an extensively researched topic
+with applications in gaming, filmmaking, and social media. Text-
+driven methods have demonstrated impressive results in generating
+3D avatars using 2D diffusion models [Huang et al. 2024; Kolotouros
+arXiv:2504.15835v1  [cs.CV]  22 Apr 2025
+
+
+2
+•
+Yiqian Wu, Malte Prinzler, Xiaogang Jin, and Siyu Tang
+et al. 2023; Massague et al. 2024; Prinzler et al. 2024; Shi et al. 2024;
+Wang et al. 2023; Zhang et al. 2023b]. Furthermore, parametric
+models [Li et al. 2017; Pavlakos et al. 2019; Paysan et al. 2009] offer
+a viable approach for creating animatable avatars [Liao et al. 2024;
+Liu et al. 2024; Zhou et al. 2024] for subsequent applications.
+However, existing diffusion-model-based generation methods
+primarily rely on algorithms such as score distillation sampling
+(SDS) [Poole et al. 2023] to integrate the 2D information from diffu-
+sion models into a 3D avatar, introducing ambiguities that reduce
+the quality of the results. These ambiguities stem from two ma-
+jor factors: i) First, a single text prompt in a diffusion model maps
+to a wide range of images, resulting in underconstrained appear-
+ance and geometry guidance. This leads to blurred results and the
+“Janus” problem [Poole et al. 2023; Wang et al. 2023]. Portrait3D [Wu
+et al. 2024b] addresses this by utilizing an appearance-geometry
+joint prior. However, the results exhibit noisy geometry and are
+restricted to static reconstructions without animation capabilities.
+ii) Second, the diffusion model’s predictions typically align poorly
+with the underlying parametric model which causes artifacts during
+animation. HeadStudio [Zhou et al. 2024] aims to solve this by using
+a landmarks-based ControlNet for guidance, but the 3D informa-
+tion provided by landmarks alone remains insufficient for robust
+alignment. The primary challenge is to incorporate robust guidance
+that is aware of both geometry and semantic information from the
+parametric model into the optimization process.
+In this paper, we present a novel framework, AnimPortrait3D, for
+creating animatable 3D avatars from text descriptions, achieving
+realistic appearance and geometry while maintaining accurate align-
+ment with the underlying parametric mesh. We choose 3DGS [Kerbl
+et al. 2023] for our 3D representation due to its efficient rendering
+capabilities and animation flexibility. As shown in Figure 2, our
+method consists of two stages: an initialization stage that eliminates
+appearance ambiguities by creating a well-defined initial avatar, and
+a dynamic optimization stage that produces highly detailed results
+and eliminates animation artifacts. During the first stage, we initial-
+ize our avatar from the static text-to-3D model Portrait3D [Wu et al.
+2024b] which provides high-quality appearance and geometry infor-
+mation. Specifically, we fit the SMPL-X model [Pavlakos et al. 2019]
+to the initialized avatar- to enable animation in the second stage of
+our optimization procedure later on. To handle hair and clothing,
+which are not modeled by SMPL-X, we extract a noisy mesh from
+the static avatar and refine it using estimated normal maps. The
+refined mesh is then segmented into hair and clothing components
+using pretrained semantic segmentation networks. Then we tex-
+turize the SMPL-X, hair, and clothing meshes with 3D Gaussians
+and optimize their appearance features using multi-view images
+rendered from the static Portrait3D avatar. We adopt the rigging
+of SMPL-X to animate the avatar. However, animating the avatar
+with SMPL-X rigging introduces artifacts due to its optimization
+in a static setting. To address this, we introduce the second stage
+in which we optimize the avatar for dynamic poses and expres-
+sions using a 2D diffusion model. Specifically, we train a ControlNet
+[Zhang et al. 2023a] to provide geometry- and semantics-aware
+guidance based on the SMPL-X model’s normal and segmentation
+maps as conditions. For challenging areas with complex geometry
+and frequent occlusions, such as the eyelids and mouth interiors, we
+introduce a pre-training strategy to refine color details. For the eye
+region, we leverage the diffusion model and ControlNet to generate
+a refined eye image, which is used to optimize the eye area of the
+3D avatar. For the mouth region, we calculate the Interval Score
+Matching (ISM) loss [Liang et al. 2024] using the diffusion model
+and ControlNet to refine the mouth area. The full 3D avatar is then
+optimized with the ISM loss. To eliminate minor artifacts and en-
+hance the final quality, we further apply a refinement strategy by
+optimizing the 3D avatar with images refined by the diffusion model.
+We demonstrate that our method can generate high-quality, animat-
+able 3D avatars from text, achieving superior results in challenging
+areas such as the mouth interiors and eyes, and establishing robust
+rigging relationships with the corresponding parametric model.
+In summary, our work makes the following key contributions:
+• A novel framework, AnimPortrait3D, for generating animat-
+able, text-based 3D avatars with superior synthesis quality
+and animation fidelity.
+• A novel initialization strategy for animatable 3D avatar gen-
+eration that integrates geometry and appearance initializa-
+tion, while establishing robust rigging relationships with
+the corresponding parametric model.
+• A new geometry- and semantics-aware 3D avatar optimiza-
+tion method for dynamic poses and expressions, leveraging
+a ControlNet for robust guidance and improved alignment
+with the driving parametric model.
+2
+RELATED WORK
+2.1
+Animatable 3D Avatar Reconstruction
+3D avatar reconstruction typically utilizes captured real-world data
+to ensure accurate and realistic modeling. Instead of using paramet-
+ric meshes to represent 3D avatars [Giebenhain et al. 2023; Jiang
+et al. 2023; Li et al. 2017; Pavlakos et al. 2019; Paysan et al. 2009],
+which could integrate well into industrial rendering pipelines, neu-
+ral rendering techniques offer a promising approach for achieving
+more realistic results. Existing works have explored various meth-
+ods, including neural textures [Grassal et al. 2022], NeRF [Athar
+et al. 2022; Gao et al. 2022; Mihajlovic et al. 2022], and 3D Gauss-
+ian Splatting (3DGS) [Hu et al. 2024; Qian et al. 2024; Shao et al.
+2024] to enhance realism in 3D avatars. By conditioning the 3D
+representation with controllable parameters such as time, expres-
+sion, and pose, dynamic details can be integrated into the avatar
+[Gafni et al. 2021; Giebenhain et al. 2024; Xu et al. 2024], allowing
+for more dynamic and expressive models. Prior models [Kirschstein
+et al. 2024; Li et al. 2024; Zheng et al. 2024] are also widely used for
+incorporating real-world data, enabling reconstruction and editing.
+However, above methods all rely on real-world data as input,
+which can be cumbersome to obtain and raises potential ethical
+concerns. Our work builds upon the representation and rigging
+functions similar to GaussianAvatars, but instead of using real data,
+we employ a diffusion model to guide animatable 3D avatar genera-
+tion from text prompts, eliminating the need for real data.
+2.2
+Diffusion-based 3D Avatar Generation
+2D diffusion priors [Ho et al. 2020; Rombach et al. 2022] hold great
+potential for 3D generation. While some methods still generate
+
+
+Text-based Animatable 3D Avatars with Morphable Model Alignment
+•
+3
+Initial Avatar
+“a Teen boy, pensive look, dark hair. Preppy sweater, collared shirt, moody room, 80s memorabilia”
+Portrait3D
+Noisy Mesh
+Refined Mesh
+ Estimated Normal Images
+Asset Meshes
+ Multi-view Images
+Optimize
+Rigging 
+and
+Optimize
+Fitted SMPL-X
+Segment
+3D Avatar Initialization (Section 3.1)
+Dynamic Optimization (Section 3.2)
+Eye Pre-training
+Mouth Pre-training
+Full Optimization
+Geometry- and Semantics- Aware Guidance
+Final Refinement
+Neural 
+Radiance Field
+Render
+Extract
+Diverse Animatable 3D Avatars
+ControlNet
++
+Diﬀusion Model
+Normal
+Estimator
+Fit
+Normal and Segmentation Maps
+Fig. 2. Overview of AnimPortrait3D. Given an input text, the 3D Avatar Initialization stage (Section 3.1) generates a well-defined initial avatar that provides
+appearance and geometry prior information, and is rigged to SMPL-X for animation. During the Dynamic Optimization stage (Section 3.2), we optimize the
+avatar for dynamic poses and expressions using a 2D diffusion model and a ControlNet. We first pre-train the eye and mouth regions, then optimize the full
+avatar and apply a refinement strategy to produce the final result. AnimPortrait3D is able to generate avatars with diverse appearances, ethnicities, and ages.
+2D images conditioned on 3D signals [Ding et al. 2023; Gu et al.
+2024], DreamFusion [Poole et al. 2023] introduces Score Distillation
+Sampling (SDS), a novel approach for generating 3D content. Lu-
+cidDreamer [Liang et al. 2024] further improved this with Interval
+Score Matching (ISM), using deterministic diffusion trajectories and
+interval-based score matching for more robust updates during gen-
+eration. For text-based 3D avatar generation, the general pipeline
+involves applying SDS or its variants to 3D representations such as
+meshes [Huang et al. 2024; Liao et al. 2024; Xu et al. 2023; Zhang et al.
+2024b], neural radiance fields [Wu et al. 2024b; Zhang et al. 2024a],
+and 3DGS [Liu et al. 2024; Zhou et al. 2024]. Most methods lever-
+age geometric priors from parametric models, often overlooking
+appearance information. To mitigate issues of over-saturation and
+over-smoothness due to the lack of appearance priors, Portrait3D
+[Wu et al. 2024b] incorporates a GAN as a more robust joint prior.
+However, it still encounters noisy geometry and blurry artifacts.
+To achieve animatable 3D avatar generation, parametric models
+such as SMPL-X [Pavlakos et al. 2019], FLAME [Li et al. 2017], and
+imGHUM [Alldieck et al. 2021] are widely used for their robust ani-
+mation control, often with textures applied for appearance modeling
+[Liao et al. 2024; Xu et al. 2023]. Beyond 2D textures, 3D representa-
+tions [Kerbl et al. 2023; Mildenhall et al. 2020; Müller et al. 2022a] can
+also be rigged to parametric models [Kolotouros et al. 2023; Liu et al.
+2024; Zhou et al. 2024], enabling detailed representation of complex
+features and efficient rendering. Rigging 3D representations to the
+surfaces of parametric models demands precise alignment with the
+underlying geometry. However, in the generative setting, a 2D dif-
+fusion model alone lacks sufficient geometry- and semantics-aware
+guidance, often introducing ambiguities, resulting in low-quality
+results and animation artifacts. Even HeadStudio [Zhou et al. 2024],
+which uses a landmarks-based ControlNet for additional guidance,
+exhibits artifacts because 2D landmarks do not provide enough geo-
+metric constraints. Our method instead leverages dense normal- and
+semantic maps for conditioning which ensures better alignment and
+ultimately yields avatars with higher visual quality.
+3
+METHODOLOGY
+In this section, we detail the two stages of our method: the 3D Avatar
+Initialization Stage (Section 3.1), which eliminates appearance am-
+biguities by creating a well-defined initial avatar, and the Dynamic
+Optimization Stage (Section 3.2), which resolves animation artifacts
+for dynamic poses and expressions. Please refer to Figure 2 for an
+overview of our pipeline.
+3.1
+3D Avatar Initialization
+The goal of the 3D Avatar Initialization Stage is to establish an initial
+3DGS avatar with robust geometry and appearance, rigged to the
+SMPL-X model with semantic alignment. We start with a static 3D
+avatar generated by Portrait3D [Wu et al. 2024b] from the input
+text. First, we fit an SMPL-X model to the Portrait3D prediction and
+generate detailed meshes for hair and clothing, which cannot be
+represented with SMPL-X (Section 3.1.1). Then we sample 3D points
+from the obtained SMPL-X mesh, as well as the hair and clothing
+meshes, and establish rigging relations wrt. the SMPL-X model
+(Section 3.1.2). The sampled point cloud initializes our animatable
+3DGS avatar representation, which is optimized using multi-view
+images obtained from the Portrait3D prediction (Section 3.1.3).
+3.1.1
+SMPL-X Optimization and Asset Mesh Generation. Given an
+input text prompt 𝑦, we first use Portrait3D to generate a static 3D
+avatar represented by a neural radiance field, denoted as 𝑃(Figure 3
+(a)). Next, we apply multi-view head tracking [Qian 2024] to obtain
+
+
+4
+•
+Yiqian Wu, Malte Prinzler, Xiaogang Jin, and Siyu Tang
+(c) Mraw
+(d) Msmooth
+(f) Mrefined
+(e) Estimated Normal
+(b) MSMPL-X
+(a) P
+(g) Mhair
+(h) Mclothing
+(i) Mface
+Fig. 3. The visualization of (a) the static 3D avatar 𝑃from Portrait3D, (b) the fitted SMPL-X model, (c) noisy mesh 𝑀𝑟𝑎𝑤extracted from 𝑃, (d) smoothed mesh
+𝑀𝑠𝑚𝑜𝑜𝑡ℎ, (e) normal map estimated from the renderings of 𝑃, (f) 𝑀𝑟𝑒𝑓𝑖𝑛𝑒𝑑optimized against the estimated normal maps, (g) segmented hair mesh, (h)
+segmented clothing mesh, and (i) segmented face mesh.
+a fitted SMPL-X model (𝑀𝑆𝑀𝑃𝐿−𝑋) from 𝑃, as shown in Figure 3
+(b). While 𝑀𝑆𝑀𝑃𝐿−𝑋can guide avatar animation, it cannot model
+assets like hair and clothing, which are crucial for the realism of
+the 3D avatar. To address this limitation, we propose to generate
+high-quality hair and clothing meshes from the 3D avatar 𝑃to pro-
+vide additional geometric information for these assets. We extract
+𝑃’s geometry as a raw mesh (denoted as 𝑀𝑟𝑎𝑤) using Marching
+Cubes [Lorensen and Cline 1998], as shown in Figure 3 (c) and
+apply Laplacian smoothing to obtain 𝑀𝑠𝑚𝑜𝑜𝑡ℎ(Figure 3 (d)). Then
+we render a set of multi-view images {𝐼𝑖𝑟𝑎𝑤| 𝑖= 0, · · · , 𝑁−1}
+from 𝑃and employ the normal estimator from Unique3D [Wu et al.
+2024a] to extract normal maps (Figure 3 (e)) from {𝐼𝑖𝑟𝑎𝑤}. We then
+optimize 𝑀𝑠𝑚𝑜𝑜𝑡ℎusing the estimated normal maps, resulting in
+a high-quality refined mesh, 𝑀𝑟𝑒𝑓𝑖𝑛𝑒𝑑, with enhanced detail and
+reduced noise (Figure 3 (f)). Details of the mesh optimization can
+be found in Appendix A1.1.
+Asset Mesh Segmentation. Inspired by MeshSegmenter [Zhong
+et al. 2024], we utilize Face Revoting to segment hair and clothing
+mesh components from 𝑀𝑟𝑒𝑓𝑖𝑛𝑒𝑑. For each image in {𝐼𝑖𝑟𝑎𝑤}, we ap-
+ply Sapiens [Khirodkar et al. 2024] to obtain 2D face segmentation
+maps for face mesh extraction. Due to Sapiens’ limited generaliza-
+tion on hair and clothing, we employ a separate hair segmentation
+model [YBIGTA 2018] for accurate hair masks. We obtain the face
+and hair meshes by segmenting the faces of 𝑀𝑟𝑒𝑓𝑖𝑛𝑒𝑑through pro-
+jection onto the face and hair segmentation maps and averaging
+over all views. For clothing, all remaining non-hair and non-face re-
+gions are designated as the clothing mesh. The resulting segmented
+asset meshes are visualized in Figure 3 (g-i).
+3.1.2
+Rigged Point Cloud Initialization. Inspired by GaussianA-
+vatars [Qian et al. 2024], we sample points from the surfaces of
+𝑀𝑆𝑀𝑃𝐿−𝑋, 𝑀ℎ𝑎𝑖𝑟, and 𝑀𝑐𝑙𝑜𝑡ℎ𝑖𝑛𝑔and rig them to 𝑀𝑆𝑀𝑃𝐿−𝑋’s faces.
+The resulting rigged point cloud initializes the animatable positions
+of the 3D Gaussians in our avatar representation. For 𝑀𝑆𝑀𝑃𝐿−𝑋, we
+can directly adopt the rigging from the faces that the points were
+sampled from. For each point sampled from 𝑀ℎ𝑎𝑖𝑟and 𝑀𝑐𝑙𝑜𝑡ℎ𝑖𝑛𝑔, we
+find the closest face on the scalp and body partition of the SMPL-X
+model respectively and adopt their rigging parameters.
+3.1.3
+Appearance Initialization. Next, we initialize our 3DGS avatar
+using the rigged point cloud and train it with the rendered images
+{𝐼𝑖𝑟𝑎𝑤}. Since mouth interior is completely invisible in the avatar
+initialization with neutral expression, we initialize the teeth with a
+generic proxy geometry and color. For more details, please refer to
+Appendix A1.3. After this initialization process, our avatar exhibits
+high synthesis quality for a neutral expression, with all Gaussians
+semantically rigged to the SMPL-X model. We denote the trainable
+parameters of the initial 3DGS avatar as 𝜃.
+3.2
+Dynamic Avatar Optimization
+While the avatar initialization of Section 3.1 yields an avatar that
+can be animated with the aligned SMPL-X model, in practice strong
+artifacts occur for novel expressions (see Figure A.4 (a)). We iden-
+tify two root causes for these artifacts: i) for the eye region, minor
+misalignments between the eyelids and eyeballs of the underlying
+SMPL-X model with their corresponding Gaussians result in im-
+plausible rigging behavior, and ii) the initialization stage produces
+an avatar with a neutral expression and closed mouth, hence the
+interior of the mouth cavity is not represented well. We use a Con-
+trolNet that is conditioned on normal and semantic maps to fix these
+artifacts (Appendix A1.5).
+Specifically, to address the underconstrained and poorly rigged
+eye and mouth regions in the initial avatar, we introduce a novel
+pre-training strategy (Section 3.2.2), where high noise is applied
+to fully eliminate artifacts. Although the high noise may cause some
+blurriness, it establishes a robust initialization that benefits later
+stages. Next, we apply full optimization (Section 3.2.3), where
+the well-initialized but slightly blurry avatar from pre-training is
+refined using ISM with low noise. This step enhances details and
+corrects rigging inaccuracies while avoiding severe ambiguities.
+While full optimization improves detail, it may introduce subtle
+high-frequency artifacts due to weak structural supervision in ISM
+gradients [Liang et al. 2024]. These artifacts are removed in the
+final refinement stage (Section 3.2.4) using SDEdit with low noise,
+which preserves fine details while generating clean and realistic
+results.
+3.2.1
+ControlNet Training. We train a ControlNet to align the dif-
+fusion model’s guidance with the SMPL-X model. Inspired by Joker
+[Prinzler et al. 2024], we utilize normal maps as the conditional
+input of ControlNet. The training normal maps are extracted from
+RGB portrait images using a pretrained face reconstruction method
+[Deng et al. 2019]. We supplement this control signal with seg-
+mentation maps for teeth, eyes and irises extracted with [Google
+2024; Kapitanov et al. 2023] since these regions are underdeter-
+mined through the extracted normal maps (see Figure 4). To train
+the ControlNet, we construct a training dataset containing 453,385
+high-quality paired RGB and conditional data, covering the face,
+mouth, and eye regions. The details of the dataset and ControlNet
+training are provided in Appendix A1.5. Figure 4 illustrates the input
+
+
+Text-based Animatable 3D Avatars with Morphable Model Alignment
+•
+5
+(a) GT
+(b) Normal
+(c) Seg
+(d) Generated results
+Fig. 4. (a) The ground truth image from ControlNet’s training dataset (orig-
+inally derived from the FFHQ [Karras et al. 2021]). (b) Conditional normal
+maps. (c) Conditional segmentation maps. (d) Generated results using the
+corresponding inputs.
+conditionals and the corresponding results. During inference, we
+use the SMPL-X model’s rendered normal map and segmentation
+map as conditional signals for the ControlNet.
+3.2.2
+Eye and Mouth Region Pre-training. The eyes and the mouth
+interior are particularly challenging regions during animation. For
+the eyes, the exact alignment of the Gaussians for eyelids and eye-
+balls is critical, and the mouth interior is occluded in the neutral
+expression hence it is not well represented in the static avatar initial-
+ization. To solve this, we propose dedicated pre-training strategies
+for these regions. To refine the eye region, we leverage images
+generated by the ControlNet. First, we randomly sample eyelid pa-
+rameters, which control the opening and closing of the eyelids, and
+eye pose parameters, which define the gaze direction. These pa-
+rameters are applied to the SMPL-X model to deform the 3D avatar
+accordingly. Next, the rendered eye region image and corresponding
+conditional inputs are processed using the ControlNet to perform
+SDEdit [Meng et al. 2022], generating a refined image to optimize
+the eye region of the avatar as follows:
+𝐿𝑒𝑦𝑒_𝑝𝑟𝑒= 𝐿2 (𝐼𝑒, SDEdit(𝜖D,𝜖C, 𝐼𝑒,𝑦, 𝑁𝑒,𝑆𝑒)) ,
+(1)
+where 𝐼𝑒denotes the rendered eye region image, and 𝑁𝑒and 𝑆𝑒
+represent the eye region’s normal map and segmentation mask,
+respectively. 𝜖D and 𝜖C denote the pretrained Diffusion model and
+ControlNet model respectively. 𝑦is the input prompt. The refined
+eye image SDEdit(𝜖D,𝜖C, 𝐼𝑒,𝑦, 𝑁𝑒,𝑆𝑒) is generated using the Dif-
+fusion model and ControlNet, with an editing strength set to 0.9.
+Please refer to the first row of Figure 5 for a visualization.
+Unlike the eye region, the mouth interior is only initialized with
+generic proxy geometry and color (Section 3.1.3). Therefore, instead
+of using generated images for refinement, we apply Interval Score
+Matching (ISM) [Liang et al. 2024] to optimize the mouth interior.
+The ISM loss is defined as:
+∇𝜃L𝐼𝑆𝑀(𝜃, 𝐼,𝑡,𝑦, 𝑁,𝑆)
+≜E𝑡
+
+𝜔(𝑡) (𝜖D (𝑧𝑡,𝑡,𝑦, 𝐹𝑐𝑡𝑟𝑙) −𝜖D (𝑧𝑡,𝑠, ∅)) 𝜕𝑧0
+𝜕𝐼
+𝜕𝐼
+𝜕𝜃
+
+,
+where
+𝐹𝑐𝑡𝑟𝑙= 𝜖C(𝑧𝑡,𝑡,𝑦, 𝑁,𝑆).
+(2)
+Random poses 
+and expressions
+Rendered face
+Rendered eye
+Rendered full avatar
+Face
+region
+Eye
+region
+Mouth
+region
+Face conditions
+Eye conditions
+ControlNet
++
+Diﬀusion Model
+Lfull
+Prompt
+Leye_pre
+ControlNet
++
+Diﬀusion Model
+Prompt
+Rendered mouth Mouth conditions
+Lmouth_pre
+ControlNet
++
+Diﬀusion Model
+Prompt
+Diﬀusion Model
+Prompt
+(Sec. 3.2.2, Eq (1))
+(Sec. 3.2.2, Eq (3))
+(Sec. 3.2.3, Eq (4))
+Fig. 5. We optimize the eye region, mouth region, and full avatar sequen-
+tially, employing distinct loss functions at each stage. A Diffusion model
+together with a ControlNet conditioned on normal- and segmentation maps
+provide the guidance during optimization. Only for renderings of the full
+avatar, we omit the ControlNet and rely solely on the Diffusion model.
+Here the ISM loss ∇𝜃L𝐼𝑆𝑀takes the trainable parameters 𝜃of the
+3DGS model, the rendered image 𝐼, the current time step 𝑡, the text
+y, the normal map 𝑁and segmentation map 𝑆as inputs, outputting
+the gradient to optimize the 3DGS model. 𝑧0 is derived by feeding
+𝐼into the VAE encoder. 𝑠= 𝑡−𝛿𝑇denotes the adjusted time step
+with a pre-defined inversion step size 𝛿𝑇= 50, and ∅signifies the
+absence of conditionals. 𝐹𝑐𝑡𝑟𝑙represents the features computed by
+the ControlNet 𝜖C, which are integrated into the Diffusion model
+𝜖D to provide guidance.
+We sample open-mouth expressions from the NeRSemble dataset
+[Kirschstein et al. 2023], ensuring the visibility of the mouth interior
+and apply them to the SMPL-X model. The rendered mouth region,
+along with its associated conditional inputs, is processed through
+the diffusion model as follows:
+∇𝜃L𝑚𝑜𝑢𝑡ℎ_𝑝𝑟𝑒(𝜃) = ∇𝜃L𝐼𝑆𝑀(𝜃, 𝐼𝑚,𝑡,𝑦, 𝑁𝑚,𝑆𝑚),
+(3)
+where 𝐼𝑚represents the rendered image of the mouth region, and
+𝑁𝑚and 𝑆𝑚denote the mouth region’s normal map and segmenta-
+tion map, respectively. This gradient formulation is used to optimize
+the mouth interiors of the 3D avatar, ensuring accurate refinement
+of this critical region. Please refer to the second row of Figure 5 for
+a visualization.
+3.2.3
+Full Optimization. Following the pre-training of the eye and
+mouth region, we proceed to optimizing the full avatar. During this
+optimization, we randomly sample poses and expressions from the
+NeRSemble dataset [Kirschstein et al. 2023], along with random
+camera viewpoints. After applying these parameters to the SMPL-X
+model, the full optimization process is formally defined as follows:
+∇𝜃L𝑓𝑢𝑙𝑙(𝜃)
+(4)
+≜
+∑︁
+𝑟∈{𝑒,𝑚,𝑓}
+
+∇𝜃L𝐼𝑆𝑀(𝜃, 𝐼𝑟,𝑡,𝑦, 𝑁𝑟,𝑆𝑟)
+
++ ∇𝜃L𝐼𝑆𝑀(𝜃, 𝐼𝑓𝑢𝑙𝑙,𝑡,𝑦).
+In this formulation, we crop the eye region (𝑟= 𝑒), mouth region
+(𝑟= 𝑚), and face region (𝑟= 𝑓) from the rendered full avatar
+𝐼𝑓𝑢𝑙𝑙. Since these regions are significantly influenced by expression
+
+
+6
+•
+Yiqian Wu, Malte Prinzler, Xiaogang Jin, and Siyu Tang
+changes, we integrate the guidance provided by the ControlNet into
+their ISM losses. For optimizing the full rendering of the avatar
+however, i.e. the second term in Equation (4), we discard the Con-
+trolNet and perform ISM only with the Diffusion model without
+conditioning it on normal- and semantic maps. We found that us-
+ing the ControlNet for this scenario does not yield improvements
+since the image region that is influenced by expression changes
+(and therefore can be controlled with normal and semantic maps)
+is too small. Therefore, to speed up training, we omit ControlNet
+guidance for the full avatar renderings. Please refer to Figure 5 for
+a visualization.
+3.2.4
+Final Refinement. Following the ISM-based optimization, we
+introduce a final refinement process to further enhance the quality
+of the results. Similar to the preceding optimization step, we render
+the avatar under random expressions, poses, and camera views, and
+subsequently refine the renders using SDEdit. These refined images
+are then employed to optimize the 3DGS model as follows:
+𝐿𝑟𝑒𝑓𝑖𝑛𝑒=
+∑︁
+𝑟∈{𝑒,𝑚,𝑓,𝑓𝑢𝑙𝑙}
+𝐿1 (SDEdit(𝜖D, 𝐼𝑟,𝑦), 𝐼𝑟)
++ 𝐿𝑙𝑝𝑖𝑝𝑠(SDEdit(𝜖D, 𝐼𝑟,𝑦), 𝐼𝑟) ,
+(5)
+where SDEdit(D, 𝐼𝑟,𝑦) represents the refined image at different re-
+gions with an editing strength of 0.3. In this refinement process, the
+ControlNet is not used, as the relatively small editing strength (0.3)
+preserves the original structural integrity of the rendered image
+without requiring additional guidance. The terms 𝐿1 and 𝐿𝑙𝑝𝑖𝑝𝑠de-
+note the L1 loss and the Learned Perceptual Image Patch Similarity
+(LPIPS) loss, respectively. These losses ensure that the refinement
+process balances pixel-level accuracy and perceptual quality. Addi-
+tionally, for the full avatar 𝑟= 𝑓𝑢𝑙𝑙updating, we mask out updates
+on the non-face regions to prevent them from interfering with the
+more refined updates produced for the zoomed-in eye region (𝑟= 𝑒),
+mouth region (𝑟= 𝑚), and face region (𝑟= 𝑓).
+4
+RESULTS
+4.1
+Visual Results
+Figure 6 showcases several generated 3D avatars rendered at various
+yaw angles, with random poses and expressions sampled from the
+NeRSemble dataset [Kirschstein et al. 2023]. To show the alignment
+accuracy, we also include corresponding SMPL-X model renderings
+alongside the avatars. The results demonstrate the effectiveness of
+our method in generating highly detailed and realistic full-head
+3D avatars, showcasing diverse appearances, ethnicities, and ages,
+along with realistic interior mouth and eyelid details that are diffi-
+cult to achieve with existing methods. For dynamic visualizations,
+we utilize a head-tracking approach [Qian 2024] to extract motion
+sequences from videos in the VFHQ dataset [Xie et al. 2022]. The
+generated avatars are then driven by these motion sequences to
+show dynamic capabilities. Please refer to the demo video for dy-
+namic results.
+4.2
+Comparison
+We evaluate our method against SOTA approaches for animatable 3D
+avatar generation, including HeadStudio [Zhou et al. 2024], TADA
+[Liao et al. 2024], and HumanGaussian [Liu et al. 2024], using the
+Table 1. Quantitative comparison results with SOTA methods. ■,■, ■denote
+the 1st, 2nd, and 3rd places. “Sem Align” refers to semantic alignment, while
+“Geo Align” refers to geometric alignment.
+Method
+Geo Align
+Sem Align
+Quality
+Landmarks ↓
+AED ↓
+CLIP ↑
+HyperIQA ↑
+DSL-FIQA ↑
+Ours
+0.0148
+0.1265
+0.2749
+59.6879
+0.6426
+HeadStudio
+0.0263
+0.3136
+0.2687
+46.7009
+0.3819
+TADA
+0.1353
+0.2162
+0.2492
+60.1467
+0.4190
+HumanGaussian
+0.0429
+0.2754
+0.2661
+23.8779
+0.1123
+PortraitGen
+0.0269
+0.1618
+0.2485
+38.1552
+0.2714
+GPAvatar
+0.0220
+0.1265
+0.2131
+49.4826
+0.5157
+GAGAvatar
+0.0199
+0.1267
+0.2627
+51.2861
+0.5550
+same text prompt as input. Additionally, we compare our method
+with the SOTA 3D avatar editing approach, PortraitGen [Gao et al.
+2024], by employing the instruction, “turn him/her into text prompt,”
+to edit a 3D avatar using the same text prompt as that used for
+generation. We also include comparisons with 3DGS-based head
+reconstruction models, such as GPAvatar [Chu et al. 2024] and
+GAGAvatar [Chu and Harada 2024], using the frontal image from
+Portrait3D as input.
+4.2.1
+Qualitative Comparison. We present the qualitative compar-
+ison results in Figure 8. To ensure a fair comparison, motion se-
+quences extracted from the same reference video are used across all
+methods. Two frames are selected, and the rotating view for each
+frame is presented in the comparison image. HumanGaussian, and
+PortraitGen face significant challenges in producing results that
+align with the driving frames, particularly in the eye and mouth
+regions. These limitations stem primarily from the absence of geo-
+metric supervision in their guidance frameworks. Even HeadStudio,
+which incorporates landmarks for expression alignment, struggles
+to fully eliminate misalignment. Moreover, the SDS-based methods
+(TADA, HumanGaussian, and HeadStudio) often generate unre-
+alistic appearances. PortraitGen produces results with noticeable
+artifacts due to overfitting on the input video for reconstruction.
+GPAvatar and GAGAvatar often produce blurry outputs in hair
+and teeth regions, with the entire portrait appearing blurred at ex-
+treme camera angles. Furthermore, their use of neural renderers to
+convert feature maps into RGB images frequently results in flick-
+ering artifacts. In contrast, our method achieves superior results
+in challenging areas such as hair, eyes, and mouth. By integrating
+ControlNet, we significantly improve both alignment and control-
+lability in complex regions and dynamic expressions. Additionally,
+our tailored initialization strategy enhances realism, preserving de-
+tailed and accurate appearances across all camera angles, including
+challenging back views.
+4.2.2
+Quantitative Comparison. For each method, we generate twenty
+avatars (ten male and ten female) using the same twenty prompts
+for all methods. To comprehensively evaluate the quality of the
+generated avatars, we render 100 random images for each avatar,
+with random camera views, and parameters randomly sampled from
+the NeRSemble dataset. To evaluate the geometric alignment be-
+tween the appearance of the generated avatars and their underlying
+meshes, we employ an off-the-shelf method [Zhou et al. 2023] to
+
+
+Text-based Animatable 3D Avatars with Morphable Model Alignment
+•
+7
+“A woman, long blonde hair styled in a 1950s-inspired look, and is dressed in a pink checkered dress with a white apron, 
+wears pearls around her neck, a retro, pastel-themed kitchen with a whimsical and vintage aesthetic”
+“With a salt and pepper mustache, the 62-year-old African American man had an oval-shaped face, 
+wore a plaid button-up shirt, and rested his hands on his cane as he walked along the beach at sunset”
+“A sophisticated, silver-haired Caucasian woman in her 60s, with a heart-shaped face, styled in a perfectly coiffed bouffant hairstyle, 
+dressed in a tailored tweed suit, pearl necklace, and carrying a classic leather handbag, strolling through an art gallery, admiring vibrant abstract paintings”
+“A handsome young brown lightly wavy Pompadour with fade, 
+muscled sportsman in navy satin large pinstripe double-breasted suit, club tie, pompadour haircut”
+Fig. 6. Generated results of our method. For each 3D avatar, we present rendered images with varying expressions and poses across different camera views,
+and the corresponding mesh for each avatar is shown at the lower right corner of each rendered image.
+predict facial landmarks from the rendered images. We then calcu-
+late the deviations between these predicted landmarks and their
+corresponding points on the parametric models. For the Average
+Expression Distance (AED), we animate each avatar using a com-
+mon reference video and apply a face capture method [Retsinas
+et al. 2024] to estimate expression parameters from both the ref-
+erence video and the generated avatars. The differences between
+these expression parameters are then computed to quantify expres-
+sion alignment. For semantic alignment, we measure the semantic
+consistency between the generated avatars and the input text by
+computing the CLIP similarity [Radford et al. 2021]. To assess the
+quality of the generated avatars, we utilize HyperIQA [Su et al.
+2020], a reference-free, general-purpose image quality assessment
+method, and DSL-FIQA [Chen et al. 2024], a specialized facial image
+quality evaluation framework. Table 1 summarizes the quantitative
+evaluation results, illustrating that our method outperforms other
+approaches across most metrics. We find that the general-purpose
+image quality score HyperIQA is insensitive to the strong artifacts
+of TADA and assigns a surprisingly high score which contradicts
+the qualitative observations in Figure 8. We attribute this effect to
+limitations of HyperIQA’s training data since the face-specific image
+quality metric DSL-FIQA aligns better with human preference.
+4.3
+Ablation Studies
+In this section, we discuss the effectiveness of our key components,
+presenting qualitative results in Figure A.4. We conduct a progres-
+sive ablation study (Section 4.3.1) and a subtractive ablation study
+(Section 4.3.2). In Appendix A2, we further demonstrate the effec-
+tiveness of our dynamic optimization stage by conducting ablation
+studies that replace it with two alternatives. A detailed quantitative
+analysis is also provided in Appendix A2.
+4.3.1
+Progressive Ablation Study. In the progressive ablation study,
+we examine the intermediate results of our pipeline, showcasing
+outputs from different stages to demonstrate how our approach
+incrementally improves the quality of the results. The progressive
+ablation study includes: 1) the results after the 3D Initialization
+stage, 2) the avatar after pre-training the mouth- and eye region,
+and 3) the avatar after full optimization but without refinement.
+In Figure A.4 (a-d) we present how the avatar quality is improved
+as we progress through the stages of our optimization pipeline.
+After the 3D Initialization stage (Figure A.4 (a)), the avatar exhibits
+animation artifacts such as inaccurate rigging, unrealistic color, and
+holes, as the avatar was optimized with a neutral expression only.
+These issues are significantly mitigated by the pre-training strategy
+
+
+8
+•
+Yiqian Wu, Malte Prinzler, Xiaogang Jin, and Siyu Tang
+(e) w/o Appearance init.
+(f) w/o Geometry init.
+(g) w/o Pre-training
+(h) w/o ControlNet
+(a) The initial avatar
+(b) + Pre-training
+(c) + Full optimization
+(d) Full model
+Segmentation
+Mesh
+Subtractive Ablation Study (Sec. 4.3.2)
+Progressive Ablation Study (Sec. 4.3.1)
+Reference
+Fig. 7. Ablation Study. We conduct two types of ablation studies: a progressive ablation study and a subtractive ablation study. The mesh renderings and the
+corresponding segmentation maps are shown on the right. In the progressive ablation, we start with the initial avatar after the 3D Avatar Initialization
+Stage (a), then show the results after mouth- and eye pretraining (b), followed by the full optimization (c), after which refinement yields the final avatar of our
+full model (d). In the subtractive ablation study, we drop individual components of our pipeline while the rest is kept fixed. For results requiring additional
+focus on the eye and mouth regions, we include zoomed-in views for detailed examination.
+(Figure A.4 (b)), though the appearance still lacks realism. After
+full optimization (Figure A.4 (c)), additional details are added to
+the avatar, but unrealistic artifacts remain. These are resolved in
+the refinement process which yields the final avatar with highly
+realistic appearance and robust animation capabilities (Figure A.4
+(d)).
+4.3.2
+Subtractive Ablation Study. In the subtractive ablation study,
+we individually remove 1) appearance initialization, 2) geometry
+initialization, 3) eye and mouth pre-training, and 4) ControlNet from
+our full model to evaluate their contributions.
+Appearance and Geometry Initialization. As detailed in Section 3.1,
+our method initializes both the appearance and geometry of the
+initial 3D avatar from predictions of Portrait3D. To underscore the
+importance of this initialization, we perform two ablation exper-
+iments: (1) training 3D avatars without appearance initialization,
+where color and opacity are instead set to default values, and (2)
+training 3D avatars by directly sampling and rigging Gaussians on
+the SMPL-X model, bypassing the initialization using asset meshes.
+The results shown in Figure A.4 (e-f) reveal that without appear-
+ance initialization, the avatars exhibit unnatural color tones, with
+clothing appearing ambiguous and lacking detail. Similarly, without
+geometry initialization, the avatars fail to capture complex and real-
+istic human features, resulting in less natural and lifelike outputs.
+Eye Region and Mouth Region Pre-training. As discussed in Sec-
+tion 3.2.2, achieving realistic results in the eye region and mouth
+interiors poses significant challenges, necessitating pre-training for
+these areas. To demonstrate the effectiveness of this approach, we
+optimize 3D avatars without pre-training for the eye region and
+mouth interiors. As shown in Figure A.4 (g), omitting pre-training
+affects the robustness and realism of these regions, as well as their
+alignment with the underlying geometry.
+ControlNet. To evaluate the effectiveness of our ControlNet, we
+generate baseline avatars relying solely on the 2D diffusion model
+for guidance, excluding the use of ControlNet. As illustrated in
+Figure A.4 (h), the comparison reveals that, even with careful ini-
+tialization and pre-training, the absence of ControlNet’s robust
+guidance results in noticeable quality degradation: the eyes appear
+unnaturally large, the rigging is inaccurate, and the lips contain
+artifacts.
+5
+DISCUSSION
+While our method demonstrates significant advancements, it also
+has certain limitations that warrant further investigation. First, the
+use of static Gaussian features constrains the adaptability of the
+Gaussians, with lighting and shadows baked into the fixed color
+values. This is especially problematic in areas like the teeth, which
+are sensitive to lighting changes, and prevents accurate rendering
+of dynamic details such as wrinkles. Future work could address this
+
+
+Text-based Animatable 3D Avatars with Morphable Model Alignment
+•
+9
+by incorporating dynamic Gaussian attributes and facial data. Sec-
+ond, the quality of mesh segmentation depends on 2D segmentation
+performance. Suboptimal results may lead to incorrect rigging or
+floating Gaussians. This could be mitigated by manual corrections
+or more robust segmentation models. Finally, animation expressive-
+ness is constrained by the blend shapes of the underlying 3DMM,
+limiting realistic rendering of long hair and complex garments,
+which often require physics-based simulation. Additionally, using
+video-extracted blend shapes causes lip sync artifacts, missing gaze
+animation, and less realistic expressions. Higher-quality results are
+expected with artist-designed or industry-grade blend shapes.
+6
+CONCLUSION
+In this paper, we propose a novel framework, AnimPortrait3D, for
+generating high-quality, animatable 3D avatars with realistic ap-
+pearance and geometry from textual input. Our method comprises
+two key stages: an initialization stage to produce a well-defined
+initial avatar, and an optimization stage to refine this avatar for
+detailed and dynamic results. In the initialization stage, the initial
+avatar is created using a static model from the text-to-3D framework
+Portrait3D, augmented with carefully designed appearance and ge-
+ometry initialization, and rigging computation. In the optimization
+stage, we further refine the initial avatar to resolve artifacts for dy-
+namic poses and expressions using a 2D diffusion model and Interval
+Score Matching. To ensure accurate alignment with the SMPL-X
+model, we introduce a ControlNet that provides geometry- and
+semantics-aware guidance. Extensive experiments demonstrated
+consistent improvements compared to previous methods. We hope
+our approach inspires further advancements in the field of 3D avatar
+generation, particularly in improving realism, adaptability, and ex-
+pression fidelity.
+ACKNOWLEDGMENTS
+This work was supported by the SNSF project grant 200021 204840.
+Malte Prinzler received funding from the Max Planck ETH Center
+for Learning Systems (CLS). Xiaogang Jin was supported by the Key
+R&D Program of Zhejiang (Grant No. 2024C01069) and the National
+Natural Science Foundation of China (Grant No. 62472373).
+REFERENCES
+Thiemo Alldieck, Hongyi Xu, and Cristian Sminchisescu. 2021. imGHUM: Implicit
+Generative Models of 3D Human Shape and Articulated Pose. In 2021 IEEE/CVF
+International Conference on Computer Vision, ICCV 2021. IEEE, 5441–5450.
+ShahRukh Athar, Zexiang Xu, Kalyan Sunkavalli, Eli Shechtman, and Zhixin Shu.
+2022. RigNeRF: Fully Controllable Neural 3D Portraits. In IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, CVPR 2022. IEEE, 20332–20341.
+Wei-Ting Chen, Gurunandan Krishnan, Qiang Gao, Sy-Yen Kuo, Sizhuo Ma, and Jian
+Wang. 2024. DSL-FIQA: Assessing Facial Image Quality via Dual-Set Degradation
+Learning and Landmark-Guided Transformer. In IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, CVPR 2024. IEEE, 2931–2941.
+Xuangeng Chu and Tatsuya Harada. 2024. Generalizable and Animatable Gaussian Head
+Avatar. In The Thirty-eighth Annual Conference on Neural Information Processing
+Systems. https://openreview.net/forum?id=gVM2AZ5xA6
+Xuangeng Chu, Yu Li, Ailing Zeng, Tianyu Yang, Lijian Lin, Yunfei Liu, and Tatsuya
+Harada. 2024. GPAvatar: Generalizable and Precise Head Avatar from Image(s).
+In The Twelfth International Conference on Learning Representations, ICLR 2024.
+OpenReview.net.
+Yu Deng, Jiaolong Yang, Sicheng Xu, Dong Chen, Yunde Jia, and Xin Tong. 2019.
+Accurate 3D Face Reconstruction With Weakly-Supervised Learning: From Single
+Image to Image Set. In IEEE Conference on Computer Vision and Pattern Recognition
+Workshops, CVPR Workshops 2019. Computer Vision Foundation / IEEE, 285–295.
+Zheng Ding, Xuaner Zhang, Zhihao Xia, Lars Jebe, Zhuowen Tu, and Xiuming Zhang.
+2023. DiffusionRig: Learning Personalized Priors for Facial Appearance Editing. In
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2023. IEEE,
+12736–12746.
+Guy Gafni, Justus Thies, Michael Zollhöfer, and Matthias Nießner. 2021. Dynamic
+Neural Radiance Fields for Monocular 4D Facial Avatar Reconstruction. In IEEE
+Conference on Computer Vision and Pattern Recognition, CVPR 2021. Computer Vision
+Foundation / IEEE, 8649–8658.
+Xuan Gao, Haiyao Xiao, Chenglai Zhong, Shimin Hu, Yudong Guo, and Juyong Zhang.
+2024. Portrait Video Editing Empowered by Multimodal Generative Priors. In
+SIGGRAPH Asia 2024 Conference Papers, SA 2024, Takeo Igarashi, Ariel Shamir, and
+Hao (Richard) Zhang (Eds.). ACM, 104:1–104:11.
+Xuan Gao, Chenglai Zhong, Jun Xiang, Yang Hong, Yudong Guo, and Juyong Zhang.
+2022. Reconstructing Personalized Semantic Facial NeRF Models from Monocular
+Video. ACM Trans. Graph. 41, 6 (2022), 200:1–200:12.
+Simon Giebenhain, Tobias Kirschstein, Markos Georgopoulos, Martin Rünz, Lourdes
+Agapito, and Matthias Nießner. 2023. Learning Neural Parametric Head Models. In
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2023. IEEE,
+21003–21012.
+Simon Giebenhain, Tobias Kirschstein, Martin Rünz, Lourdes Agapito, and Matthias
+Nießner. 2024. NPGA: Neural Parametric Gaussian Avatars. In SIGGRAPH Asia
+2024 Conference Papers (SA Conference Papers ’24). https://doi.org/10.1145/3680528.
+3687689
+Google. 2024. mediapipe. https://github.com/google-ai-edge/mediapipe.
+Philip-William Grassal, Malte Prinzler, Titus Leistner, Carsten Rother, Matthias Nießner,
+and Justus Thies. 2022. Neural Head Avatars from Monocular RGB Videos. In
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2022. IEEE,
+18632–18643.
+Yuming Gu, Hongyi Xu, You Xie, Guoxian Song, Yichun Shi, Di Chang, Jing Yang, and
+Linjie Luo. 2024. DiffPortrait3D: Controllable Diffusion for Zero-Shot Portrait View
+Synthesis. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR
+2024. IEEE, 10456–10465.
+Jianzhu Guo, Dingyun Zhang, Xiaoqiang Liu, Zhizhou Zhong, Yuan Zhang, Pengfei
+Wan, and Di Zhang. 2024. LivePortrait: Efficient Portrait Animation with Stitching
+and Retargeting Control. CoRR abs/2407.03168 (2024).
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. Denoising Diffusion Probabilistic
+Models. In Advances in Neural Information Processing Systems, Vol. 33. 6840–6851.
+Liangxiao Hu, Hongwen Zhang, Yuxiang Zhang, Boyao Zhou, Boning Liu, Shengping
+Zhang, and Liqiang Nie. 2024. GaussianAvatar: Towards Realistic Human Avatar
+Modeling from a Single Video via Animatable 3D Gaussians. In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, CVPR 2024. IEEE, 634–644.
+Xin Huang, Ruizhi Shao, Qi Zhang, Hongwen Zhang, Ying Feng, Yebin Liu, and Qing
+Wang. 2024. HumanNorm: Learning Normal Diffusion Model for High-quality and
+Realistic 3D Human Generation. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, CVPR 2024. IEEE, 4568–4577.
+Diqiong Jiang, Yiwei Jin, Fang-Lue Zhang, Zhe Zhu, Yun Zhang, Ruofeng Tong, and
+Min Tang. 2023. Sphere Face Model: A 3D morphable model with hypersphere
+manifold latent space using joint 2D/3D training. Comput. Vis. Media 9, 2 (2023),
+279–296.
+Alexander Kapitanov, Karina Kvanchiani, and Sofia Kirillova. 2023. EasyPortrait - Face
+Parsing and Portrait Segmentation Dataset. CoRR abs/2304.13509 (2023).
+Tero Karras, Samuli Laine, and Timo Aila. 2021. A Style-Based Generator Architecture
+for Generative Adversarial Networks. IEEE Trans. Pattern Anal. Mach. Intell. 43, 12
+(2021), 4217–4228.
+Bernhard Kerbl, Georgios Kopanas, Thomas Leimkuehler, and George Drettakis. 2023.
+3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graph.
+42, 4 (2023), 139:1–139:14.
+Rawal Khirodkar, Timur M. Bagautdinov, Julieta Martinez, Su Zhaoen, Austin James,
+Peter Selednik, Stuart Anderson, and Shunsuke Saito. 2024. Sapiens: Foundation for
+Human Vision Models. In Computer Vision - ECCV 2024 - 18th European Conference
+(Lecture Notes in Computer Science, Vol. 15062). Springer, 206–228.
+Tobias Kirschstein, Simon Giebenhain, Jiapeng Tang, Markos Georgopoulos, and
+Matthias Nießner. 2024. GGHead: Fast and Generalizable 3D Gaussian Heads.
+In SIGGRAPH Asia 2024 Conference Papers, SA 2024. ACM, 126:1–126:11.
+Tobias Kirschstein, Shenhan Qian, Simon Giebenhain, Tim Walter, and Matthias Nießner.
+2023. NeRSemble: Multi-view Radiance Field Reconstruction of Human Heads. ACM
+Trans. Graph. 42, 4 (2023), 161:1–161:14.
+Nikos Kolotouros, Thiemo Alldieck, Andrei Zanfir, Eduard Gabriel Bazavan, Mihai
+Fieraru, and Cristian Sminchisescu. 2023. DreamHuman: Animatable 3D Avatars
+from Text. CoRR abs/2306.09329 (2023).
+Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar, Christian Richardt, Tomas
+Simon, Yaser Sheikh, and Shunsuke Saito. 2024. URAvatar: Universal Relightable
+Gaussian Codec Avatars. In SIGGRAPH Asia 2024 Conference Papers, SA 2024. ACM,
+128:1–128:11.
+
+
+10
+•
+Yiqian Wu, Malte Prinzler, Xiaogang Jin, and Siyu Tang
+Junnan Li, Dongxu Li, Caiming Xiong, and Steven C. H. Hoi. 2022. BLIP: Bootstrapping
+Language-Image Pre-training for Unified Vision-Language Understanding and Gen-
+eration. In International Conference on Machine Learning, ICML 2022 (Proceedings of
+Machine Learning Research, Vol. 162). PMLR, 12888–12900.
+Tianye Li, Timo Bolkart, Michael J. Black, Hao Li, and Javier Romero. 2017. Learning a
+model of facial shape and expression from 4D scans. ACM Trans. Graph. 36, 6 (2017),
+194:1–194:17.
+Yixun Liang, Xin Yang, Jiantao Lin, Haodong Li, Xiaogang Xu, and Yingcong Chen.
+2024. Luciddreamer: Towards high-fidelity text-to-3d generation via interval score
+matching. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition. 6517–6526.
+Tingting Liao, Hongwei Yi, Yuliang Xiu, Jiaxiang Tang, Yangyi Huang, Justus Thies, and
+Michael J. Black. 2024. TADA! Text to Animatable Digital Avatars. In International
+Conference on 3D Vision, 3DV 2024. IEEE, 1508–1519.
+Xian Liu, Xiaohang Zhan, Jiaxiang Tang, Ying Shan, Gang Zeng, Dahua Lin, Xihui
+Liu, and Ziwei Liu. 2024. HumanGaussian: Text-Driven 3D Human Generation
+with Gaussian Splatting. In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, CVPR 2024. IEEE, 6646–6657.
+William E Lorensen and Harvey E Cline. 1998. Marching cubes: A high resolution 3D
+surface construction algorithm. In Seminal graphics: pioneering efforts that shaped
+the field. 347–353.
+Armand Comas Massague, Di Qiu, Menglei Chai, Marcel C. Bühler, Amit Raj, Ruiqi
+Gao, Qiangeng Xu, Mark Matthews, Paulo F. U. Gotardo, Octavia I. Camps, Sergio
+Orts-Escolano, and Thabo Beeler. 2024. MagicMirror: Fast and High-Quality Avatar
+Generation with a Constrained Search Space. CoRR abs/2404.01296 (2024).
+Chenlin Meng, Yutong He, Yang Song, Jiaming Song, Jiajun Wu, Jun-Yan Zhu, and
+Stefano Ermon. 2022. SDEdit: Guided Image Synthesis and Editing with Stochastic
+Differential Equations. In The Tenth International Conference on Learning Represen-
+tations, ICLR 2022. OpenReview.net.
+Marko Mihajlovic, Aayush Bansal, Michael Zollhöfer, Siyu Tang, and Shunsuke Saito.
+2022. KeypointNeRF: Generalizing Image-Based Volumetric Avatars Using Relative
+Spatial Encoding of Keypoints. In Computer Vision - ECCV 2022 - 17th European
+Conference (Lecture Notes in Computer Science, Vol. 13675). Springer, 179–197.
+Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi Ra-
+mamoorthi, and Ren Ng. 2020. NeRF: Representing Scenes as Neural Radiance Fields
+for View Synthesis. In Computer Vision - ECCV 2020 - 16th European Conference
+(Lecture Notes in Computer Science, Vol. 12346). 405–421.
+Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller. 2022a. Instant
+neural graphics primitives with a multiresolution hash encoding. ACM Trans. Graph.
+41, 4 (2022), 102:1–102:15.
+Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller. 2022b. Instant
+neural graphics primitives with a multiresolution hash encoding. ACM Trans. Graph.
+41, 4 (2022), 102:1–102:15.
+Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani, Timo Bolkart, Ahmed A. A.
+Osman, Dimitrios Tzionas, and Michael J. Black. 2019. Expressive Body Capture:
+3D Hands, Face, and Body From a Single Image. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR).
+Pascal Paysan, Reinhard Knothe, Brian Amberg, Sami Romdhani, and Thomas Vetter.
+2009. A 3D Face Model for Pose and Illumination Invariant Face Recognition. In
+Sixth IEEE International Conference on Advanced Video and Signal Based Surveillance,
+AVSS 2009, Stefano Tubaro and Jean-Luc Dugelay (Eds.). IEEE Computer Society,
+296–301.
+Ben Poole, Ajay Jain, Jonathan T. Barron, and Ben Mildenhall. 2023. DreamFusion:
+Text-to-3D using 2D Diffusion. In The 11th International Conference on Learning
+Representations, ICLR.
+Malte Prinzler, Egor Zakharov, Vanessa Sklyarova, Berna Kabadayi, and Justus Thies.
+2024. Joker: Conditional 3D Head Synthesis with Extreme Facial Expressions.
+Shenhan Qian. 2024. VHAP. https://github.com/ShenhanQian/VHAP.
+Shenhan Qian, Tobias Kirschstein, Liam Schoneveld, Davide Davoli, Simon Gieben-
+hain, and Matthias Nießner. 2024. GaussianAvatars: Photorealistic Head Avatars
+with Rigged 3D Gaussians. In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, CVPR 2024. IEEE, 20299–20309.
+Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini
+Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen
+Krueger, and Ilya Sutskever. 2021. Learning Transferable Visual Models From
+Natural Language Supervision. In Proceedings of the 38th International Conference on
+Machine Learning, ICML 2021 (Proceedings of Machine Learning Research, Vol. 139).
+PMLR, 8748–8763.
+George Retsinas, Panagiotis Paraskevas Filntisis, Radek Danecek, Victoria Fernández
+Abrevaya, Anastasios Roussos, Timo Bolkart, and Petros Maragos. 2024. 3D Facial
+Expressions through Analysis-by-Neural-Synthesis. In IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, CVPR 2024. IEEE, 2490–2501.
+Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer.
+2022. High-Resolution Image Synthesis With Latent Diffusion Models. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR).
+10684–10695.
+Zhijing Shao, Zhaolong Wang, Zhuang Li, Duotun Wang, Xiangru Lin, Yu Zhang,
+Mingming Fan, and Zeyu Wang. 2024. SplattingAvatar: Realistic Real-Time Hu-
+man Avatars With Mesh-Embedded Gaussian Splatting. In IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, CVPR 2024. IEEE, 1606–1616.
+Yichun Shi, Peng Wang, Jianglong Ye, Long Mai, Kejie Li, and Xiao Yang. 2024. MV-
+Dream: Multi-view Diffusion for 3D Generation. In The Twelfth International Con-
+ference on Learning Representations, ICLR 2024. OpenReview.net.
+Shaolin Su, Qingsen Yan, Yu Zhu, Cheng Zhang, Xin Ge, Jinqiu Sun, and Yanning Zhang.
+2020. Blindly Assess Image Quality in the Wild Guided by a Self-Adaptive Hyper
+Network. In 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+CVPR 2020. Computer Vision Foundation / IEEE, 3664–3673.
+Xintao Wang, Liangbin Xie, Chao Dong, and Ying Shan. 2021. Real-ESRGAN: Training
+Real-World Blind Super-Resolution with Pure Synthetic Data. In IEEE/CVF Interna-
+tional Conference on Computer Vision Workshops, ICCVW 2021. IEEE, 1905–1914.
+Zhengyi Wang, Cheng Lu, Yikai Wang, Fan Bao, Chongxuan Li, Hang Su, and Jun
+Zhu. 2023. ProlificDreamer: High-Fidelity and Diverse Text-to-3D Generation with
+Variational Score Distillation. In Advances in Neural Information Processing Systems,
+Vol. 34.
+Markus Worchel, Rodrigo Diaz, Weiwen Hu, Oliver Schreer, Ingo Feldmann, and Peter
+Eisert. 2022. Multi-View Mesh Reconstruction with Neural Deferred Shading. In
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2022. IEEE,
+6177–6187.
+Kailu Wu, Fangfu Liu, Zhihan Cai, Runjie Yan, Hanyang Wang, Yating Hu, Yueqi Duan,
+and Kaisheng Ma. 2024a. Unique3D: High-Quality and Efficient 3D Mesh Generation
+from a Single Image. CoRR abs/2405.20343 (2024).
+Yiqian Wu, Hao Xu, Xiangjun Tang, Xien Chen, Siyu Tang, Zhebin Zhang, Chen Li, and
+Xiaogang Jin. 2024b. Portrait3D: Text-Guided High-Quality 3D Portrait Generation
+Using Pyramid Representation and GANs Prior. ACM Trans. Graph. 43, 4, Article 45
+(jul 2024), 12 pages. https://doi.org/10.1145/3658162
+Yiqian Wu, Jing Zhang, Hongbo Fu, and Xiaogang Jin. 2023. LPFF: A Portrait Dataset
+for Face Generators Across Large Poses. In IEEE/CVF International Conference on
+Computer Vision, ICCV 2023. IEEE, 20270–20280.
+Liangbin Xie, Xintao Wang, Honglun Zhang, Chao Dong, and Ying Shan. 2022. VFHQ: A
+High-Quality Dataset and Benchmark for Video Face Super-Resolution. In IEEE/CVF
+Conference on Computer Vision and Pattern Recognition Workshops, CVPR Workshops
+2022. IEEE, 656–665.
+Yuelang Xu, Bengwang Chen, Zhe Li, Hongwen Zhang, Lizhen Wang, Zerong Zheng,
+and Yebin Liu. 2024. Gaussian Head Avatar: Ultra High-Fidelity Head Avatar via
+Dynamic Gaussians. In IEEE/CVF Conference on Computer Vision and Pattern Recog-
+nition, CVPR 2024. IEEE, 1931–1941.
+Yuanyou Xu, Zongxin Yang, and Yi Yang. 2023.
+SEEAvatar: Photorealistic
+Text-to-3D Avatar Generation with Constrained Geometry and Appearance.
+arXiv:2312.08889 [cs.CV]
+YBIGTA. 2018. pytorch-hair-segmentation. https://github.com/YBIGTA/pytorch-hair-
+segmentation.
+Huichao Zhang, Bowen Chen, Hao Yang, Liao Qu, Xu Wang, Li Chen, Chao Long, Feida
+Zhu, Daniel K. Du, and Min Zheng. 2024a. AvatarVerse: High-Quality & Stable 3D
+Avatar Creation from Text and Pose. In Thirty-Eighth AAAI Conference on Artificial
+Intelligence, AAAI 2024. AAAI Press, 7124–7132.
+Hao Zhang, Yao Feng, Peter Kulits, Yandong Wen, Justus Thies, and Michael J. Black.
+2024b. TECA: Text-Guided Generation and Editing of Compositional 3D Avatars. In
+International Conference on 3D Vision, 3DV 2024. IEEE, 1520–1530.
+Jianfeng Zhang, Xuanmeng Zhang, Huichao Zhang, Jun Hao Liew, Chenxu Zhang, Yi
+Yang, and Jiashi Feng. 2023b. AvatarStudio: High-fidelity and Animatable 3D Avatar
+Creation from Text. CoRR abs/2311.17917 (2023).
+Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. 2023a. Adding Conditional Control to
+Text-to-Image Diffusion Models. In IEEE/CVF International Conference on Computer
+Vision, ICCV 2023. IEEE, 3813–3824.
+Xiaozheng Zheng, Chao Wen, Zhaohu Li, Weiyi Zhang, Zhuo Su, Xu Chang, Yang
+Zhao, Zheng Lv, Xiaoyuan Zhang, Yongjie Zhang, Guidong Wang, and Lan Xu.
+2024. HeadGAP: Few-shot 3D Head Avatar via Generalizable Gaussian Priors. CoRR
+abs/2408.06019 (2024).
+Ziming Zhong, Yanxu Xu, Jing Li, Jiale Xu, Zhengxin Li, Chaohui Yu, and Shenghua
+Gao. 2024. MeshSegmenter: Zero-Shot Mesh Semantic Segmentation via Texture
+Synthesis. CoRR abs/2407.13675 (2024).
+Zhenglin Zhou, Huaxia Li, Hong Liu, Nanyang Wang, Gang Yu, and Rongrong Ji.
+2023. STAR Loss: Reducing Semantic Ambiguity in Facial Landmark Detection. In
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2023. IEEE,
+15475–15484.
+Zhenglin Zhou, Fan Ma, Hehe Fan, and Yi Yang. 2024. HeadStudio: Text to Animatable
+Head Avatars with 3D Gaussian Splatting. In Computer Vision - ECCV 2024 - 18th
+European Conference (Lecture Notes in Computer Science). Springer.

@@ -1,0 +1,1204 @@
+Title: Hand avatar: Free-pose hand animation and rendering from monocular video
+
+Hand Avatar: Free-Pose Hand Animation and Rendering from Monocular Video
+Xingyu Chen
+Baoyuan Wang
+Heung-Yeung Shum
+Xiaobing.AI
+ 
+(a)
+(c)
+(b)
+Figure 1. Demonstration of HandAvatar. (a) Personalized hand rendering. From left to right: hand mesh, compositional occupancy, albedo,
+illumination, shaded appearance, and ground truth; (b) three groups of texture editing in terms of lighting, albedo, and shadow (by altering
+the self-occlusion effect of thumb); (c) free-pose hand animation and rendering.
+Abstract
+We present HandAvatar, a novel representation for hand
+animation and rendering, which can generate smoothly
+compositional geometry and self-occlusion-aware texture.
+Specifically, we first develop a MANO-HD model as a high-
+resolution mesh topology to fit personalized hand shapes.
+Sequentially, we decompose hand geometry into per-bone
+rigid parts, and then re-compose paired geometry encod-
+ings to derive an across-part consistent occupancy field.
+As for texture modeling, we propose a self-occlusion-aware
+shading field (SelF). In SelF, drivable anchors are paved
+on the MANO-HD surface to record albedo information
+under a wide variety of hand poses. Moreover, directed
+soft occupancy is designed to describe the ray-to-surface
+relation, which is leveraged to generate an illumination
+field for the disentanglement of pose-independent albedo
+and pose-dependent illumination. Trained from monocu-
+lar video data, our HandAvatar can perform free-pose hand
+animation and rendering while at the same time achiev-
+ing superior appearance fidelity. We also demonstrate that
+HandAvatar provides a route for hand appearance editing.
+Project website: https://seanchenxy.github.
+io/HandAvatarWeb.
+1. Introduction
+Human avatars [5,16,20,21,28,75] have been vigorously
+studied for years. However, there has been limited research
+that particularly focuses on hand avatars [9]. Due to the
+nature of distinctive properties (e.g., serious self-occlusion
+and contact) between the hand and the rest of the human
+parts (i.e., face, head, and body), it is essential to investigate
+a specialized representation tailored for modeling both the
+hand geometry and texture.
+Traditional pipeline tends to adopt texture maps and col-
+ored mesh for hand appearance modeling [7,11,12,25,44],
+but developing an elaborate personalized hand mesh and
+texture map usually requires expensive scan data [55] and
+artistic knowledge.
+Recently, the neural rendering tech-
+nique has gained raising attention, where neural radiance
+field (NeRF) [33] has been adapted to represent humans by
+predicting geometry and texture properties for an arbitrary
+1
+arXiv:2211.12782v2  [cs.CV]  22 Mar 2023
+
+
+3D point query [9, 10, 21, 26, 38, 40, 41, 49, 52, 59, 63–65,
+70, 73, 76] . Compared to the conventional mesh-texture
+pipeline, NeRF is cheap in training data collection and su-
+perior in rendering fidelity. Despite the huge success of hu-
+man body and face modeling, neural rendering-based hand
+representation [9] remains much less explored. The hand is
+highly articulated such that the complex hand motion brings
+difficulties for neural rendering. Firstly, the deformation of
+hand geometry is hard to model. When coping with large
+and complex hand deformations (e.g., self-contact), previ-
+ous skinning-based methods can hardly find accurate skin-
+ning weights for an arbitrary query [3, 6, 19, 20, 32, 36, 40,
+48, 63, 75], while part-aware methods usually suffer from
+across-part inconsistency issue [18, 22, 31, 61]. Secondly,
+hand texture is hard to model because of the highly ar-
+ticulated structure. For example, articulated hand motion
+induces serious self-occlusion so that different hand poses
+lead to noticeable variations in illumination and shadow pat-
+terns. Illumination is important for realistic rendering, but
+we are not aware of any prior work in estimating illumina-
+tion caused by articulated self-occlusion.
+Motivated by the above challenges, we propose Han-
+dAvatar for animatable realistic hand rendering. Consid-
+ering different difficulties in geometry and texture model-
+ing, we follow the idea of inverse graphics [77] to disen-
+tangle hand geometry, albedo, and illumination. At first,
+we employ explicit mesh to depict hand shapes. However,
+the popular hand mesh model, i.e., MANO [45], only pro-
+vides a coarse mesh with 778 vertices, whose shape fitting
+capacity is limited. Therefore, we design a super-resolution
+version of MANO with 12,337 vertices and 24,608 faces,
+namely MANO-HD, which can fit personalized hand shapes
+with per-vertex displacements. Additionally, massive exist-
+ing MANO-annotated data can be seamlessly represented
+by MANO-HD. For introducing mesh-based hand shape to
+the volume rendering pipeline [33], we propose a local-
+pair occupancy field (PairOF), where every two part-level
+geometry encodings are reassembled according to physi-
+cal connections to yield an across-part consistent field. As
+for hand texture, we propose a self-occlusion-aware shad-
+ing field (SelF). SelF is comprised of an albedo field and
+an illumination field. The albedo field resorts to anchors
+that are uniformly paved on MANO-HD surfaces, each of
+which holds positional and albedo encodings to model a
+small hand region. The illumination field is to cope with
+articulated self-occlusion, where directed soft occupancy is
+designed to estimate illumination and shadow patterns.
+MANO-HD and PairOF are pre-trained with MANO pa-
+rameter annotations, then they cooperate with SelF in end-
+to-end training on monocular video data. Finally, with hand
+pose as the input, our HandAvatar can perform hand an-
+imation and rendering. We evaluate our approach on the
+InterHand2.6M dataset [35] and achieve high-fidelity ge-
+ometry and texture for free-pose hand animation. We also
+demonstrate that it is convenient to edit hand appearance in
+HandAvatar as shown in Fig. 1. Therefore, our main contri-
+butions are summarized as follows:
+• We propose a HandAvatar framework, the first method for
+neural hand rendering with self-occluded illumination.
+• We develop MANO-HD and a local-pair occupancy field
+that fit hand geometry with personalized shape details.
+• We propose a self-occlusion-aware shading field that can
+render hand texture with faithful shadow patterns.
+• Our framework is end-to-end developed for free-pose re-
+alistic hand avatars. Extensive evaluations indicate our
+method outperforms prior arts by a large margin.
+2. Related Work
+Articulated Human Geometry.
+Parametric human mod-
+els [24, 29, 39, 45] have developed for years, where mesh
+can be inferred given pose and shape parameters. Specifi-
+cally, as a common-used hand model, MANO [45] can pro-
+duce a hand mesh with 778 vertices and 1,538 faces. This
+mesh template is too coarse so its representation capacity
+is largely limited. Gyeongsik et al. [34] proposed Deep-
+HandMesh to generate dense and high-fidelity hand mesh,
+but brought restricted generalization as multi-view depth
+data was required for training. In contrast, our MANO-HD
+is a general high-resolution hand mesh model so that all ex-
+isting MANO-annotated data can be seamlessly represented
+using MANO-HD. Meanwhile, MANO-HD can fit person-
+alized hand shapes with monocular RGB video data.
+Mesh suffers drawbacks of discontinuity and unalter-
+able topology structure. To remedy this issue, recent re-
+search tends to explore implicit human geometry [2, 23,
+32, 47, 68, 74], which has the advantages of flexibility and
+continuity.
+For example, GraspField [23] leveraged the
+signed distance field (SDF) to describe hand-object con-
+tact. However, implicit geometry is poor in free-pose an-
+imation when compared to explicit mesh, so the articu-
+lated driving of implicit human geometry is widely stud-
+ied. As reported in [3, 36, 40, 63], a posed-space query can
+be transformed back to canonical space with linear blend
+skinning and inverse skinning weights. The inverse skin-
+ning paradigm fails to deal with self-contact, where a query
+can match multiple canonical-space points. Then, forward
+skinning deformation is designed to transform canonical-
+space points to posed space with an iterative root finding
+method [6,20,32,48,75], but the iterative optimization algo-
+rithm could hurt end-to-end network training. By and large,
+per-bone rigid transformations can compose a large motion
+space with the difficulty of optimizing accurate skinning
+weights for an arbitrary 3D point query. With the aid of
+parametric models [29,45], another idea of deformation be-
+tween posed and canonical spaces is to leverage the surface
+2
+
+
+motion [26, 54, 65]. For a query, a mesh-surface point is
+found according to Euclidean distance as the reference, then
+the query deformation is set the same as that of the reference
+point. Yuan et al. [69] and Garbin et al. [13] pointed out that
+the reference from triangular mesh is not accurate enough
+and proposed to use tetrahedral mesh. However, the defor-
+mation of tetrahedral mesh is hard to cooperate with popular
+human priors [24,29,45] and could be potentially slow [50].
+Without requiring motion approximation, part-aware meth-
+ods [18, 22, 31, 61] are developed by fusing part-wise ge-
+ometries. NASA [18] divided the body into per-bone parts,
+then a query was deformed into each part space with un-
+ambiguous rigid transformation for decoding of part-level
+occupancy. NASA can describe complex deformations ow-
+ing to accurate query motion, but information between body
+parts is ignored. To relieve this issue, COAP [31] encoded
+connected parts with PointNet [43], but it still incurred non-
+smooth part connections. Instead of part-wise modeling,
+we propose a part-pair-wise decoder to generate across-part
+consistent geometry.
+Human Texture.
+Previously, the primary focus on hand
+texture is the texture map and colored mesh [7, 11, 12, 25,
+44].
+Although many high-quality texture maps are ex-
+plored, the design of personalized texture maps usually
+requires expensive scan data [55] and artistic knowledge
+[11]. In contrast, LISA [9] employed radiance field [66] to
+learn hand appearance from multi-view images and intro-
+duced color parameters for texture generalization. Different
+from LISA, we design a monocular method for the conve-
+nience of data collection. Moreover, we pay attention to
+detailed personalized textures including albedo and illumi-
+nation. Because of the aforementioned difficulty in implicit
+deformation, the learned texture on the human surface could
+be blurred [20, 63]. To enhance surface texture representa-
+tion, local representations are developed with explicit mesh
+as the guidance. NeuralBody [41] attached latent codes to
+mesh vertices, which can diffuse into space with sparse con-
+volution [15]. NeuMesh [8] also put color features on mesh
+vertices, and achieved an editable radiance field. Further-
+more, mesh-guided local volume [28] and local radiance
+field [76] were designed. We follow the local modeling
+paradigm and uniformly place anchors on MANO-HD sur-
+face using barycentric sampling to trace local information.
+Human Inverse Rendering.
+Most methods model human
+appearance with entangled geometry, albedo, and illumina-
+tion [63]. Meanwhile, there has been a surge of interest in
+human inverse rendering, the purpose of which is to extract
+intrinsic components (i.e., geometry, material, and illumina-
+tion) from RGB data [37,56–58,77]. For example, GAN2X
+[37] designed an unsupervised framework to model albedo
+and specular properties of non-Lambertian material, then
+rendered face with Phong shading [42]. With a similar pur-
+pose, HyFRIS-Net [77] disentangled albedo and illumina-
+tion with an inverse 3DMM model to achieve a considerably
+improved quality of face rendering. S2HAND [7] simulta-
+neously estimated camera pose, colored mesh, and lighting
+condition to form a photometric loss for hand pose estima-
+tion, but its rendering quality was coarse without a detailed
+appearance. Although the inverse rendering technique on
+the human face has been becoming a well-studied issue,
+the knowledge cannot be trivially transferred to hand tasks.
+Different from the face, the hand is characterized by artic-
+ulated self-occlusion. Illumination and shadow caused by
+self-occlusion have not yet been discussed in prior works,
+and thus we fill this gap for hand inverse graphics.
+Illumination in Radiance Field.
+The existing literature
+on NeRF-based illumination technique [4, 51, 53, 72] is to
+estimate source light condition or surface reflection prop-
+erty (i.e., bidirectional reflectance distribution function,
+BRDF). For example, NeRV [51] took as input a set of im-
+ages under known lighting to predict BRDF, and achieved
+novel-view rendering with arbitrary lighting conditions.
+NeLF [53] designed a lighting estimation module, and then
+performed face relighting. NeRF-OSR [46] collected multi-
+view outdoor images to predict albedo and shadow maps. In
+contrast to the prior art, we dedicate modeling illumination
+under the condition of articulated self-occlusion.
+3. Method
+Fig. 2 illustrates the overview pipeline of our Han-
+dAvatar system, including MANO-HD (Sec. 3.1), PairOF
+(Sec. 3.2), and SelF (Sec. 3.3). Table 1 also provides the list
+of symbol notations and their definitions used in this paper.
+3.1. MANO-HD
+Mesh Subdivision.
+MANO [45] deforms hand mesh with
+shape parameter β and pose parameter θ ∈RB×3 (B = 16
+indicates the number of per-bone parts). For lifting mesh
+resolution, we uniformly subdivide MANO template mesh
+by adding new vertices on edge middle points [16]. This op-
+eration increases the vertex number to 12,337 and the face
+amount to 24,608 (see Fig. 3). Then, the skinning weights
+of added vertices are given with the average of their semi-
+nal vertices. To eliminate artifacts during skinning, we op-
+timize upsampled skinning weights for better dynamic per-
+formance. Please see the suppl. material for details.
+Shape
+Fitting.
+Although
+MANO-HD
+has
+a
+high-
+resolution template, its shape is still bounded by β. Hence,
+when modeling personalized hand mesh, we get rid of β
+and use a multi-layer perceptron (MLP) to derive a refined
+shape ˜V = ¯V+Mshape([P( ¯V), θ]), where ¯V, P(·), [·] de-
+note the MANO-HD template vertices, positional encoding,
+and concatenation. The MLP can be trained with monocular
+3
+
+
+Local-pair decoder
+Sigmoid
+Soft-Sigmoid
+Local-pair occupancy field (PairOF)
+Self-occlusion-aware shading field (SelF)
+*
+Point 
+interpolation
+Ap
+Ep
+p
+q
+q
+p
+n
+θ 
+Part-wise 
+sampling
+Eq
+Aq
+aq
+uq
+{αb,q}
+s
+αq
+rv
+Part-space encoder
+{αb,q}
+{Gb }
+-1
+{Pb}
+P
+{Db,q}
+͠ 
+θ 
+MANO-HD
+∫
+Skinning
+Shape fitting
+Barycentric 
+sampling
+MLP
+MLP
+Max
+∫
+∫
+Volume rendering
+Figure 2. HandAvatar overview. Given hand pose, MANO-HD produces personalized mesh, while PariOF yields accordingly occupancy
+field. SelF estimates albedo and illumination fields under self-occlusion. Then, hand appearance is synthesized by volume rendering.
+θ
+hand pose parameter
+β
+hand shape parameter
+P
+point cloud
+r
+ray direction
+b
+index of per-bone parts
+n
+sampled point normal
+q
+query point position
+p
+sampled point position
+Gb bone transformation matrix Db part geometry encoding
+E
+positional encoding
+A
+albedo encoding
+u
+illumination value
+a
+albedo value in RGB
+α
+occupancy value
+αs
+soft occupancy value
+Table 1. Symbolical notations.
+Figure 3. Templates of MANO (left) and MANO-HD (right).
+video data and IoU loss Lshape = 1 −IoU(D(S( ˜V)), S∗),
+where D, S, S∗are silhouette rendering [27], linear blend
+skinning, and ground-truth silhouette.
+3.2. Local-Pair Occupancy Field
+Given the query point q ∈R3, PairOF predicts the occu-
+pancy value αq to describe whether it locates in (αq > 0.5)
+or out of (αq < 0.5) the surface. Hence, the hand surface
+can be formulated as {q|αq = 0.5}.
+Part-Space Encoder.
+Following NASA [18], we divide
+hand mesh into per-bone part meshes and uniformly sam-
+ple N p points on part mesh faces to obtain point clouds
+Pb = {p ∈R3} and normals Nb = {n ∈R3}. Points,
+normals, and query are transferred back to part canonical
+spaces with ˆPb = G−1
+b Pb, ˆNb = R−1
+b Nb, ˆqb = G−1
+b q,
+where G is bone transformation matrix and R is the rotation
+component of G. Following COAP [31], ˆPb, ˆNb are fed to
+a PointNet Qpart to extract latent geometry features. The
+part geometry encoding is ultimately formulated by con-
+catenating PointNet representation and canonicalized query,
+i.e., Db,q = [Qpart( ˆ[Pb, ˆNb]), ˆqb].
+Local-Pair Decoder.
+To explore inter-part relations,
+some previous works fuse per-bone features according to
+the kinematic tree to form structured representations [1,14,
+32]. Our intuition is that the local part shape is not related to
+the kinematic tree, instead, there is a strong relationship be-
+tween parts. Hence, we define local pair as two parts that are
+physically connected. Then, we propose local-pair decoder
+Qpair based on PointNet to fuse each paired encodings and
+predict occupancy value:
+  \l a bel {eq:pair} \beg in {array} { l} \alpha _{b,\mathbf q} = \sigma (\max \{\mathcal Q_{pair}(\{\mathbf D_{b,\mathbf q}, \mathbf D_{b',\mathbf q}\})| b'\in \mathbb P(b)\}) \end {array} \vspace {-0.1cm} 
+(1)
+where P(b) selects locally paired parts that has a physical
+connection with part b; σ is the sigmoid function; αb,q is
+part-level occupancy value. Through the part-pair-wise de-
+coding, the part boundaries become blurred. Therefore, the
+intuition behind the maximum operator in Eq. (1) is to yield
+a union of part-level geometries that extend to the connec-
+tions. Finally, The global occupancy value is given by fus-
+ing part-level values, i.e., αq = max{αb,q}B
+b=1.
+Pre-Training.
+With free MANO parameter annotations,
+we pre-train PairOF as a prior model to endow PairOF with
+prior knowledge of 3D hands. With a hand mesh inferred
+by MANO-HD, we sample point clouds with N t points as
+training data [31]. The objective is to minimize the mean
+squared error between ground truth α∗and predicted occu-
+pancy values, i.e., LP airOF =
+1
+Nt
+P
+q(αq −α∗
+q)2.
+3.3. Self-Occlusion-Aware Shading Field
+Given a query q, SelF predicts its albedo and illumina-
+tion values, which are rendered with the volumetric method.
+4
+
+
+r
+b0
+b1
+b2
+b3
+b0
+b1
+b2
+b3
+Soft-occupancy iso-surface
+q
+q
+Figure 4. Illustration of self-occluded illumination along the kine-
+matic tree of the forefinger. The deepest purple positions con-
+tribute to directed soft occupancy value.
+Volume Rendering.
+For a ray casting on view direction
+rv, we uniformly sample N q queries {qi}N q
+i=1, each of
+which has occupancy α, albedo a, and illumination value
+u. We render neural fields with the volumetric method [33]:
+  \ l abe
+l {eq:re
+nder}  \begin {array}{l} \mathbf X_{\mathbf {r}^v} =\sum _{i=1}^{N^q}(\prod _{j=1}^{i-1}(1-\alpha _{\mathbf q_j})) \alpha _{\mathbf q_i} \mathbf {X}_{\mathbf {q}_{i}}. \end {array} \vspace {-0.1cm} 
+(2)
+When X equates to a, u, or ua, we obtain the albedo value,
+illumination value, or shaded RGB color of a pixel.
+Albedo Field.
+Albedo describes the intrinsic color of the
+material, which is invariant w.r.t. hand pose, illumination,
+etc. Motivated by the invariant property, we fix anchors on
+the MANO-HD surface, whose relative geodesic locations
+are independent from varying poses. To this end, we uni-
+formly sample point clouds ¯P with N a points on MANO-
+HD template mesh and represent them with barycentric co-
+ordinates.
+Compared to directly using vertex as the an-
+chor [8,28,41], our barycentric anchors are more uniform to
+cover the hand surface. Then, we develop albedo encodings
+A ∈RNa×Da with random initialization and attach them
+to anchors. Given hand pose, anchors can be re-sampled
+based on deformed vertices and fixed barycentric coordi-
+nates to form deformed points clouds ˜P. For a query q, we
+find N n nearest points in ˜P and interpolate A using inverse
+Euclidean distances as the weights. Thereby, we obtain the
+albedo encoding Aq ∈RDa and then fed it to an MLP to
+predict the albedo value aq ∈R3, i.e., aq = Malbedo(Aq).
+Directed Soft Occupancy.
+For self-occluded illumina-
+tion estimation, we require the near-far relationship for a
+bone part. That is, the illumination of a query q is affected
+by self-occlusion when q is close to multiple parts. Al-
+though occupancy value can describe the relation between
+q and parts, the value is nearly binary so can only depict
+inside-outside relations. Hence, a soft factor τ is introduced
+to the sigmoid function to soften the occupancy value:
+  \la b
+e
+l {eq: s
+o f t o cc} \begin {array}{l} \sigma ^s(x) = \frac {1}{1+e^{-\tau x}}, \quad 0<\tau <1. \end {array} \vspace {-0.1cm} 
+(3)
+Soft occupancy αs
+b,q is derived by replacing σ in Eq. (1)
+with σs. Further, instead of modeling a single query, we de-
+sign directed soft occupancy to reflect the near-far relation
+between a ray casting and an articulated part. For a ray cast-
+ing r that can reach q, the directed soft occupancy αs
+b,q,r is
+defined as the maximal value on r before the ray hits q. For
+discretization, we uniformly sample queries {qi}Nq
+i=1 on a
+ray casting r, and compute directed soft occupancy as
+  
+\labe l  {eq:a
+ccocc} \ begin {array}{l} \alpha ^s_{b,\mathbf q,\mathbf r} = \max \{\alpha ^s_{b,\mathbf q_{i}}|\mathbf q_{i}\leq \mathbf q\}, \end {array} \vspace {-0.1cm} 
+(4)
+where qi ≤q selects queries that the ray traverses before
+reaching q. For example, αs
+b3,q,r equals to αs
+b3 of the deep-
+est purple query in Fig. 4.
+Illumination Field.
+It is well known that the illumination
+effects come with light-source distribution, irradiance, and
+reflectance. Independent from self-occlusion, reflectance
+is the material property, which is not our focus. Affected
+by self-occlusion, some ambient lighting rays could be oc-
+cluded such that the irradiance could be changed. Thereby,
+the problem is formulated as estimating irradiance of an
+outside query q (αs
+b,q < 0.5), which indicates the energy
+amount that can reach q. To this end, we use the hand
+pose θ and query location as cues. Similar to the albedo
+encodings, positional encodings E = P(¯P) are attached to
+anchors, and we obtain Eq with interpolation as the surface-
+calibrated location of q.
+Nevertheless, self-occlusion is
+quite intractable for θ and Eq, so we leverage directed soft
+occupancy to enhance the awareness of self-occlusion.
+As shown in Fig. 4, the articulated structure prohibits a
+portion of energy from arriving q. Apparently, the situa-
+tion of energy occlusion around a ray direction is implied
+in a set of directed soft occupancy {αs
+b,q,r}B
+b=1. That is, if
+a ray casting is close to multiple parts before hitting q, the
+illumination of q shall be impacted by self-occlusion. Pro-
+hibited by a limited memory budget, we cannot consider
+spherically distributed ray directions, and thus the number
+of ray castings is imperative to be reduced. Our institu-
+tion is that (1) the selected ray should be able to arrive q
+(i.e., αs
+b,q,r < 0.5) such that can elaborate the near-far re-
+lations for all articulated parts; (2) an articulated part can
+only affect the illumination around it, where the query is
+close to the part (i.e., αs
+b,q →0.5). Meanwhile, we have
+αs
+b,q,r ≥αs
+b,q from Eq. (4). Thereby, the variation caused
+by ray directions is minor, and we use {αs
+b,q,rv}B
+b=1 as the
+guidance to estimate irradiance of q, where rv is the view
+direction. Without introducing extra ray castings, we sig-
+nificantly reduce computational costs by leveraging the ray
+casting and queries on the view direction.
+Finally, we use an MLP to predict the illumination value,
+i.e., uq = Millum([θ, Eq, [αs
+b,q,rv]B
+b=1]).
+Optimization.
+The training of SelF is based on recon-
+struction loss functions, including LPIPS [71] loss and l1
+error between the rendered image C and the ground truth
+C∗, i.e., LSelF = LLP IP S(C, C∗) + ||C −C∗||1.
+5
+
+
+Method
+#Param Guided mesh IoU (%) ↑Lap. ↓Cham. ↓
+COAP [31]
+138K
+MANO
+94.08
+2.371
+8.564
+COAP
+138K
+MANO-HD
+94.01
+2.348
+7.694
+COAP∗
+287K
+MANO-HD
+95.08
+2.339
+7.405
+PairOF †
+256K
+MANO-HD
+96.06
+2.288
+6.998
+PairOF (ours)
+237K
+MANO-HD
+96.32
+2.281
+7.151
+Table 2. Effects of MANO-HD and PairOF. ∗: w/ wider-MLP
+decoder; †: w/ Transformer-based decoder.
+(a)
+(b)
+(c)
+Figure 5.
+Effects of MANO-HD and PariOF. (a) COAP w/
+MANO. (b) COAP w/ MANO-HD. (c) PariOF w/ MANO-HD.
+4. Experiments
+4.1. Implementation Details and Metrics
+Pre-Training of PairOF.
+We adopt all right-hand annota-
+tions in InterHand2.6M [35] for pre-training, whose train-
+ing/test set contains 875,530/565,611 samples. Learnable
+parameters includes Qpart, Qpair. We set N t = N p =
+256, and the training process is to minimize LP airOF .
+End-to-End
+Training.
+With
+personalized
+monocular
+video, we optimize Mshape, Qpair, Malbedo, Millum and
+A in an end-to-end manner. Video data are selected from
+InterHand2.6M dataset [35]. The objective is to minimize
+Lshape + LP airOF + LSelF . Hyperparameters in SelF are
+set as N q = 64, N a = 4096, N n = 4, Da = 128, τ =
+0.05. The rendering resolution is 256 × 256. Please see the
+suppl. material for data selection, pre-processing, and more
+training details.
+Metrics
+Following COAP [31], IoU is used to evaluate
+the occupancy field.
+We also employ Laplacian smooth
+(Lap.) and Chamfer distance (Cham.) to evaluate the mesh
+quality, the latter of which is formulated as the minimal dis-
+tance between the vertices extracted from occupancy field
+[30] and the guided mesh faces. Lap. and Cham. are pre-
+sented in 10−4m. Consistent with HumanNeRF [63], we
+report LPIPS [71], PSNR, and SSIM [62] to reflect image
+0
+2
+4
+6
+8
+10
+12
+14
+flat pose
+0
+2
+4
+6
+8
+10
+12
+14
+0
+2
+4
+6
+8
+10
+12
+14
+0
+2
+4
+6
+8 10 12 14
+bone part 2
+0
+2
+4
+6
+8
+10
+12
+14
+fist pose
+0
+2
+4
+6
+8 10 12 14
+bone part 10
+0
+2
+4
+6
+8
+10
+12
+14
+0
+2
+4
+6
+8 10 12 14
+bone part 12
+0
+2
+4
+6
+8
+10
+12
+14
+Figure 6. Attention map for fusing part-wise geometry encodings.
+The rows with red indices contribute to global occupancy value.
+similarity as the metrics of rendering quality. All evaluation
+data are with novel poses that are unseen in training.
+4.2. Evaluation on Geometry Performance
+Comparison with Prior Arts
+PairOF and COAP [31] use
+the same encoder but different decoders, so their compar-
+ison can reveal the effect of our part-pair-wise decoding.
+The results of COAP are from the officially released code,
+and we re-train models on InterHand2.6M dataset.
+Be-
+cause our local-pair decoder is larger than that of COAP,
+we enlarge MLP width for comparable model size (de-
+noted as COAP∗). Referring to Table 2, an occupancy field
+guided by MANO-HD has a smoother surface (lower Lap.)
+and higher fidelity (lower Cham.), so there are benefits of
+MANO-HD over MANO in guiding an implicit function.
+Moreover, PairOF can improve all metrics by a large mar-
+gin. As shown in Fig. 5, MANO-HD can improve over-
+all smoothness, while PairOF exhaustively eliminates non-
+smooth part connections to achieve across-part consistency.
+Comparison with Transformer-Based Decoder
+To ver-
+ify the local-pair prior knowledge in PairOF, the Trans-
+former [60] technique is employed as the decoder, where
+self-attention can adaptively fuse part-wise geometry with-
+out inductive prior. As shown in Table 2, the local-pair de-
+coder performs on par with the Transformer-based decoder.
+To unveil the effect of self-attention, we delve deep into
+attention-based feature fusion based on two representative
+hand poses (i.e., flat and fist poses). At first, we extract mesh
+vertices from the occupancy field, each of which comes
+with respective attention maps. Then, we find the part that
+has the maximal occupancy value for each vertex and gather
+vertices into groups accordingly. Each group of vertices can
+reflect the property of a bone part, and we show their aver-
+age attention maps in Fig. 6. Because of the maximum oper-
+ator in part-wise geometry fusion, only one part contributes
+6
+
+
+(a)
+(d)
+(c)
+(b)
+Figure 7. Effects of the disentangled albedo and illumination fields in SelF. (a) Coupled albedo and illumination. (b,c) Disentangled albedo
+and illumination; directed soft occupancy is not involved in (b); from left to right: albedo, illumination, shaded image. (d) Ground truth.
+to the global occupancy value. That is, for part b, we should
+focus on the bth row (red number in Fig. 6). Consequently,
+attention-based fusion is consistent with our local-pair de-
+sign. For example, the attention map fuses parts b0, b10, b11
+to evolve the encoding of part b10. Therefore, the design
+concept of the local-pair decoder is evident. Nevertheless,
+the Transformer-based decoder is not efficient enough be-
+cause the attention map contains vertical patterns instead of
+diagonal ones. That is, meaningless computations are in-
+troduced by the Transformer, despite they do not contribute
+to global occupancy. For example, referring to “fist pose”
+and “bone part 12” in Fig. 6, the attention map integrates
+encodings of parts b0, b12 (instead of b1) for the prediction
+of part b1. The reason behind this is that the inside prop-
+erty is exclusively enhanced, and vertices belonging to part
+b12 also have inside properties to part b0 under the fist pose.
+Refer suppl. material for more details and part indices.
+4.3. Evaluation on Rendering Quality
+Ablation Study on Shape Fitting
+We fit personalized
+hand shape with Mshape. For comparison, Mshape is re-
+placed with β-based shape fitting, where β is the annotation
+in InterHand2.6M dataset. As shown in Table 3, β-based
+shape induces poor rendering quality, while our method
+brings a significant improvement. Therefore, the shape fit-
+ting capacity of our proposed MANO-HD is confirmed.
+Ablation Study on SelF
+Referring to Fig. 7(a) and (b),
+the disentanglement of albedo and illumination fields can
+improve the rendering reality by introducing shadow pat-
+terns. Moreover, directed soft occupancy can further elevate
+the illumination representation through ray-based occlusion
+estimation. Referring to Fig. 7(c), it is remarkable that the
+Shape fit.
+Illum.
+Dir. occ.
+LPIPS ↓
+PSNR ↑
+SSIM ↑
+0.1268
+26.53
+0.8692
+✓
+0.1113
+27.32
+0.8830
+✓
+✓
+0.1063
+28.02
+0.8903
+✓
+✓
+✓
+0.1035
+28.23
+0.8941
+Table 3. Effects of shape fitting (Shape fit.), illumination field
+(Illum.), and directed soft occupancy (Dir. occ.) on rendering
+quality. Results are from Interhand2.6M test/Capture0.
+shadow patterns on the palm and fingers are more faithful
+with fewer artifacts when compared to Fig. 7(b). In Table 3,
+the illumination field and directed soft occupancy lead to
+quantitative improvements in rendering metrics, indicating
+our SelF is conducive to realistic rendering.
+Comparison with Prior Arts
+We compare HandAvatar
+with previous monocular methods HumanNeRF [63] and
+SelfRecon [20], both of which are from officially released
+codes and re-trained on InterHand2.6M dataset. SelfRecon
+uses the surface-based rendering [67] method, and its rep-
+resentation of texture detail is not good enough, as shown
+in Fig. 8. HumanNeRF and our method leverage the vol-
+ume rendering method [33], which can produce realistic
+hand texture.
+However, limited by inverse skinning de-
+formation, HumanNeRF cannot cope with self-contact that
+commonly occurs in hand animation. As shown in Fig. 8,
+HumanNeRF has corrupted geometry when fingers contact
+with each other. In contrast, benefiting from our PairOF,
+HandAvatar has the advantage of free-pose animation while
+at the same time maintaining geometry fidelity. In addi-
+tion, both SelfRecon and HumanNeRF employ entangled
+albedo and illumination for color prediction, so the shadow
+on hand is hard to be aware of, as shown in the 3rd-8th
+7
+
+
+Method
+test/Capture0
+test/Capture1
+val/Capture0
+LPIPS ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+PSNR ↑
+SSIM ↑
+SelfRecon [20]
+0.1421
+26.38
+0.8786
+0.1389
+25.18
+0.8758
+0.1490
+25.78
+0.8687
+HumanNeRF [63]
+0.1145
+27.64
+0.8836
+0.1177
+26.31
+0.8803
+0.1192
+27.80
+0.8816
+ours
+0.1035
+28.23
+0.8941
+0.1076
+26.56
+0.8902
+0.1062
+28.04
+0.8900
+Table 4. Rendering quality comparison among our HandAvatar and prior arts on the InterHand2.6M dataset.
+SelfRecon
+HumanNeRF
+Ours
+Ground truth
+Figure 8. Visualization results of SelfRecon [20], HumanNeRF
+[63], and our HandAvatar on free-pose animation and rendering.
+rows of Fig. 8. On the contrary, our HandAvatar leads to
+a superiority in modeling illumination and shadow patterns
+caused by articulated self-occlusion. This is attributed to
+the disentanglement of albedo and illumination brought by
+LISA
+Ours
+Ground truth
+Figure 9. Visualization results of LISA [9] and our HandAvatar.
+The result of LISA is cropped from their original paper.
+our proposed SelF. Further, referring to the white arrows in
+Fig. 8, we can present varying shadow intensities for dif-
+ferent self-occlusion situations, thanks to our directed soft
+occupancy. For quantitative comparison, we train models
+on three video sequences and achieve the best results in all
+metrics, as shown in Table 4.
+As the most related work to this paper, LISA [9] is
+trained on non-released multi-view data, and its mod-
+els/codes remain unavailable. Thereby, we compare LISA
+based on the result reported in their original paper.
+As
+shown in Fig. 9, LISA has difficulty in capturing accu-
+rate hand pose with a learnable skinning-based deformation.
+Besides the faithful shape and pose reconstruction, our ren-
+dered texture details are more realistic than that of LISA.
+In addition to rendering fidelity, HandAvatar also pro-
+vides a route for appearance editing as shown in Fig. 1.
+5. Conclusions
+In this work, we present a novel hand representation
+called HandAvatar for free-pose animation and rendering.
+First, we extend MANO to MANO-HD as a high-resolution
+topology structure to improve the shape-fitting capacity of
+hand mesh.
+Subsequently, PairOF with a local-pair de-
+coder is developed, which can generate an across-part con-
+sistent occupancy field.
+Furthermore, we propose SelF,
+the first approach to model hand texture under articulated
+self-occlusion, to disentangle hand albedo and illumination.
+Extensive experiments demonstrate our superior results on
+free-pose hands animation and rendering. We believe our
+method paves a new way for dynamic hand representation.
+Limitation and future works
+For affordable computa-
+tional costs, we use the directed soft occupancy on view di-
+rection to estimate the irradiance. This could lead to view-
+direction-dependent shadow patterns. Thus, the improved
+illumination field is worthy of ongoing exploration.
+8
+
+
+References
+[1] Emre Aksan, Manuel Kaufmann, and Otmar Hilliges. Struc-
+tured prediction helps 3D human motion modelling.
+In
+ICCV, 2019.
+[2] Thiemo Alldieck, Hongyi Xu, and Cristian Sminchisescu.
+imGHUM: Implicit generative models of 3d human shape
+and articulated pose. In ICCV, 2021.
+[3] Bharat Lal Bhatnagar, Cristian Sminchisescu, Christian
+Theobalt, and Gerard Pons-Moll. LoopReg: Self-supervised
+learning of implicit surface correspondences, pose and shape
+for 3d human mesh registration. In NeurIPS, 2020.
+[4] Mark Boss, Raphael Braun, Varun Jampani, Jonathan T Bar-
+ron, Ce Liu, and Hendrik Lensch. NeRD: Neural reflectance
+decomposition from image collections. In ICCV, 2021.
+[5] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz,
+Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi,
+Shih-En Wei, Danielle Belko, Shoou-I Yu, et al. Authentic
+volumetric avatars from a phone scan. ACM TOG, 2022.
+[6] Xu Chen, Yufeng Zheng, Michael J Black, Otmar Hilliges,
+and Andreas Geiger. SNARF: Differentiable forward skin-
+ning for animating non-rigid neural implicit shapes. In ICCV,
+2021.
+[7] Yujin Chen, Zhigang Tu, Di Kang, Linchao Bao, Ying
+Zhang, Xuefei Zhe, Ruizhi Chen, and Junsong Yuan. Model-
+based 3D hand reconstruction via self-supervised learning.
+In CVPR, 2021.
+[8] Chong Bao and Bangbang Yang, Zeng Junyi, Bao Hu-
+jun, Zhang Yinda, Cui Zhaopeng, and Zhang Guofeng.
+NeuMesh: Learning disentangled neural mesh-based im-
+plicit field for geometry and texture editing. In ECCV, 2022.
+[9] Enric Corona, Tomas Hodan, Minh Vo, Francesc Moreno-
+Noguer, Chris Sweeney, Richard Newcombe, and Lingni
+Ma. LISA: Learning implicit shape and appearance of hands.
+In CVPR, 2022.
+[10] Yu Deng, Jiaolong Yang, Jianfeng Xiang, and Xin Tong.
+GRAM: Generative radiance manifolds for 3D-aware image
+generation. In CVPR, 2022.
+[11] Daiheng Gao, Yuliang Xiu, Kailin Li, Lixin Yang, Feng
+Wang, Peng Zhang, Bang Zhang, Cewu Lu, and Ping Tan.
+DART: Articulated hand model with diverse accessories and
+rich textures. In NeurIPS, 2022.
+[12] Daiheng Gao, Xindi Zhang, Xingyu Chen, Andong Tan,
+Bang Zhang, Pan Pan, and Ping Tan. CycleHand: Increasing
+3D pose estimation ability on in-the-wild monocular image
+through cyclic flow. In ACM MM, 2022.
+[13] Stephan J Garbin, Marek Kowalski, Virginia Estellers,
+Stanislaw Szymanowicz, Shideh Rezaeifar, Jingjing Shen,
+Matthew Johnson, and Julien Valentin. VolTeMorph: Real-
+time, controllable and generalisable animation of volumetric
+representations. arXiv:2208.00949, 2022.
+[14] Georgios Georgakis, Ren Li, Srikrishna Karanam, Terrence
+Chen, Jana Koˇseck´a, and Ziyan Wu. Hierarchical kinematic
+human mesh recovery. In ECCV, 2020.
+[15] Benjamin Graham, Martin Engelcke, and Laurens Van
+Der Maaten. 3D semantic segmentation with submanifold
+sparse convolutional networks. In CVPR, 2018.
+[16] Philip-William Grassal,
+Malte Prinzler,
+Titus Leistner,
+Carsten Rother, Matthias Nießner, and Justus Thies. Neural
+head avatars from monocular RGB videos. In CVPR, 2022.
+[17] Yuantao Gu, Jian Jin, and Shunliang Mei. l0 norm constraint
+lms algorithm for sparse system identification. IEEE Signal
+Processing Letters, 16(9):774–777, 2009.
+[18] Timothy Jeruzalski, Boyang Deng, Mohammad Norouzi,
+John P Lewis, Geoffrey Hinton, and Andrea Tagliasacchi.
+NASA: Neural articulated shape approximation. In ECCV,
+2020.
+[19] Timothy Jeruzalski,
+David IW Levin,
+Alec Jacobson,
+Paul Lalonde, Mohammad Norouzi, and Andrea Tagliasac-
+chi.
+NiLBS: Neural inverse linear blend skinning.
+arXiv:2004.05980, 2020.
+[20] Boyi Jiang, Yang Hong, Hujun Bao, and Juyong Zhang. Sel-
+fRecon: Self reconstruction your digital avatar from monoc-
+ular video. In CVPR, 2022.
+[21] Wei Jiang, Kwang Moo Yi, Golnoosh Samei, Oncel Tuzel,
+and Anurag Ranjan. NeuMan: Neural human radiance field
+from a single video. arXiv:2203.12575, 2022.
+[22] Korrawe Karunratanakul, Adrian Spurr, Zicong Fan, Otmar
+Hilliges, and Siyu Tang. A skeleton-driven neural occupancy
+representation for articulated hands.
+arXiv:2109.11399,
+2021.
+[23] Korrawe
+Karunratanakul,
+Jinlong
+Yang,
+Yan
+Zhang,
+Michael J Black, Krikamol Muandet, and Siyu Tang. Grasp-
+ing field:
+Learning implicit representations for human
+grasps. In 3DV, 2020.
+[24] Tianye Li, Timo Bolkart, Michael J Black, Hao Li, and Javier
+Romero. Learning a model of facial shape and expression
+from 4D scans. ACM Trans. Graph., 36(6), 2017.
+[25] Yuwei Li, Longwen Zhang, Zesong Qiu, Yingwenqi Jiang,
+Nianyi Li, Yuexin Ma, Yuyao Zhang, Lan Xu, and Jingyi Yu.
+NIMBLE: A non-rigid hand model with bones and muscles.
+ACM TOG, 2022.
+[26] Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu
+Sarkar, Jiatao Gu, and Christian Theobalt.
+Neural actor:
+Neural free-view synthesis of human actors with pose con-
+trol. ACM TOG, 2021.
+[27] Shichen Liu, Tianye Li, Weikai Chen, and Hao Li. Soft ras-
+terizer: A differentiable renderer for image-based 3d reason-
+ing. In ICCV, 2019.
+[28] Stephen Lombardi,
+Tomas Simon,
+Gabriel Schwartz,
+Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. Mix-
+ture of volumetric primitives for efficient neural rendering.
+ACM TOG, 2021.
+[29] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J Black. SMPL: A skinned multi-
+person linear model. ACM TOG, 2015.
+[30] William E Lorensen and Harvey E Cline. Marching cubes:
+A high resolution 3d surface construction algorithm. ACM
+siggraph computer graphics, 21(4):163–169, 1987.
+[31] Marko Mihajlovic, Shunsuke Saito, Aayush Bansal, Michael
+Zollhoefer, and Siyu Tang.
+COAP: Compositional articu-
+lated occupancy of people. In CVPR, 2022.
+[32] Marko Mihajlovic, Yan Zhang, Michael J Black, and Siyu
+Tang. LEAP: Learning articulated occupancy of people. In
+CVPR, 2021.
+9
+
+
+[33] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. NeRF:
+Representing scenes as neural radiance fields for view syn-
+thesis. In ECCV, 2020.
+[34] Gyeongsik Moon, Takaaki Shiratori, and Kyoung Mu
+Lee. DeepHandMesh: A weakly-supervised deep encoder-
+decoder framework for high-fidelity hand mesh modeling. In
+ECCV, 2020.
+[35] Gyeongsik Moon, Shoou-I Yu, He Wen, Takaaki Shiratori,
+and Kyoung Mu Lee. Interhand2.6M: A dataset and baseline
+for 3D interacting hand pose estimation from a single RGB
+image. In ECCV, 2020.
+[36] Atsuhiro Noguchi, Xiao Sun, Stephen Lin, and Tatsuya
+Harada. Neural articulated radiance field. In ICCV, 2021.
+[37] Xingang Pan, Ayush Tewari, Lingjie Liu, and Christian
+Theobalt. GAN2X: Non-lambertian inverse rendering of im-
+age gans. In 3DV, 2022.
+[38] Keunhong Park, Utkarsh Sinha, Jonathan T Barron, Sofien
+Bouaziz, Dan B Goldman, Steven M Seitz, and Ricardo
+Martin-Brualla. Nerfies: Deformable neural radiance fields.
+In ICCV, pages 5865–5874, 2021.
+[39] Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani,
+Timo Bolkart, Ahmed AA Osman, Dimitrios Tzionas, and
+Michael J Black. Expressive body capture: 3D hands, face,
+and body from a single image.
+In CVPR, pages 10975–
+10985, 2019.
+[40] Sida Peng, Junting Dong, Qianqian Wang, Shangzhan
+Zhang, Qing Shuai, Xiaowei Zhou, and Hujun Bao. Ani-
+matable neural radiance fields for modeling dynamic human
+bodies. In ICCV, 2021.
+[41] Sida Peng, Yuanqing Zhang, Yinghao Xu, Qianqian Wang,
+Qing Shuai, Hujun Bao, and Xiaowei Zhou. Neural body:
+Implicit neural representations with structured latent codes
+for novel view synthesis of dynamic humans.
+In CVPR,
+2021.
+[42] Bui Tuong Phong. Illumination for computer generated pic-
+tures. Communications of the ACM, 18(6):311–317, 1975.
+[43] Charles R Qi, Hao Su, Kaichun Mo, and Leonidas J Guibas.
+PointNet: Deep learning on point sets for 3D classification
+and segmentation. In CVPR, 2017.
+[44] Neng Qian, Jiayi Wang, Franziska Mueller, Florian Bernard,
+Vladislav Golyanik, and Christian Theobalt. HTML: A para-
+metric hand texture model for 3D hand reconstruction and
+personalization. In ECCV, 2020.
+[45] Javier Romero, Dimitrios Tzionas, and Michael J Black. Em-
+bodied hands: Modeling and capturing hands and bodies to-
+gether. ACM TOG, 2017.
+[46] Viktor Rudnev, Mohamed Elgharib, William Smith, Lingjie
+Liu, Vladislav Golyanik, and Christian Theobalt. NeRF for
+outdoor scene relighting. In ECCV, 2022.
+[47] Shunsuke Saito, Zeng Huang, Ryota Natsume, Shigeo Mor-
+ishima, Angjoo Kanazawa, and Hao Li. PIFu: Pixel-aligned
+implicit function for high-resolution clothed human digitiza-
+tion. In ICCV, 2019.
+[48] Shunsuke Saito, Jinlong Yang, Qianli Ma, and Michael J
+Black. Scanimate: Weakly supervised learning of skinned
+clothed avatar networks. In CVPR, 2021.
+[49] Ruizhi Shao, Hongwen Zhang, He Zhang, Mingjia Chen,
+Yan-Pei Cao, Tao Yu, and Yebin Liu. DoubleField: Bridging
+the neural surface and radiance fields for high-fidelity human
+reconstruction and rendering. In CVPR, 2022.
+[50] Olga Sorkine and Marc Alexa. As-rigid-as-possible surface
+modeling. In Symposium on Geometry processing, 2007.
+[51] Pratul P Srinivasan,
+Boyang Deng,
+Xiuming Zhang,
+Matthew Tancik, Ben Mildenhall, and Jonathan T Barron.
+NeRV: Neural reflectance and visibility fields for relighting
+and view synthesis. In CVPR, 2021.
+[52] Shih-Yang Su, Frank Yu, Michael Zollh¨ofer, and Helge
+Rhodin.
+A-NeRF: Articulated neural radiance fields for
+learning human shape, appearance, and pose. In NeurIPS,
+2021.
+[53] Tiancheng Sun, Kai-En Lin, Sai Bi, Zexiang Xu, and Ravi
+Ramamoorthi. NeLF: Neural light-transport field for portrait
+view synthesis and relighting. In Eurographics Symposium
+on Rendering, 2021.
+[54] Gusi Te, Xiu Li, Xiao Li, Jinglu Wang, Wei Hu, and Yan
+Lu. Neural capture of animatable 3d human from monocular
+video. In ECCV, 2022.
+[55] Ten24. https://ten24.info.
+[56] Ayush Tewari, Florian Bernard, Pablo Garrido, Gaurav
+Bharaj, Mohamed Elgharib, Hans-Peter Seidel, Patrick
+P´erez, Michael Zollhofer, and Christian Theobalt.
+FML:
+Face model learning from videos. In CVPR, 2019.
+[57] Ayush Tewari, Hans-Peter Seidel, Mohamed Elgharib, Chris-
+tian Theobalt, et al. Learning complete 3D morphable face
+models from images and videos. In CVPR, 2021.
+[58] Ayush Tewari, Michael Zollhofer, Hyeongwoo Kim, Pablo
+Garrido, Florian Bernard, Patrick Perez, and Christian
+Theobalt. MoFA: Model-based deep convolutional face au-
+toencoder for unsupervised monocular reconstruction.
+In
+ICCV, 2017.
+[59] Edgar Tretschk, Ayush Tewari, Vladislav Golyanik, Michael
+Zollh¨ofer, Christoph Lassner, and Christian Theobalt. Non-
+rigid neural radiance fields: Reconstruction and novel view
+synthesis of a dynamic scene from monocular video.
+In
+ICCV, 2021.
+[60] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-
+reit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. In NeurIPS, 2017.
+[61] Shaofei Wang, Andreas Geiger, and Siyu Tang.
+Locally
+aware piecewise transformation fields for 3d human mesh
+registration. In CVPR, 2021.
+[62] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P
+Simoncelli. Image quality assessment: from error visibility
+to structural similarity. IEEE TIP, 2004.
+[63] Chung-Yi Weng,
+Brian Curless,
+Pratul P Srinivasan,
+Jonathan T Barron, and Ira Kemelmacher-Shlizerman. Hu-
+manNeRF: Free-viewpoint rendering of moving people from
+monocular video. In CVPR, 2022.
+[64] Hongyi Xu, Thiemo Alldieck, and Cristian Sminchisescu. H-
+NeRF: Neural radiance fields for rendering and temporal re-
+construction of humans in motion. NeurIPS, 2021.
+[65] Tianhan Xu,
+Yasuhiro Fujita,
+and Eiichi Matsumoto.
+Surface-aligned neural radiance fields for controllable 3D
+human synthesis. In CVPR, 2022.
+10

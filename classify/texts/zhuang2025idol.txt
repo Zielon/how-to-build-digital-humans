@@ -1,0 +1,1075 @@
+Title: Idol: Instant photorealistic 3d human creation from a single image
+
+IDOL: Instant Photorealistic 3D Human Creation from a Single Image
+Yiyu Zhuang1,4∗
+Jiaxi Lv2,4∗
+Hao Wen3,4∗
+Qing Shuai4
+Ailing Zeng4†
+Hao Zhu1†
+Shifeng Chen2,5
+Yujiu Yang3
+Xun Cao1
+Wei Liu4
+1 Nanjing University, 2 Shenzhen Institute of Advanced Technology, Chinese Academy of Sciences
+3 Tsinghua University, 4 Tencent, 5 Shenzhen University of Advanced Technology
+https://yiyuzhuang.github.io/IDOL/
+Dataset Overview
+Reference image and its corresponding animated 24 multi-view images
+Single Image
+3D Avatar
+ Fast – 1s
+Uniform Space
+Animation
+Editing
+Applications
+ Generalizability
+ HuGe100K Dataset
+Figure 1.
+This work introduces (a) IDOL, a feed-forward, single-image human reconstruction framework that is fast, high-fidelity, and
+generalizable; (b) Utilizing the proposed Large Generated Human Multi-View Dataset consisting of 100K multi-view subjects, our method
+exhibits exceptional generalizability in handling diverse human shapes, cross-domain data, severe viewpoints, and occlusions; (c) With a
+uniform structured representation, the avatars can be directly animatable and easily editable.
+Abstract
+Creating a high-fidelity, animatable 3D full-body avatar
+from a single image is a challenging task due to the di-
+verse appearance and poses of humans and the limited
+availability of high-quality training data. To achieve fast
+and high-quality human reconstruction, this work rethinks
+the task from the perspectives of dataset, model, and rep-
+resentation.
+First, we introduce a large-scale HUman-
+centric GEnerated dataset, HuGe100K, consisting of 100K
+diverse, photorealistic sets of human images.
+Each set
+contains 24-view frames in specific human poses, gener-
+ated using a pose-controllable image-to-multi-view model.
+Work done during the internship at Tencent by Yiyu Zhuang, Jiaxi
+Lv, and Wenhao.
+∗Equal contributions
+†Corresponding authors
+Next, leveraging the diversity in views, poses, and ap-
+pearances within HuGe100K, we develop a scalable feed-
+forward transformer model to predict a 3D human Gaussian
+representation in a uniform space from a given human im-
+age. This model is trained to disentangle human pose, body
+shape, clothing geometry, and texture. The estimated Gaus-
+sians can be animated without post-processing. We conduct
+comprehensive experiments to validate the effectiveness of
+the proposed dataset and method. Our model demonstrates
+the ability to efficiently reconstruct photorealistic humans
+at 1K resolution from a single input image using a single
+GPU instantly. Additionally, it seamlessly supports various
+applications, as well as shape and texture editing tasks.
+arXiv:2412.14963v2  [cs.CV]  25 Mar 2025
+
+
+1. Introduction
+Reconstructing 3D clothed avatars from a single image is
+crucial in user-friendly virtual reality, gaming, and 3D con-
+tent creation.
+This task involves mapping 2D images to
+3D models, a highly ill-posed and challenging problem due
+to the complexity of clothing and the diversity of human
+poses. Learning-based methods trained on publicly avail-
+able 3D human models [19, 27, 28, 70, 86] have improved
+reconstruction quality, but their generalization and quality
+remain limited [58, 59, 71, 72, 79, 85, 87]. Techniques that
+integrate parametric body estimation [34, 71, 87], loop opti-
+mization [71, 72, 85], and diffusion model priors [2, 41, 66]
+enhance performance but often result in slower and frag-
+ile reconstructions. Recently, large generic image-to-3D re-
+construction and generation models [24, 40, 63, 64, 67, 73],
+leveraging large-scale datasets [11, 12, 49] or pre-trained
+diffusion models [3, 56, 57], boost capabilities but still
+struggle with real-life human reconstruction due to the
+scarcity of photorealistic 3D human data.
+Back to the first principle, we rethink existing data, mod-
+els, and representations. First, current data acquisition is
+limited by the photographing or scanning of individual sub-
+jects, making them inherently unscalable.
+For instance,
+the largest publicly available human dataset, MVHuman-
+Net [70], contains only thousands of subjects and clothing
+variations, far from the dataset scale required to achieve ro-
+bust model generalization across diverse input images. Sec-
+ond, in the realm of animatable reconstruction models, ex-
+isting approaches predominantly rely on either reconstruct-
+and-rig methods that necessitate manual post-processing or
+entangle human parametric models (e.g., SMPL(-X) [48,
+52]) for optimization. However, disentangling human pose
+and body shape, clothed geometry, and texture could sim-
+plify the learning process, avoid error accumulation in pa-
+rameter estimation, and improve efficiency. Furthermore,
+when focusing solely on human reconstruction, the incorpo-
+ration of multi-view image generation or refinement mod-
+els warrants careful consideration [54, 66, 73]. While these
+models can introduce finer details, they may also lead to
+inconsistencies across different views. Third, the commu-
+nity of 3D vision develops various representations tailored
+to application-specific requirements and technological ad-
+vancements [36, 50]. For human-centric applications, ideal
+representations should be well-structured and expressive to
+facilitate easy rigging and editing [30, 43], as well as ca-
+pable of high-resolution and fast rendering [36] to enhance
+both functionality and realism.
+In this work, we introduce a scalable pipeline for training
+a simple yet efficient feed-forward model for instant pho-
+torealistic human reconstruction. We present HuGe100K,
+a large-scale dataset comprising over 2.4M high-resolution
+(896×640) multi-view images of 100K diverse subjects. To
+facilitate comprehensive 3D human reconstruction, we de-
+velop a scalable data creation pipeline that integrates syn-
+thetic and real-world data, ensuring a wide range of at-
+tributes such as age, shape, clothing, race, and gender.
+Building upon this dataset, we introduce a novel feed-
+forward transformer model IDOL that efficiently predicts
+3D human avatars with photorealistic textures and accurate
+geometry. Our approach leverages a pretrained encoder [37]
+and a transformer-based backbone for feature extraction and
+fusion, enabling instant reconstruction (within 1 second on
+an A100 GPU) without relying on generative models [85]
+for refinement. By integrating a uniform representation for
+the 3D human, our model achieves enhanced texture com-
+pletion and ensures that the reconstructed humans are nat-
+urally animatable. Extensive evaluations demonstrate that
+our method excels in diverse and challenging scenarios, of-
+fering superior consistency and quality compared to exist-
+ing techniques. Additionally, the efficient representation of
+our model enables seamless applications in animation, edit-
+ing, and other downstream tasks.
+Our contributions can be summarized as follows:
+• We rethink single-view 3D human reconstruction from
+the perspectives of data, model, and representation. We
+introduce a scalable pipeline for training a simple yet ef-
+ficient feed-forward model, named IDOL, for instant pho-
+torealistic human reconstruction.
+• We develop a data generation pipeline and present
+HuGe100K, a large-scale multi-view human dataset fea-
+turing diverse attributes, high-fidelity, high-resolution ap-
+pearances, and a well-aligned SMPL-X model.
+• Our comprehensive study demonstrates that leveraging
+large-scale generated training data significantly enhances
+model performance and generalizability, paving the way
+for further scaling up 3D human reconstruction models.
+2. Related Work
+Recent advancements in 3D avatar reconstruction [13–15,
+22, 33, 76, 90] and representation learning [16, 68, 91, 92]
+have greatly improved human modeling.
+Most relevant
+to our work are recent efforts on 3D human datasets and
+single-image human reconstruction.
+2.1. 3D Human Datasets
+High-precision 3D human models typically rely on scan-
+ning or multi-view camera acquisition systems. Scan-based
+datasets, such as THuman2.0 [75], Twindom [28], and
+2K2K [19], provide high-fidelity 3D geometries but are lim-
+ited by a small number of subjects, simple standing poses,
+and non-human artifacts (e.g., 2K2K). In contrast, multi-
+view acquisition systems [4, 8, 9, 23, 35, 42, 45, 55, 70, 78,
+93] facilitate the collection of larger datasets with more flex-
+ible actions. However, these datasets often face challenges
+such as biased indoor lighting, fixed viewpoints, and limited
+
+
+scale. Large-scale synthetic and real datasets for generic ob-
+jects, including Objaverse and MVImgNet [11, 12, 77], ad-
+dress open-world reconstruction but lack specificity for hu-
+man models. To overcome these limitations, the proposed
+HuGe100K significantly scales up dataset size, increasing
+subject diversity by over 100 times compared to previous
+datasets. It emphasizes diversity in pose, shape, viewpoint,
+and clothing, paving the way for large-scale model training.
+We compare existing datasets with ours in Tab. 1.
+Type
+Dataset
+#Frames
+IDs
+SMPL(-X)
+3D Scans
+THuman [86]
+-
+200
+✔
+THuman2.1 [75]
+-
+2500
+✔
+2K2K [19]
+-
+2050
+✘
+X-Avatar [61]
+35.5K
+20
+✔
+Multi-view Images
+ZJU-MoCap [55]
+180K
+10
+✔
+Neural Actor [45]
+250K
+8
+✔
+HUMBI [78]
+26M
+772
+✔
+AIST++ [42]
+10.1M
+30
+✔
+HuMMan [4]
+60M
+1000
+✔
+GeneBody [8]
+2.95M
+50
+✔
+ActorsHQ [35]
+40K
+8
+✘
+DNA-Rendering [9]
+67.5M
+500
+✔
+MVHumanNet [70]
+645.1M
+4500
+✔
+Ours
+HuGe100K
+> 2.4M
+100K
+✔
+Table 1. Comparisons of related datasets. HuGe100K is a large-
+scale generated multi-view human dataset with 100K diverse
+high-fidelity humans.
+2.2. Single-Image Human Reconstruction
+For clothed 3D reconstruction methods, implicit representa-
+tion methods such as PIFU [58], PIFU-HD [59], ARCH [21,
+34], and PaMIR [87] have been widely adopted. To enhance
+reconstruction quality and generalizability, loop optimiza-
+tion techniques integrate implicit representations with ex-
+plicit or hybrid human priors for improved robustness [2,
+71, 72, 83]. Similarly, GTA [84] and SIFU [85] entangle
+SMPL priors and side-view conditioned features to enhance
+feature representation.
+However, these approaches rely
+heavily on the accuracy of SMPL estimates and are com-
+putationally expensive, typically requiring several minutes
+for inference. Moreover, the resulting 3D representations
+are not drivable. Recent advancements focus on recover-
+ing animatable 3D humans from single images [10, 31, 32].
+Some methods benefit from the pre-trained diffusion mod-
+els or large reconstruction models [54, 66]. Nevertheless,
+all methods are constrained by the limitations of training
+datasets, resulting in suboptimal texture detail and limited
+generalizability. The latest work, E3Gen [81], combines
+UV maps and Gaussian splatting [36] to directly generate
+Gaussian attribute maps in UV space from images, which
+does not support arbitrary image inputs.
+To generate consistent human images or videos given a
+single image, recent diffusion video models animate a static
+image with pose-controllable video conditions [6, 6, 29, 65,
+65, 74, 89]. Specifically, Champ [89] incorporate several
+rendered maps obtained from SMPL sequences, alongside
+skeleton-based motion guidance, to enrich the conditions to
+the latent diffusion model. However, they all fail to generate
+a 360-degree video and animate precise expressive SMPL-
+X-based humans due to insufficient training data.
+3. Dataset Creation
+Drawing inspiration from the latest advancements in gen-
+eralizable large models, our core insight is to develop
+a large-scale reconstruction model with exceptional gen-
+eralization capabilities.
+The crux of this endeavor lies
+in creating a comprehensive and high-quality digital hu-
+man dataset. In this section, we introduce the creation of
+a large-scale human-centric generated dataset comprising
+over 2.4M high-resolution (896 × 640) multi-view images
+from more than 100K diverse subjects.
+As shown in Fig. 2, the data generation pipeline con-
+sists of two stages.
+Firstly, diverse text prompts are
+generated by large language models incorporating various
+human-centric attributes, and high-quality images are syn-
+thesized using text-to-image generation models (Sec. 3.1).
+Secondly, we train a multi-view video generation model,
+MVChamp, conditioned on rendered full-body motions.
+With this, a large-scale multi-view images dataset is estab-
+lished by feeding both the synthesized and captured images
+(Sec. 3.2). Lastly, the statistics and characteristics of the
+HuGe100K are demonstrated in Sec. 3.3.
+3.1. Image Collection and Generation
+Given the limited amount of existing datasets [4, 55, 70, 75]
+and legal concerns regarding portrait and copyright issues,
+we propose leveraging an image generation model to con-
+struct a large-scale, diverse, and high-fidelity dataset of
+full-body human images.
+Using the latest text-to-image
+model Flux [25], we design descriptive prompts based on
+the required attributes for human figures, ensuring diversity
+across area, clothing, body shape, age, and gender shown
+in Fig. 2(i). To avoid long-tail attribute distributions and en-
+sure uniform coverage of traits, we apply uniform sampling
+in attribute selection for the image generation process. This
+approach generated over 100K images in total. However,
+due to issues of visual non-compliance and high similarity
+among some images, we conducted manual filtering and re-
+tained a final set of 90K high-quality images. Additionally,
+we combine 90K synthetic images and 10K real-life images
+from DeepFashion [47].
+3.2. Multi-view Image Animation and Generation
+Image-based animating models [6, 29, 74, 82, 89] struggle
+to achieve generation of 360◦-consistent and diverse hu-
+
+
+Uniform select
+a. Attribute Collections
+Age:{“20~30”,  ..., “70~80”}
+Body Shape:{“Lean”,...,“Stocky”}
+Area:{“Canada”, ...,”Japan”}
+Cloth:{“Dresses”, ..., “Kimono”}
+Gender:{“female”,“male”}
+10K Real-life Images (DeepFashion)
+90K Generated Images
+FLUX
+MVChamp
+SMPL-X Fitting
+and Animation
+b. Text-to-Image
+    Generation
+c. Image-to-Video
+Generation
+360-degree rotation motions X 80K times
++
+Diverse animatable motions X 20K times
+“ Front view, full-body pose 
+of a {Age} {Body Shape} 
+{Area} {Gender} wearing 
+{Clothing} and visible hands. 
+She/He stands against a 
+white background, evenly 
+lit. ”
+(i) Sec.3.1: Image Collection and Generation 
+(ii) Sec.3.2: Multi-view Image Animation and Generation
+Figure 2. Pipeline for constructing our HuGe100K. Diverse attribute combinations from GPT-4 templates create text prompts, generating
+synthetic images via FLUX, combined with real images from DeepFashion. SMPL-X fitting produces multi-view pose sequences with
+360-degree rotations and diverse animatable motions. MVChamp then converts these sequences into multi-view images, ensuring 3D
+consistency in the dataset.
+man videos conditioned on pose sequences (e.g., 2D poses
+and 3D SMPL(-X) conditions).
+To address this limita-
+tion, we re-train a state-of-the-art video generative model,
+Champ [89], to obtain a multi-view consistent generative
+model, MVChamp. Firstly, We collect a curated dataset
+of over 100K single-person videos with various motions
+(e.g., dancing), including approximately 20K videos involv-
+ing the action of turning around, to fine-tune the model and
+enhance its generalizability for diverse inputs and motions.
+Secondly, to further improve 3D consistency[18], we utilize
+scanned models from THuman 2.1 to generate uniformly
+distributed views via Blender. From these, we select a sub-
+set of 24 views that are evenly spaced around the full 360°
+rotation to fine-tune MVChamp’s temporal layers using dif-
+fusion loss. Lastly, to support high-quality whole-body ani-
+mation (i.e., body and hands), we introduce precise SMPL-
+X estimation using NLF [60] for body shape and pose es-
+timation. Additionally, we employ HaMeR [53] for hand
+estimation, rendering the corresponding hand template into
+depth maps as additional control signals.
+After these training processes, MVChamp generates
+multi-view images conditioned on SMPL-X parametric
+model. The pose condition is set to an “A-Pose” 80% of the
+time and a random pose from dance videos (via SMPLer-X
+[5]) 20% of the time, balancing pose variability. To address
+discrepancies between the first and last frames, we propose
+a Temporal Shift Denoising Strategy: during the denoising
+steps, we shift latent inputs and pose signals temporally,
+moving the last frame to the first. This improves continuity
+between frames without additional inference costs. Finally,
+FaceFusion [26] is utilized to enhance facial details.
+Figure 3.
+A paired example from the proposed HuGe100K
+Dataset. For each reference image, we generate a set of multi-
+view images using an estimated shape and a specific pose. The
+figure shows the pose is well-aligned.
+3.3. Data Statistics and Characteristics
+Tab. 1 compares our dataset HuGe100K to other 3D human
+datasets regarding scale, diversity, and consistency. With
+over 100K human identities and 20K poses, HuGe100K
+offers balanced diversity across dimensions such as area,
+clothing, body shape, age, and gender (see Fig. 1). Each
+sample includes a reference image, SMPL-X estimates, 24
+uniformly sampled multi-view images, camera parameters,
+and SMPL-X data (see Fig. 3).
+4. Large Human Reconstruction Model
+In this section, we present the large-scale human reconstruc-
+tion model, named IDOL. The overview pipeline is shown
+in Fig. 4. In Sec. 4.1, we describe the animatable human
+representation. Sec. 4.2 details the network architecture of
+IDOL, while Sec. 4.3 explains how we trained the model in
+an end-to-end manner using the multi-view image dataset.
+4.1. Animatable Human Representation
+Similarly to previous work [30, 39, 81], IDOL leverages
+3D Gaussian Splatting [36] in conjunction with SMPL-X
+
+
+Learnable
+UV Token
+Given Image
+Gaussian 
+Attribute Maps
+UV
+Decoder
+Parametric
+ Template
+Posed Avatar
+Reshape
+Render
+Encoder
+UV-Alignment
+Transformer
+Feature Fusion  ~0.5s
+3D Recovering ~0.01s
+Rendering  ~0.1s
+Animate
+𝜷𝜷𝜽𝜽𝝍𝝍
+SMPL-X
+Gaussian Avatar
+Rendered 
+Figure 4. The architecture of IDOL, a full-differentiable transformer-based framework for reconstructing animatable 3D human from a
+single image. The model integrates a high-resolution (1024 × 1024) encoder [37] and fuses image tokens with learnable UV tokens
+through the UV-Alignment Transformer. A UV Decoder predicts Gaussian attribute maps as intermediate representations, capturing the
+human’s geometry and appearance in a structured 2D UV space defined by the SMPL-X model. These maps, in conjunction with the
+SMPL-X model, represent a 3D human avatar in a canonical space, which can be animated using linear blend skinning (LBS). The model
+is optimized using multi-view images with diverse poses and identities, learning to disentangle pose, appearance, and shape.
+for 3D human representation, aiming to address the chal-
+lenges of real-time rendering and accurate animation of hu-
+man avatars. Specifically, each Gaussian primitive Gk is
+characterized by: Gk = {µk, αk, rk, sk, ck} , where µk is
+the 3D position of the Gaussian, αk is opacity, rk is the
+rotation, sk is the scale, and ck is the color.
+3D Gaussian Human.
+Directly predicting all 3D Gaus-
+sian primitives is computationally intensive. Instead, IDOL
+leverages the predefined 2D UV space of the SMPL-X
+model to transform the 3D representation task into a more
+manageable 2D problem. Initially, IDOL predicts Gaussian
+attribute maps that encode the offset values {δµk, δrk, δsk},
+as well as the color ck and opacity αk for each Gaus-
+sian primitive Gk. Similarly to E3Gen [81], the position
+µk, scale sk, and rotation rk of each Gaussian primitive
+Gk is modeled relative to its SMPL-X vertex as follows:
+µk = ˆµk + δµk, sk = ˆsk · δsk, rk = ˆrk · δrk, where ˆµk, ˆsk,
+and ˆrk are the initial values based on the SMPL-X model.
+The color ck is assigned using RGB values, and the opacity
+αk is set to 1, indicating full opacity. This unified UV space
+significantly reduces computational complexity and fully
+exploits the geometric and semantic priors provided by the
+SMPL-X model. By modeling Gaussian primitives relative
+to SMPL-X vertices, IDOL ensures semantic consistency
+across corresponding body parts of diverse avatars, thereby
+enhancing the model’s generalization capability across var-
+ious reference images.
+Animation and Rendering.
+Given a target pose, we cal-
+culate the transformation of each human joint using prede-
+fined kinematic relationships. The transformation of each
+Gaussian primitive is performed using a forward skinning
+technique based on LBS. Specifically, the position of each
+Gaussian primitive Gk is transformed as follows: µ′
+k =
+Pnb
+i=1 wiBiµk. Additionally, the rotation matrix Rk is up-
+dated by: R′
+k = T1:3,1:3
+k
+Rk, where Tk = Pnb
+i=1 wiBi, and
+Rk is the rotation matrix representation of the rotation angle
+rk. Here, nb is the number of joints, Bi is the transforma-
+tion matrix for each joint, and wi represents the skinning
+weights, indicating the influence of each joint’s motion on
+the Gaussian primitive’s position µk.
+To estimate the skinning weights for each Gk, we first
+compute a body-part skinning field using a pre-defined
+low-resolution volume [7].
+For smaller regions like the
+hands and face, which undergo minimal topological varia-
+tion, weights are interpolated from the SMPL-X template
+via barycentric coordinates.
+This strategy enables mod-
+eling large topology changes across identities (e.g., from
+clothing) while stabilizing convergence in less variable ar-
+eas such as fingers and facial regions.
+4.2. Network Structure
+As illustrated in Fig. 4, IDOL is a full-differentiable frame-
+work for reconstructing animatable 3D human.
+High-resolution Image Encoder.
+Higher resolution of
+the input image results in a high-quality reconstruction.
+However, previous works suffer from low-resolution ViT-
+based encoders, such as DINOv2 [51], which support the
+448×448 resolution. To fully leverage the resolution of the
+HuGe100K dataset, we further adopt a high-resolution hu-
+man foundation model, Sapiens [37], to encode the 1024 ×
+1024 resolution images into patch-wise feature tokens, for-
+mulated as: F = {fi}n
+i=1 ∈RdE, where i denotes the
+i-th image patch, and dE is the channel length of each
+token.
+The Sapiens model is pretrained on 300 million
+in-the-wild human images using the Masked Autoencoder
+(MAE) framework [20], enabling it to excel in preserving
+fine-grained details and capturing diverse human poses and
+appearances, making it highly effective for high-resolution
+human image feature extraction.
+
+
+UV-Alignment Transformer.
+To map irregular and di-
+verse reference images onto regular UV feature maps, a
+UV-Alignment Transformer is employed to align learnable
+spatial-positional UV tokens Q0 with reference image fea-
+tures F. Specifically, the UV-Alignment Transformer con-
+catenates F from Spaiens with Q0, and aggregates and re-
+fines features through D transformer blocks, producing an
+enhanced representation QD. Each transformer block uti-
+lizes self-attention mechanisms, enabling the model to cap-
+ture complex relationships among the input tokens and im-
+pute missing parts using correlated tokens.
+UV Decoder.
+The UV tokens QD are reshaped and de-
+coded into Gaussian attribute maps, capturing the human’s
+geometry and appearance within the structured 2D UV
+space as shown in Sec. 4.1. To preserve and enhance fine
+details in the decoded Gaussian attribute maps, a Convolu-
+tional Neural Network is employed for spatial up-sampling.
+4.3. Training Objectives
+IDOL reconstructs 3D human by predicting Gaussian at-
+tribute UV maps in a single forward pass, offering signifi-
+cant advantages in inference speed and enabling end-to-end
+training with multi-view images. For each sample, we se-
+lect a front view as the reference image Iref, along with a
+random set of generated multi-view images {Igt,i}N
+i=1 and
+their corresponding SMPL-X parameters and camera for su-
+pervision. It takes Iref as input to generate the 3D human,
+using differentiable rendering to produce the multi-view im-
+ages {Ipred,i}N
+i=1. The loss function is defined as follows:
+L =
+N
+X
+i=1
+
+∥Igt,i −Ipred,i∥2 + λLvgg(Igt,i, Ipred,i)
+
+,
+(1)
+where λ controls the balance between the mean square error
+loss and the perceptual loss Lvgg.
+5. Experiments
+5.1. Experiments on Dataset Creation
+Fig. 5 (left) presents the qualitative results of the ablation
+study on our data generation method. Specifically, Fig. 5 (a)
+and Fig. 5 (b) demonstrate how hand refinement and face
+swapping effectively enhance the quality of the generated
+hands and faces. Fig. 5 (c) highlights the importance of
+fine-tuning the 3D dataset Thuman 2.1 for improving the
+3D consistency of MVChamp, while Fig. 5 (d) illustrates
+that the Temporal Shift Denoising strategy, which involves
+cycling the first and last frames, improves the consistency
+between the first and last frames.
+Fig. 5 (right) compares our MVChamp’s generation
+quality against previous human image animation models
+(e.g., Champ, MimicMotion [82]) and general multi-view
+video generation model (e.g., SV3D [64]). The issues of
+these methods are highlighted in the figure. Champ strug-
+gles to generate plausible hands and heads in multi-view
+scenarios. MimicMotion not only fails to produce realis-
+tic shoes but also has difficulty preserving the identity, es-
+pecially for the anime image. SV3D produces low-quality
+multi-view human generation due to the lack of 3D prior
+knowledge of the human body. In contrast, our model gen-
+erates consistent, high-quality results across views.
+5.2. Comparison of Reconstruction Model
+Implementation Details.
+For the encoder, we employ the
+pre-trained Sapiens-1B model [37] and keep its weights
+frozen during training. We then define a transformer-based
+framework with a parameter size of 0.5B to perform feature
+fusion. Additionally, we densify the SMPL-X vertex set by
+sampling approximately 200, 000 vertices to map attributes
+and represent the 3D human model effectively.
+Dataset and Metrics.
+We train IDOL on a dataset consist-
+ing of generated multi-view images from HuGe100K and
+rendered images from THuman 2.1 [86]. For THuman 2.1,
+we render 72 view images at a resolution of 896 × 640 for
+each scan, with rendering views uniformly distributed. To
+evaluate performance quantitatively, we reserve the last 50
+cases from both HuGe100K and THuman 2.1 as the testing
+set. We use the most frontal image as the reference image
+and the remaining images as ground-truth data for evalu-
+ation. The ground-truth camera parameters and SMPL-X
+parameters are provided for all methods. The renderings of
+the reconstructed model are then compared to their corre-
+sponding ground truth images with several metrics, includ-
+ing Mean Squared Error (MSE), Learned Perceptual Image
+Patch Similarity (LPIPS) [80], Peak Signal-to-Noise Ratio
+(PSNR). More details on implementation can be found in
+the supplementary material.
+Baselines.
+We compare IDOL with three baseline cate-
+gories in the Single-Image Human Reconstruction task. The
+first category comprises methods based on loop optimiza-
+tion or pixel-alignment modules, including GTA [84] and
+SIFU [85]. These methods focus on refining human recon-
+struction through iterative optimization or predicting 3D ge-
+ometry from pixel-aligned features.
+The second category encompasses large-scale generic re-
+construction networks, represented by LGM [63]. These
+models are known for their ability to handle large datasets
+and their scalability, offering advantages in terms of fast ref-
+erence speeds and large output resolutions.
+The third category involves optimization-based 3D gen-
+eration methods using score distillation sampling (SDS),
+exemplified by DreamGaussian [62]. These methods lever-
+age priors from 2D diffusion models to distill 3D objects.
+
+
+(b) Face Swap
+(a) Hand Refinement
+(d) Temporal Shift Denoising Strategy
+(c) THuman Finetune
+(e) MVChamp (ours)
+(g) MimicMotion
+(f) Champ
+(h) SV3D
+Reference
+8ϯℎ frame
+9ϯℎ frame
+8ϯℎ frame
+9ϯℎ frame
+1ϯℎ frame
+24ϯℎ frame
+1ϯℎ frame
+24ϯℎ frame
+Multi-hand
+Collapsed back
+Inconsist ID
+Collapsed side
+Collapsed side
+Texture 
+blur
+Texture blur
+Collapsed shape and texture
+Wrong orientation
+Figure 5. Qualitative results of our MVChamp ablation study (left) and comparison experiment (right).
+Ours
+SIFU
+GTA
+Reference
+DreamGaussian
+LGM
+Reaching out to catch
+Kungfu: aerial & kick
+Basketball: dribble & shot
+Jumping from the ground happily
+Figure 6. Comparisons on (a) the upper: novel-view synthesis given a single image, and (b) the lower: our animated results.
+DreamGaussian accelerates convergence by progressively
+densifying 3D Gaussians, significantly reducing the recon-
+struction time. However, it still takes approximately two
+minutes to reconstruct a single object.
+Quantitative comparison.
+As shown in Tab 2, our
+method outperforms all baselines in all metrics.
+We at-
+tribute this superior performance to the large-scale dataset
+HuGe100K and the design of our large-scale reconstruc-
+tion model IDOL, which allows for more effective train-
+ing and improved synthesis of appearance results. Despite
+this, we note that SIFU and GTA report a lower metric
+than what we expected in our test settings. While we pro-
+vide accurate ground-truth SMPL-X parameters and cam-
+era settings, the ideal orthographic projection required by
+the pixel-alignment modules in SIFU and GTA is not well-
+suited to our perspective projection model, where the cam-
+era focus ranges from 35 to 80. This mismatch leads to a
+
+
+Method
+MSE ↓
+PSNR ↑
+LPIPS ↓
+SIFU [85]
+0.042
+14.204
+1.612
+GTA [84]
+0.041
+14.282
+1.629
+Ours-w/o HuGe100K
+0.017
+19.225
+1.326
+Ours-full
+0.008
+21.673
+1.138
+Table 2. Evaluation of Comparison and Ablation Experiments.
+misalignment between the rendered images and the ground
+truth, adversely affecting their performance metrics.
+In
+fact, many real-life photographs are taken with medium to
+short focal lengths and cannot be approximated using or-
+thographic projection, which is a less noticeable drawback
+of SIFU and GTA. Additionally, SIFU and GTA, trained
+with images at a resolution of 512 × 512, struggle to syn-
+thesize detailed textures, particularly in the invisible areas
+of the reference images. This limitation is primarily due to
+the lack of comprehensiveness and diversity in their train-
+ing datasets, which restricts their performance in generating
+invisible aspects of the images.
+Qualitative comparison.
+We perform a qualitative eval-
+uation on an in-the-wild dataset with methods from [62, 63,
+84, 85], with the results presented in Fig. 6. Our evalua-
+tion includes a subject in a complex outfit featuring a base-
+ball cap and textured clothing, demonstrating our method’s
+ability to synthesize intricate textures and handle loose out-
+fits across different views. Additional tests include out-of-
+domain cartoon data and large-angle side views and assess-
+ing model adaptability and viewpoint handling. IDOL con-
+sistently outperforms the baselines, which struggle with de-
+tail reproduction and texture consistency under these vari-
+ous conditions.
+5.3. Ablation Study on Reconstruction Model
+We assess the impact of proposed components by remov-
+ing them individually from IDOL. As shown in Fig. 7, re-
+placing the Sapiens [37] encoder with DINO v2 [51] (w/o
+Sapiens) reduces detail quality, resulting in less realistic
+textures and folds. Excluding the HuGe100K dataset (w/o
+HuGe100K) causes significant distortion, including blurred
+details and color bleeding. The complete model, with all
+components, produces the most realistic and detailed re-
+sults. These findings highlight the critical roles of both the
+Sapiens encoder and the HuGe100K dataset in achieving
+high-quality avatar generation.
+5.4. Downstream Applications
+IDOL reconstructs an avatar by combining Gaussian at-
+tribute maps with the SMPL-X model, enabling users to
+modify the avatar’s appearance by editing UV texture maps
+and to control body shape by adjusting SMPL-X shape pa-
+(b) w/o Sapiens
+(c) w/o HuGe100K
+(a) Reference Image
+(d) Full model
+Figure 7. Qualitative Results of Ablation Study of IDOL.
+(a) Texture Editing
+(a) Shape Editing
+Figure 8. Controllable Avatar Editing: (a) texture editing; (b) body
+shape editing.
+rameters. Fig. 8(a) illustrates the effect of texture editing
+on clothing patterns, while Fig. 8(b) demonstrates shape
+editing to adjust the avatar’s body size. This approach pro-
+vides a high degree of controllability over both the avatar’s
+appearance and body shape.
+6. Conclusions and Limitations
+In conclusion, our work has made significant strides in cre-
+ating an animatable 3D human from a single image. We
+introduced a scalable pipeline for training a simple yet ef-
+ficient feed-forward model, incorporating a dataset gen-
+eration framework, a large-scale dataset HuGe100K, and
+a scalable reconstruction transformer model, IDOL. This
+model efficiently reconstructs photorealistic 3D humans in
+under a second and demonstrates versatility across various
+applications. This model can efficiently reconstruct pho-
+torealistic humans in less than a second and is versatile
+enough to support various applications.
+However, there are limitations. Due to the constraints of
+the video model used, we can only synthesize single-frame
+images from fixed viewpoints. Future work could consider
+generating longer motion sequences. The focus on body re-
+construction and animation leaves facial optimization sec-
+ondary, and the architecture lacks specific design for facial
+identity or expression. Additionally, handling half-body in-
+puts remains challenging, and improvements in data gener-
+ation strategies are needed to enhance performance.
+
+
+Acknowledgments
+This
+work
+was
+partly
+supported
+by
+the
+National
+Key
+Research
+and
+Development
+Program
+of
+China
+(2022YFF0902400), the Shenzhen Science and Technol-
+ogy Program (JCYJ20220818101014030), and the research
+fund of Tsinghua University - Tencent Joint Laboratory for
+Internet Innovation Technology.
+References
+[1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ah-
+mad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida,
+Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al.
+Gpt-4 technical report.
+arXiv preprint arXiv:2303.08774,
+2023. 1
+[2] Badour AlBahar, Shunsuke Saito, Hung-Yu Tseng, Changil
+Kim, Johannes Kopf, and Jia-Bin Huang. Single-image 3d
+human digitization with shape-guided diffusion.
+In SIG-
+GRAPH Asia 2023 Conference Papers, 2023. 2, 3, 4, 8
+[3] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel
+Mendelevitch, Maciej Kilian, Dominik Lorenz, Yam Levi,
+Zion English, Vikram Voleti, Adam Letts, et al. Stable video
+diffusion: Scaling latent video diffusion models to large
+datasets. arXiv preprint arXiv:2311.15127, 2023. 2
+[4] Zhongang Cai, Daxuan Ren, Ailing Zeng, Zhengyu Lin, Tao
+Yu, Wenjia Wang, Xiangyu Fan, Yang Gao, Yifan Yu, Liang
+Pan, et al. Humman: Multi-modal 4d human dataset for ver-
+satile sensing and modeling.
+In European Conference on
+Computer Vision, pages 557–577. Springer, 2022. 2, 3
+[5] Zhongang Cai, Wanqi Yin, Ailing Zeng, Chen Wei, Qing-
+ping Sun, Wang Yanjun, Hui En Pang, Haiyi Mei, Mingyuan
+Zhang, Lei Zhang, et al. Smpler-x: Scaling up expressive
+human pose and shape estimation. Advances in Neural In-
+formation Processing Systems, 36, 2024. 4, 3
+[6] Di Chang, Yichun Shi, Quankai Gao, Hongyi Xu, Jessica Fu,
+Guoxian Song, Qing Yan, Yizhe Zhu, Xiao Yang, and Mo-
+hammad Soleymani. Magicpose: Realistic human poses and
+facial expressions retargeting with identity-aware diffusion.
+In Forty-first International Conference on Machine Learn-
+ing, 2023. 3
+[7] Xu Chen, Tianjian Jiang, Jie Song, Max Rietmann, Andreas
+Geiger, Michael J Black, and Otmar Hilliges. Fast-snarf: A
+fast deformer for articulated neural fields. IEEE Transac-
+tions on Pattern Analysis and Machine Intelligence, 45(10):
+11796–11809, 2023. 5
+[8] Wei Cheng, Su Xu, Jingtan Piao, Chen Qian, Wayne Wu,
+Kwan-Yee Lin, and Hongsheng Li.
+Generalizable neural
+performer: Learning robust radiance fields for human novel
+view synthesis. arXiv preprint arXiv:2204.11798, 2022. 2, 3
+[9] Wei Cheng, Ruixiang Chen, Siming Fan, Wanqi Yin, Keyu
+Chen, Zhongang Cai, Jingbo Wang, Yang Gao, Zhengming
+Yu, Zhengyu Lin, et al. Dna-rendering: A diverse neural
+actor repository for high-fidelity human-centric rendering. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 19982–19993, 2023. 2, 3
+[10] Enric
+Corona,
+Mihai
+Zanfir,
+Thiemo
+Alldieck,
+Ed-
+uard Gabriel Bazavan, Andrei Zanfir, and Cristian Smin-
+chisescu. Structured 3d features for reconstructing control-
+lable avatars. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 16954–
+16964, 2023. 3
+[11] Matt Deitke, Dustin Schwenk, Jordi Salvador, Luca Weihs,
+Oscar Michel, Eli VanderBilt, Ludwig Schmidt, Kiana
+Ehsani, Aniruddha Kembhavi, and Ali Farhadi. Objaverse:
+A universe of annotated 3d objects.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 13142–13153, 2023. 2, 3
+[12] Matt Deitke, Ruoshi Liu, Matthew Wallingford, Huong Ngo,
+Oscar Michel, Aditya Kusupati, Alan Fan, Christian Laforte,
+Vikram Voleti, Samir Yitzhak Gadre, et al. Objaverse-xl: A
+universe of 10m+ 3d objects. Advances in Neural Informa-
+tion Processing Systems, 36, 2024. 2, 3
+[13] Qiao Feng, Yebin Liu, Yu-Kun Lai, Jingyu Yang, and Kun
+Li. Fof: Learning fourier occupancy field for monocular real-
+time human reconstruction. In NeurIPS, 2022. 2
+[14] Xiangjun Gao, Jiaolong Yang, Jongyoo Kim, Sida Peng,
+Zicheng Liu, and Xin Tong. Mps-nerf: Generalizable 3d hu-
+man rendering from multiview images. IEEE Transactions
+on Pattern Analysis and Machine Intelligence, 2022.
+[15] Xiangjun Gao, Xiaoyu Li, Chaopeng Zhang, Qi Zhang, Yan-
+pei Cao, Ying Shan, and Long Quan. Contex-human: Free-
+view rendering of human from a single image with texture-
+consistent synthesis. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, pages
+10084–10094, 2024. 2
+[16] Xiangjun Gao, Xiaoyu Li, Yiyu Zhuang, Qi Zhang, Wenbo
+Hu, Chaopeng Zhang, Yao Yao, Ying Shan, and Long Quan.
+Mani-gs: Gaussian splatting manipulation with triangular
+mesh. arXiv preprint arXiv:2405.17811, 2024. 2
+[17] Zhiyang Guo, Jinxu Xiang, Kai Ma, Wengang Zhou,
+Houqiang Li, and Ran Zhang. Make-it-animatable: An ef-
+ficient framework for authoring animation-ready 3d charac-
+ters. arXiv preprint arXiv:2411.18197, 2024. 9
+[18] Junlin Han, Filippos Kokkinos, and Philip Torr. Vfusion3d:
+Learning scalable 3d generative models from video diffusion
+models. In European Conference on Computer Vision, pages
+333–350. Springer, 2025. 4
+[19] Sang-Hun Han, Min-Gyu Park, Ju Hong Yoon, Ju-Mi Kang,
+Young-Jae Park, and Hae-Gon Jeon. High-fidelity 3d human
+digitization from single 2k resolution images. In Proceed-
+ings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 12869–12879, 2023. 2, 3
+[20] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr
+Doll´ar, and Ross Girshick. Masked autoencoders are scalable
+vision learners. In Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition, pages 16000–
+16009, 2022. 5
+[21] Tong He, Yuanlu Xu, Shunsuke Saito, Stefano Soatto, and
+Tony Tung. Arch++: Animation-ready clothed human recon-
+struction revisited. In Proceedings of the IEEE/CVF interna-
+tional conference on computer vision, pages 11046–11056,
+2021. 3
+[22] Xu He, Xiaoyu Li, Di Kang, Jiangnan Ye, Chaopeng Zhang,
+Liyang Chen, Xiangjun Gao, Han Zhang, Zhiyong Wu, and
+
+
+Haolin Zhuang. Magicman: Generative novel view synthesis
+of humans with 3d-aware diffusion and iterative refinement.
+arXiv preprint arXiv:2408.14211, 2024. 2
+[23] Yuxiao He, Yiyu Zhuang, Yanwen Wang, Yao Yao, Siyu Zhu,
+Xiaoyu Li, Qi Zhang, Xun Cao, and Hao Zhu. Head360:
+Learning a parametric 3d full-head for free-view synthesis
+in 360. In European Conference on Computer Vision, pages
+254–272. Springer, 2024. 2
+[24] Yicong Hong, Kai Zhang, Jiuxiang Gu, Sai Bi, Yang Zhou,
+Difan Liu, Feng Liu, Kalyan Sunkavalli, Trung Bui, and Hao
+Tan. Lrm: Large reconstruction model for single image to
+3d. arXiv preprint arXiv:2311.04400, 2023. 2
+[25] https://github.com/black-forest labs/flux. Flux latent recti-
+fied flow transformers, 2024. 3, 1, 5
+[26] https://github.com/facefusion/facefusion. Facefusion, 2024.
+4
+[27] https://renderpeople.com/3d people. Renderpeople dataset,
+2015. 2
+[28] https://web.twindom.com/. Twindom dataset, 2020. 2
+[29] Li Hu. Animate anyone: Consistent and controllable image-
+to-video synthesis for character animation. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 8153–8163, 2024. 3
+[30] Liangxiao Hu, Hongwen Zhang, Yuxiang Zhang, Boyao
+Zhou, Boning Liu, Shengping Zhang, and Liqiang Nie.
+Gaussianavatar: Towards realistic human avatar modeling
+from a single video via animatable 3d gaussians. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 634–644, 2024. 2, 4
+[31] Shoukang Hu, Fangzhou Hong, Liang Pan, Haiyi Mei, Lei
+Yang, and Ziwei Liu. Sherf: Generalizable human nerf from
+a single image. In Proceedings of the IEEE/CVF Interna-
+tional Conference on Computer Vision (ICCV), 2023. 3
+[32] Yangyi Huang, Hongwei Yi, Weiyang Liu, Haofan Wang,
+Boxi Wu, Wenxiao Wang, Binbin Lin, Debing Zhang, and
+Deng Cai. One-shot implicit animatable avatars with model-
+based priors.
+In IEEE Conference on Computer Vision
+(ICCV), 2023. 3
+[33] Yukun Huang, Jianan Wang, Ailing Zeng, Zheng-Jun Zha,
+Lei Zhang, and Xihui Liu. DreamWaltz-G: Expressive 3D
+Gaussian Avatars from Skeleton-Guided 2D Diffusion. 2024.
+2
+[34] Zeng Huang, Yuanlu Xu, Christoph Lassner, Hao Li, and
+Tony Tung. Arch: Animatable reconstruction of clothed hu-
+mans. In Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition, pages 3093–3102,
+2020. 2, 3
+[35] Mustafa Is¸ık, Martin R¨unz, Markos Georgopoulos, Taras
+Khakhulin, Jonathan Starck, Lourdes Agapito, and Matthias
+Nießner. Humanrf: High-fidelity neural radiance fields for
+humans in motion. ACM Transactions on Graphics (TOG),
+42(4):1–12, 2023. 2, 3
+[36] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Trans. Graph., 42(4):139–1,
+2023. 2, 3, 4
+[37] Rawal Khirodkar, Timur Bagautdinov, Julieta Martinez, Su
+Zhaoen, Austin James, Peter Selednik, Stuart Anderson, and
+Shunsuke Saito. Sapiens: Foundation for human vision mod-
+els.
+In European Conference on Computer Vision, pages
+206–228. Springer, 2025. 2, 5, 6, 8, 3, 4
+[38] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao,
+Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer White-
+head, Alexander C Berg, Wan-Yen Lo, et al. Segment any-
+thing. In Proceedings of the IEEE/CVF International Con-
+ference on Computer Vision, pages 4015–4026, 2023. 3
+[39] Tobias Kirschstein,
+Simon Giebenhain,
+Jiapeng Tang,
+Markos Georgopoulos, and Matthias Nießner.
+Gghead:
+Fast and generalizable 3d gaussian heads.
+arXiv preprint
+arXiv:2406.09377, 2024. 4
+[40] Jiahao Li, Hao Tan, Kai Zhang, Zexiang Xu, Fujun
+Luan, Yinghao Xu, Yicong Hong, Kalyan Sunkavalli, Greg
+Shakhnarovich, and Sai Bi.
+Instant3d:
+Fast text-to-3d
+with sparse-view generation and large reconstruction model.
+In International Conference on Learning Representations
+(ICLR), 2024. 2
+[41] Peng Li, Wangguandong Zheng, Yuan Liu, Tao Yu, Yang-
+guang Li, Xingqun Qi, Mengfei Li, Xiaowei Chi, Siyu Xia,
+Wei Xue, et al. Pshuman: Photorealistic single-view human
+reconstruction using cross-scale diffusion.
+arXiv preprint
+arXiv:2409.10141, 2024. 2
+[42] Ruilong Li, Shan Yang, David A Ross, and Angjoo
+Kanazawa. Ai choreographer: Music conditioned 3d dance
+generation with aist++. In Proceedings of the IEEE/CVF In-
+ternational Conference on Computer Vision, pages 13401–
+13412, 2021. 2, 3
+[43] Zhe Li, Zerong Zheng, Lizhen Wang, and Yebin Liu. Ani-
+matable gaussians: Learning pose-dependent gaussian maps
+for high-fidelity human avatar modeling. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 19711–19722, 2024. 2
+[44] Jing Lin, Ailing Zeng, Shunlin Lu, Yuanhao Cai, Ruimao
+Zhang, Haoqian Wang, and Lei Zhang.
+Motion-x:
+A
+large-scale 3d expressive whole-body human motion dataset.
+Advances in Neural Information Processing Systems, 36:
+25268–25280, 2023. 3
+[45] Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu
+Sarkar, Jiatao Gu, and Christian Theobalt.
+Neural actor:
+Neural free-view synthesis of human actors with pose con-
+trol.
+ACM transactions on graphics (TOG), 40(6):1–16,
+2021. 2, 3
+[46] Yaofang Liu, Xiaodong Cun, Xuebo Liu, Xintao Wang, Yong
+Zhang, Haoxin Chen, Yang Liu, Tieyong Zeng, Raymond
+Chan, and Ying Shan. Evalcrafter: Benchmarking and eval-
+uating large video generation models.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 22139–22149, 2024. 9
+[47] Ziwei Liu, Ping Luo, Shi Qiu, Xiaogang Wang, and Xiaoou
+Tang.
+Deepfashion: Powering robust clothes recognition
+and retrieval with rich annotations. In Proceedings of the
+IEEE conference on computer vision and pattern recogni-
+tion, pages 1096–1104, 2016. 3, 1, 7
+[48] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J Black. Smpl: A skinned multi-

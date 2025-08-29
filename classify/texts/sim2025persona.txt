@@ -1,0 +1,954 @@
+Title: PERSONA: Personalized Whole-Body 3D Avatar with Pose-Driven Deformations from a Single Image
+
+PERSONA: Personalized Whole-Body 3D Avatar with Pose-Driven Deformations
+from a Single Image
+Geonhee Sim
+Gyeongsik Moon
+Dept. of CSE, Korea University
+{kh6362,mks0601}@korea.ac.kr
+https://mks0601.github.io/PERSONA
+Abstract
+Two major approaches exist for creating animatable hu-
+man avatars. The first, a 3D-based approach, optimizes a
+NeRF- or 3DGS-based avatar from videos of a single per-
+son, achieving personalization through a disentangled iden-
+tity representation. However, modeling pose-driven defor-
+mations, such as non-rigid cloth deformations, requires nu-
+merous pose-rich videos, which are costly and impractical
+to capture in daily life. The second, a diffusion-based ap-
+proach, learns pose-driven deformations from large-scale
+in-the-wild videos but struggles with identity preservation
+and pose-dependent identity entanglement.
+We present
+PERSONA, a framework that combines the strengths of both
+approaches to obtain a personalized 3D human avatar with
+pose-driven deformations from a single image. PERSONA
+leverages a diffusion-based approach to generate pose-rich
+videos from the input image and optimizes a 3D avatar
+based on them. To ensure high authenticity and sharp ren-
+derings across diverse poses, we introduce balanced sam-
+pling and geometry-weighted optimization. Balanced sam-
+pling oversamples the input image to mitigate identity shifts
+in diffusion-generated training videos. Geometry-weighted
+optimization prioritizes geometry constraints over image
+loss, preserving rendering quality in diverse poses.
+1. Introduction
+Creating an animatable human avatar is a long-standing
+challenge in computer vision and graphics.
+An animat-
+able human avatar is a representation that (1) can be
+driven by novel whole-body poses and facial expressions
+and (2) can be rendered from any viewpoint.
+Early ap-
+proaches [7, 27, 41, 42] relied on multi-view video data and
+accurately tracked 3D poses. While these methods achieved
+impressive results in controlled environments, their prac-
+tical applicability was limited due to the difficulty of ac-
+quiring such data in everyday scenarios.
+Recent meth-
+(a) Existing 
+3D-based methods
+(b) Existing 
+diffusion-based methods
+(c) PERSONA (Ours)
+Pose-driven deformations
+Authenticity
+Input image
+Figure 1.
+Comparison of (a) existing 3D-based method [44],
+(b) existing diffusion-based method [66], and (c) our PERSONA.
+PERSONA integrates the strengths of both approaches to achieve
+a personalized whole-body 3D avatar with pose-driven deforma-
+tions.
+ods have significantly lowered data requirements, allowing
+avatars to be built from casually captured short monocu-
+lar videos [9, 14, 18, 19, 24, 37, 43] or even a single im-
+age [15, 33, 63, 66], eliminating the need for multi-view
+recordings and precisely tracked 3D poses.
+Fig.1 illustrates the two dominant approaches for cre-
+ating animatable human avatars.
+The first, a 3D-based
+approach[9, 14, 18, 19, 24, 37, 43–45, 70] (Fig.1 (a)),
+combines neural rendering techniques (e.g., NeRF[34],
+3DGS [21]) with 3D human parametric models (e.g.,
+SMPL [32], SMPL-X [40]). Neural rendering captures ap-
+pearance and geometry, while parametric models enable an-
+imation. Early methods [9, 14, 18, 19, 24, 37, 43] recon-
+struct avatars from short monocular videos of subjects ro-
+tating in an A-pose. More recent approaches [44, 45, 70]
+directly generate animatable 3D Gaussian avatars in a feed-
+forward manner.
+This framework allows for clear dis-
+arXiv:2508.09973v1  [cs.CV]  13 Aug 2025
+
+
+entanglement of identity and pose, enabling personalized
+avatar creation and faithful identity preservation. However,
+as these methods animate avatars via 3D parametric mod-
+els that mainly support rigid deformations, capturing pose-
+driven deformations such as non-rigid clothing motion re-
+quires large-scale pose-diverse datasets.
+Acquiring such
+data per subject is costly and impractical, leading most 3D
+methods to rely on static or simple-pose datasets.
+As a
+result, these avatars often lack expressiveness in handling
+complex, pose-dependent clothing deformations.
+The second approach, a diffusion-based method (Fig. 1
+(b)) [15, 33, 58, 63, 66, 69], generates animated human
+videos directly from a conditional 2D pose sequence us-
+ing diffusion-based generative models [4, 12, 46, 54–57],
+without relying on neural rendering or parametric models.
+Trained on large-scale video datasets, these models effec-
+tively capture pose-driven deformations.
+However, they
+face significant challenges in identity preservation. They
+struggle to 1) retain the identity of the person in the input
+image and 2) maintain identity consistency when animating
+avatars, resulting in limited personalization capability. This
+limitation arises because identity representation is not fully
+disentangled from pose, often causing pose-dependent iden-
+tity variations that distort the subject’s original appearance.
+We present PERSONA (Fig. 1 (c)), a framework for cre-
+ating personalized 3D avatars with pose-driven deforma-
+tions from a single image by leveraging diffusion-generated
+training videos. This eliminates the need for extensive per-
+individual data capture, making the pipeline highly scal-
+able. PERSONA combines the strengths of 3D-based and
+diffusion-based approaches—3D-based methods effectively
+preserve identity but struggle with pose-driven non-rigid de-
+formations in casually captured data (e.g., a short monocu-
+lar video of a subject rotating in an A-pose). In contrast,
+diffusion-based methods capture pose-dependent deforma-
+tions but lack personalization. Our approach bridges this
+gap, achieving both identity preservation and pose-driven
+deformations in a scalable and efficient manner.
+We introduce two key components to address the main
+challenges. First, we propose balanced sampling to ensure
+high authenticity in personalization.
+Diffusion-generated
+training videos often fail to fully preserve identity, leading
+to inconsistencies across poses. To mitigate identity shifts,
+our balanced sampling oversamples the input image during
+avatar optimization. In addition, we prevent baked-in arti-
+facts such as shadows and pose-dependent geometry (e.g.,
+cloth wrinkles) of the input image. This approach enhances
+identity preservation while minimizing baked-in artifacts in
+novel poses.
+Second, we propose geometry-weighted optimization to
+maintain sharp renderings across diverse poses. Diffusion-
+generated videos often contain inconsistent or artifact-prone
+textures, and directly optimizing the avatar on such frames
+Methods
+Pose-invariant ID
+Pose-driven
+deform.
+Single img.
+GaussianAvatar [14]
+✓
+✓
+✗
+ExAvatar [37]
+✓
+✓
+✗
+IDOL [70]
+✓
+✗
+✓
+AniGS [45]
+✓
+✗
+✓
+LHM [44]
+✓
+✗
+✓
+Animate Anyone [15]
+✗
+✓
+✓
+MimicMotion [66]
+✗
+✓
+✓
+Champ [69]
+✗
+✓
+✓
+StableAnimator [58]
+✗
+✓
+✓
+PERSONA (Ours)
+✓
+✓
+✓
+Table 1. Comparison of existing human avatar creation methods
+and the proposed PERSONA. The first block [14, 37, 44, 45, 70]
+represents 3D-based approaches, while the second block [15, 58,
+66, 69] corresponds to diffusion-based approaches.
+Each col-
+umn indicates whether the avatar’s identity representation is pose-
+invariant, whether it supports pose-driven deformations (e.g., non-
+rigid cloth deformations), and whether it can be created from a
+single image.
+degrades visual quality. Balanced sampling alone is insuf-
+ficient for preserving sharp renderings in poses different
+from the input image, as the pose-driven deformation mod-
+eling module differentiates between the input image and
+generated frames based on their pose information, causing
+the model to adapt to the low-quality outputs of generated
+frames. Simply detaching textures from pose-driven defor-
+mation modeling is ineffective, as image loss still encour-
+ages geometry to replicate artifacts from generated frames,
+leading to degraded renderings. To address this, geometry-
+weighted optimization assigns low image loss weights and
+high geometry loss weights. Since geometry (e.g., binary
+mask, depth maps, normal maps, and part segmentations)
+remains stable despite texture inconsistencies, it serves as a
+reliable constraint for non-rigid deformations. Additionally,
+omitting scale offsets in pose-driven deformation modeling
+prevents blurriness, significantly contributing to sharp ren-
+derings across diverse poses.
+Despite the complementary strengths of 3D-based and
+diffusion-based methods in personalization and pose-driven
+deformations, few studies have effectively integrated them.
+We hope our work provides valuable insights for both re-
+search directions. Our key contributions are as follows:
+• We propose PERSONA, a framework for creating person-
+alized 3D avatars with pose-driven deformations from a
+single image by leveraging diffusion-generated pose-rich
+training videos, eliminating the need for extensive per-
+individual video capture.
+• We introduce balanced sampling to ensure authentic iden-
+tity consistency. It mitigates identity shifts in diffusion-
+generated videos while preventing baked-in artifacts such
+as shadows and pose-dependent geometry.
+• We propose geometry-weighted optimization, which pri-
+oritizes geometry constraints over image loss, ensuring
+
+
+sharp renderings across diverse poses.
+2. Related works
+Tab. 1 compares existing 3D-based and diffusion-based hu-
+man avatar creation methods and the proposed PERSONA.
+3D-based human avatars. Early works [1, 3, 27–29, 38,
+39, 41, 42, 68] required accurate 3D pose tracking with
+multi-view images.
+Since accurate 3D pose tracking is
+rarely available in daily life, recent works focus on creat-
+ing 3D avatars from casually captured monocular videos.
+Jiang et al. [19] introduced NeuMan, an in-the-wild dataset
+with a NeRF-based baseline.
+Guo et al. [9] proposed
+self-supervised scene-human decomposition, while Jiang et
+al. [18] developed a fast 3D avatar pipeline. Kocabas et
+al. [24] and Hu et al. [14] leveraged 3DGS to improve rep-
+resentation and regression from a posed SMPL [32] mesh.
+Liu et al. [31] introduced a whole-body avatar without facial
+expression animation, and Deng et al. [8] applied image-
+to-image translation for rendering.
+Recent 3DGS-based
+methods further refine avatars, including Gaussian-mesh as-
+sociations [51], hybrid surface-mesh representations [37],
+and gradient-based optimization refinements [13]. Xiu et
+al. [62] generated avatars from personal photo collections.
+Concurrently, Zhuang et al. [70] and Qiu et al. [45] pro-
+posed single-image 3D avatar frameworks trained on static
+3D scans with multi-view renderings. However, they do not
+support non-rigid deformations, as capturing diverse poses
+and clothing behaviors is difficult, limiting the availabil-
+ity of suitable training data. We address this by leveraging
+diffusion-generated videos, avoiding the need for extensive
+3D data capture.
+Diffusion-based human avatars. With the success of re-
+cent generative models for image [12, 46, 54–57] and video
+generation [4], dedicated generative models have been de-
+veloped to animate a human from a single reference image
+using target 2D pose sequences. Unlike 3D-based avatar
+creation methods, which rely on casually captured short
+monocular videos, these generative models leverage large-
+scale datasets to learn the prior distribution of human mo-
+tion. Xu et al. [63] developed a video diffusion model to en-
+code temporal dynamics, while Hu et al. [15] incorporated
+spatial attention for enhanced detail preservation. Zhang et
+al. [66] introduced confidence-aware pose guidance, and
+Men et al. [33] designed compact spatial encodings that ac-
+count for the 3D nature of videos. Tu et al. [58] proposed
+an ID Adapter for identity preservation, and Zhu et al. [69]
+used SMPL renderings [32] as a conditioning signal for hu-
+man video generation.
+3D human recovery from a single image. 3D human pose
+estimation methods [6, 20, 25, 30, 35, 36, 47] regress 3D
+joint angles and shape parameters of 3D human models [32,
+40] from a single image. While these representations are an-
+imatable, they lack high-fidelity detail due to their reliance
+MLPs
+Triplane
+Per-Gaussian 
+feature
+3D pose (    )
+Facial expr. (    )
+Mean 
+offset
+Driving signals
+LBS 
++ 3DGS
+Avatar in the 
+canonical space
+Animated avatar with 
+driving signals
+Mean
+Scale
+RGB
+Figure 2. The pipeline of PERSONA. The mean offset from MLPs
+is used to represent pose-driven deformations.
+on simplified naked body geometry without textures. 3D re-
+construction methods [2, 10, 16, 17, 26, 48, 49, 53, 60, 61,
+67] recover posed 3D human geometry from a single image,
+with some approaches [2, 16, 17, 26, 48, 53, 67] also re-
+constructing texture. Although these methods achieve high-
+fidelity reconstruction, their animation capability remains
+limited, as posed 3D scans are inherently difficult to ani-
+mate [50].
+3. Pipeline of PERSONA
+Fig. 2 shows the pipeline of PERSONA.
+Representation. We design PERSONA by combining the
+SMPL-X [40] parametric model with 3D Gaussian Splat-
+ting (3DGS) [21, 64]. SMPL-X enables whole-body anima-
+tion, while 3DGS supports texture and geometry modeling
+along with rendering. Following ExAvatar [37], we adopt
+a hybrid representation of surface mesh and 3D Gaussians.
+Each vertex of the SMPL-X template mesh is modeled as a
+3D Gaussian, with connectivity inherited from the SMPL-
+X triangle topology. To enhance generalization to novel
+views, we use isotropic Gaussians with constant opacity set
+to one.
+Architecture. With the optimizable Gaussian features (i.e.,
+means, scales, and RGB colors), we introduce mean off-
+sets to model pose-driven deformations. These offsets are
+predicted by multi-layer perceptrons (MLPs), which take
+as input the triplane features of each Gaussian point in the
+canonical space along with the 3D poses. To enhance gen-
+eralization, the MLPs utilize only the 3D poses of 4-ring
+neighboring joints while setting non-neighboring joints to
+zero, following Saito et al. [50]. The final mean offsets,
+combined with facial expression-dependent vertex offsets
+from SMPL-X, are applied to the means in the canonical
+space.
+Animation and rendering. The 3D human avatar is con-
+structed in a canonical space and animated using SMPL-X
+3D pose θ and facial expression parameter ψ. Each body
+Gaussian is assigned the average skinning weight of its 16
+nearest SMPL-X template vertices, while original SMPL-X
+weights are retained for hands and face. The 3D Gaussians
+are animated using linear blend skinning (LBS), and the fi-
+nal rendering is performed with Mip-Splatting [64].
+
+
+4. Generating training videos from an image
+4.1. Pose-rich video generation
+As shown in Fig.3, we generate pose-rich training videos
+using the diffusion-based human animation method Mim-
+icMotion [66]. The generated videos and the input image
+are used to construct our final avatar. These videos effec-
+tively compensate for the limited pose and deformation in-
+formation available in a single image. In particular, they
+reveal how clothing deforms across different poses, which
+is essential for modeling pose-driven (i.e., non-rigid) de-
+formations. We generate various motion types, including
+dance sequences with peak poses, and rotating, light punch-
+ing, and kicking actions that contain milder pose variations.
+We adopt MimicMotion for the training video generation
+as it outperforms other open-source diffusion-based meth-
+ods [15, 58] for our task.
+4.2. Geometric ID-preserving video generation
+One of the key challenges in diffusion-based video gen-
+eration is preserving the geometric identity of the person in
+the input image, such as bone lengths. To address this, we
+combine identity-related SMPL-X parameters (e.g., shape)
+from the input image with target 3D poses that define the
+motion for animation. These target motions include a di-
+verse range of actions, from mild (e.g., rotation and light
+gestures) to strong (e.g., dancing and kicking), and are
+extracted in advance from public videos using the ExA-
+vatar [37] fitting process. We project the resulting SMPL-
+X keypoints to 2D space to create driving pose videos,
+which are used as input to diffusion-based animation meth-
+ods [58, 66]. By using identity-related SMPL-X parame-
+ters from the input image, we better preserve the subject’s
+identity compared to prior methods [58, 66], which rely on
+aligning a small number of vertical keypoints in the 2D
+space.
+Moreover, pre-computed 3D poses eliminate the
+need for the costly fitting process required by prior video-
+based methods [14, 37].
+5. Personalize with pose-driven deformations
+5.1. Balanced sampling
+Balanced sampling.
+Fig. 4 (a) illustrates how balanced
+sampling alternates between the input image and gener-
+ated video frames during training, effectively oversampling
+the input image. This helps prevent authenticity loss, as
+diffusion-generated videos often distort the subject’s iden-
+tity, especially in the face region. By using the input im-
+age more frequently, our approach maintains identity con-
+sistency in visible areas.
+Input image
+Generated pose-rich videos
+Training data for PERSONA
+Diffusion-based 
+animator
+Figure 3. We use a diffusion-based animator [66] to generate pose-
+rich training videos from a single image. The input image and the
+generated videos together form our training set.
+Reducing baked-in artifacts. Oversampling can introduce
+baked-in artifacts from the input image, including shadows
+in textures and seam artifacts between visible and invisible
+regions. These artifacts become embedded in the avatar’s
+canonical space, causing issues when animating in novel
+poses, as they do not naturally adapt to new viewpoints or
+poses. To mitigate artifacts, we apply two strategies when
+supervising with the input image.
+First, to reduce seam artifacts between visible and in-
+visible regions, we identify seam boundaries by applying a
+Sobel filter to rendered positional maps from the canonical
+space, as shown in Fig. 5. The positional map is obtained
+by encoding the normalized 3D coordinates of Gaussians
+in the canonical space as RGB and rendering them in the
+posed screen space. Since the canonical space (i.e., A-pose)
+spatially separates body parts, abrupt changes in the ren-
+dered positional map typically indicate transitions between
+unrelated regions—approximating seam boundaries. Un-
+like simple foreground masks, this approach can also detect
+internal boundaries between different body parts. We reg-
+ularize these regions using separate RGBs supervised only
+on generated videos, which are free from the oversampling
+artifacts of the input image. Second, to avoid baked-in shad-
+ows, we use albedo images from Careaga et al. [5] as addi-
+tional supervision, which contain minimal shading and help
+prevent shadow artifacts in the texture.
+5.2. Geometry-weighted optimization
+Geometry-weighted optimization.
+Fig. 4 (b) illustrates
+that geometry-weighted optimization applies low image
+loss weights and high geometry loss weights when opti-
+mizing MLPs for pose-driven deformation modeling.
+In
+this way, we mitigate rendering degradation caused by in-
+consistent and artifact-prone textures in generated frames.
+This approach enhances the robustness of the optimiza-
+
+
+Frame from generated videos
+(b) Geometry-weighted optimization for sharp renderings in pose-driven deformations
+Input image
+Frames from generated videos
+th iter.
+(  +1)th iter.
+(  +2)th iter.
+(  +3)th iter.
+(  +4)th iter.
+(  +5)th iter.
+(a) Balanced sampling to preserve identity for personalization
+Training data
+Rendered image
+loss
+Estimated geometry from 
+generated videos
+Rendered geometry
+Low weights for images
+High weights for geometry
+loss
+Figure 4. Two core components of PERSONA: balanced sampling for identity preservation and geometry-weighted optimization for sharp
+renderings in pose-driven deformations.
+(a) Image
+(c) Positional map 
+in the posed space
+(d) Detected 
+boundary
+(b) Positional map 
+in the canonical space
+Figure 5. Seam boundary detection from positional maps. We
+obtain (c) the positional map by applying the pose to (b), then
+apply a Sobel filter to (c) to detect boundaries between different
+body parts as well as between foreground and background.
+tion pipeline against texture artifacts in diffusion-generated
+frames, ensuring sharper renderings in poses different from
+the input image. Since per-frame pose information is used
+for pose-driven deformation modeling, balanced sampling
+alone (Sec. 5.1) is insufficient to maintain rendering quality
+in poses different from the input image. The pose-driven de-
+formation modeling module differentiates between the in-
+put image and generated frames based on their poses, lead-
+ing to sharp renderings when the pose matches the input
+image, but degraded quality in novel poses as the model
+adapts to artifacts in generated frames. Simply detaching
+textures from pose-driven deformation modeling is ineffec-
+tive, as image loss still encourages geometry to replicate
+blur and artifacts of the generative videos.
+Geometry-weighted optimization utilizes binary masks,
+depth maps, normal maps, and part segmentations extracted
+from diffusion-generated videos using SAM [23] and Sapi-
+ens [22] and compares them with the rendered outputs.
+Since geometry (i.e., binary masks, depth maps, normal
+maps, and part segmentations) remains stable despite varia-
+tions in texture quality, it serves as a reliable foundation for
+modeling pose-driven deformations while preserving ren-
+dering sharpness. The binary masks are rendered with a
+color value of one. To render depth maps, the depth value of
+each Gaussian is treated as a color attribute. Normal maps
+are computed per Gaussian using normal vectors, leverag-
+ing the hybrid representation of ExAvatar [37], and are sim-
+ilarly treated as colors. Finally, part segmentations are rep-
+resented as RGB images, with colors assigned based on the
+Sapiens palette.
+Preserving sharp renderings with mean offsets.
+To
+model pose-driven deformations, we apply only mean off-
+sets to isotropic Gaussians.
+This approach shifts each
+Gaussian’s position while keeping its shape and appear-
+ance fixed, allowing the avatar to deform without blurring
+textures. Such position-only deformation preserves texture
+sharpness, similar in spirit to mesh-based animation where
+vertex displacements alone maintain high-frequency texture
+details. In contrast, using scale offsets leads to blurry re-
+sults, as Gaussians grow or shrink instead of shifting, and
+RGB offsets risk copying unreliable colors from generated
+frames. Although mean offsets could introduce gaps, dense
+high-resolution Gaussians and their overlapping nature en-
+sure seamless renderings, even during large deformations
+
+
+(b) Ours wo. 
+pose-driven deform.
+(a) Input image
+(c) Ours
+(g) W. scale offset
+(f) High image loss 
+weight + RGB offset
+(d) High image loss 
+weight
+(e) High image loss 
+weight + RGB detach
+Figure 6. Comparison of various pose-driven deformation modeling strategies. Our geometry-weighted optimization is essential for
+maintaining authentic and sharp renderings.
+(a) Input image
+(d) Ours
+(b) Ours wo. 
+balanced sampling
+(c) 4DGS of AniGS
+Figure 7. Effectiveness of our balanced sampling. Without it, the
+avatar loses the identity of the input image. The 4DGS approach
+of AniGS [45] also fails to preserve the subject’s identity.
+like dance motions.
+6. Optimization
+We optimize 3D Gaussian features (i.e., means, scales,
+and RGB colors), triplane, MLP weights, and per-frame
+SMPL-X parameters.
+For supervision, we use standard
+image reconstruction loss functions, including L1, SSIM,
+and LPIPS [65], along with geometry regularizers such as
+Laplacian regularization, following Moon et al. [37]. In
+geometry-weighted optimization, we minimize the L1 dis-
+tance between the rendered outputs and target geometry
+maps. Diffusion-generated videos often produce implausi-
+ble hand shapes. To enforce geometric plausibility, we min-
+imize the L1 distance between hand masks rendered with
+3DGS and those rendered with SMPL-X meshes (not Gaus-
+sian points) using a standard mesh renderer, ensuring that
+the hand shape closely resembles SMPL-X hands.
+7. Experiments
+7.1. Protocol
+We conduct quantitative comparisons against state-of-the-
+art methods using NeuMan [19] and X-Humans [52]
+datasets, following the evaluation protocols of previous
+(a) Input image
+(c) Ours
+(b) Ours wo. boundary
+Figure 8. Effectiveness of our detected boundary in balanced sam-
+pling. Without it, colors from one body part can leak into others,
+leading to noticeable artifacts.
+works [14, 37, 52].
+We measure rendering quality with
+PSNR, SSIM, and LPIPS [65] metrics. NeuMan provides
+short monocular videos captured in the wild, while X-
+Humans offers a diverse range of whole-body motions, in-
+cluding various body poses, hand gestures, and facial ex-
+pressions. For qualitative comparisons, we evaluate ani-
+mation capability using in-the-wild videos featuring intense
+dance performances, different from our training set.
+7.2. Ablation studies
+Balanced sampling. Fig. 7 demonstrates the importance of
+balanced sampling in preserving authenticity. Without it,
+as shown in Fig. 7 (b), the input image is underused dur-
+ing training, resulting in an avatar with a different identity
+and blurry textures due to inconsistencies in the generated
+frames.
+Fig. 7 (c) shows that 4DGS-based method [45]
+still suffers from identity loss and blurry renderings due
+to the severe imbalance between the input image and the
+generated frames. Their 4DGS treats inconsistencies across
+frames as a temporal sequence and trains MLPs with spatio-
+temporal features to differentiate the input image from gen-
+erated frames. Fig. 8 shows that our boundary detection is
+necessary to prevent color leaking between different body
+parts.
+Geometry-weighted optimization. Fig. 6 highlights the
+
+
+(a) Input image
+(b) AniGS
+(c) LHM
+(d) Ours without
+pose-driven deform.
+(e) PERSONA (Ours)
+(f) Ours without
+pose-driven deform.
+(Input image pose)
+(g) PERSONA 
+(Ours. Input image pose.)
+Figure 9. Effectiveness of our pose-driven deformations. (b,c): Previous 3D-based methods [44, 45] embed input-image-specific defor-
+mations (highlighted in red) into the avatar, leading to baked-in artifacts when animated to new poses. (d-g): Our method, PERSONA,
+mitigates this issue by explicitly modeling pose-driven deformations.
+(a) Input image
+(b) Target pose
+(c) Champ
+(d) MimicMotion
+(e) StableAnimator
+(f) PERSONA (Ours)
+Figure 10. Comparison of diffusion-based state-of-the-art methods and our PERSONA.
+importance of geometry-weighted optimization in preserv-
+ing authentic and sharp renderings for pose-driven deforma-
+
+
+Methods
+00028
+00034
+00087
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+* Available data: 10 videos and 3D registrations from multi-view images
+X-Avatar [52]
+28.57
+0.976
+0.026
+28.05
+0.965
+0.035
+30.89
+0.970
+0.030
+ExAvatar [37]
+30.58
+0.981
+0.018
+28.75
+0.966
+0.029
+32.01
+0.972
+0.025
+* Available data: a single image
+ExAvatar [37]
+21.83
+0.962
+0.058
+23.04
+0.951
+0.066
+24.58
+0.958
+0.061
+TeCH [16]
+20.28
+0.950
+0.059
+22.26
+0.938
+0.055
+24.74
+0.945
+0.052
+SiTH [11]
+15.00
+0.934
+0.110
+18.28
+0.935
+0.098
+21.65
+0.950
+0.087
+Champ [69]
+18.96
+0.953
+0.070
+20.17
+0.949
+0.082
+25.19
+0.960
+0.057
+MimicMotion [66]
+21.02
+0.959
+0.053
+23.49
+0.953
+0.051
+27.67
+0.963
+0.038
+StableAnimator [58]
+21.66
+0.962
+0.050
+23.53
+0.952
+0.051
+28.04
+0.963
+0.039
+AniGS [45]
+23.96
+0.965
+0.040
+24.80
+0.955
+0.052
+27.46
+0.964
+0.043
+Ours wo. pose-driven deform.
+23.15
+0.968
+0.049
+26.32
+0.960
+0.047
+29.25
+0.966
+0.038
+PERSONA (Ours)
+24.76
+0.972
+0.040
+27.60
+0.963
+0.042
+29.79
+0.968
+0.035
+Table 2. Comparisons with previous works on the test set of X-Humans [52].
+tions. Without it, inconsistent textures in generated frames
+cause identity shifts and blurriness. Fig. 6 (c) demonstrates
+effective pose-driven deformation, where raising the arms
+causes the clothing to move further away from the waist,
+reflecting a natural interaction between the body and the
+fabric. In contrast, Fig. 6 (b) shows unnatural adherence,
+with the clothing remaining tightly fitted to the body despite
+the raised arms due to the lack of deformation modeling.
+Fig. 6 (d) and (e) illustrate how high image loss weights
+degrade visual quality, forcing geometry to replicate tex-
+ture inconsistencies and resulting in blurry renderings, even
+when RGB is detached. Finally, Fig. 6 (f) and (g) validate
+our choice to use only mean offsets, as scale offsets lead to
+excessive blurring, as discussed in Sec. 5.2. All variants are
+evaluated under the same balanced sampling and geometry
+loss settings for a fair comparison.
+Pose-driven deformations. Fig.9 illustrates the effective-
+ness of our pose-driven deformations. Existing methods[44,
+45] embed deformations present in the input image, which
+become baked-in artifacts when the avatar is animated to
+novel poses. In the first row, for example, the left arm and
+thigh should fall naturally due to gravity, but remain unnat-
+urally bent. In the second row, the right side of the body
+similarly fails to respond naturally to gravity. In both cases,
+long skirts are often misinterpreted as pants, resulting in in-
+correct deformation behavior. In contrast, PERSONA ex-
+plicitly models pose-driven deformations, allowing avatars
+to respond naturally to novel poses without inheriting input-
+specific artifacts. This leads to significantly improved visual
+fidelity under diverse poses.
+7.3. Comparisons to state-of-the-art methods
+Fig.9, Fig.10, Tab.2, and Tab.3 compare PERSONA with
+state-of-the-art methods [44, 45, 58, 66, 69]. Fig.9 shows
+that compared to existing 3D-based approaches [44, 45],
+PERSONA captures natural pose-driven clothing deforma-
+tions more effectively, thanks to our geometry-weighted
+optimization. In addition, Fig.10 shows that compared to
+Methods
+PSNR↑
+SSIM↑
+LPIPS↓
+* Available data: a video
+HumanNeRF [59]
+27.06
+0.967
+0.019
+InstantAvatar [18]
+28.47
+0.972
+0.028
+NeuMan [19]
+29.32
+0.972
+0.014
+Vid2Avatar [9]
+30.70
+0.980
+0.014
+GaussianAvatar [14]
+29.94
+0.980
+0.012
+3DGS-Avatar [43]
+28.99
+0.974
+0.016
+ExAvatar [37]
+34.80
+0.984
+0.009
+* Available data: a single image
+ExAvatar [37]
+24.95
+0.963
+0.031
+TeCH [16]
+22.82
+0.953
+0.039
+SiTH [11]
+23.96
+0.957
+0.031
+Champ [69]
+27.27
+0.968
+0.021
+MimicMotion [66]
+26.12
+0.970
+0.029
+StableAnimator [58]
+26.58
+0.968
+0.025
+AniGS [45]
+28.27
+0.969
+0.027
+LHM [44]
+26.22
+0.967
+0.025
+Ours wo. pose-driven deform.
+28.02
+0.972
+0.025
+PERSONA (Ours)
+29.20
+0.974
+0.021
+Table 3. Comparisons of previous works on the test set of Neu-
+Man [19].
+diffusion-based approaches [58, 66, 69], PERSONA bet-
+ter preserves identity, accurately maintaining facial features
+and clothing patterns through balanced sampling. Tab.2 and
+Tab.3 show that PERSONA outperforms all single-image-
+based methods, demonstrating the necessity and effective-
+ness of pose-driven deformations. All comparisons exclude
+background pixels and use official implementations.
+8. Conclusion
+We introduce PERSONA, a framework that creates person-
+alized 3D avatars with pose-driven deformations from a sin-
+gle image using diffusion-generated training videos.
+By
+combining 3D- and diffusion-based approaches, PERSONA
+ensures identity preservation and natural deformations. To
+address authenticity loss and rendering artifacts, we pro-
+pose balanced sampling and geometry-weighted optimiza-
+tion. Our results show that PERSONA outperforms exist-
+ing methods, providing a scalable solution for high-quality
+avatar creation.
+
+
+Supplementary Material for
+“PERSONA: Personalized Whole-Body 3D
+Avatar
+with Pose-Driven Deformations from a Single
+Image”
+In this supplementary material, we provide more exper-
+iments, discussions, and other details that could not be in-
+cluded in the main text due to the lack of pages. The con-
+tents are summarized below:
+• Sec. S1: More comparisons to state-of-the-art methods.
+• Sec. S2: Rendered avatars in the canonical space.
+• Sec. S3: More ablation studies.
+• Sec. S4: Limitations of the proposed PERSONA.
+S1. Comparisons to state-of-the-art methods
+Running time comparison. Tab. S1 further highlights that
+PERSONA achieves real-time rendering speeds, whereas
+existing diffusion-based methods suffer from slow infer-
+ence.
+All running times were measured under the same
+hardware setup using a single RTX A6000.
+User study. Fig.S1 presents results from our user study,
+where participants strongly preferred our approach over ex-
+isting diffusion-based methods. We conducted the study
+with 40 participants, each answering 10 questions in which
+they selected the image that best matched the input sin-
+gle image. The compared methods included Champ [69],
+MimicMotion [66], StableAnimator [58], and our PER-
+SONA. Fig. S2 provides an example from the study, with
+(a), (b), (c), and (d) corresponding to MimicMotion [66],
+Champ [69], our PERSONA, and StableAnimator [58], re-
+spectively.
+Qualitative comparisons.
+Fig.S3 compares our PER-
+SONA with 3D-based state-of-the-art methods[44, 45].
+PERSONA achieves more accurate pose-driven deforma-
+tions with more stable and consistent renderings. Fig.S4
+compares PERSONA with diffusion-based methods[58, 66,
+69], where our method better preserves the subject’s identity
+from the input image, resulting in more authentic avatars
+while still accurately modeling pose-driven deformations.
+Methods
+Frames per second
+Champ [69]
+0.88
+MimicMotion [66]
+0.36
+StableAnimator [58]
+0.24
+PERSONA (Ours)
+25.56
+Table S1. Frames per second comparisons of various human ani-
+mation methods.
+Figure S1. User preference study results from 40 participants.
+Reference image
+(a)
+(b)
+(c)
+(d)
+2. Which option—(a), (b), (c), or (d)—most closely matches the leftmost 
+reference image, considering all human features, including the face?
+Figure S2. An example of our user study.
+
+
+(a) Input image
+(b) AniGS
+(c) LHM
+(d) PERSONA (Ours)
+Figure S3. Comparison of state-of-the-art 3D-based methods [44, 45] and our PERSONA.

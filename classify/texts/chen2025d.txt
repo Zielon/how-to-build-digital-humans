@@ -1,0 +1,1031 @@
+Title: D\^ 3-Human: Dynamic Disentangled Digital Human from Monocular Video
+
+D3-Human: Dynamic Disentangled Digital Human from Monocular Video
+Honghu Chen
+Bo Peng
+Yunfan Tao
+Juyong Zhang*
+University of Science and Technology of China
+{honghuc@mail., ustcpbb@mail., taoyf@mail., juyong@}ustc.edu.cn
+Figure 1. D3-Human can (b) reconstruct disentangled clothing and body from (a) input video, enabling (c) animation and (d) clothing
+transfer after reconstruction. Project page: https://ustc3dv.github.io/D3Human/.
+Abstract
+We introduce D3-Human, a method for reconstructing
+Dynamic Disentangled Digital Human geometry from
+monocular videos.
+Past monocular video human recon-
+struction primarily focuses on reconstructing undecoupled
+clothed human bodies or only reconstructing clothing, mak-
+ing it difficult to apply directly in applications such as an-
+imation production. The challenge in reconstructing de-
+coupled clothing and body lies in the occlusion caused by
+clothing over the body. To this end, the details of the vis-
+ible area and the plausibility of the invisible area must be
+ensured during the reconstruction process. Our proposed
+method combines explicit and implicit representations to
+model the decoupled clothed human body, leveraging the
+robustness of explicit representations and the flexibility of
+implicit representations.
+Specifically, we reconstruct the
+visible region as SDF and propose a novel human mani-
+fold signed distance field (hmSDF) to segment the visible
+clothing and visible body, and then merge the visible and
+invisible body. Extensive experimental results demonstrate
+that, compared with existing reconstruction schemes, D3-
+Human can achieve high-quality decoupled reconstruction
+of the human body wearing different clothing, and can be
+directly applied to clothing transfer and animation.
+1. Introduction
+Clothed human body reconstruction has long been a re-
+search focus in the fields of graphics and computer vision,
+and has a wide range of applications in many fields such
+as virtual reality, augmented reality, holographic commu-
+nication, film production, and game development. Com-
+pared to film-level reconstructions requiring numerous cam-
+eras and artists for modeling, reconstructing high-quality
+clothed human bodies from monocular videos holds more
+practical value for general users. In scenarios such as telep-
+resence and virtual try-ons, the 3D avatars used should be
+easily accessible, visually realistic, and easy to edit, in-
+cluding modifications to clothing and posture. Therefore,
+how to reconstruct high-fidelity, decoupled representations
+of clothed human bodies using monocular video remains a
+long-standing research problem. Through decoupled recon-
+struction, clothing can be separated from the human body,
+enabling efficient adjustment and editing of different cloth-
+ing styles, postures, and body shapes. This decoupling not
+only enhances the flexibility and practicality of 3D recon-
+struction, but also improves the realism of detailed features,
+providing greater potential for personalization and dynamic
+interaction of virtual characters.
+We aim to develop a method to decouple and reconstruct
+the clothed human body from monocular videos. However,
+arXiv:2501.01589v1  [cs.CV]  3 Jan 2025
+
+
+this is a very challenging task because 1) monocular videos
+only provide single-view 2D image information and lack
+direct 3D depth perception, 2) real captured videos contain
+various clothing styles, irregular textures, and complex hu-
+man poses, 3) body parts occluded by clothes are not vis-
+ible in the input video, which also poses a great challenge
+to reconstruction. Existing methods can be divided into ex-
+plicit expression methods and implicit expression methods.
+Among them, explicit expression methods usually rely on
+pre-acquired templates. Some methods [15, 16, 56] use
+scanners, while other methods [2, 28, 41] rely on paramet-
+ric models [19, 34], and the reconstruction quality mainly
+depends on the representation ability of the model. Implicit
+representation methods [9, 14, 20, 22, 42] use NeRF [37]
+or SDF [40] to model the clothed human body, but they usu-
+ally produce an inseparable whole body or exhibit average
+geometric quality.
+We propose a decoupled human body reconstruction
+scheme, named D3-Human (Dynamically Disentangled
+Digital Human), which combines explicit and implicit rep-
+resentations to address the main challenges of template gen-
+eration and the dynamic deformations. In decoupled human
+body reconstruction, generating clothing templates is par-
+ticularly challenging. Traditional methods, such as those
+based on parametric models
+[28] or feature lines
+[45],
+rely heavily on priors, limiting the types of clothing they
+can represent. Although implicit unsigned distance field
+(UDF) representations [5, 13, 31, 33] provide some solu-
+tions, they perform poorly when single-view supervision is
+limited (see experiments 4.3). For the visible region, in-
+spired by GShell [32] and DMTet [52], we define an opti-
+mizable human manifold signed distance field (hmSDF) on
+the non-decoupled clothed human surface to separate cloth-
+ing from the body. To the best of our knowledge, this is
+the first method that can reconstruct clothing geometry from
+monocular dynamic human videos without any 3D clothing
+priors, using only easily obtainable 2D human parsing seg-
+mentation [46]. For the invisible regions of the body, we
+adopt the explicit representation of the corresponding re-
+gions of the SMPL [34] model to ensure the plausibility
+of the body shape and seamless integration with the visi-
+ble region. This approach enables detailed and decoupled
+reconstruction of clothed human bodies.
+We reconstruct different human bodies wearing various
+outfits based on monocular videos, to demonstrate the ca-
+pabilities of our method. Compared to existing methods
+that require over a day [20, 45, 54] for reconstruction,
+D3-Human reconstructs a decoupled template of clothing
+and body in a much shorter time (about 20 minutes) and
+completes the full sequence within several hours, achiev-
+ing competitive reconstruction accuracy. Furthermore, we
+demonstrate examples of applications in animation produc-
+tion and clothing transfer to showcase the wide-ranging ap-
+plicability of the decoupled representation. In summary, the
+contributions of this paper include the following aspects:
+• A hybrid reconstruction method combining explicit and
+implicit representations is proposed, which is capable of
+reconstructing high-quality, decoupled clothing and hu-
+man body from monocular video.
+• For the clothed human body in visible areas, we introduce
+a novel representation, hmSDF, which can accurately seg-
+ment 3D clothing and body through easily obtainable 2D
+human parsing, without any 3D clothing priors.
+• The reconstructed decoupled clothing and human body
+can be easily applied to animation production and cloth-
+ing transfer applications, offering realistic and detailed
+geometric quality.
+2. Related Work
+Decoupled Representation of Clothed Human Body.
+Most methods reconstruct the clothed human body geom-
+etry as a whole, including representations like mesh [2, 3],
+point clouds [36, 57], SDF [6, 20, 39], and occupancy [48,
+49]. These reconstruction methods maintain good detail in
+visible areas but are inconvenient for applications like an-
+imation and clothing transfer. A more effective approach
+is to independently represent clothing and the body, model-
+ing them as decoupled, layered representations. GALA [27]
+and ClothCap [44] utilize 3D segmentation to obtain sep-
+arate clothing and body meshes from 3D and 4D scans,
+respectively, a method constrained by the high cost of ac-
+quiring scan data. Neural-ABC [5] constructs a decoupled
+human body and clothing parametric model based on UDF
+(unsigned distance function) representation, but its recon-
+struction of details is limited. SCARF [9] reconstructs a
+mixed representation of a clothed human body from video
+sequences, but the NeRF [37] representation of clothing is
+limited in geometric effect. Some other methods focus on
+reconstructing clothing [7, 8, 19, 47, 58], which allows de-
+coupling by using SMPL [34] as the underlying body; how-
+ever, the body often lacks detail in these approaches.
+Reconstruction from a Single-View Image.
+Tradi-
+tional methods reconstruct by fitting a parametric human
+body model to a single-view image through optimization or
+regression within a parametric space [24, 29, 30]. The ef-
+fectiveness of the fit largely depends on the representational
+capacity of the parametric model. Models like SMPL [34]
+and SCAPE [4] can reconstruct the underlying body without
+clothes. Some approaches [7, 8, 19] can reconstruct cloth-
+ing and use the SMPL model to represent the underlying
+body, achieving a complete reconstruction of the clothed
+human body. There are also models that simultaneously
+represent both clothing and the underlying body, includ-
+ing methods that model both uniformly [6, 39] and hierar-
+chically [5]. Parametric-based reconstruction methods can
+easily produce plausible clothed human figures but gener-
+
+
+ally lack detail. Methods that target single images can re-
+construct videos frame by frame; however, they often fail
+to ensure inter-frame consistency, such as lacking frame-to-
+frame coherence, or may lead to unsmooth results.
+Reconstruction from Monocular Video. 3D clothed
+human body reconstruction from video inputs typically re-
+lies on motion and deformation cues to recover deformable
+3D surfaces.
+Early works acquired actor-specific rigged
+templates [15, 16, 56] or used a parametric model as a
+prior [2].
+Many efforts [9, 22, 41–43, 54], based on
+NeRF [37] and 3DGS [25], reconstruct animatable human
+avatars from dynamic videos, primarily focusing on render-
+ing effects, but the quality of geometric reconstruction is not
+ideal.
+[14, 20, 53] reconstructed high-quality clothed hu-
+man body geometries, but the clothing and underlying body
+are not separable. DGarment [28] and REC-MV [45] recon-
+structed dynamic clothing, excluding the body. Our method
+can reconstruct decoupled clothing and the underlying body
+while ensuring geometric quality.
+3. Method
+Given a monocular video containing N frames, which de-
+picts a person in motion wearing clothing, as {It | t =
+1, . . . , N}. D3-Human aims to reconstruct high-fidelity, de-
+coupled, and spatio-temporally continuous clothing and un-
+derlying body meshes {Gt | t = 1, . . . , N} without us-
+ing 3D clothing template priors. With the goal of achiev-
+ing maximum realism, the observed areas captured by the
+video, such as the exposed head and clothing, should be re-
+constructed with great detail; areas obscured, such as body
+parts covered by clothing or self-occluded by the body,
+should be reconstructed as plausibly as possible.
+To achieve these objectives, We combine the flexibility
+of implicit representations with the robustness and rapid
+rendering capabilities of explicit representations to achieve
+the best results. Notably, the surface of a watertight clothed
+human can be segmented into clothing and body parts by
+closed curves. Therefore, we first utilize image and human
+parsing segmentation sequence information to reconstruct
+the separated clothing and body meshes in the visible areas.
+Then, with the help of SMPL [34], we complete the invis-
+ible body areas and generate decoupled clothing and body
+templates. Finally, normal information is additionally used
+to jointly optimize the clothing and body to enhance details.
+Figure 2 illustrates the overall pipeline of our approach.
+3.1. HmSDF Representation
+In this section, we define the clothing template Gc and the
+body template Gb in canonical space. Considering that the
+body parts obscured by clothing are invisible in the video,
+we further divide the clothing and body into the visible body
+Sb, the invisible body Ub, and the visible clothing Sc. The
+visible body Sb is obtained via segmentation after recon-
+structing the whole clothed body, while the invisible body
+Mb is completed using the SMPL model. The visible and
+invisible bodies are merged to form the body template Gb.
+The visible clothing and body are represented by a hy-
+brid representations[52] that combines a tetrahedral mesh
+grid (VT , T) and a neural implicit signed distance function
+sη(x), where x ∈VT and sη(x) is a neural network with
+learnable weights η. The surface of Sb ∪Sc can be repre-
+sented by Sη = {x ∈R3 | sη(x; η) = 0}. The mesh can be
+extracted using methods following GShell [32].
+Since the reconstructed watertight clothed human body
+Sη = Sb ∪Sc, we define a continuous and differentiable
+mapping ν : Sη →R on Sη to characterize whether a point
+belongs to Sb or Sc:
+ν(x) =
+
+
+
+
+
+< 0,
+∀x ∈Interior(Sb),
+= 0,
+∀x ∈λ,
+> 0,
+∀x ∈Interior(Sc),
+where λ represents the boundary line between Sb and Sc.
+We denote ν as the human manifold signed distance fields,
+termed hmSDF. This differs from the definition of mSDF in
+GShell, which only considers points located inside the open
+surface. In contrast, our approach considers points on both
+sides of the hmSDF (the visible clothing and body).
+3.2. Region Aggregation.
+Ideally, an optimized hmSDF function ν should accurately
+segment the visible clothing Sc and body Sb. However, due
+to inaccuracies in the human parsing mask of each frame
+and inconsistencies between frames, inaccuracies may oc-
+cur in the boundary line λ , as illustrated in Figure 3. When
+inaccuracies occur in the neighborhood of ν(x) = 0, it
+causes the segmented regions S
+′
+b and S
+′
+c to contain holes
+and creates undesired segmented regions S′′
+b and S′′
+c . The
+small fragments contained in S′′
+b and S′′
+c are inevitably dis-
+connected from other subgraphs.
+We obtain the number of connected components for each
+category from the input image. Since the vertices of incor-
+rectly classified connected components are usually fewer,
+the category of each subgraph, S′
+b, S′
+c, S′′
+b , and S′′
+c , can be
+determined by calculating the number of vertices in each
+connected component using the depth-first search method.
+The correct Sb and Sc can be obtained by aggregation as
+follows:
+Sb = merge(S′
+b, S′′
+c ),
+(1)
+Sc = merge(S′
+c, S′′
+b ).
+(2)
+We demonstrate the process of aggregation of Sb and Sc
+in Algorithm 1.
+3.3. Deformation Fields
+Similar to previous methods [20, 45], we use the SMPL-
+based Linear Blend Skinning (LBS) method to model large
+
+
+Figure 2. Overview of D3-Human. The optimization process is divided into two steps: template generation and detailed deformation. The
+object is initialized as a DMTet [52] representation, and is optimized to form a complete clothed human. An optimizable HmSDF function
+separates the clothing and body regions, with missing parts filled by SMPL. After generating the disentangled template, we use two MLPs
+to model detailed deformations for each frame of the body and clothing meshes separately. Finally, the meshes are transformed to the
+observed space using a forward LBS deformation, supervised by images, normal maps, and parsing masks with a differentiable renderer.
+Correct Segmentation
+Inaccurate Segmentation
+Figure 3. Schematic of region aggregation. For the correct seg-
+mentation results, Sb and Sc correctly segment the body and the
+cloth. For inaccurate segmentation results, S
+′′
+c should merge with
+S
+′
+b, and S
+′′
+b should merge with S
+′
+c.
+deformations based on skeletal movements, and employ
+non-rigid deformation fields to model subtle deformations.
+However, a key difference is that clothing and body fol-
+low different motion rules. Therefore, we use two separate
+non-rigid deformation fields to model the non-rigid defor-
+mations of clothing and body respectively.
+Non-rigid Deformation. Due to its limited degrees of
+freedom, LBS deformation can only model large deforma-
+tions and is unable to represent smaller details, such as the
+folds of clothing. Therefore, for detail deformation, we use
+Algorithm 1 Region Aggregation Algorithm
+Input: The initialization segmentation S0
+b and S0
+c directly
+obtained from λ; The correct number of subgraphs for Sb
+and Sc are α1 and α2, respectively.
+Calculate all connected subsets Qb of S0
+b ;
+Calculate all connected subsets Qc of S0
+c;
+Sort Qb based on the number of vertices;
+Sort Qc based on the number of vertices;
+Extract S′
+b and S′′
+b based on α1 from Qb;
+Extract S′
+c and S′′
+c based on α2 from Qc;
+Obtain Sb by Equation 1 and filter out duplicate points.
+Obtain Sc by Equation 2 and filter out duplicate points.
+return Sb and Sc without holes and fragments.
+two MLPs to model the non-rigid deformations of clothing
+and the human body. D is the MLP for non-rigid deforma-
+tions:
+xt = D(x, ht, E(x); ϕ),
+where x is the point in canonical space, xt is the point after
+deformation in frame t, ht is the latent code corresponding
+to frame t, and ϕ are the network parameters that need to
+be optimized. For clothing and the body, the networks and
+
+
+parameters are independently separate.
+LBS Deformation. Linear Blend Skinning (LBS) defor-
+mation models the transformation from canonical space to
+observed space based on skeletal deformation. Given the
+SMPL shape parameters β and pose parameters θt, the LBS
+deformation W can be written as:
+G
+′(β, θt) = W(D(x), β, θt, W(x)),
+where D(x) represents the non-rigid deformation of cloth-
+ing and body, and W(x) is the method for computing the
+skinning weights of x based on SMPL. We refer to some
+clothing simulation methods [11, 51] to calculate the skin-
+ning weights. For both clothing and body, we use a shared
+skinning deformation model.
+3.4. Occlusion-Aware Differentiable Rendering
+Differentiable rendering is used to render the geometry in
+the observed space to 2D, which allows for the calculation
+of loss with 2D supervision. Following some differentiable
+rendering methods [17, 32, 38], we utilize a differentiable
+rasterization approach to render the mesh. Compared to
+volumetric rendering methods, rasterization-based render-
+ing enables differentiable rendering for explicit meshes and
+offers better time and memory efficiency.
+For clothed bodies, occlusion may occur between the
+body and clothing, which can lead to occlusion when ren-
+dering the visible areas of the clothing from the same view-
+point. Therefore, only rendering the clothing mesh to obtain
+a clothing mask may produce results inconsistent with the
+supervision signals, as illustrated in Figure 4. To solve this
+problem, we label the faces of both the clothing and body,
+rendering them simultaneously. We then use rasterization
+to generate occlusion-aware 2D labels, where the effective
+area of the body label is the body mask Mb, and the effec-
+tive area of the clothing label is the clothing mask Mc.
+Figure 4. Occlusion display of the mask. From left to right: the
+color image of the captured clothed human, the complete clothed
+body mask obtained from SAM2 [46], the clothing mask obtained
+from SAM2, the mask obtained by rendering only the clothing
+mesh, and the mask of the effective clothing area after rendering
+the complete clothed body mesh.
+3.5. Training
+3.5.1. Training Strategy
+Our method consists of two stages: template generation and
+detail deformation optimization. In the template generation
+stage, we leverage hmSDF directly learn the clothing tem-
+plate from mask supervision, without relying on 3D cloth-
+ing priors.
+In this stage, deformation is achieved solely
+through LBS, and parameters are optimized through RGB
+Loss, Mask Loss, Eikonal Loss, Encourage Hole Opening,
+and Regularize Holes. In the detail deformation stage, we
+introduce an additional Perceptual Normal Loss as a re-
+construction term, while regularization is applied through
+Collision Penalty and Geometry Regularization to optimize
+non-rigid deformation.
+3.5.2. Reconstruction Loss
+We minimize the difference between the rendered result and
+the input image through the following objective:
+RGB Loss. The L1 is calculated between the rendered
+RGB image and the supervision image. We calculate for all
+valid pixels P as following,
+Lcolor =
+1
+|P|
+X
+p∈P
+
+1b(p) · Lmse(Ib, ˆIb)
++1c(p) · Lmse(Ic, ˆIc)
+
+,
+(3)
+where 1(p) indicates the category to which the current pixel
+point p belongs. When 1b(p) is true, pixel p belongs to the
+body; when 1c(p) is true, pixel p belongs to the cloth. Both
+1b(p) and 1c(p) can be true simultaneously, or only one
+may be true, depending on the mask used for supervision.
+Ib is the rendered RGB image of the body, Ic is the rendered
+RGB image of the clothing, ˆIb is the ground truth RGB im-
+age of the body, and ˆIc is the ground truth RGB image of
+the clothing.
+Mask Loss. Although irrelevant backgrounds have al-
+ready been removed in the RGB image supervision, the in-
+dependently added mask loss can further constrain the ac-
+curacy of the edges, as,
+Lmask =
+1
+|P|
+X
+p∈P
+
+1b(p) · Lmse(Mb, ˆ
+Mb)
++ 1c(p) · Lmse(Mc, ˆ
+Mc)
+
+,
+(4)
+where ˆ
+Mb is the ground truth mask of the body, and ˆ
+Mc is
+the ground truth mask of the clothing.
+Perceptual Normal Loss. We obtain the normals of the
+image through Sapiens [26] as ground truth, to leverage the
+prior information trained on large-scale human body data.
+Rendered normals and supervision normals need to be nor-
+malized and aligned to the observation space. We use the
+
+
+perceptual loss [18, 23] to further enhance the effective-
+ness of the rendered normals.
+Lper =
+X
+i
+∥ϕi(N) −ϕi( ˆ
+N)∥2,
+(5)
+where N is the rendered normal, and ˆ
+N is the ground truth
+normal, and ϕi(∗) denotes the activation of the i-th layer in
+the MobileNetV2 network [50].
+3.5.3. Regularization Term
+Eikonal Loss. To ensure a reasonable signed distance field,
+we add an Eikonal term [12] to the gradient g of the SDF
+value at each tetrahedral vertex when optimizing the SDF:
+Leik =
+X
+u∈VT
+(∥gu∥2 −1)2.
+(6)
+Encourage Hole Opening. With limited viewpoints, it
+is necessary to identify the opening positions using only im-
+age information. We encourage hmSDF openings by adopt-
+ing a regularization term similar with [32] as,
+Lhole =
+X
+u:ν(u)≥0
+Lhuber(ν(u)).
+(7)
+Regularize Holes. To avoid excessively large openings,
+we impose constraints on all points that are visible from the
+current viewpoint as
+Lreg-hole =
+X
+u:ν(u)=0
+Lhuber(ν(u) −ϵ1),
+(8)
+where ϵ1 is a positive scalar.
+Collision Penalty. This ensures that the garment does
+not penetrate the underlying body, inspired by [11, 51]. We
+implement it as
+Lcollision =
+X
+vertices
+kcollision max(ϵ2 −d(x), 0)3.
+(9)
+In particular, when the distance between the two layers is
+too close, rendering can produce computational errors, so
+the value of ϵ2 is set to 0.005.
+Geometry Regularization. To ensure that the optimiza-
+tion is constrained, we encourage generating smooth de-
+formed results. Inspired by Worchel et al. [55], we add nor-
+mal consistency term Ln consist and Laplacian term Llaplacian.
+4. Experiments
+We conduct qualitative and quantitative experiments to
+demonstrate the effectiveness of D3-Human. For qualita-
+tive experiments, we use subjects from PeopleSnapshot [2]
+and SelfRecon [20]. For quantitative experiments, we use
+the synthetic dataset constructed by SelfRecon.
+It pro-
+vides accurate ground truth for the meshes. Additionally,
+we perform ablation studies on the discussion of UDF and
+hmSDF, as well as the effectiveness of the perceptual nor-
+mal loss, and demonstrate applications in clothing transfer
+and physics-based animation production.
+4.1. Quantitative Evaluation.
+Since there is no public real dataset available for evaluat-
+ing the geometric quality of decoupled clothed human re-
+construction from monocular video, we use four synthetic
+datasets provided by SelfRecon [20], each containing ge-
+ometric ground truth and rendered videos. As these pro-
+cessed data are not open source from REC-MV [45], we
+manually labeled the split points and used the official tools
+to generate the feature lines. We also employ CLO3D [1] to
+separate clothing and body from the source data for quan-
+titative evaluation. We report the Chamfer Distance (CD)
+for clothing, body, and the complete clothed human of each
+method’s results. For methods that do not support decou-
+pling, we only report the CD for the complete clothed hu-
+man. We present the visualization of the quantitative com-
+parison in Figure 5 and report the metrics in Table 1. The
+results show that our method achieves the best results in the
+metrics, provides detailed and accurate visual effects, and is
+capable of correctly decoupling the human body and cloth-
+ing.
+4.2. Qualitative Evaluation.
+We compare our method to methods capable of reconstruct-
+ing clothed human bodies from image sequences, using sev-
+eral sequences from the PeopleSnapshot [2] dataset and one
+sequence from SelfRecon [20] to include skirted clothing
+categories. For all methods, we extract consecutive frames
+from a complete rotation and present the comparison results
+for the first frame in Figure 8. The additional sequential
+results and discussion are presented in the supplementary
+materials.
+As we can see, REC-MV [45] can accurately recon-
+struct clothing but lacks the level of detail achieved by our
+method. Due to the lack of further optimization for the body
+in REC-MV, directly using SMPL results in mesh penetra-
+tion. BCNet [19] reconstructs clothing that can directly use
+SMPL as the underlying body; however, it only supports
+reconstruction with consistent clothing categories and lacks
+almost all detail. DELTA [10] enhances head details based
+on SCARF [9], and allows direct decoupled reconstruction
+of clothing and body. However, because it uses a NeRF [37]
+representation for clothing, it cannot extract smooth geom-
+etry, leading to numerous artifacts in the clothing geometry.
+SelfRecon [20] uses the SDF representation to reconstruct
+clothed human bodies with correct shapes but lacking de-
+tail. GoMAvatar [54] employs a Gaussians-on-Mesh rep-
+resentation, resulting in relatively coarse meshes. Neither
+method can achieve decoupling of clothing from the body.
+
+
+Reference Images
+Male2
+Male1
+DELTA
+GT
+Ours REC-MV w/ SMPL REC-MV BCNet
+DELTA
+SelfRecon
+GoMAvatar
+Figure 5. Quantitative comparison of the proposed method with REC-MV [45], BCNet [19], DELTA [10], SelfRecon [20], and GoMA-
+vatar [54]. We use purple to visualize clothing that can be decoupled from the body. For REC-MV and BCNet, SMPL [34] was added as
+the body to show the complete reconstruction of the clothed human.
+Table 1. Quantitative comparison across four synthetic sequences. We report the Chamfer Distance (CD) between the reconstructed
+surfaces (cm) and ground truth. For REC-MV, BCNet, DELTA and our method, we report the CD for clothing, body, and the full clothed
+human body, respectively. For SelfRecon and GoMavatar, we only report the CD for the full clothed human body. The unit is e−3. We
+highlight the best value and the second best value. We show Male1 and Male2 in Figure 5, and Female1 and Female3 in the supplementary
+materials.
+Method
+Female1
+Female3
+Male1
+Male2
+Clothing
+Body
+All
+Clothing
+Body
+All
+Clothing
+Body
+All
+Clothing
+Body
+All
+REC-MV [45]
+1.416
+1.789
+1.148
+0.930
+2.082
+1.461
+0.614
+1.945
+0.619
+0.693
+1.201
+0.616
+BCNet [19]
+1.685
+10.252
+5.561
+4.571
+10.112
+5.681
+2.589
+6.236
+4.802
+2.007
+4.109
+2.853
+DELTA [10]
+2.177
+0.973
+1.388
+2.173
+0.820
+0.915
+1.327
+1.498
+1.702
+1.884
+1.073
+1.132
+SelfRecon [20]
+-
+-
+3.420
+-
+-
+2.249
+-
+-
+1.310
+-
+-
+1.454
+GoMavatar [54]
+-
+-
+7.319
+-
+-
+5.058
+-
+-
+2.382
+-
+-
+3.163
+Ours
+1.065
+0.966
+0.959
+1.109
+0.742
+0.636
+0.478
+0.321
+0.270
+0.355
+0.325
+0.279
+Implicit UDF
+HmSDF
+Figure 6. Ablation study on clothing reconstruction using implicit
+UDF [33] with deformation field [21] and hmSDF, applied to the
+male-3-casual data from the PeopleSnapshot [2] dataset.
+Compared to these methods, our approach successfully de-
+couples clothing from the body while maintaining a richer
+level of detail.
+4.3. Ablation Study.
+Implicit UDF or hmSDF? Several articles [5, 8, 32, 33]
+have demonstrated results by using the implicit Unsigned
+Distance Field (UDF) to represent clothing with undefined
+Reference Input
+COS
+MSE
+Perception
+Figure 7. Ablation study on normal loss. The reference input in-
+cludes normals and images. The top row shows the rendered nor-
+mals, and the bottom row shows the rendered meshes.
+categories, leveraging dense supervision from meshes or
+multi-view images. However, we found that UDF strug-
+gles to produce robust results due to the limited supervision
+provided by single-view dynamic human reconstruction, as
+shown in Figure 6. The UDF reconstruction resulted in nu-
+merous small holes, a large hole in the abdominal area, and
+failed to create an opening at the cuffs. In contrast, hmSDF
+achieved an accurate garment shape.
+Although UDF uses a network to model shapes and pos-
+
+
+Reference Input
+Ours
+REC-MV w/ SMPL
+REC-MV
+BCNet
+DELTA
+SelfRecon
+GoMAvatar
+Figure 8. Qualitative comparison. Comparison of our method with other methods on real image sequences.
+Reconstruction
+Animation results
+clothing
+Figure 9. Decoupled reconstruction applications. Reconstructed
+clothing and body can be animated using physical simulation
+methods. Additionally, clothing can be easily swapped to create
+animations with different outfits.
+sesses strong representational capabilities, it still has cer-
+tain problems: (1) UDF is non-differentiable at the 0-level
+set.
+Although several solutions [13, 31, 33] have been
+proposed for mesh extraction and multi-view reconstruc-
+tion problems, UDF remains sensitive near the 0-level set,
+and areas with poor supervision signals may lead to recon-
+struction failures. (2) The ability to extract surfaces from
+implicit UDF is limited. Surface extraction from implicit
+UDF [13] is limited to manifold surfaces [35], and regions
+that are non-manifold in the implicit representation may fail
+to be extracted. (3) The strong representational capability of
+UDF reduces its noise resistance; for instance, the large hole
+in the abdominal area is caused by occlusion in the clothing
+mask. An example of occlusion is shown in Figure 4.
+Perceptual Normal Loss. We attempt to remove the
+normal consistency loss and replace it with mean squared
+error and angular error. While the normal consistency loss
+focuses on feature consistency and can produce perceptu-
+ally consistent results, the mean squared error and angu-
+lar error focus on pointwise features, which may result in
+less smooth results. We show the normal rendering results
+in Figure 7. Calculating the cosine or MSE loss between
+the rendered normals and the reference normals results in
+rough and noisy reconstructions. Using the perceptual nor-
+mal loss, on the other hand, produces smoother results that
+preserve the features and details of the reference image.
+4.4. Applications.
+We demonstrate the clothing transfer after decoupled recon-
+struction and the application of physics-based animation.
+The results are shown in Figure 9.
+Clothing Transfer. Since our model is capable of re-
+
+
+constructing decoupled clothing and human bodies, cloth-
+ing transfer can be achieved by separately reconstructing
+two clothed human figures and exchanging their garments.
+Physics-based Animation. The reconstructed clothing
+and body geometry can be used with physics-based simula-
+tion methods to create more realistic animations. Compared
+to non-decoupled reconstructions [20], which make it diffi-
+cult to establish motion between clothing and body, we use
+HOOD [11] to create more authentic clothing details.
+5. Conclusion
+We introduced D3-Human,
+a method that could re-
+construct decoupled clothing and body directly from a
+short monocular video.
+By leveraging the robustness
+of explicit representations and the flexibility of implicit
+representations,
+D3-Human ensured the reconstruction
+of detailed features while maintaining the plausibility
+of body parts obscured by clothing.
+To achieve the
+separation of 3D clothing from the body, we proposed
+a novel representation called hmSDF defined on human
+body, which was able to obtain 3D segmentation using
+only 2D human parsing, without any 3D clothing priors.
+Thanks to this novel approach, we are able to achieve
+competitive reconstruction accuracy with much less com-
+putation time while ensuring the decoupling of clothing
+and body.
+The decoupled reconstruction results can be
+easily used for detailed animation production and clothing
+transfer.
+Our D3-Human can create high-quality and
+easily editable human geometry using only one camera,
+providing a technical foundation for the widespread
+adoption of many applications,
+such as highly ed-
+itable digital avatar creation, holographic communication.
+References
+[1] Clo3d, 2024. Accessed: 2024-11. 6
+[2] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Video based reconstruc-
+tion of 3d people models. In IEEE Conference on Computer
+Vision and Pattern Recognition, 2018. 2, 3, 6, 7
+[3] Thiemo Alldieck, Gerard Pons-Moll, Christian Theobalt,
+and Marcus Magnor. Tex2shape: Detailed full human body
+geometry from a single image. International Conference on
+Computer Vision, 2019. 2
+[4] Dragomir Anguelov, Praveen Srinivasan, Daphne Koller, Se-
+bastian Thrun, Jim Rodgers, and James Davis. Scape: shape
+completion and animation of people. ACM Transactions on
+Graphics (TOG), 24:408–416, 2005. 2
+[5] Honghu Chen, Yuxin Yao, and Juyong Zhang. Neural-abc:
+Neural parametric models for articulated body with clothes.
+IEEE Transactions on Visualization and Computer Graphics,
+2024. 2, 7
+[6] Xu Chen, Tianjian Jiang, Jie Song, Jinlong Yang, Michael J
+Black, Andreas Geiger, and Otmar Hilliges. gdna: Towards
+generative detailed neural avatars. In IEEE Conf. on Com-
+puter Vision and Pattern Recognition (CVPR), 2022. 2
+[7] Enric Corona, Albert Pumarola, Guillem Aleny`a, Ger-
+ard Pons-Moll, and Francesc Moreno-Noguer.
+SMPLicit:
+Topology-aware generative model for clothed people.
+In
+CVPR, 2021. 2
+[8] Luca De Luigi, Ren Li, Benoit Guillard, Mathieu Salzmann,
+and Pascal Fua. DrapeNet: Garment Generation and Self-
+Supervised Draping. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, 2023.
+2, 7
+[9] Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black,
+and Timo Bolkart.
+Capturing and animation of body and
+clothing from monocular video. In SIGGRAPH Asia 2022
+Conference Papers, 2022. 2, 3, 6
+[10] Yao Feng, Weiyang Liu, Timo Bolkart, Jinlong Yang, Marc
+Pollefeys, and Michael J. Black.
+Learning disentangled
+avatars with hybrid 3d representations. arXiv, 2023. 6, 7
+[11] Artur Grigorev, Bernhard Thomaszewski, Michael J. Black,
+and Otmar Hilliges. HOOD: Hierarchical graphs for gener-
+alized modelling of clothing dynamics. 2023. 5, 6, 9
+[12] Amos Gropp, Lior Yariv, Niv Haim, Matan Atzmon, and
+Yaron Lipman. Implicit geometric regularization for learning
+shapes. In Proceedings of Machine Learning and Systems
+2020, pages 3569–3579. 2020. 6
+[13] Benoit Guillard, Federico Stella, and Pascal Fua. Meshudf:
+Fast and differentiable meshing of unsigned distance field
+networks.
+In European Conference on Computer Vision,
+2022. 2, 8
+[14] Chen Guo, Tianjian Jiang, Xu Chen, Jie Song, and Otmar
+Hilliges. Vid2avatar: 3d avatar reconstruction from videos in
+the wild via self-supervised scene decomposition. In Com-
+puter Vision and Pattern Recognition (CVPR), 2023. 2, 3
+[15] Marc Habermann, Weipeng Xu, Michael Zollh¨ofer, Gerard
+Pons-Moll, and Christian Theobalt. Livecap: Real-time hu-
+man performance capture from monocular video. 2019. 2,
+3
+[16] Marc Habermann, Weipeng Xu, Michael Zollhoefer, Ger-
+ard Pons-Moll, and Christian Theobalt. Deepcap: Monoc-
+ular human performance capture using weak supervision. In
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion (CVPR). IEEE, 2020. 2, 3
+[17] Jon Hasselgren, Nikolai Hofmann, and Jacob Munkberg.
+Shape,
+Light,
+and Material Decomposition from Im-
+ages
+using
+Monte
+Carlo
+Rendering
+and
+Denoising.
+arXiv:2206.03380, 2022. 5
+[18] Yang Hong, Bo Peng, Haiyao Xiao, Ligang Liu, and Juyong
+Zhang. Headnerf: A real-time nerf-based parametric head
+model. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), 2022. 6
+[19] Boyi Jiang, Juyong Zhang, Yang Hong, Jinhao Luo, Ligang
+Liu, and Hujun Bao. Bcnet: Learning body and cloth shape
+from a single image. In European Conference on Computer
+Vision (ECCV), pages 18–35. Springer, 2020. 2, 6, 7
+[20] Boyi Jiang, Yang Hong, Hujun Bao, and Juyong Zhang. Sel-
+frecon: Self reconstruction your digital avatar from monocu-
+lar video. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), 2022. 2, 3, 6, 7, 9
+
+
+[21] Tianjian Jiang, Xu Chen, Jie Song, and Otmar Hilliges. In-
+stantavatar: Learning avatars from monocular video in 60
+seconds. 2023. 7
+[22] Wei Jiang, Kwang Moo Yi, Golnoosh Samei, Oncel Tuzel,
+and Anurag Ranjan. Neuman: Neural human radiance field
+from a single video. In Proceedings of the European confer-
+ence on computer vision (ECCV), 2022. 2, 3
+[23] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. Percep-
+tual losses for real-time style transfer and super-resolution.
+In Computer Vision–ECCV 2016: 14th European Confer-
+ence, Amsterdam, The Netherlands, October 11-14, 2016,
+Proceedings, Part II 14, pages 694–711. Springer, 2016. 6
+[24] Angjoo Kanazawa, Michael J Black, David W Jacobs, and
+Jitendra Malik. End-to-end recovery of human shape and
+pose. In CVPR, pages 7122–7131, 2018. 2
+[25] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Transactions on Graphics, 42
+(4), 2023. 3
+[26] Rawal Khirodkar, Timur Bagautdinov, Julieta Martinez, Su
+Zhaoen, Austin James, Peter Selednik, Stuart Anderson, and
+Shunsuke Saito. Sapiens: Foundation for human vision mod-
+els. arXiv preprint arXiv:2408.12569, 2024. 5
+[27] Taeksoo Kim, Byungjun Kim, Shunsuke Saito, and Hanbyul
+Joo. Gala: Generating animatable layered assets from a sin-
+gle scan, 2024. 2
+[28] Xiongzheng Li, Jinsong Zhang, Yu-Kun Lai, Jingyu Yang,
+and Kun Li. High-quality animatable dynamic garment re-
+construction from monocular videos. IEEE Transactions on
+Circuits and Systems for Video Technology, 2023. 2, 3
+[29] Zhihao Li, Jianzhuang Liu, Zhensong Zhang, Songcen Xu,
+and Youliang Yan. Cliff: Carrying location information in
+full frames into human pose and shape estimation. In ECCV,
+2022. 2
+[30] Kevin Lin, Lijuan Wang, and Zicheng Liu. End-to-end hu-
+man pose and mesh reconstruction with transformers.
+In
+CVPR, 2021. 2
+[31] Yu-Tao Liu, Li Wang, Jie Yang, Weikai Chen, Xiaoxu Meng,
+Bo Yang, and Lin Gao. Neudf: Leaning neural unsigned
+distance fields with volume rendering. In Computer Vision
+and Pattern Recognition (CVPR), 2023. 2, 8
+[32] Zhen Liu, Yao Feng, Yuliang Xiu, Weiyang Liu, Liam Paull,
+Michael J. Black, and Bernhard Sch¨olkopf. Ghost on the
+shell: An expressive representation of general 3d shapes.
+2024. 2, 3, 5, 6, 7
+[33] Xiaoxiao Long, Cheng Lin, Lingjie Liu, Yuan Liu, Peng
+Wang, Christian Theobalt, Taku Komura, and Wenping
+Wang.
+Neuraludf: Learning unsigned distance fields for
+multi-view reconstruction of surfaces with arbitrary topolo-
+gies. arXiv preprint arXiv:2211.14173, 2022. 2, 7, 8
+[34] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J Black. Smpl: A skinned multi-
+person linear model. ACM transactions on graphics (TOG),
+34(6):1–16, 2015. 2, 3, 7
+[35] William E Lorensen and Harvey E Cline. Marching cubes:
+A high resolution 3d surface construction algorithm. ACM
+siggraph computer graphics, 21(4):163–169, 1987. 8
+[36] Qianli Ma, Jinlong Yang, Siyu Tang, and Michael J. Black.
+The power of points for modeling humans in clothing. In
+IEEE/CVF International Conference on Computer Vision
+(ICCV), 2021. 2
+[37] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis. In ECCV, 2020. 2, 3, 6
+[38] Jacob Munkberg, Jon Hasselgren, Tianchang Shen, Jun Gao,
+Wenzheng Chen, Alex Evans, Thomas M¨uller, and Sanja Fi-
+dler. Extracting Triangular 3D Models, Materials, and Light-
+ing From Images. In Proceedings of the IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition (CVPR),
+pages 8280–8290, 2022. 5
+[39] Pablo Palafox, Aljaˇz Boˇziˇc, Justus Thies, Matthias Nießner,
+and Angela Dai. Npms: Neural parametric models for 3d
+deformable shapes. In IEEE/CVF International Conference
+on Computer Vision (ICCV), 2021. 2
+[40] Jeong Joon Park, Peter Florence, Julian Straub, Richard
+Newcombe, and Steven Lovegrove. Deepsdf: Learning con-
+tinuous signed distance functions for shape representation.
+In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 165–174, 2019. 2
+[41] P Paudel, A Khanal, A Chhatkuli, D Paudel, and J Tandukar.
+ihuman: Instant animatable digital humans from monocular
+videos. In ECCV, 2024. 2, 3
+[42] Bo Peng, Jun Hu, Jingtao Zhou, Xuan Gao, and Juyong
+Zhang. Intrinsicngp: Intrinsic coordinate based hash encod-
+ing for human nerf. IEEE Transactions on Visualization and
+Computer Graphics, 2023. 2
+[43] Sida Peng, Yuanqing Zhang, Yinghao Xu, Qianqian Wang,
+Qing Shuai, Hujun Bao, and Xiaowei Zhou. Neural body:
+Implicit neural representations with structured latent codes
+for novel view synthesis of dynamic humans. In Proceed-
+ings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 9054–9063, 2021. 3
+[44] Gerard Pons-Moll, Sergi Pujades, Sonny Hu, and Michael
+Black. Clothcap: Seamless 4d clothing capture and retarget-
+ing. ACM Transactions on Graphics, 36(4), 2017. Two first
+authors contributed equally. 2
+[45] Lingteng Qiu, Guanying Chen, Jiapeng Zhou, Mutian Xu,
+Junle Wang, and Xiaoguang Han. Recmv: Reconstructing
+3d dynamic cloth from monocular videos. In CVPR, 2023.
+2, 3, 6, 7
+[46] Nikhila Ravi, Valentin Gabeur, Yuan-Ting Hu, Ronghang
+Hu, Chaitanya Ryali, Tengyu Ma, Haitham Khedr, Roman
+R¨adle, Chloe Rolland, Laura Gustafson, Eric Mintun, Junt-
+ing Pan, Kalyan Vasudev Alwala, Nicolas Carion, Chao-
+Yuan Wu, Ross Girshick, Piotr Doll´ar, and Christoph Feicht-
+enhofer. Sam 2: Segment anything in images and videos.
+arXiv preprint arXiv:2408.00714, 2024. 2, 5
+[47] Li Ren, Benoit Guillard, and Pascal Fua. Isp: Multi-layered
+garment draping with implicit sewing patterns. Advances in
+Neural Information Processing Systems, 2023. 2
+[48] Shunsuke Saito, Zeng Huang, Ryota Natsume, Shigeo Mor-
+ishima, Angjoo Kanazawa, and Hao Li. Pifu: Pixel-aligned
+implicit function for high-resolution clothed human digitiza-

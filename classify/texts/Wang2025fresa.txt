@@ -1,0 +1,946 @@
+Title: FRESA: Feedforward Reconstruction of Personalized Skinned Avatars from Few Images
+
+FRESA: Feedforward Reconstruction of Personalized Skinned Avatars
+from Few Images
+Rong Wang1,2∗
+Fabian Prada2
+Ziyan Wang2
+Zhongshi Jiang2
+Chengxiang Yin2
+Junxuan Li2
+Shunsuke Saito2
+Igor Santesteban2
+Javier Romero2
+Rohan Joshi2
+Hongdong Li1
+Jason Saragih2
+Yaser Sheikh2
+1Australian National University
+2Meta Reality Labs Research
+(a) Few Phone Photos
+(b) Personalized Skinned Avatar
+(c) Pose-dependent Animation 
+FRESA
+Figure 1. FRESA. We present a novel method to reconstruct personalized skinned avatars with realistic pose-dependent animation all in
+a feed-forward approach, which generalizes to causally taken phone photos without any fine-tuning. We visualize the predicted skinning
+weights associated with the most important joints in (b) and colormaps of per-vertex displacement magnitudes1during animation in (c).
+Abstract
+We present a novel method for reconstructing personalized
+3D human avatars with realistic animation from only a few
+images. Due to the large variations in body shapes, poses,
+and cloth types, existing methods mostly require hours of
+per-subject optimization during inference, which limits their
+practical applications. In contrast, we learn a universal
+prior from over a thousand clothed humans to achieve in-
+stant feedforward generation and zero-shot generalization.
+Specifically, instead of rigging the avatar with shared skin-
+ning weights, we jointly infer personalized avatar shape,
+skinning weights, and pose-dependent deformations, which
+effectively improves overall geometric fidelity and reduces
+deformation artifacts. Moreover, to normalize pose vari-
+ations and resolve coupled ambiguity between canonical
+shapes and skinning weights, we design a 3D canonical-
+ization process to produce pixel-aligned initial conditions,
+which helps to reconstruct fine-grained geometric details.
+We then propose a multi-frame feature aggregation to ro-
+bustly reduce artifacts introduced in canonicalization and
+fuse a plausible avatar preserving person-specific identi-
+ties. Finally, we train the model in an end-to-end framework
+on a large-scale capture dataset, which contains diverse
+human subjects paired with high-quality 3D scans.
+Ex-
+tensive experiments show that our method generates more
+authentic reconstruction and animation than state-of-the-
+arts, and can be directly generalized to inputs from casually
+taken phone photos. Project page and code is available at
+https://github.com/rongakowang/FRESA.
+1. Introduction
+3D digitization for clothed humans is highly demanded in
+many vision and graphics applications, such as extended
+reality (XR), virtual try-on, and telepresence [27]. Since
+humans vary largely in body shapes and cloth types, the re-
+constructed avatars need to faithfully preserve these person-
+alized details, and can be realistically animated robust to the
+underlying topology. To this end, traditional pipelines often
+require laborious artist designs [14, 54] or controlled envi-
+ronments [16, 39], which limits their use. In this work, we
+aim to automatically reconstruct animatable avatars from
+easily accessible sources, e.g. casually taken phone photos,
+to better facilitate downstream applications.
+Existing works in 3D clothed human reconstructions
+[47, 48, 59, 60, 66, 67] have demonstrated impressive qual-
+ity and generalizability. While they mostly focus on recon-
+structing a static frame for a given pose, [17, 20, 31] fur-
+ther extend to produce avatars more suitable for animation.
+This is achieved by reconstructing the avatar in a canonical
+*Work done while Rong Wang was an intern at Reality Labs Research.
+1Scales normalized across all vertices to highlight large deformation.
+arXiv:2503.19207v2  [cs.CV]  4 Apr 2025
+
+
+space associated with a rigged body template, and then an-
+imating it by target joint motions via the linear blend skin-
+ning (LBS) [37] method. However, all these works skin the
+avatar by querying the skinning weights from nearest tem-
+plate body vertices, which inevitably produces deformation
+artifacts in challenging poses and extreme body shapes. Re-
+cently, [12, 49, 56, 62] propose to jointly optimize personal-
+ized canonical shapes and skinning weights from posed 3D
+scans or images. However, due to the lack of a unified prior
+from different body shapes and cloth types [55], they are
+restricted to a per-subject setting and require hours of test-
+time optimization, which is computationally expensive.
+In this paper, we present a novel method to reconstruct
+personalized skinned avatars for realistic animation in an
+efficient feed-forward approach. The key to our method
+is a universal clothed human model, which is learned
+from a large collection of human subjects while capable of
+jointly inferring personalized canonical avatar shapes, skin-
+ning weights, and pose-dependent deformation in anima-
+tion. Specifically, to normalize pose variations in input im-
+ages and ensure model generalizability, we first develop a
+3D canonicalization process to produce pixel-aligned initial
+conditions for geometry and semantics references, which
+helps to reconstruct canonical avatars with fine-grained ge-
+ometric details. While the canonicalization can produce ar-
+tifacts due to noisy unposing, we propose to robustly reduce
+the artifacts and generate a plausible avatar by aggregating
+from multi-frame references. In this way, the fused fea-
+ture can preserve information intrinsic to the person, e.g.
+body shapes and cloth types, to better represent the person
+identity. Finally, to resolve the coupled ambiguity between
+the canonical geometry and skinning weights, i.e. to avoid
+generating incorrect components that can be accidentally
+warped to a correct posed shape [32], we adopt a multi-
+stage training process to jointly supervise the model with
+posed-space ground truths and canonical-space regulariza-
+tion. Leveraging the rich prior from the universal model, we
+achieve feed-forward reconstruction of avatars and anima-
+tion without requiring expensive per-subject optimization.
+Our key contributions can be summarized as follows.
+(i) We present a novel method FRESA, which enables in-
+stant feed-forward reconstruction of 3D human avatars with
+personalized canonical shapes, skinning weights, and pose-
+dependent animation via a universal clothed human model,
+while achieving zero-shot generalization to inputs of only a
+few casually taken photos. (ii) We propose a novel pipeline
+with explicit canonicalization and multi-frame aggregation,
+which robustly improves the fidelity and realism of result-
+ing avatars. (iii) We develop a large-scale clothed human
+dataset with diverse subjects and high-quality 3D scans to
+facilitate learning an effective universal prior. Extensive ex-
+periments show that our method outperforms state-of-the-
+arts in both reconstruction fidelity and animation quality.
+2. Related Works
+3D Clothed Human Reconstruction. Early works of 3D
+human reconstruction often utilize parametric human mod-
+els [34, 42] as a prior for the underlying body shapes. For
+instance, [5, 36] adopt a SMPL+D model to express cloth
+geometry as per-vertex displacements of the SMPL [34]
+body template, while [3, 26] use UV maps to further im-
+prove the mesh resolutions.
+However, these approaches
+assume a fixed topology and can not model loose clothes
+with large shape variation to the body template. In contrast,
+[4, 47, 48, 59, 60] propose to leverage neural implicit fields
+[38, 40] for continuous surface representation, which can
+flexibly model diverse body shapes and clothes types. Such
+representation also supports fast mesh extraction via March-
+ing Cubes [35] to enable explicit geometry supervision and
+real-time rendering on mobile devices, which are difficult
+to achieve with other representations such as neural radi-
+ance field [18, 57, 68] or 3D primitives [25, 30, 69] as they
+require more time-demanding rendering pipelines. How-
+ever, above methods mostly focus on reconstructing static
+humans for the given poses, while lacking dedicated canon-
+icalization and skinning for reconstructed avatars, thus are
+not suitable for animation-based applications [56].
+Animatable Avatar Reconstruction. ARCH [56] pioneers
+the work to produce avatars that are more suitable for ani-
+mation purposes. This is achieved by directly reconstruct-
+ing avatars in a canonical space associated with a rigged
+template.
+Since it utilizes hand-crafted spatial encoding
+for geometric features, it tends to produce low-fidelity re-
+sults with less accuracy and photorealism. ARCH++ [17]
+addresses this issue by learning geometry features from a
+PointNet++ [45] encoder, but only uses a posed body tem-
+plate and thus loses fine-grained details. [31] further re-
+fines the pipeline by sampling features from estimated nor-
+mal images followed by post-processing for geometry re-
+finement. Unlike these feed-forward approaches, [61, 63]
+rely on pretrained diffusion models [33, 46] to hallucinate
+canonical avatar shapes from unconstrained photo collec-
+tions, but require time-consuming per-subject optimization.
+Despite the improvement in avatar geometry, all these meth-
+ods simply rig the avatar using skinning weights from near-
+est vertices of the rigged template for animation, which are
+only reliable for limited body shapes and cloth types. As
+a consequence, they often generate undesired deformation
+artifacts in challenging poses and extreme body shapes.
+Recently, several works [13, 29, 49, 55, 56, 62] propose
+to jointly optimize personalized canonical shapes and skin-
+ning weights with pose-dependent deformation to reduce ar-
+tifacts and improve animation quality. Specifically, [12, 56]
+optimize correspondence between the canonical and posed
+space via an iterative root-finding algorithm [12]. [49] as-
+sumes 3D scans as inputs and introduces an optimizable
+skinning field supervised by a cycle consistency loss. How-
+
+
+fd
+Canonicalize
+<latexit sha1_base64="JUg6yU+sLvaiv8Ww3miQv9Pxsog=">AB8XicbVBNTwIxFHyLX4hfqEcvjcTE9k1Bj0SvHjERJAIhHTLW2jodjdt14Rs+BdePGiMV/+N/+NXdiDgpM0mcy8l84bPxZcG9f9dgpr6xubW8Xt0s7u3v5B+fCoraNEMWyxSESq41ONgktsGW4EdmKFNPQFPviTm8x/eEKleSTvzTGfkhHkgecUWOlx15IzdgP0sZsUK64VXcOskq8nFQgR3NQ/uoNI5aEKA0TVOu58amn1JlOBM4K/USjTFlEzrCrqWShqj76TzxjJxZUiCSNknDZmrvzdSGmo9DX07mSXUy14m/ud1ExNc91Mu48SgZIuPgkQE5HsfDLkCpkRU0soU9xmJWxMFWXGlSyJXjLJ6+S9kXVq1Vrd5eVeiOvowgncArn4MEV1OEWmtACBhKe4RXeHO28O/Ox2K04OQ7x/AHzucPr2Q8Q=</latexit>B
+<latexit sha1_base64="mI01Xjr0wtinJkKISRsRudi+y4A=">ACAXicbVDLSsNAFJ3UV62vqBvBzWARXJVEpLoRim50IxXsA5oYJtNJO3QyCTMToYS48VfcuFDErX/hzr9x0mahrQcuHM65l3v8WNGpbKsb6O0sLi0vFJeraytb2xumds7bRklApMWjlgkuj6ShFOWoqRrqxICj0Gen4o8vc7zwQIWnE79Q4Jm6IBpwGFCOlJc/c1InRGroB+l15lEn81J6bmf3N5ZtWrWBHCe2AWpgJNz/xy+hFOQsIVZkjKnm3Fyk2RUBQzklWcRJIY4REakJ6mHIVEunkgweaqUPg0jo4gpO1N8TKQqlHIe+7syvlbNeLv7n9RIVnLkp5XGiCMfTRUHCoIpgHgfsU0GwYmNEBZU3wrxEAmElQ6tokOwZ1+eJ+3jml2v1W9Pqo2LIo4y2AcH4AjY4BQ0wBVoghbA4BE8g1fwZjwZL8a78TFtLRnFzC74A+PzB6aHlwc=</latexit>
+{Ii}N
+i=1
+Unpose
+<latexit sha1_base64="pJ8exvJyBi+Nui+sWusA0m/nR8=">AB6nicbVBNS8NAEJ3Ur1q/qh69LBbBU0lEqseiF48V7Qe0oWy2k3bpZhN2N0IJ/QlePCji1V/kzX/jts1BWx8MPN6bYWZekAiujet+O4W19Y3NreJ2aWd3b/+gfHjU0nGqGDZLGLVCahGwSU2DTcCO4lCGgUC28H4dua3n1BpHstHM0nQj+hQ8pAzaqz0EPaxX64VXcOskq8nFQgR6Nf/uoNYpZGKA0TVOu5ybGz6gynAmclnqpxoSyMR1i1JI9R+Nj91Ss6sMiBhrGxJQ+bq74mMRlpPosB2RtSM9LI3E/zuqkJr/2MyQ1KNliUZgKYmIy+5sMuEJmxMQSyhS3txI2oyY9Mp2RC85ZdXSeui6tWqtfvLSv0mj6MIJ3AK5+DBFdThDhrQBAZDeIZXeHOE8+K8Ox+L1oKTzxzDHzifP0Kmjc0=</latexit>fe
+LBS
+<latexit sha1_base64="QkAtiHsplcq2FY/fi6/0PsP0oI=">AB8XicbVDLSgMxFL1TX7W+qi7dBIvgqsyIVJdFNy4r2Ae2pWTSTBuayQzJHaEM/Qs3LhRx69+482/MtLPQ1gOBwzn3knOPH0th0HW/ncLa+sbmVnG7tLO7t39QPjxqmSjRjDdZJCPd8anhUijeRIGSd2LNaehL3vYnt5nfuLaiEg94DTm/ZCOlAgEo2ilx15IcewHaXs2KFfcqjsHWSVeTiqQozEof/WGEUtCrpBJakzXc2Psp1SjYJLPSr3E8JiyCR3xrqWKhtz03niGTmzypAEkbZPIZmrvzdSGhozDX07mSU0y14m/ud1Ewyu+6lQcYJcscVHQSIJRiQ7nwyF5gzl1BLKtLBZCRtTRnakq2BG/5FXSuqh6tWrt/rJSv8nrKMIJnMI5eHAFdbiDBjSBgYJneIU3xzgvzrvzsRgtOPnOMfyB8/kDzqaRBg=</latexit>W
+<latexit sha1_base64="ijmZMGf9QN4J1sjtOvcXIpZu+bk=">AB8XicbVDLSgMxFL1TX7W+qi7dBIvgqsyIVJdFN26ECvaBbSmZNOGZjJDckcoQ/CjQtF3Po37vwbM+0stHogcDjnXnLu8WMpDLrul1NYWV1b3yhulra2d3b3yvsHLRMlmvEmi2SkOz41XArFmyhQ8k6sOQ19ydv+5Drz249cGxGpe5zGvB/SkRKBYBSt9NALKY79IL2dDcoVt+rOQf4SLycVyNEYlD97w4glIVfIJDWm67kx9lOqUTDJZ6VeYnhM2YSOeNdSRUNu+uk8YycWGVIgkjbp5DM1Z8bKQ2NmYa+ncwSmUvE/zugkGl/1UqDhBrtjioyCRBCOSnU+GQnOGcmoJZVrYrISNqaYMbUklW4K3fPJf0jqrerVq7e68Ur/K6yjCERzDKXhwAXW4gQY0gYGCJ3iBV8c4z86b874YLTj5ziH8gvPxDb90kPw=</latexit>M
+<latexit sha1_base64="leq5Qb4aZ0W036EPZWru3Yar58=">AB9HicbVDLSgMxFL1TX7W+qi7dBIvgqsyIVJdFNy5cVLAPaIeSTNtaCYZk0yhDP0ONy4UcevHuPNvzLSz0NYDgcM593JPThBzpo3rfjuFtfWNza3idmlnd2/oHx41NIyUYQ2ieRSdQKsKWeCNg0znHZiRXEUcNoOxreZ35QpZkUj2YaUz/CQ8FCRrCxkt+LsBkRzNP7WZ/0yxW36s6BVomXkwrkaPTLX72BJElEhSEca9313Nj4KVaGEU5npV6iaYzJGA9p1KBI6r9dB56hs6sMkChVPYJg+bq740UR1pPo8BOZiH1speJ/3ndxITXfspEnBgqyOJQmHBkJMoaQAOmKDF8agkmitmsiIywsTYnkq2BG/5y6ukdVH1atXaw2WlfpPXUYQTOIVz8OAK6nAHDWgCgSd4hld4cybOi/PufCxGC06+cwx/4Hz+AP3zkM=</latexit>Lc
+<latexit sha1_base64="ekKXatNhxge5/r/luH13Q2AeKEU=">AB9HicbVDLSgMxFL1TX7W+qi7dBIvgqsyIVJdFNy5cVLAPaIeSTNtaCYZk0yhDP0ONy4UcevHuPNvzLSz0NYDgcM593JPThBzpo3rfjuFtfWNza3idmlnd2/oHx41NIyUYQ2ieRSdQKsKWeCNg0znHZiRXEUcNoOxreZ35QpZkUj2YaUz/CQ8FCRrCxkt+LsBkRzNP7WT/ulytu1Z0DrRIvJxXI0eiXv3oDSZKICkM41rubHxU6wMI5zOSr1E0xiTMR7SrqUCR1T76Tz0DJ1ZYBCqewTBs3V3xspjrSeRoGdzELqZS8T/O6iQmv/ZSJODFUkMWhMOHISJQ1gAZMUWL41BJMFLNZERlhYmxPZVsCd7yl1dJ6Lq1aq1h8tK/SavowgncArn4MEV1OEOGtAEAk/wDK/w5kycF+fd+ViMFpx85xj+wPn8ARG2klA=</latexit>Lp
+<latexit sha1_base64="ekKXatNhxge5/r/luH13Q2AeKEU=">AB9HicbVDLSgMxFL1TX7W+qi7dBIvgqsyIVJdFNy5cVLAPaIeSTNtaCYZk0yhDP0ONy4UcevHuPNvzLSz0NYDgcM593JPThBzpo3rfjuFtfWNza3idmlnd2/oHx41NIyUYQ2ieRSdQKsKWeCNg0znHZiRXEUcNoOxreZ35QpZkUj2YaUz/CQ8FCRrCxkt+LsBkRzNP7WT/ulytu1Z0DrRIvJxXI0eiXv3oDSZKICkM41rubHxU6wMI5zOSr1E0xiTMR7SrqUCR1T76Tz0DJ1ZYBCqewTBs3V3xspjrSeRoGdzELqZS8T/O6iQmv/ZSJODFUkMWhMOHISJQ1gAZMUWL41BJMFLNZERlhYmxPZVsCd7yl1dJ6Lq1aq1h8tK/SavowgncArn4MEV1OEOGtAEAk/wDK/w5kycF+fd+ViMFpx85xj+wPn8ARG2klA=</latexit>Lp
+fs
+Decoder (Sec 3.2)
+Encoder (Sec 3.2)
+<latexit sha1_base64="/R4lklByF91KYEFjMvGpvHJ6gwg=">AB+XicbVBNS8NAFHypX7V+RT16WSyCp5KIVI9FL56kgrWFJoTNdtMu3WzC7qZQv+JFw+KePWfePfuGlz0NaBhWHmPd7shClnSjvOt1VZW9/Y3Kpu13Z29/YP7MOjJ5VktAOSXgieyFWlDNBO5pTnupDgOe2G49vC706oVCwRj3qaUj/GQ8EiRrA2UmDbXu7FWI/CKL+fBcybBXbdaThzoFXilqQOJdqB/eUNEpLFVGjCsVJ910m1n2OpGeF0VvMyRVNMxnhI+4YKHFPl5/PkM3RmlAGKEme0Giu/t7IcazUNA7NZJFSLXuF+J/Xz3R07edMpJmgiwORlHOkFDWjAJCWaTw3BRDKTFZERlphoU1bNlOAuf3mVPF03Gaj+XBZb92UdVThBE7hHFy4ghbcQRs6QGACz/AKb1ZuvVjv1sditGKVO8fwB9bnD/OTk+I=</latexit>{Ni}
+<latexit sha1_base64="mOWsXnzPO8flPA1s0vyGoKhRLT0=">AB+XicbVBNS8NAFHypX7V+RT16WSyCp5KIVI9FLx4rWltoQthsN+3SzSbsbgol9J948aCIV/+JN/+NmzYHbR1YGbe481OmHKmtON8W5W19Y3Nrep2bWd3b/APjx6UkmCe2QhCeyF2JFORO0o5nmtJdKiuOQ024vi387oRKxRLxqKcp9WM8FCxiBGsjBbt5V6M9SiM8odZwLxZYNedhjMHWiVuSepQoh3YX94gIVlMhSYcK9V3nVT7OZaEU5nNS9TNMVkjIe0b6jAMV+Pk8+Q2dGaAokeYJjebq740cx0pN49BMFinVsleI/3n9TEfXfs5EmkqyOJQlHGkE1TUgAZMUqL51BMJDNZERlhiYk2ZdVMCe7yl1fJ0XDbTa95f1k1ZRxVO4BTOwYUraMEdtKEDBCbwDK/wZuXWi/VufSxGK1a5cwx/YH3+APtAk+c=</latexit>{Si}
+<latexit sha1_base64="f9efLSU/UetlUjJWOki6OBkOcKQ=">AB/3icbVDLSsNAFL3xWesrKrhxM1gEVyURqS6LblxWtA9oQphMJ+3QyYOZiVBiFv6KGxeKuPU3Pk3TtostPXAwOGce7lnjp9wJpVlfRtLyura+uVjerm1vbOrm35FxKghtk5jHoudjSTmLaFsxWkvERSHPqdf3xd+N0HKiSLo3s1Sagb4mHEAkaw0pJnHjqZ42OROSFWIz/I7vLcY07umTWrbk2BFoldkhqUaHnmlzOISRrSBGOpezbVqLcDAvFCKd51UklTAZ4yHtaxrhkEo3m+bP0YlWBiIhX6RQlP190aGQyknoa8ni5hy3ivE/7x+qoJLN2NRkioakdmhIOVIxagoAw2YoETxiSaYCKazIjLCAhOlK6vqEuz5Ly+SzlndbtQbt+e15lVZRwWO4BhOwYLaMINtKANB7hGV7hzXgyXox342M2umSUOwfwB8bnD9+olqw=</latexit>
+{¯Si}
+<latexit sha1_base64="cHvZaMQkX3ayF5AZ5n37uCGidN4=">AB/3icbVDLSsNAFL3xWesrKrhxM1gEVyURqS6LblxJBfuAJoTJdNIOnTyYmQglZuGvuHGhiFt/w51/46TNQlsPDBzOuZd75vgJZ1JZ1rextLyurZe2ahubm3v7Jp7+x0Zp4LQNol5LHo+lpSziLYVU5z2EkFx6HPa9cfXhd9oEKyOLpXk4S6IR5GLGAEKy15qGTOT4WmRNiNfKD7DbPebknlmz6tYUaJHYJalBiZnfjmDmKQhjRThWMq+bSXKzbBQjHCaV51U0gSTMR7SvqYRDql0s2n+HJ1oZYCWOgXKTRVf29kOJRyEvp6sogp571C/M/rpyq4dDMWJamiEZkdClKOVIyKMtCACUoUn2iCiWA6KyIjLDBRurKqLsGe/Ii6ZzV7Ua9cXdea16VdVTgCI7hFGy4gCbcQAvaQOARnuEV3own48V4Nz5mo0tGuXMAf2B8/gDX9pan</latexit>
+{ ¯Ni}
+Tet. Grid
+Pipeline
+ Encoder
+Decoder
+3D Canonicalization (Sec 3.1)
+Animation & Loss (Sec 3.3)
+<latexit sha1_base64="ijmZMGf9QN4J1sjtOvcXIpZu+bk=">AB8XicbVDLSgMxFL1TX7W+qi7dBIvgqsyIVJdFN26ECvaBbSmZNOGZjJDckcoQ/CjQtF3Po37vwbM+0stHogcDjnXnLu8WMpDLrul1NYWV1b3yhulra2d3b3yvsHLRMlmvEmi2SkOz41XArFmyhQ8k6sOQ19ydv+5Drz249cGxGpe5zGvB/SkRKBYBSt9NALKY79IL2dDcoVt+rOQf4SLycVyNEYlD97w4glIVfIJDWm67kx9lOqUTDJZ6VeYnhM2YSOeNdSRUNu+uk8YycWGVIgkjbp5DM1Z8bKQ2NmYa+ncwSmUvE/zugkGl/1UqDhBrtjioyCRBCOSnU+GQnOGcmoJZVrYrISNqaYMbUklW4K3fPJf0jqrerVq7e68Ur/K6yjCERzDKXhwAXW4gQY0gYGCJ3iBV8c4z86b874YLTj5ziH8gvPxDb90kPw=</latexit>M
+Universal Clothed Human Model
+<latexit sha1_base64="Bs2nvHK15ZLiDEQhOdrb0x1eZPI=">ACFXicbZDLSsNAFIYn9VbrLerSzWARXJSiFSXRV24kgr2Ak0sk+mkHTqZhJmJUEJewo2v4saFIm4Fd76NkzYUbf1h4Oc75zDn/F7EqFSW9W0UlpZXVteK6WNza3tHXN3ryXDWGDSxCELRcdDkjDKSVNRxUgnEgQFHiNtb3SZ1dsPREga8js1jogboAGnPsVIadQzK07iBEgNMWLJTXqfOFIhkVbgDF7NoJP2zLJVtSaCi8bOTRnkavTML6cf4jgXGpOzaVqTcBAlFMSNpyYkliRAeoQHpastRQKSbTK5K4ZEmfeiHQj+u4IT+nkhQIOU48HRntqycr2Xwv1o3Vv65m1AexYpwP3IjxlUIcwign0qCFZsrA3CgupdIR4igbDSQZ0CPb8yYumdVK1a9Xa7Wm5fpHUQH4BAcAxucgTq4Bg3QBg8gmfwCt6MJ+PFeDc+pq0FI5/ZB39kfP4AT0KgMA=</latexit>{N ?, D?}
+<latexit sha1_base64="82QbXwDv4X7R3mA8EqMDV2z4kWk=">AB6nicbVBNS8NAEJ3Ur1q/qh69LBbBU0lEqseiF48V7Qe0oWy2m3bpZhN2J0IJ/QlePCji1V/kzX/jts1BWx8MPN6bYWZekEh0HW/ncLa+sbmVnG7tLO7t39QPjxqmTjVjDdZLGPdCajhUijeRIGSdxLNaRI3g7GtzO/cS1EbF6xEnC/YgOlQgFo2ilh7DP+uWKW3XnIKvEy0kFcjT65a/eIGZpxBUySY3pem6CfkY1Cib5tNRLDU8oG9Mh71qaMSNn81PnZIzqwxIGtbCslc/T2R0ciYSRTYzojiyCx7M/E/r5tieO1nQiUpcsUWi8JUEozJ7G8yEJozlBNLKNPC3krYiGrK0KZTsiF4y+vktZF1atVa/eXlfpNHkcRTuAUzsGDK6jDHTSgCQyG8Ayv8OZI58V5dz4WrQUnzmGP3A+fwA/no3L</latexit>fc
+<latexit sha1_base64="RUSHX4aqniDN61icLAeCi5n7KEs=">AB83icbVDLSsNAFL2pr1pfVZduBovgqiQi1WXRjcsK9gFNKZPpB06mYSZG6GE/oYbF4q49Wfc+TdO2iy0emDgcM693DMnSKQw6LpfTmltfWNzq7xd2dnd2z+oHh51TJxqxtslrHuBdRwKRvo0DJe4nmNAok7wbT29zvPnJtRKwecJbwQUTHSoSCUbS70cUJ0GYteZDHFZrbt1dgPwlXkFqUKA1rH76o5ilEVfIJDWm7kJDjKqUTDJ5xU/NTyhbErHvG+pohE3g2yReU7OrDIiYaztU0gW6s+NjEbGzKLATuYZzaqXi/95/RTD60EmVJIiV2x5KEwlwZjkBZCR0JyhnFlCmRY2K2ETqilDW1PFluCtfvkv6VzUvUa9cX9Za94UdZThBE7hHDy4gibcQvawCBJ3iBVyd1np035305WnKnWP4BefjG1ZmkeY=</latexit>Pt
+<latexit sha1_base64="QUgHBhNeCOYS9gECPVySkU7mHeE=">AB+3icbVDLSsNAFJ3UV62vWJduBovgqiQi1WpG5cV7AOaECbTSTt08mDmRiwhv+LGhSJu/RF3/o2TNgtPTBwOde7pnjJ4IrsKxvo7KxubW9U92t7e0fHB6Zx/W+ilNJWY/GIpZDnygmeMR6wEGwYSIZCX3Bv7stvAHj0wqHkcPME+YG5JxANOCWjJM+vOlEDmhASmfpB18twDz2xYTWsBvE7skjRQia5nfjnjmKYhi4AKotTIthJwMyKBU8HympMqlhA6IxM20jQiIVNutsie43OtjHEQS/0iwAv190ZGQqXmoa8ni5Bq1SvE/7xRCsGNm/EoSYFdHkoSAWGBdF4DGXjIKYa0Ko5DorplMiCQVdV02XYK9+eZ30L5t2q9m6v2q0O2UdVXSKztAFstE1aqM71EU9RNETekav6M3IjRfj3fhYjlaMcucE/YHx+QOfA5TW</latexit>ˆBt
+Animation
+<latexit sha1_base64="h+7lGE9x03UyY+ByqiU5qE0f074=">AB6nicbVBNS8NAEJ3Ur1q/qh69LBbBU0lEqseiF48V7Qe0oWy2m3TpZhN2J0Ip/QlePCji1V/kzX/jts1BWx8MPN6bYWZekEph0HW/ncLa+sbmVnG7tLO7t39QPjxqmSTjDdZIhPdCajhUijeRIGSd1LNaRxI3g5GtzO/cS1EYl6xHK/ZhGSoSCUbTSQ9iP+uWKW3XnIKvEy0kFcjT65a/eIGFZzBUySY3pem6K/oRqFEzyamXGZ5SNqIR71qaMyNP5mfOiVnVhmQMNG2FJK5+ntiQmNjxnFgO2OKQ7PszcT/vG6G4bU/ESrNkCu2WBRmkmBCZn+TgdCcoRxbQpkW9lbChlRThjadkg3BW35lbQuql6tWru/rNRv8jiKcAKncA4eXEd7qABTWAQwTO8wpsjnRfn3flYtBacfOY/sD5/AFro3P</latexit>fg
+<latexit sha1_base64="ao91Ip4NVtucxZlBJgkCu7uI8=">ACXicbVDLSsNAFJ3UV62vqEs3g0UQhJKIVJdFXbisYB/QhDCZTtqhkwczN0IJ3brxV9y4UMStf+DOv3HSZlFbD1w4nHMv97jJ4IrsKwfo7Syura+Ud6sbG3v7O6Z+wdtFaeSshaNRSy7PlFM8Ii1gINg3UQyEvqCdfzRTe53HplUPI4eYJwNySDiAecEtCSZ2InJD0g6w9wWfYuWUCyJzmgWdWrZo1BV4mdkGqEDTM7+dfkzTkEVABVGqZ1sJuBmRwKlgk4qTKpYQOiID1tM0IiFTbjb9ZIJPtNLHQSx1RYCn6vxERkKlxqGvO/Mb1aKXi/95vRSCKzfjUZICi+hsUZAKDHOY8F9LhkFMdaEUMn1rZgOiSQUdHgVHYK9+PIyaZ/X7Hqtfn9RbVwXcZTRETpGp8hGl6iB7lATtRBFT+gFvaF349l4NT6Mz1lryShmDtEfGF+/15iZ0g=</latexit>V + ∆Vt
+<latexit sha1_base64="qIeEnH5F8ZNf4Zy+EmY7ETNM0BY=">AB+3icbVDLSsNAFJ3UV62vWJdugkVwVRKR6rLoxo1QwT6gCWEynbRDJ5MwcyOWkF9x40IRt/6IO/GSZuFth4YOJxzL/fMCRLOFNj2t1FZW9/Y3Kpu13Z29/YPzMN6T8WpJLRLYh7LQYAV5UzQLjDgdJBIiqOA034wvSn8/iOVisXiAWYJ9SI8FixkBIOWfLPuTjBkboRhEoTZXZ74JsNu2nPYa0SpyQNVKLjm1/uKCZpRAUQjpUaOnYCXoYlMJpXnNTRNMpnhMh5oKHFHlZfPsuXWqlZEVxlI/AdZc/b2R4UipWRToySKkWvYK8T9vmEJ45WVMJClQRaHwpRbEFtFEdaISUqAzTBRDKd1SITLDEBXVdNl+Asf3mV9M6bTqvZur9otK/LOqroGJ2gM+SgS9RGt6iDuoigJ/SMXtGbkRsvxrvxsRitGOXOEfoD4/MHr9uU4Q=</latexit> ˆMt
+<latexit sha1_base64="ZDWK7qhFb1pDA+Loz1/h9BKBTcA=">ACBHicbVA9SwNBEN2LXzF+nVqmOQyCVbgTiZBGyuJYD4gd4a5zSZsvfB7pwQjits/Cs2ForY+iPs/DfuJSk08cHA470Zub5seAKbfvbKysrq1vFDdLW9s7u3vm/kFLRYmkrEkjEcmOD4oJHrImchSsE0sGgS9Y2x9f5X7gUnFo/AOJzHzAhiGfMApoJZ6ZtkdAaZuADiINKbLOvhfeoqBJn1zIpdtaewlokzJxUyR6Nnfrn9iCYBC5EKUKr2DF6KUjkVLCs5CaKxUDHMGRdTUMImPLS6ROZdayVvjWIpK4Qran6eyKFQKlJ4OvO/Fq16OXif143wcGFl/IwTpCFdLZokAgLIytPxOpzySiKiSZAJde3WnQEijq3Eo6BGfx5WXSOq06tWrt9qxSv5zHUSRlckROiEPOSZ1ckwZpEkoeyTN5JW/Gk/FivBsfs9aCMZ85JH9gfP4AH6uZEA=</latexit> ˆ
+N ?
+t
+<latexit sha1_base64="FU0giCYcQG7m+QYjrCdQCWVRM4c=">ACBHicbVA9SwNBEN2LXzF+nVqmOQyCVbgTiZBLSwjmA/InWFus0mW7H2wOyeE4wob/4qNhSK2/g7/417SQpNfDweG+GmXl+LhC2/42Ciura+sbxc3S1vbO7p65f9BSUSIpa9JIRLjg2KCh6yJHAXrxJB4AvW9sdXud9+YFLxKLzDScy8AIYhH3AKqKWeWXZHgKkbAI4oiPQ6y3p4n7oKQWY9s2JX7SmsZeLMSYXM0eiZX24/oknAQqQClOo6doxeChI5FSwruYliMdAxDFlX0xACprx0+kRmHWulbw0iqStEa6r+nkghUGoS+Lozv1Ytern4n9dNcHDhpTyME2QhnS0aJMLCyMoTsfpcMopioglQyfWtFh2BIo6t5IOwVl8eZm0TqtOrVq7PavUL+dxFEmZHJET4pBzUic3pEGahJH8kxeyZvxZLwY78bHrLVgzGcOyR8Ynz8QC5kG</latexit> ˆD?
+t
+Figure 2. Method Overview. We propose a novel method to feed-forwardly reconstruct personalized skinned avatars via a universal clothed
+human model. Specifically, given N frames of posed human images {Ii} from front and back views, we first estimate their normal and
+segmentation images, and then unpose them for each frame and view to produce pixel-aligned initial conditions in a 3D canonicalization
+process (Section 3.1). Next, we propose to aggregate mult-frame references and produce a single bi-plane feature B as the representation
+of the subject identity. By sampling from this feature, we jointly decode personalized canonical avatar mesh M, skinning weights W and
+pose-dependent vertex displacement ∆V (Section 3.2) from a canonical tetrahedral grid. Finally, we adopt a multi-stage training process
+to train the model with posed-space ground truth and canonical-space regularization (Section 3.3).
+ever, due to the lack of a universal prior for different body
+shapes and cloth types, these methods are restricted to a
+per-subject fitting approach and require computationally ex-
+pensive test-time optimization to produce an avatar. [? ]
+attempts to estimate personalized skinning weights and ap-
+pear deformation on stylized characters, but requires known
+canonical character topologies. [52] proposes to directly es-
+timate subject-specific skinning maps from input images via
+a dual-encoder-decoder model. However, its canonicaliza-
+tion requires hand-crafted correction and thus is not end-
+to-end differentiable. In contrast to all above methods, we
+present a novel method that can jointly infer personalized
+geometry, skinning weights, and pose-dependent deforma-
+tion all in an end-to-end learning framework.
+3. Method
+Problem Definition. Given N frames of clothed human
+images {Ii}N
+i=1 and estimated 3D body poses {pi}N
+i=1, we
+aim to produce an animatable 3D human avatar with per-
+sonalized canonical geometry, skinning weights, and pose-
+dependent deformation for animation. Specifically, to en-
+sure coverage of sufficient areas for the subject, we assume
+two images If
+i and Ib
+i ∈RH×W ×3 from front and back
+views2for each frame i, where H and W denote the image
+height and width. In addition, we assume the pose vector
+pi consists of joint angles θi ∈RJ×3 and person-specific
+bone scales s ∈RJ, both compatible with a pre-defined
+rigged body template with J joints. For the output, we de-
+fine the avatar geometry representation as a mesh M with
+vertices V ∈RV ×3 and faces F ∈RF ×3 in the canonical
+space, i.e. aligned with the template. The vertices are asso-
+ciated with the joints as defined by a skinning weight matrix
+W ∈RV ×J, which allows the avatar to be animated by the
+LBS method. When animating the avatar with a target pose
+pt, we further predict pose-dependent vertex displacement
+∆Vt ∈RV ×3 to correct LBS artifacts and improve anima-
+tion quality. The method overview is shown in Figure 2 and
+we will introduce each module in the following sections.
+3.1. 3D Canonicalization
+Since posed human images can vary largely in body poses,
+scales and positions relative to the camera, directly extract-
+ing pixel features from raw images can be challenging and
+thus often leads to overly smooth geometry. To tackle this
+issue, we propose to normalize the variations in an explicit
+3D canonicalization process with the following steps.
+3D Lifting. We first leverage an off-the-shelf human foun-
+dation model [23] to independently estimate normal images
+2to ensure feasibility in phone photo setting, we allow each view to be
+taken at different time and thus do not need to be multi-view consistent.
+
+
+Nv
+i ∈RH×W ×3 for each frame and view v. Next, we fol-
+low [60] to lift all normal images and produce front and
+back surface meshes via normal integration [9]. In addi-
+tion, we also use [23] to separately predict segmentation
+images Sv
+i ∈RH×W ×S, where S denotes the number of
+class labels for each pixel. The segmentation images pro-
+vide semantic guidance and help to produce locally consis-
+tent skinning weights. Finally, we back-project pixel seg-
+mentation labels onto lifted surface meshes as registered
+vertex attributes. We refer readers to more details of the
+lifting process in the supplementary materials.
+Mesh Unposing. Once we have extracted posed surface
+meshes from input images, we align them in the shared
+canonical space via unposing, which is defined in Eq.(2)
+as the inverse of the LBS operation as:
+[ˆu; 1] = LBS(u, w, T) = (PJ
+j=1wjTj)[u; 1] ,
+(1)
+[v; 1] = LBS−1(ˆu, w, T) = (PJ
+j=1wjTj)−1[ˆu; 1] , (2)
+where ˆu, u ∈R3 are a pair of posed and unposed ver-
+tices of a surface mesh, [·; 1] denotes a homogeneous vector,
+T ∈RJ×4×4 is the joint transformation computed from the
+pose vector (including the bone scales), and w ∈RJ is the
+associated vertex skinning weights. However, a key chal-
+lenge for unposing is that the optimal skinning weight is
+unknown, as the personalized skinning weight is not avail-
+able at this stage. While it is possible to first optimize it via
+a cyclic consistency loss [49], such optimization can take
+hours to converge and thus is not desirable. Instead, we
+propose to use an arbitrary skinning weight, i.e. from the
+nearest posed template vertices, and perform a determinis-
+tic unposing. The intuition is that while such unposing can
+produce noisy results, its output is only used an initial con-
+dition and the artifact patterns are consistent and thus can
+be later corrected by the universal model. We compare the
+effects of unposing in Figure 5 in the ablation study.
+Canonical Rendering. For each unposed surface mesh, we
+use a fixed orthogonal camera cv to render its unposed nor-
+mal and segmentation images as ¯Nv
+i and ¯Sv
+i ∈R ¯
+H× ¯
+W ×3,
+where ¯H and ¯W are the height and width of the unposed im-
+ages. Compared to the original posed images, body parts in
+unposed images are pixel-aligned within each view (illus-
+trated in Figure 2), since we also normalize the bone scales
+in Eq.(2). In this way, it significantly reduces the difficulty
+of feature extraction as features for each body vertex can
+be consistently queried from corresponding pixel locations,
+thus helps to generate canonical geometry with fine-grained
+details. In addition, projecting 3D surfaces onto 2D im-
+age space allows us to leverage powerful image models as
+shown in [30], which further facilitates the feature extrac-
+tion process. With the unposed normal and segmentation
+images as inputs, we then develop a universal clothed hu-
+man model for reconstructing personalized skinned avatars
+as will be introduced in the following section.
+3.2. Universal Clothed Human Model
+To tackle the complexity of diverse body shapes and cloth
+types, we develop a universal model to learn a prior from
+a large collection of clothed human subjects. The model
+consists of an encoder that aggregates multi-frame initial
+conditions to refine canonicalization results and fuse a sin-
+gle feature representing the subject identity, followed by a
+decoder that jointly decodes personalized canonical shapes,
+skinning weights, and pose-dependent deformations.
+Multi-Frame Encoder. For challenging poses and cloth
+types, canonicalization artifacts can be challenging to cor-
+rect due to the large deviation from the actual canonical
+shape. To tackle this issue, we propose to aggregate multi-
+ple posed references to improve model robustness and fuse
+a more plausible canonical avatar in a multi-frame encoder
+fe(·). Specifically, we first stack unposed normal and seg-
+mentation images to align geometry and semantic refer-
+ences, and then follow [53] to separately extract a high-
+resolution feature Hv
+i for fine-grained geometric details,
+and a low-resolution feature Lv
+i for global identity repre-
+sentation of the subject as:
+Hv
+i = fh( ¯Nv
+i ⊕¯Sv
+i ),
+Lv
+i = fl( ¯Nv
+i ⊕¯Sv
+i ) ,
+(3)
+where fh(·) is a shallow convolutional neural network
+(CNN) and fl(·) is a DeepLabV3 [11] backbone, ⊕denotes
+channel-wise concatenation. Unlike [53], we adopt more
+light-weight feature encoders and do not use vision trans-
+formers [58], thanks to the fact that the initial conditions are
+pixel-aligned. Finally, we aggregate features of all frames
+into a single bi-plane feature B ∈R ¯
+H× ¯
+W ×2C, with C de-
+noting the number of feature channels for each plane as:
+B = (Bf ⊕Bb),
+Bv = 1
+N
+PN
+i=1fb(Hv
+i ⊕Lv
+i ) ,
+(4)
+where fb(·) is a CNN encoder. The feature aggregation
+is achieved by averaging features of each frame, which has
+several advantages. First, it flexibly supports an arbitrary
+number of input frames and is agnostic to the frame or-
+der. In addition, the averaged features favor details that are
+intrinsic to the subject, i.e. body shapes and cloth types,
+while effectively disentangling pose-specific wrinkles and
+artifacts that do not commonly appear. We show in Figure
+5 in the ablation study that the aggregated bi-plane feature
+allows the decoder to generate more plausible canonical ge-
+ometry.
+Canonical Geometry Decoder. To generate avatar meshes
+with arbitrary topology and fine-grained geometric details,
+we adopt a hybrid 3D representation DMTet [50]. Specif-
+ically, we first follow [19] to construct a tetrahedral grid
+encapsulated by an outer shell of the body template, as il-
+lustrated in Figure 2. Such grid initialization allocates grid
+vertices mostly near the body template, thus helps to im-
+prove the geometry resolution. For each grid vertex g ∈R3,
+
+
+we orthogonally project it onto each plane in the bi-plane
+feature using the camera cv, and accordingly sample pixel
+features as ϕv ∈RC. While ϕv encodes the geometric and
+semantic information, we further incorporate the 3D posi-
+tion of the grid vertex as an inductive bias to encourage sur-
+face continuity and reduce floaters. Finally, we forward all
+features to a MLP geometry decoder fg(·) to predict the
+SDF value s ∈R and vertex displacement ∆g ∈R3 for
+each grid vertex as:
+(s, ∆g) = fg(ϕf ⊕ϕb ⊕g) .
+(5)
+The canonical mesh M can then be differentiably ex-
+tracted by Marching Tetrahedra (MT) [50] with the outputs.
+Skinning Weight Decoder. To ensure smooth animation
+for challenging poses and extreme body shapes, we propose
+to decode personalized skinning weights in a separate MLP
+decoder fs(·), in contrast to previous methods that rig the
+avatar with fixed skinning weights. Thanks to the decoded
+canonical avatar mesh, we can explicitly assign the skinning
+weight w for each canonical vertex v. Similarly to the ge-
+ometry decoder, we sample each canonical vertex from the
+bi-plane feature to obtain the skinning feature ψv ∈RC.
+To encourage neighboring vertices to have similar skinning
+weights, we also include the canonical vertex position v as
+the input feature as:
+w = fs(φf ⊕φb ⊕v) ,
+(6)
+where the last layer in fs(·) is a Softmax [7] layer to
+ensure the validity of the output skinning weights.
+Pose-dependent Deformation.
+Since animation driven
+solely by LBS often leads to deformation artifacts, we pro-
+pose to improve the animation quality by further includ-
+ing a pose-dependent deformation module as shape cor-
+rection. Specifically, we first follow [30] to render front
+and back position map Pv
+t ∈R ¯
+H× ¯
+W ×3 from the target
+pose vector pt as the pose condition. We then combine
+it with the avatar identity condition, i.e. the rendered de-
+coded canonical mesh to obtain a deformation bi-plane fea-
+ture ˆBt ∈R ¯
+H× ¯
+W ×2C as:
+ˆBt = ( ˆBf
+t ⊕ˆBb
+t),
+ˆBv
+t = fd(Pv
+t ⊕R(M, cv)) ,
+(7)
+where fd(·) has the same architecture as the encoder
+fe(·), and R(·) is a renderer function to render normal im-
+ages of canonical mesh with camera cv. Finally, we sample
+features ψv
+t ∈RC in a similar way as above and decode the
+per-vertex displacement ∆v ∈R3:
+∆vt = fc(ψf
+t ⊕ψb
+t) ,
+(8)
+where fc(·) is a MLP decoder. With all above compo-
+nents, we can animate the avatar with any target joint trans-
+formation ˆT to produce the posed mesh ˆMt as:
+[ˆvt; 1] = LBS(v + ∆vt, w, ˆT) ,
+(9)
+where ˆvt is a vertex of the posed vertices ˆVt ∈RV ×3.
+3.3. Training Process
+Due to the coupling between the canonical geometry and
+skinning weights, supervising only with the ground truth in
+the posed space can generate avatars with incorrect com-
+ponents but can be accidentally warped to the correct tar-
+get [32]. To address this issue, we propose a multi-stage
+training process to co-supervise the model with both posed-
+space ground truth and canonical-space regularization.
+Canonical-Space Stage. We first train with only the bi-
+plane encoder fe(·) geometry decoder fg(·) as an initial-
+ization step. Since ground truth canonical meshes do not
+exist, we construct pseudo ground truths by unposing 3D
+scans of each frame in an optimization process (details
+are in the supplementary materials).
+Note the unposing
+here produces less artifacts but takes 20 minutes for each
+frame, thus is only applicable for data preparation. Next,
+we use a differentiable renderer [43] to render the canonical
+mesh in a random set of P views to produce the predicted
+canonical normal and depth images N ∈RP ×H×W ×3 and
+D ∈RP ×H×W ×3 respectively, and impose an l1 loss as:
+Lc = ||N −N ⋆
+i ||1 + ||D −D⋆
+i ||1 ,
+(10)
+where N ⋆
+i and D⋆
+i are the rendered normal and depth
+images of the pseudo ground truth canonical mesh in the
+same set of views. During training, we randomly select a
+frame i in the input frame set for supervision, encouraging
+the geometry decoder to preserve details commonly appear
+in all frames, while discard artifacts that are frame-varying.
+Posed-Space Stage. Once the geometry decoder is suffi-
+ciently initialized by Eq.(10), we then jointly train all mod-
+ules by supervising in the posed space as:
+Lp = || ˆ
+Nt −ˆ
+N ⋆
+t ||1 + || ˆDt −ˆD⋆
+t ||1 + La( ˆ
+Nt, ˆ
+N ⋆
+t ) , (11)
+where ˆ
+Nt and ˆDt are rendered images of predicted posed
+mesh, ˆ
+N ⋆
+t and ˆD⋆
+t are corresponding rendered images from
+ground truth posed scans, La is a perceptual loss [65] to
+recover sharper wrinkles in the predicted posed mesh. In
+addition, we regularize the skinning weights prediction as:
+Ls = ||W −¯
+W||1 ,
+(12)
+where ¯
+W is the nearest skinning weights queried from
+the body template. Finally, we impose an edge loss to pe-
+nalize deformation artifacts of over-stretched triangles as:
+Le = 1
+|E|
+P
+{i,j}∈E max(0, (ˆvi −ˆvj)2 −t) ,
+(13)
+where ˆvi, ˆvj is a pair of vertex in the predicted posed
+mesh connected by an edge defined in E, |E| denotes the to-
+tal number of edges in the mesh, and t is a constant thresh-
+old.
+The overall training objectives for the posed space
+training stage is thus a weighted sum of individual loss as
+L = λpLp + λsLs + λeLe.
+
+
+4. Experiments
+4.1. Dataset & Metrics
+To train the universal model, we construct a large-scale
+dome capture dataset with 1100 clothed human subjects,
+with each subject performing up to 100 different poses.
+We leverage a surface reconstruction method [8] to extract
+3D posed scans for each frame as the posed-space ground
+truths. More details are included in the supplementary ma-
+terial. We reserve 35 unseen subjects in our dataset (Dome
+Data) for testing. To evaluate model generalizability, we
+further render synthetic images from 130 subjects in Ren-
+derPeople [2] and directly test our pretrained models on
+it. We follow [17] to evaluate the geometric quality of re-
+construction and animation results using 3 metrics: average
+Point-to-Surface distance (P2S) and Chamfer distance (CD)
+in centimeters, as well as L2 re-projected normal error (Nor-
+mal) between the predicted and ground truth posed scans.
+4.2. Implementation Details
+We implement our models in PyTorch [41] and perform all
+experiments on a single NVIDIA A100 GPU. We render all
+images with 512 × 512 pixels. We train the model using the
+Adam [24] optimizer for 10K iterations in the canonical-
+space stage, and 100K iterations in the posed-space stage,
+both with a learning rate of 1×10−4. The total training pro-
+cess takes 2 days to converge, and we report the inference
+time comparison in Table 1. For the training losses, we set
+λp = 1, λs = 0.1, λe = 100 respectively, and use an edge
+length threshold of t = 1×10−4. More details and network
+architecture are included in the appendix.
+4.3. Results and Comparisons
+We compare with three types of baselines: (i) learning-
+based method [17] that produces animatable avatars in a
+feed-forward approach, (ii) optimization-based method [15]
+that optimizes canonical avatar shapes from multi-view
+videos, and (iii) diffusion-based method [61] that generates
+avatar with SDS loss [44]. As all baselines do not predict
+personalized skinning weights, we follow their implemen-
+tation to animate the avatar with a fixed skinning weight
+(queried from nearest template vertices). For [15, 61] and
+our method, we reconstruct the canonical avatar from the
+same set of posed images, and test the quality of anima-
+tion given an unseen target pose. For a fair comparison, we
+adapt both baselines to use the same rigged template as us
+and provide them with ground truth pose vectors. Since [17]
+use only a single input image and do not have training code,
+we are unable to fairly compare with it and thus only test its
+reconstruction quality using the target frame with its own
+rigged template. In Figure 6, we implement a similar sam-
+pling strategy with it and compare with our canonicalization
+approach instead. More comparison with other reconstruc-
+tion and animation methods are included in the appendix.
+Table 1. Quantitative comparison with existing methods. Our
+method achieves superior geometry quality than existing methods
+[17, 22, 61], and requires significantly less inference time.
+Methods
+Dome Data
+RenderPeople
+Time
+Normal ↓
+P2S ↓
+CD ↓
+Normal ↓
+P2S ↓
+CD ↓
+ARCH++ [17]
+0.338
+4.52
+5.07
+0.195
+2.44
+2.60
+26s
+Vid2Avatar [15]
+0.072
+0.98
+1.12
+-
+-
+-
+8h
+PuzzleAvatar [61]
+0.104
+1.47
+1.63
+0.132
+1.79
+1.91
+3h
+Ours (LBS Only)
+0.030
+0.43
+0.49
+0.026
+0.33
+0.38
+18s
+Ours (Full Model)
+0.026
+0.37
+0.43
+0.024
+0.30
+0.34
+18s
+As compared in Table 1, our method outperforms base-
+line methods by a large margin in all geometry met-
+rics, demonstrating results with superior geometric quality.
+Moreover, in contrast to [15, 61] that require hours of test-
+time optimization, we can produce personalized skinned
+avatars in less than 20 seconds (time details in the supple-
+mentary materials) thanks to the feed-forward reconstruc-
+tion. We further compare qualitative results with baselines
+in Figure 3.
+We observe the fixed skinning strategy in-
+evitably leads to deformation artifacts, e.g. over-stretched
+triangles, for challenging poses and body shapes. In com-
+parison, we generate more smooth and realistic animation
+and effectively reduces deformation artifacts for even loose
+garments like skirts. We also observe that diffusion-based
+method [61] can fail to preserve facial identity, while our
+method faithfully reconstructs personalized details. More-
+over, we show that our pose-dependent deformation mod-
+ule produces plausible wrinkle patterns, while [15] simply
+bakes wrinkles in canonical shapes without further defor-
+mations. This module also helps to reconstruct more accu-
+rate geometric details as compared in Table 1. Finally, we
+show in Figure 4 that the universal prior directly applies to
+phone photos or synthetic characters.
+4.4. Ablation Study
+Effects of Canonicalization. We show the effects of canon-
+icalization by comparing the results of reconstructed canon-
+ical geometry using one posed reference in Figure 6. Since
+input subjects vary largely in poses and shapes, directly
+sampling from posed inputs, i.e.
+by warping query ver-
+tices via forward LBS similar to [17], retrieves misaligned
+features and thus leads to overly smoothed geometry (sec-
+ond column). In contrast, the canonicalization can produce
+pixel-aligned initial conditions. However, due to the inac-
+curate skinning, the initial unposing results often contain
+artifacts, e.g. stretched triangles, that are not suitable for
+use. To tackle this, we refine them in the universal model
+to effectively refine a more plausible canonical shape, while
+preserving fine-grained geometric details.
+Effects of Multi-Frame Aggregation. We compare the re-
+constructed canonical shapes with different numbers of ref-
+erence frames in Figure 5. Due to the lack of ground truth
+canonical shapes, refinement for canonicalization using a
+
+
+Target Pose
+ARCH++
+Vid2Avatar
+PuzzleAvatar
+Ours
+GT
+Comparison
+Figure 3. Qualitative Comparison. Our method produces superior animation quality when reposed to an unseen pose for challenging
+poses, body shapes and cloth types, which reduces deformation artifacts, e.g. stretched triangles, and generates plausible wrinkles.
+Figure 4. Method Generalizability. We show the pretrained universal model can directly apply to causally taken photos and synthetic
+images from Renderpeople [2], which demonstrates its practical applications. When applied to phone photos, we do not require perfect
+alignment of front and back views and use estimated poses from monocular images for canonicalization. More details are in appendix.
+single frame can be challenging for loose garments and long
+hairs when input poses are not ideal. In comparison, by in-
+cluding more frames, the multi-frame encoder learns to pre-
+serve intrinsic features that commonly appear across differ-
+ent frames, thus can fuse a more plausible avatar. In prac-
+tice, we observe the fusion results saturate in 5 frames to
+produce sufficiently plausible canonical shapes.
+Effects of Personalized Skinning Weights. We show the
+benefits of predicting personalized skinning weights in Fig-
+ure 7. In particular, skinning the avatar using nearest tem-
+plate body vertices can produce over-stretched triangles,
+e.g. under armpit, while personalized skinning weights ef-
+fectively reduces such deformation artifact. Furthermore,
+we show that training with multiple input and target frames
+(N = 5) produces more robust skinning weights than only
+learn to repose to the same frame as input (N = 1).
+Effects of Pose-dependent Deformation.
+As shown in
+Figure 8, we observe three benefits on including pose-
+dependent deformation. First, it corrects LBS artifacts, e.g.
+when bending elbow and wrist, which improves animation
+
+
+Unposed Normal Frames
+N = 1
+N = 3
+N = 5
+N = 10
+Figure 5. Effects of multi-frame aggregation. Given a set of unposed normal frames from different poses in the left, we show results of
+fused canonical shapes using the first N frames at each column in the right. we observe that aggregation from multiple frames produces
+more plausible canonical shapes by correcting unposing artifacts, e.g. on skirts and hairs, while preserving person-specific details.
+Posed Input
+Forward Warp [14]
+Initial Unposing
+Model Output
+Figure 6. Effects of canonicalization. By taking canonicalization
+results as inputs, the universal model can learn to reduce unpos-
+ing artifacts and preserve fine-grained details, compared to directly
+sampling features from posed inputs via forward warping as [17].
+Nearest
+GT
+N = 1
+N = 5
+Figure 7. Effects of personalized skinning weights. We show
+personalized skinning weights reduce deformation artifacts, e.g.
+under armpit, and can be more robustly estimated when trained
+with multiple input and target frames. Note we show results de-
+formed by LBS only, i.e. without pose-dependent deformation.
+realism. Second, it can generate plausible garment dynam-
+ics such as sleeves draping when raising arms. Finally, we
+observe an overall refinement of fidelity in wrinkles details.
+LBS Only
+LBS + Deformation
+GT
+Figure 8. Effects of Pose-dependent Deformation. The deforma-
+tion module can correct LBS artifacts (wrist and arm bending in
+first row) and generate plausible garment dynamics (sleeves drap-
+ing in second row), which improves animation realism.
+5. Discussion
+Limitation. Although our method achieves superior recon-
+struction results, the geometric fidelity of the avatars are
+bounded by the resolution of the tetrahedral grids, thus may
+lead to missing details such as tiny accessories. Moreover,
+we only consider deformations dictated by pose, omitting
+complex dynamics such as body-cloth interactions, and mo-
+tions of long hairs or extremely loose garments whose de-
+formations are not entirely pose-dependent.
+Conclusion.
+In this paper, we present FRESA, a novel
+method for feed-forward reconstruction of personalized
+skinned avatars using only a few images. The core to our
+method is a universal clothed human model learned from
+diverse human subjects, which achieves joint inferring of
+personalized canonical shapes, skinning weights, and pose-
+dependent deformations.
+Moreover, we introduce a 3D
+canonicalization process with multi-frame aggregation to
+further improve the model robustness. Thanks to these in-
+novations, our method achieves instant generation and zero-
+shot generalization with superior animation quality.
+
+
+A. Data Acquisition
+Data Capture. We visualize our dome capture data in Fig-
+ure 9. For each subject, we capture 128 images from differ-
+ent view points using a group of fixed cameras, and adopt
+SuperNormal [8] to reconstruct the 3D scans for geometry
+supervision. We further estimate 3D joints for each frame
+from multi-view images, and adopt an incremental pose en-
+coder [10] to obtain the pose vector p. With the diverse
+posed clothed humans and high-quality scans, we can learn
+an effective universal prior that well generalizes to phone
+photos.
+Figure 9. Samples of dome data. Our dataset contains diverse
+posed clothed humans paired with high-quality 3D scans as ground
+truths, which facilitates learning an effective universal prior.
+Pseudo-GT Canonical Meshes. To resolve the coupled
+ambiguity between canonical shapes and skinning weights,
+we construct pseudo-GT3 canonical meshes as the regular-
+3ideal GT meshes should be obtained by unposing scans with person-
+ization for canonical-space stage training. Specifically, we
+adopt FlexiCubes [51] as the 3D geometry representation
+and build a cubic grid with G = 2563 vertices near the
+rigged body template. We then initialize the SDF value s of
+each grid vertex as the signed distance to the template, and
+optimize canonical vertices ¯V parameterized by the Flexi-
+cube parameters s, α, β, γ [51] such that:
+¯V = arg min
+V (||Rd( ˜V)−ˆD⋆||1 +||Rn( ˜V)−ˆ
+N ⋆||1 +Lr) ,
+(14)
+where Rd(·) and Rn(·) are renderer functions for normal
+and depth rendering, ˜V is the posed vertices obtained by
+forward LBS (where skinning weights queried from nearest
+template vertices), Lr is the regularization term in [51], and
+ˆD⋆, ˆ
+N ⋆are ground truth depth and normal images for posed
+scans. We empirically observe that such unposing strategy
+reduces artifacts of over-stretched triangles as shown in Fig-
+ure 10. However, since such unposing requires a complete
+optimization process and takes 20 minutes to converge, it is
+only suitable for data preparation.
+Naive Unpose
+Pseudo GT
+Model Output
+Posed Input
+Naive Unpose + Filter
+Figure 10. Unposing Comparison. We compare the results be-
+tween naive unposing (used in the inference pipeline) and pseudo
+GT via optimization (used for data preparation). The second ap-
+proach produces more plausible results but requires significantly
+more time. Note we filter edges with length larger than 1 × 10−4
+to reduce noises.
+Approval of Usage. All participants involved in dome cap-
+ture data and phone photos have signed a consent form that
+authorize the usage of their images for model development
+and academic publications.
+B. Canonicalization Details
+Pose Tracking for Photos.
+We use an artists designed
+rigged body mesh as the template, which contains J = 67
+joints. For each front and back view photo, we estimate its
+2D joint positions using [23], and optimize the pose vec-
+tor p to minimize the 2D projection loss similar to [6]. We
+further determine the absolute scale of the subject based on
+a pretrained statistical prior model using PCA coefficients.
+The overall optimization process takes about 1 minute per
+alized skinning weights, which is not available in canonical-space stage.
+
+
+frame. For a fair comparison, in the main paper, we report
+inference time for all methods excluding the pose tracking
+time as we assume known poses in our pipeline.
+Note that to ensure a practical use of our method, we
+do not require a perfect alignment between front and back
+views for causally taken photos, i.e.
+we do not require
+known camera poses, and photos do not need to be synchro-
+nized in time, as illustrated in Figure 11. Such casual inputs
+can be robustly handled with the universal clothed human
+prior and multi-frame aggregation, as shown in main paper.
+In addition, since there are no GT body poses for phone
+photos, we use an off-the-shelf pose estimator to estimate
+body poses for each view. Demo results in the main pa-
+per show that our method can robustly generate plausible
+avatars under this imperfect unposing, ensuring a practical
+use of our method. Moreover, the proposed multi-frame ag-
+gregation approach can further improve robustness against
+inaccurate pose estimation in individual frame.
+Figure 11. Illustration of settings for photos. We use estimated
+body poses and do not require perfect alignment between views.
+3D Lifting. We follow [60] to use d-BiNI method to obtain
+the lifted front and back surface meshes for each frame. The
+surface depth is initialized based on the tracked poses, i.e.
+the surface depth of posed body template. We visualize the
+resulting unposed surface meshes in Figure 12.
+Figure 12. Illustration of Lifted Surface Meshes. Note we re-
+moved the over-stretched edges after unposing. The lifting pro-
+cess produces two unposed surface meshes but can not be perfectly
+aligned in boundary.
+In contrast to [60] that attempts to directly complete the
+lifted meshes in the 3D space, we re-render them into 2D
+images as initial conditions, and infer the canonical shape
+from scratch for two reasons: (i) it produces a more plau-
+sible boundaries by jointly refining geometry in both visi-
+ble and invisible parts, as shown in Figure 13. (ii) it can
+learn a personalized body shape instead of a fixed shape
+bounded by the initial depth, as shown in Figure 14. Fi-
+nally, we choose to use two views in the paper as the lifting
+and pose tracking process work mostly robust in these two
+views. However, our method can still produce a plausible
+side view geometry by learning across diverse subjects.
+C. More Implementation Details
+Figure 13. Visualization in Four Views. By only taking inputs
+of front and back views, our method can infer plausible side-view
+geometry and produce a consistent boundary.
+Template
+Subject 1
+Subject 2
+Subject 3
+Figure 14. Results of Inferred Body Shape. Our method can
+produce personalized body shapes based on input conditions and
+is not restricted to the template shape.
+We train our model using N = 5 input frames, which
+achieves the best balance between plausibility and fidelity.
+In inference, our model can be applied to an arbitrary num-
+ber of input frames based on availability. To increase the
+model generalizability, we apply a data augmentation by
+mixing unposing results from both d-BiNI and 3D scans
+when training the model. Finally, we use [1] to tetrahedral-
+ize the volume near the canonical template (with a distance
+of 0.2m), resulting in a grid of resolution 256. More details
+about our network architecture are included in Appendix D.
+Inference Time Details. We report the inference time for
+one input photo with image size 1280 × 960. Specifically,

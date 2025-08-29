@@ -1,0 +1,901 @@
+Title: Headevolver: Text to head avatars via expressive and attribute-preserving mesh deformation
+
+HeadEvolver: Text to Head Avatars via Expressive
+and Attribute-Preserving Mesh Deformation
+Duotun Wang1∗, Hengyu Meng1∗, Zeyu Cai1*, Zhijing Shao1, Qianxi Liu1, Lin Wang1,3
+Mingming Fan1,3, Xiaohang Zhan2, Zeyu Wang1,3
+1The Hong Kong University of Science and Technology (Guangzhou) 2Tencent AI Lab
+3The Hong Kong University of Science and Technology
+Figure 1. Generated results and supported user editing in our framework. (a) Our framework can deform a template mesh to stylized
+head avatars under text guidance. (b) Users can use a text prompt to edit local geometry. (c) Shape attributes such as 3DMM parameters,
+blendshapes, and UV coordinates are preserved for downstream animation and editing.
+Abstract
+Current text-to-avatar methods often rely on implicit
+representations (e.g., NeRF, SDF, and DMTet), leading to
+3D content that artists cannot easily edit and animate in
+graphics software. This paper introduces a novel frame-
+work for generating stylized head avatars from text guid-
+ance, which leverages locally learnable mesh deformation
+and 2D diffusion priors to achieve high-quality digital as-
+sets for attribute-preserving manipulation. Given a tem-
+plate mesh, our method represents mesh deformation with
+per-face Jacobians and adaptively modulates local defor-
+mation using a learnable vector field. This vector field en-
+*indicates equal contributions
+ables anisotropic scaling while preserving the rotation of
+vertices, which can better express identity and geometric
+details. We employ landmark- and contour-based regular-
+ization terms to balance the expressiveness and plausibility
+of generated avatars from multiple views without relying on
+any specific shape prior. Our framework can generate re-
+alistic shapes and textures that can be further edited via
+text, while supporting seamless editing using the preserved
+attributes from the template mesh, such as 3DMM param-
+eters, blendshapes, and UV coordinates. Extensive experi-
+ments demonstrate that our framework can generate diverse
+and expressive head avatars with high-quality meshes that
+artists can easily manipulate in graphics software, facilitat-
+ing downstream applications such as efficient asset creation
+arXiv:2403.09326v4  [cs.GR]  30 Apr 2025
+
+
+and animation with preserved attributes. Our project page
+is at: https://www.duotun-wang.co.uk/HeadEvolver/
+1. Introduction
+Head avatar modeling is an important and challenging
+task in visual computing due to its increasing need in ap-
+plications such as games [16], movies [19], virtual real-
+ity [50], and online education [7]. Traditionally, creating
+a high-fidelity head avatar demands skilled technical artists
+to invest considerable time and effort into modeling and an-
+imation.
+While recent advances in AI-generated content
+(AIGC), particularly in text-to-3D, offer new avenues for
+accessible and cost-effective avatar creation, some practi-
+cal gaps persist. For example, several methods [48, 62, 58]
+used generative models [15, 13, 46] to support text-guided
+human head generation. Nevertheless, these methods suffer
+from acquiring high-quality and diverse datasets for train-
+ing.
+Another set of methods [14, 23, 60, 32] leveraged
+frozen large-scale vision language models (VLMs) to create
+3D head avatars. These methods use 2D priors to provide
+multi-view guidance without requiring 3D training data and
+thus produce more diverse results.
+However, there is a significant gap between current text-
+to-avatar methods and 3D asset creation, as most meth-
+ods do not effectively integrate high fidelity, user cus-
+tomization, and animation support. This is mainly caused
+by employing implicit shape representations that cannot
+preserve 3D attributes essential for downstream manipu-
+lation, e.g., mesh topology, rig, and UV mapping.
+For
+instance, HeadArtist [32] and HeadSculpt [14] leverage
+DMTet [44] to create head avatars with 3D Morphable Mod-
+els (3DMMs) [4, 28] as shape priors.
+While these ap-
+proaches create a realistic appearance, DMTet discards sta-
+tistical parameters from 3DMMs, leading to noisy meshes.
+Head avatar generation using an explicit mesh represen-
+tation would benefit downstream applications because of
+its editability and compatibility with graphics pipelines, al-
+though there is less existing research in this direction. A
+notable method is TADA [30], which incorporates the op-
+timizations of vertex displacement and SMPL-X parame-
+ters [36]. This strategy preserves the semantics of 3DMMs
+and enables animatable 3D head avatar generation. How-
+ever, direct vertex displacement tends to deform meshes
+with self-intersected faces and noisy normals, leading to
+limited mesh quality and artifacts in the animation. TextDe-
+former [9] can change an input mesh smoothly and stably
+by deforming through Jacobians, but it cannot generate a
+textured appearance and lacks local geometry details.
+This paper aims to create high-quality avatars that sup-
+port animation and editing without reconstructing blend-
+shapes or rigs. We propose a novel text-to-avatar frame-
+work that produces stylized head avatars through expressive
+and attribute-preserving mesh deformation. Given a single
+template mesh such as FLAME [28], ICT-Face [27], or any
+manifold mesh preferably with facial semantics, our frame-
+work deforms it into a desired target shape while preserving
+feature correspondences such as skinny weights and UV co-
+ordinates for animation and editing, as shown in Figure 1(c).
+The key observation is that optimizing Jacobians enables
+smooth global shape changes [1] but lacks expressive local
+deformations when processing gradients from text and im-
+age losses, compared to direct vertex displacements. This
+local control is essential for generating diverse styles, such
+as the elongated nose in Figure 1(b). Furthermore, it is often
+laborious to tune deformation hyper-parameters to achieve
+both text-guided expressiveness and shape smoothness [35].
+Therefore, we propose per-triangle learnable weighting fac-
+tors coupled with Jacobians to enhance fine-grained defor-
+mations, which we refer to as vector fields.
+The notion
+of vector fields was initially introduced through a Poisson-
+based solver [57] to guide mesh deformations and recon-
+structions. In this study, we expand upon this by incorpo-
+rating differentiable settings for 3D generation tasks.
+In order to build a complete 3D head avatar genera-
+tion framework via gradient-based optimization, we employ
+a pre-trained diffusion model [38] with 3D awareness by
+leveraging a frozen landmark-guided ControlNet [63, 34].
+Given a camera pose, we render shaded and normal im-
+ages and obtain the opacity mask and the predefined vertex-
+indexed landmarks projected from the 3D head. As Figure 2
+illustrates, the stable diffusion model accepts text prompts,
+rendered images, and landmarks as additional conditions
+from ControlNet to compute the Score Distillation Sam-
+pling (SDS) loss. In addition, to mitigate unexpected ge-
+ometry distortions and self-intersecting triangles, we intro-
+duce landmark- and contour-based regularization terms. In
+summary, our contributions are as follows.
+• We introduce a per-triangle vector field to enhance the
+expressiveness of mesh deformation over local regions
+while preserving 3D attributes.
+• We
+propose
+a
+diffusion-based
+framework
+with
+landmark- and contour-based regularization terms for
+high-quality text-to-avatar mesh generation.
+• Extensive experiments demonstrate that our method
+can generate stylized 3D head avatars supporting as-
+set creation with interactive editing and animation.
+2. Related Work
+Recently, there has been rapid research progress in digi-
+tal human modeling and text-to-3D content generation. Our
+work centers on text-guided synthesis of head avatars em-
+ploying an explicit mesh representation, aiming to fulfill
+three criteria outlined in Table 1. In addition, our framework
+
+
+Table 1. Compared to other text-to-avatar approaches, our method
+preserves predefined 3D attributes (e.g., vertex-indexed land-
+marks, rig, blendshapes). It accommodates any template mesh
+independent of parametric models and operates solely on gradient-
+based optimizations without training data or fine-tuning.
+Attribute
+Non-reliance on
+No Training Data
+Preservation
+Parametric Models
+nor Fine-tuning
+HeadScuplt [14]
+✗
+✓
+✗
+Fantasia3D [6]
+✗
+✓
+✓
+TADA [30]
+✓
+✗
+✓
+DreamFace [62]
+✓
+✗
+✗
+Ours
+✓
+✓
+✓
+generates mesh models that are compatible with graphic
+pipelines for direct manipulation in 3D software.
+2.1. Text-to-3D Avatar Generation
+The success of text-driven generative models has sparked
+a wide range of research in 3D content synthesis. These
+methods are based on different geometry representations
+such as NeRF [31, 49], tri-plane [45], mesh[6], and Gaus-
+sian Splatting [47, 29]. In text-to-avatar generation, many
+efforts have been made to develop 3D generative mod-
+els [48, 62, 56, 59] typically based on GANs [12] or dif-
+fusion models [15]. These methods often demand extensive
+3D head data for training, incurring high costs. Moreover,
+they face challenges due to limited 3D datasets for creating
+diverse head avatars matching text prompts.
+To bypass the extensive training process of 3D generative
+models and insufficient 3D data, recent research [17, 61]
+has made remarkable advances by harnessing the capa-
+bilities of vision-language models (e.g., CLIP [41] and
+SDS [38]) to generate static human avatars from text
+prompts. DreamWaltz [21] aims to enhance the realism of
+avatar animations with pose-guided ControlNet [63]. Sim-
+ilarly, DreamHuman [26] employs a signed distance field
+conditioned on pose and shape parameters to empower an-
+imations with NeRF. However, extracting, editing, and ani-
+mating an explicit mesh from these works are not straight-
+forward [21] (e.g., use marching cube or tetrahedra algo-
+rithms) since NeRF and DMTet [44], for instance, represent
+shapes through network weights. Meanwhile, the issue of
+poor mesh quality is often concealed by texture, as the ge-
+ometry and texture optimizations are fully mixed. Recent
+works [6, 14, 32] disentangle the learning of geometry and
+texture to improve the avatar mesh quality. Our work also
+leverages differentiable rendering, stable diffusion, and a
+hybrid optimization process for mesh and texture synthesis,
+specifically emphasizing the deformation of an explicit ge-
+ometry template through semantic guidance instead of gen-
+eration from scratch or using implicit representations.
+2.2. Learning-Based Mesh Optimization
+Parametric mesh templates have been a prominent re-
+search focus for human avatar reconstruction and genera-
+tion tasks, as these models are well-suited in a deep learning
+context. AvatarClip [18] and CLIP-Face [2] employ para-
+metric models such as SMPL-X [36] and FLAME [28] as
+geometry prior to produce text-aligned avatars. DreamA-
+vatar [5] extracts the shape parameters of SMPL as a 3D
+prior to learn a NeRF-based color field. HeadSculpt [14]
+and HeadArtist [32] utilize the FLAME template as canon-
+ical shape input and extract its facial landmark to guide
+avatar generations through DMTet. However, meshes ex-
+tracted from implicit representations tend to lose the seman-
+tics of 3DMMs [4], posing challenges for downstream ap-
+plications such as interactive editing and animation.
+From the perspective of geometry editing through ex-
+plicit deformation, recent works propose data-driven ap-
+proaches [3, 1] to predict realistic deformation and some
+methods focus on learning deformation over one template
+mesh through tuning per-vertex coordinates [54, 64, 8].
+TADA [30] directly optimizes vertex displacements along
+with the SMPL-X’s pose and shape parameters and achieves
+animatable avatars. However, this characteristic is highly
+dependent on the quality of 3DMMs. Straightly optimiza-
+tion of non-convex mesh structures often converges to un-
+desirable local minima, resulting in noticeable artifacts on
+surface details. TextDeformer [9] initially integrates CLIP
+into a learning-based deformation pipeline to address the
+scarcity of 3D datasets that pair shapes with captions. Our
+approach extends this by employing vector fields to opti-
+mize local semantic deformations on any template mesh, in-
+dependent of its shape, expression, or blendshapes [4]. Our
+goal is to enhance identity expressiveness guided by text in-
+put. The resulting head avatars can be animated using the
+original rigging from the source mesh and seamlessly inte-
+grated into existing 3D design and animation workflows.
+3. Methodology
+In this section, we describe the details of our genera-
+tion pipeline, as shown in Figure 2. Given a source tem-
+plate mesh, we jointly optimize the mesh deformation and
+an albedo map guided by a text prompt. Our approach is not
+limited to a specific parametric model (e.g., FLAME), and
+Figures 9 and 10 show the generalization of our approach.
+3.1. Mesh Deformation through Vector Fields
+Let M = (V, F) denote a source template mesh which
+consists of a set of vertices V ∈Rn×3 and faces F ∈Zm×3.
+For the optimization strategy of mesh deformation, directly
+applying displacement to each vertex can result in severe
+self-interactions of triangle faces since it is susceptible to
+localized noisy gradients from pixel-level losses. Instead,
+we parameterize deformation mapping Φ : Rn×3 →Rn×3
+by employing Jacobian fields [1] J = {Jf|f ∈F} that
+represents the scaling and rotation of each mesh face. A
+
+
+“Terracotta Army”
+Vector Field
+Landmark
+ControlNet
+fJ
+Jacobian Field
+Vector Field Hf
+Landmarks
+Figure 2. Framework overview. We deform a template mesh by optimizing per-triangle vector fields guided by a text prompt. Rendered
+normal and RGB images coupled with MediaPipe landmarks are fed into a diffusion model to compute respective losses. Our regularization
+of Jacobians controls the fidelity and semantics of facial features that conform to text guidance.
+Figure 3. Visualization of vector field Hf through Wf. Orange
+colors indicate strong deformations and Wf = I refers to no de-
+formation enhancement.
+dual representation of M can be defined as a stack of per-
+face Jacobians Jf ∈R3×3 where
+Jf = ∇fV,
+(1)
+and ∇f is the gradient operator of triangle f. Conversely,
+we optimize each vertex’s position from per-face Jacobian.
+After obtaining optimized Jacobians in each iteration, we
+can compute the deformation mapping Φ over a set of ver-
+tices conforming to the source mesh topology by solving a
+Poisson problem, i.e.,
+Φ∗= arg min
+Φ
+X
+f∈F
+|f|∥∇f(Φ) −Jf∥2
+2,
+(2)
+where ∇f(Φ) is the Jacobian of Φ at a triangle face f and
+|f| is the area of the face. Thus, the deformation map Φ
+over the input template mesh is indirectly optimized through
+Jacobians Jf in the least square sense. The solution can be
+obtained by using a differentiable solver [1, 9]:
+Φ∗= L−1∇T AJ,
+(3)
+where ∇is a stack of per-face gradient operators, A ∈
+R3m×3m is the mass matrix of M, and L ∈R3n×3n is
+the cotangent Laplacian of M. This learnable shape rep-
+resentation based on Jacobians is robust to noisy gradi-
+ents. It can achieve better geometry quality (e.g., fewer
+self-intersections and noisy normals) than direct vertex dis-
+placements, which is further justified in Section 4.
+However, during our experiment, we observed that the
+Poisson solver applied in Equation 2 can impose strong
+geometry constraints for Jacobians to reach the global-
+coherence mesh deformation [9], which may lose fine-grain
+details for local shape features and compromise the iden-
+tity of the generated head mesh (Figure 6). A straightfor-
+ward approach is to increase the learning rate for Jacobians
+to enhance their sensitivities to propagated gradients. This
+amplifies the rotation and scaling of each face, resulting in
+stronger deformations. However, intensified rotations raise
+the likelihood of inverted triangles [43], leading to an un-
+stable optimization process and a poor-quality mesh. To ad-
+dress the above concerns, we introduce a learnable per-face
+vector field H = {Hf|f ∈F} to enhance the deformation
+expressiveness of Jacobian field J, i.e.,
+Wf = diag(wx, wy, wz),
+Hf = WfJf.
+(4)
+By substituting H into Equation 3, the deformation map-
+ping could be computed by
+Φ∗= L−1∇T AH.
+(5)
+The effect of W
+= {Wf|f
+∈F} is to control the
+anisotropic scaling (e.g., stretching and shrinking in dif-
+ferent directions) on each face. As shown in Figure 3, it
+
+
+can adaptively learn the anisotropic scaling on correspond-
+ing triangular faces that can represent the character’s fea-
+tures. Consequently, the per-face vector field H prioritizes
+the Poisson solver for more effective head avatar identity
+expression than using only Jacobians (Section 4.4).
+3.2. Text-Guided 3D Synthesis
+We aim to build a text-guided head avatar generation
+framework based on differentiable mesh deformation and
+texture generation. Moti.vated by recent success in large-
+scale VLMs and text-to-3D literature discussed in Sec-
+tion 2.1, we utilize a powerful 2D diffusion prior (i.e.,
+SDS [38]) to direct deformations by scoring the rendering
+realism of the generated shape in our framework.
+Specifically, by following the procedure described in
+Section 3.1, we denote V∗as the set of deformed vertices
+from J.
+Then, by using a differentiable render R, we
+render M∗= (V∗, F) from a viewpoint delineated by
+camera extrinsic parameter C, which produces an image
+I = R(M∗, C). The SDS loss is leveraged to alter the
+geometry and color respectively, that is:
+∇JLSDS(ϵ, I) = Et,ϵ
+
+w(t)(ϵθ(zt; y, C, t) −ϵ) ∂I
+∂J
+
+,
+(6)
+where ϵ ∼N(0, I), ϵθ is the pre-trained diffusion priors
+with the network parameter θ, w(t) is a weight coefficient
+related to timestep t ∼U(0, 1), y is the text input condition,
+zt denotes a latent embedding of I perturbed with noises at
+time step t, and C is the MediaPipe [34] facial landmark
+map. Rendered image I are obtained and encoded from the
+normal In and shaded Is, as seen in Figure 2.
+To ensure deformation mapping from propagated gradi-
+ents and the Poisson solver can conform to the facial topol-
+ogy and reasonable semantics of the source mesh, we fur-
+ther develop two regularization terms, aiming to preserve
+3D attributes of generated head avatars (Figure 8).
+Landmark regularization. The landmark regulariza-
+tion measures the difference between predefined N 3D face
+landmarks ki ∈R3 on the canonical template mesh M and
+the corresponding ones on the deformed mesh k′
+i ∈R3 af-
+ter projection. The landmark regularization loss is defined
+as Llmk = 1
+N
+PN
+i=1 ||ki −k′
+i||2
+2.
+Evolving contour-based regularization.
+Inspired by
+AvatarCraft [24], we incorporate an opacity map O to pre-
+serve a plausible head shape while minimizing excessive
+or undesired vertex displacement. To balance diverse ge-
+ometry shapes and constraints from severe deformations,
+the source template mesh is periodically updated from de-
+formed mesh every 300 steps [51]. The pixel-level loss is
+parameterized as Lop =
+1
+hw
+P
+h,w ||O −O′||2
+2, where h and
+w represent the height and width of the opacity mask of the
+template mesh O and the optimized head avatar O′. The
+total loss is defined as follows:
+L = λ1∇ΦLSDS + λ2Llmk + λ3Lop,
+(7)
+where λ1 = 1, λ2 = 200, and λ3 = 250 are the hyper-
+parameters in our experiment settings.
+4. Experiments
+In this section, we conduct experiments to evaluate the
+efficacy of our method both quantitatively and qualitatively
+for text-to-avatar creation. We then present two ablation
+studies that validate the significance of our key designs for
+vector fields and regularization terms in Section 4.4.
+4.1. Implementation Details
+For geometry and texture generation, we render normal
+and shaded images at a resolution of 1024×1024 pixels and
+feed them into the Realistic Vision 5.1 (RV 5.1) [25]. Com-
+pared with Stable Diffusion 2.1 [42], we find that RV 5.1
+supports a more appealing avatar appearance. The multi-
+face Janus and texture misalignment problems are further
+alleviated by introducing ControlNetMediaPipeFace [63].
+The generation process runs on a single NVIDIA RTX
+4090 GPU with 20, 000 iterations per avatar, which takes
+around 30 minutes. Negative prompts are leveraged to en-
+hance the realism and details of the texture, e.g., “unrealis-
+tic,” “blurry,” “low quality,” “saturated,” “low contrast,” etc.
+Along with the proposed regularization terms, we enforce
+symmetry along the y-axis in each iteration to ensure a rea-
+sonable face appearance. Following established practices in
+TADA and DreamFace, the eyeball mesh is removed and
+can be manually reintegrated after the generation.
+Figure 4. Qualitative appearance comparisons. Our method can
+produce diverse textured avatars.
+
+
+Figure 5. Qualitative geometry comparisons. Our method effectively preserves the topology and semantics of the input template mesh,
+resulting in high-quality mesh models for smooth manipulations.
+4.2. Qualitative Evaluation
+Our evaluation compares two explicit mesh manipula-
+tion methods (i.e., TADA [30] and TextDeformer [9]), and
+two implicit methods (i.e., Fantasia3D [6] and Human-
+Norm [20]) as baselines.
+While our framework focuses
+on high-quality mesh topologies, we also compare ren-
+dering appearance with recent non-mesh-dependent meth-
+ods [32, 14, 65] in supplemental material (Figure 18). We
+utilized FLAME [28] as a unified input template mesh to
+conduct the experiments. We present the visual compari-
+son results in Figures 4 and 5. TADA and Fantasia3D show
+detail-preserving geometry with 3D head priors but still un-
+dergo geometric artifacts in dense areas like eye regions,
+which are less noticeable in textured rendering. Human-
+Norm underperforms in humanoid cases, e.g., “Terracotta
+Army” and “Monkey.” Compared to TextDeformer, our ap-
+proach exhibits similar mesh quality and amplifies facial
+characteristics following text specifications.
+In summary, our framework generates expressive head
+meshes that inherit facial attributes. The texture generation
+maintains decent geometry consistency, facilitating usage in
+graphics applications (Figures 1(c) and 4).
+4.3. Quantitative Evaluation
+We quantitatively evaluated our framework for genera-
+tion consistency with text input and generation quality.
+Generation Consistency with Text. We first evaluated
+the relevance of generated results to the corresponding text
+descriptions by calculating the CLIP score [41]. We ren-
+dered 20 distinct views and computed the average scores
+respectively, as shown in Table 2. Our approach achieves
+the highest scores compared to the baseline methods.
+Table 2. Quantitative comparison of state-of-the-art methods. The
+geometry CLIP score is measured on the shaded images rendered
+with uniform albedo colors [40], the appearance CLIP score is
+evaluated on the images rendered with textures, and the self-
+intersection is quantified as the ratio of self-intersected mesh faces
+to the total number of mesh faces.
+Geometry
+Appearance
+Mesh
+CLIP Score ↑
+CLIP Score ↑
+Self-Intersection ↓
+Fantasia3D
+0.1815
+0.2718
+-
+HumanNorm
+0.2443
+0.3031
+-
+TextDeformer
+0.2462
+-
+2.19%
+TADA
+0.2475
+0.2931
+14.22%
+Ours
+0.2538
+0.3089
+2.08%
+Table 3. User evaluation of generated head avatars.
+User
+Geometry
+Texture
+Consistency
+Preference ↑
+Quality
+Quality
+with Text
+Fantasia3D
+0.4%
+2.0%
+1.9%
+HumanNorm
+5.6%
+22.7%
+6.7%
+TextDeformer
+24.2%
+-
+2.3%
+TADA
+3.9%
+13.1%
+22.2%
+Ours
+65.9%
+62.2%
+66.9%
+Mesh Quality.
+We evaluate mesh quality through
+
+
+self-intersection.
+Since the mesh from Fantasia3D and
+HumanNorm are extracted through the marching cubes
+algorithm [33], the produced triangles have no self-
+intersections.
+Therefore, we only compared our method
+with TADA and TextDeformer. Unlike our method, direct
+vertex displacement tends to converge to a local minimum
+and disregards the triangulation of the mesh.
+Figure 6. Ablation study on the vector fields. The per-triangle H
+can enhance the identity and character features of the avatar.
+User Study. We conducted a user study to evaluate the
+robustness and expressiveness of our method with 18 dis-
+tinct text prompts, 6 of which are from TADA. We used a
+Google Form to assess 1) geometry quality, 2) texture qual-
+ity, and 3) consistency with text. We recruited 46 partici-
+pants, of whom 26 are graduate students majoring in com-
+puter graphics and vision, and 20 are company employees
+specializing in AI content generation. In this form, the par-
+ticipants were instructed to choose the preferred renderings
+of head avatars from different methods in randomized or-
+der, as shown in Table 3. The results show that participants
+preferred our method by a significant margin (over 60%).
+4.4. Ablation Study
+Effect of Vector field. We conducted three sets of qual-
+itative comparisons to demonstrate the effectiveness of the
+per-triangle vector field H. As shown in Figure 6, using Ja-
+cobian J alone tends to overly smooth the gradients, lead-
+ing to a loss of distinctive character features. Increasing
+J’s learning rate emphasizes character identities but distorts
+meshes and causes self-intersections. Additionally, our ex-
+periments introduce the scalar field S, which represents the
+isotropic scaling by setting diagonal elements of each Hi to
+equal values. The results indicate that anisotropic scaling
+guided through H generates avatars bearing more geome-
+try details and character features than those through S (e.g.,
+Figure 7. Learning rate (LR) tuning. Supported by our experi-
+ments, adding per-triangle H through W can enhance the identity
+and character features of the avatar from the text prompt.
+Figure 8. Preserved semantic consistency (e.g., 3D landmarks and
+dense segmentation) with our deformation-based framework.
+the eyebrow of ”Octopus Alien” and the ear of ”Goblin”).
+Furthermore, we demonstrate the tuning process of the LR
+to evaluate that the addition of H effectively enhances the
+stability and expressiveness of deformations when the LR
+of J is set in the reasonable range (e.g., between 0.01 to
+0.025). In Figure 7, we provide the best LR settings, which
+are 0.015 for H and 0.01 for J. We also demonstrate the
+versatility of the vector field by applying it to the object
+generation framework (Figure 10), observing that the use of
+H accelerates optimization convergence to desired defor-
+mation states compared to using Jacobians alone.
+Regularization. In deformation optimization, facial fea-
+tures and head poses may deviate unexpectedly.
+Land-
+mark regularization constrains generated meshes to the in-
+put shape’s canonical space, and contour-based regulariza-
+tion contributes to reasonable head shapes. We demonstrate
+the effectiveness of our regularization designs in Figure 11.
+5. Applications
+Our method produces head avatars that can be smoothly
+manipulated (e.g., animated via 3DMMs and text-based
+editing) and are compatible with graphics tools such as
+Blender and Maya.
+Compared with implicit representa-
+tions [6, 14], our method enables artists to animate and
+edit head avatar assets for downstream applications (Fig-
+ures 1(c) and 17).
+
+
+Figure 9. Avatar generation with various template mesh inputs.
+The meshes from (a) an arbitrary head model and (b) SMPL-
+X [36] are deformed to align text descriptions respectively.
+Figure 10. Generalization experiments.
+We implement vector
+fields in TextDeformer [9] and find that our method accelerates
+mesh optimizations to approach text guidance in early epochs.
+Local geometry editing. Besides manipulating gener-
+ated meshes in 3D software as artists usually do, our ap-
+proach also supports efficient head editing with text descrip-
+tions (Figures 1(b) and 14). Only Hi on certain parts is op-
+timized given the text guidance.
+Texture editing through text guidance. Our approach
+encourages independent texture generation on a fixed ge-
+ometry, which enables texture editing specified by the text
+input (Figure 20). Some unexpected color artifacts may be
+introduced due to the noises from the diffusion model.
+Avatar animation. As shown in Figures 1(c) and 13, we
+demonstrate that the rigging and blendshapes of the head
+Figure 11. Ablation study on regularization. The contour-based
+and landmark regularizations contribute to maintaining symmetric
+facial features and alignment with the pose of the input mesh.
+Figure 12. Our deformation-based framework offers effective ge-
+ometry consistency for further 3D applications.
+mesh model after deformation are well-preserved for creat-
+ing head animations and shape manipulations.
+Avatar generation from other template meshes. As
+detailed in Section 3, our method accommodates manifold
+meshes, not just specific models like FLAME. Figure 9 ex-
+emplifies a ”Superman” head creation without labeled 3D
+facial landmarks, using crafted 3D assets.
+6. Limitations and Future Work
+Our framework has a few limitations. Although many
+parametric head models do not contain eyeball mesh intrin-
+sically (e.g., Facescape [52], NPHM [11], and BFM [10]),
+our experiments removed the eyeball mesh from FLAME
+and SMPL-X since Jacobians rely on the manifold mesh
+structure [39] (Figure 4.1).
+A cage-based representation
+may offer deformations among multiple mesh instances si-
+multaneously [53], enabling separately editable details like
+hair and accessories. Another minor limitation exists in that
+lighting isn’t disentangled from diffuse colors, potentially
+causing noise and oversaturation artifacts.
+It is worth mentioning that the generated avatars exhibit
+relatively good geometry consistency with texture (Fig-
+ure 12), but our method cannot guarantee an exact match be-
+tween geometry and texture. For instance, eyeball appear-
+
+
+ance only shows in the texture, a problem that also occurs in
+TADA and HumanNorm. Stronger semantic labeling (e.g.,
+canny edges [37]) may mitigate this issue. Another future
+focus is to learn head generation from a 3D sphere without
+any avatar shape priors [35].
+Figure 13. Example of attribute inheritance from FLAME [28]. If
+the input template mesh is from 3DMMs [4], users could manip-
+ulate the deformed mesh freely via morphable attributes such as
+expression and shape parameters.
+7. Conclusion
+In this paper, we have presented a text-guided generative
+framework for crafting stylized 3D head avatars through
+learnable deformations. By employing Jacobians as an in-
+termediate representation for vertex displacements and en-
+hancing them with a learnable vector field, our method
+has improved the expressiveness of the deformed mesh.
+Consequently, learnable deformations are embedded into
+score distillation for geometry and appearance generation.
+Our regularization terms help retain 3D attributes from the
+source mesh to support seamless editing by artists. Experi-
+ments with various text prompts exhibit the remarkable per-
+formance of our framework. Our work can inform future
+research on effectively integrating mesh-based neural tech-
+niques into practical graphics pipelines, such as boosting
+the 2D and 3D deformation ability by applying our method
+to APAP [55].
+8. Acknowledgement
+This project is sponsored by CCF-Tencent Rhino-Bird
+Open Research Fund RAGR20230120.
+References
+[1] Noam Aigerman, Kunal Gupta, Vladimir G. Kim, Siddhartha
+Chaudhuri, Jun Saito, and Thibault Groueix.
+Neural Ja-
+cobian Fields: Learning Intrinsic Mappings of Arbitrary
+Meshes. ACM Trans. Graph., 41(4), Jul 2022.
+[2] Shivangi Aneja, Justus Thies, Angela Dai, and Matthias
+Nießner.
+ClipFace: Text-Guided Editing of Textured 3D
+Morphable Models. In ACM SIGGRAPH 2023 Conference
+Proceedings, SIGGRAPH ’23, New York, NY, USA, 2023.
+Association for Computing Machinery.
+[3] Stephen W. Bailey, Dalton Omens, Paul Dilorenzo, and
+James F. O’Brien. Fast and Deep Facial Deformations. ACM
+Trans. Graph., 39(4), Aug 2020.
+[4] Volker Blanz and Thomas Vetter. A Morphable Model for
+the Synthesis of 3D Faces.
+In Proceedings of the 26th
+Annual Conference on Computer Graphics and Interactive
+Techniques, SIGGRAPH ’99, pages 187–194, USA, 1999.
+ACM Press/Addison-Wesley Publishing Co.
+[5] Yukang Cao, Yan-Pei Cao, Kai Han, Ying Shan, and Kwan-
+Yee K Wong. DreamAvatar: Text-and-Shape Guided 3D Hu-
+man Avatar Generation via Diffusion Models. arXiv preprint
+arXiv:2304.00916, 2023.
+[6] Rui Chen, Yongwei Chen, Ningxin Jiao, and Kui Jia. Fanta-
+sia3D: Disentangling Geometry and Appearance for High-
+quality Text-to-3D Content Creation.
+In Proceedings of
+the IEEE/CVF International Conference on Computer Vision
+(ICCV), pages 22246–22256, October 2023.
+[7] Isabel Fitton, Christopher Clarke, Jeremy Dalton, Michael J.
+Proulx, and Christof Lutteroth. Dancing with the Avatars:
+Minimal Avatar Customisation Enhances Learning in a Psy-
+chomotor Task. In Proceedings of the 2023 CHI Conference
+on Human Factors in Computing Systems, CHI ’23, New
+York, NY, USA, 2023. Association for Computing Machin-
+ery.
+[8] Lin Gao, Jie Yang, Yi-Ling Qiao, Yu-Kun Lai, Paul L. Rosin,
+Weiwei Xu, and Shihong Xia. Automatic Unpaired Shape
+Deformation Transfer. ACM Trans. Graph., 37(6), Dec 2018.
+[9] William Gao, Noam Aigerman, Thibault Groueix, Vova
+Kim, and Rana Hanocka. TextDeformer: Geometry Manipu-
+lation Using Text Guidance. In ACM SIGGRAPH 2023 Con-
+ference Proceedings, SIGGRAPH ’23, New York, NY, USA,
+2023. Association for Computing Machinery.
+[10] Thomas Gerig, Andreas Morel-Forster, Clemens Blumer,
+Bernhard Egger, Marcel Luthi, Sandro Schoenborn, and
+Thomas Vetter. Morphable Face Models - An Open Frame-
+work. In 13th IEEE International Conference on Automatic
+Face & Gesture Recognition (FG 2018), pages 75–82, 2018.
+[11] Simon Giebenhain, Tobias Kirschstein, Markos Georgopou-
+los, Martin R¨unz, Lourdes Agapito, and Matthias Nießner.
+Learning Neural Parametric Head Models. In Proc. IEEE
+Conf. on Computer Vision and Pattern Recognition (CVPR),
+2023.
+[12] Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing
+Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and
+Yoshua Bengio. Generative Adversarial Nets. Advances in
+Neural Information Processing Systems, 27, 2014.
+
+
+[13] Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing
+Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and
+Yoshua Bengio. Generative Adversarial Networks. Commun.
+ACM, 63(11):139–144, oct 2020.
+[14] Xiao Han, Yukang Cao, Kai Han, Xiatian Zhu, Jiankang
+Deng, Yi-Zhe Song, Tao Xiang, and Kwan-Yee K Wong.
+HeadSculpt: Crafting 3D Head Avatars with Text. In Thirty-
+seventh Conference on Neural Information Processing Sys-
+tems, 2023.
+[15] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising Dif-
+fusion Probabilistic Models. volume 33, 2020.
+[16] Andrew Hogue, Sunbir Gill, and Michael Jenkin. Automated
+Avatar Creation for 3D Games. In Proceedings of the 2007
+Conference on Future Play, Future Play ’07, page 174–180,
+New York, NY, USA, 2007. Association for Computing Ma-
+chinery.
+[17] Fangzhou Hong, Mingyuan Zhang, Liang Pan, Zhongang
+Cai, Lei Yang, and Ziwei Liu. AvatarCLIP: Zero-Shot Text-
+Driven Generation and Animation of 3D Avatars.
+ACM
+Transactions on Graphics (TOG), 41(4):1–19, 2022.
+[18] Fangzhou Hong, Mingyuan Zhang, Liang Pan, Zhongang
+Cai, Lei Yang, and Ziwei Liu. AvatarCLIP: Zero-shot Text-
+driven Generation and Animation of 3D Avatars.
+ACM
+Transactions on Graphics (TOG), 41(4):1–19, 2022.
+[19] Liwen Hu, Shunsuke Saito, Lingyu Wei, Koki Nagano, Jae-
+woo Seo, Jens Fursund, Iman Sadeghi, Carrie Sun, Yen-
+Chun Chen, and Hao Li. Avatar Digitization from a Single
+Image for Real-time Rendering. ACM Trans. Graph., 36(6),
+Nov 2017.
+[20] Xin Huang, Ruizhi Shao, Qi Zhang, Hongwen Zhang, Ying
+Feng, Yebin Liu, and Qing Wang.
+HumanNorm: Learn-
+ing Normal Diffusion Model for High-quality and Realistic
+3D Human Generation.
+In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 4568–4577, June 2024.
+[21] Yukun Huang, Jianan Wang, Ailing Zeng, He Cao, Xianbiao
+Qi, Yukai Shi, Zheng-Jun Zha, and Lei Zhang. DreamWaltz:
+Make a Scene with Complex 3D Animatable Avatars, 2023.
+[22] Dong Huo, Zixin Guo, Xinxin Zuo, Zhihao Shi, Juwei
+Lu, Peng Dai, Songcen Xu, Li Cheng, and Yee-Hong
+Yang. TexGen: Text-Guided 3D Texture Generation with
+Multi-view Sampling and Resampling.
+arXiv preprint
+arXiv:2408.01291, 2024.
+[23] Sungwon
+Hwang,
+Junha
+Hyung,
+and
+Jaegul
+Choo.
+Text2Control3D: Controllable 3D Avatar Generation in Neu-
+ral Radiance Fields using Geometry-Guided Text-to-Image
+Diffusion Model. arXiv preprint arXiv:2309.03550, 2023.
+[24] Ruixiang Jiang, Can Wang, Jingbo Zhang, Menglei Chai,
+Mingming He, Dongdong Chen, and Jing Liao.
+Avatar-
+Craft: Transforming Text into Neural Human Avatars with
+Parameterized Shape and Pose Control. In Proceedings of
+the IEEE/CVF International Conference on Computer Vision
+(ICCV), pages 14371–14382, October 2023.
+[25] Adhik
+Joshi
+and
+Akash
+Guptag.
+Realistic
+Vi-
+sion
+5.1.
+https://huggingface.co/
+stablediffusionapi/realistic-vision-51,
+2023. Accessed: 2024-05-10.
+[26] Nikos Kolotouros, Thiemo Alldieck, Andrei Zanfir, Ed-
+uard Gabriel Bazavan, Mihai Fieraru, and Cristian Sminchis-
+escu. DreamHuman: Animatable 3D Avatars from Text. In
+Proceedings of the 37th International Conference on Neural
+Information Processing Systems, NIPS ’23, Red Hook, NY,
+USA, 2024. Curran Associates Inc.
+[27] Ruilong Li, Karl Bladin, Yajie Zhao, Chinmay Chinara,
+Owen Ingraham, Pengda Xiang, Xinglei Ren, Pratusha
+Prasad, Bipin Kishore, Jun Xing, and Hao Li. Learning For-
+mation of Physically-Based Face Attributes. In IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR), June 2020.
+[28] Tianye Li, Timo Bolkart, Michael J. Black, Hao Li, and
+Javier Romero. Learning a Model of Facial Shape and Ex-
+pression from 4D Scans. ACM Trans. Graph., 36(6):194–1,
+2017.
+[29] Yixun Liang, Xin Yang, Jiantao Lin, Haodong Li, Xiaogang
+Xu, and Yingcong Chen.
+LucidDreamer: Towards High-
+Fidelity Text-to-3D Generation via Interval Score Matching.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), pages 6517–6526,
+June 2024.
+[30] Tingting Liao, Hongwei Yi, Yuliang Xiu, Jiaxiang Tang,
+Yangyi Huang, Justus Thies, and Michael J. Black. TADA!
+Text to Animatable Digital Avatars. In 2024 International
+Conference on 3D Vision (3DV), pages 1508–1519. IEEE,
+2024.
+[31] Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa,
+Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fi-
+dler, Ming-Yu Liu, and Tsung-Yi Lin.
+Magic3D: High-
+Resolution Text-to-3D Content Creation. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 300–309, 2023.
+[32] Hongyu Liu, Xuan Wang, Ziyu Wan, Yujun Shen, Yib-
+ing Song, Jing Liao, and Qifeng Chen. HeadArtist: Text-
+conditioned 3D Head Generation with Self Score Distilla-
+tion. arXiv preprint arXiv:2312.07539, 2023.
+[33] William E. Lorensen and Harvey E. Cline. Marching Cubes:
+A High Resolution 3D Surface Construction Algorithm. In
+Proceedings of the 14th Annual Conference on Computer
+Graphics and Interactive Techniques, SIGGRAPH ’87, page
+163–169, New York, NY, USA, 1987. Association for Com-
+puting Machinery.
+[34] Camillo Lugaresi, Jiuqiang Tang, Hadon Nash, Chris Mc-
+Clanahan, Esha Uboweja, Michael Hays, Fan Zhang, Chuo-
+Ling Chang, Ming Guang Yong, Juhyun Lee, Wan-Teh
+Chang, Wei Hua, Manfred Georg, and Matthias Grundmann.
+MediaPipe: A Framework for Building Perception Pipelines.
+arXiv preprint arXiv:1906.08172, 2019.
+[35] Baptiste Nicolet, Alec Jacobson, and Wenzel Jakob. Large
+Steps in Inverse Rendering of Geometry.
+ACM Trans.
+Graph., 40(6), Dec 2021.
+[36] Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani,
+Timo Bolkart, Ahmed A. A. Osman, Dimitrios Tzionas, and
+Michael J. Black.
+Expressive Body Capture: 3D Hands,
+Face, and Body from a Single Image. In Proceedings IEEE
+Conf. on Computer Vision and Pattern Recognition (CVPR),
+pages 10975–10985, 2019.

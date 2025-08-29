@@ -1,0 +1,957 @@
+Title: Im avatar: Implicit morphable head avatars from videos
+
+I M Avatar: Implicit Morphable Head Avatars from Videos
+Yufeng Zheng1,3
+Victoria Fern´andez Abrevaya2
+Marcel C. B¨uhler1
+Xu Chen1,3
+Michael J. Black2
+Otmar Hilliges1
+1ETH Z¨urich
+2Max Planck Institute for Intelligent Systems, T¨ubingen
+3Max Planck ETH Center for Learning Systems
+Abstract
+Traditional 3D morphable face models (3DMMs) pro-
+vide ﬁne-grained control over expression but cannot eas-
+ily capture geometric and appearance details.
+Neural
+volumetric representations approach photorealism but are
+hard to animate and do not generalize well to unseen ex-
+pressions.
+To tackle this problem, we propose IMavatar
+(Implicit Morphable avatar), a novel method for learn-
+ing implicit head avatars from monocular videos. Inspired
+by the ﬁne-grained control mechanisms afforded by con-
+ventional 3DMMs, we represent the expression- and pose-
+related deformations via learned blendshapes and skinning
+ﬁelds. These attributes are pose-independent and can be
+used to morph the canonical geometry and texture ﬁelds
+given novel expression and pose parameters. We employ
+ray marching and iterative root-ﬁnding to locate the canon-
+ical surface intersection for each pixel. A key contribution is
+our novel analytical gradient formulation that enables end-
+to-end training of IMavatars from videos. We show quanti-
+tatively and qualitatively that our method improves geome-
+try and covers a more complete expression space compared
+to state-of-the-art methods. Code and data can be found at
+https://ait.ethz.ch/projects/2022/IMavatar/.
+1. Introduction
+Methods to automatically create animatable personal
+avatars in unobtrusive and readily available settings (i.e.,
+from monocular videos) have many applications in VR/AR
+games and telepresence. Such applications require faith-
+ful renderings of the deforming facial geometry and ex-
+pressions, detailed facial appearance and accurate recon-
+struction of the entire head and hair region. Conventional
+methods [17, 21, 23, 24, 51, 54, 56, 58] based on morphable
+mesh models [3, 35, 46] can ﬁt 3DMM shape and texture
+parameters to images for a given subject. However, such
+mesh-based approaches suffer from an inherent resolution-
+Figure 1. IMavatar. We learn personal avatars from RGB videos,
+represented by canonical shape, texture, and deformation ﬁelds.
+An implicit morphing formulation allows generalization to unseen
+expressions and poses outside the training distribution.
+memory trade-off, and cannot handle topological changes
+caused by hair, glasses, and other accessories. Recent meth-
+ods build on neural radiance ﬁelds [39] to learn personal-
+ized avatars [22, 43, 44] and yield high-quality images, es-
+pecially if the generated expressions are close to the train-
+ing data. A key challenge for building animatable facial
+avatars with implicit ﬁelds is the modeling of deformations.
+Previous work either achieves this by conditioning the im-
+plicit representation on expressions [22] or via a separate
+displacement-based warping ﬁeld [43, 44].
+Such under-
+constrained formulations limit the generalization ability, re-
+quiring large numbers of training poses.
+In this paper, we propose Implicit Morphable avatar
+(IMavatar), a novel approach for learning personalized,
+1
+arXiv:2112.07471v6  [cs.CV]  4 Nov 2022
+
+
+generalizable and 3D-consistent facial avatars from monoc-
+ular videos, see Fig. 1. The proposed method combines
+the ﬁne-grained expression control provided by 3DMMs
+with the high-ﬁdelity geometry and texture details offered
+by resolution-independent implicit surfaces, taking advan-
+tage of the strengths of both methods. IMavatars are mod-
+eled via three continuous implicit ﬁelds, parametrized by
+multilayer perceptrons (MLPs), that represent the geometry,
+texture, and pose- and expression-related deformations. In-
+spired by FLAME [35], we represent the deformation ﬁelds
+via learned expression blendshapes, linear blend skinning
+weights, and pose correctives in the canonical space. The
+blendshapes and weights are then used to warp canonical
+points to the deformed locations given expression and pose
+conditions. This pose and expression invariant formulation
+of shape and deformations improves generalization to un-
+seen poses and expressions, resulting in a model of implicit
+facial avatars that provides ﬁne-grained and interpretable
+control.
+To learn from monocular videos with dynamically de-
+forming faces, the mapping from pixels to 3D locations on
+the canonical surface is required.
+To this end, we aug-
+ment the root-ﬁnding algorithm from SNARF [12] with a
+ray marcher akin to that of IDR [69], yielding the canonical
+surface correspondence for each pixel. The color predic-
+tion for each image location is then given by the canonical
+texture network, which formulates our primary source of
+supervision: a per-pixel image reconstruction objective.
+To obtain gradients for the canonical point, we observe
+that the location of the surface-ray intersection is implic-
+itly deﬁned by the geometry and deformation network with
+two constraints: 1. the canonical point must lie on the sur-
+face and 2. its deformed location must be on the marched
+ray. Given these equality constraints, we derive an analytic
+gradient for the iteratively located surface intersection via
+implicit differentiation, which allows end-to-end training of
+the geometry and deformation networks from videos.
+We compare our method with several hard baselines and
+state-of-the-art (SOTA) methods using image similarity and
+expression metrics. To evaluate the generated geometry un-
+der different expressions and poses, we construct a synthetic
+dataset containing 10 subjects. We quantitatively show that
+our method produces more accurate geometry and gener-
+alizes better to unseen poses and expressions. When ap-
+plied to real video sequences, IMavatar reconstructs the tar-
+get poses and expressions more accurately than that state
+of the art (SOTA) and qualitatively achieves more accurate
+geometry and better extrapolation ability over poses and ex-
+pressions.
+In summary, we contribute:
+• a 3D morphing-based implicit head avatar model with
+detailed geometry and appearance that generalizes
+across diverse expressions and poses,
+• a differentiable rendering approach that enables end-
+to-end learning from videos, and
+• a synthetic video dataset for evaluation.
+2. Related work
+3D Face Models and Avatar Reconstruction. Estimat-
+ing 3D shape from monocular input is an ill-posed prob-
+lem, traditionally addressed by using data-based statistical
+priors.
+The seminal work of Blanz and Vetter [3] used
+principal component analysis (PCA) to model facial ap-
+pearance and geometry on a low-dimensional linear sub-
+space, known as the 3D Morphable Model (3DMM). Ex-
+tensions include multilinear models for shape and expres-
+sion [7, 65], full-head PCA models [15, 35, 47], deep non-
+linear models [50, 63] and fully articulated head models
+with linear blend skinning (LBS) and corrective blend-
+shapes [35]. 3DMM and its variants have been widely used
+within optimization-based [24,51,55,61] and deep learning-
+based approaches [17, 18, 21, 34, 36, 54, 56, 58–60]. These
+methods can obtain overall accurate estimates of the facial
+area but typically lack details, do not model the entire head,
+and cannot properly represent eyes, teeth, hair, and acces-
+sories.
+A related line of research estimates personalized rigs
+from monocular input, i.e. 3D representations of the head
+along with a set of controls that can be used for anima-
+tion. This has been traditionally addressed by recovering
+a personalized set of blendshape bases, obtained through
+deformation transfer [8, 23, 27, 28, 57] or deep neural net-
+works [2, 10, 68]. To represent detailed geometry, a few
+methods additionally reconstruct a layer of mid- or ﬁne-
+level correctives that can be deformed along with the under-
+lying coarse mesh [21, 23, 28, 68]. Here, we present a new
+approach that can recover a higher-ﬁdelity facial rig than
+prior work, and is controlled by expression blendshapes as
+well as jaw, neck, and eye pose parameters.
+Neural Face Models.
+The recent success of neural im-
+plicit shape representations [13, 32, 37, 40, 42, 69] has led
+to several methods that build 3D facial models within this
+paradigm. Yenamandra et al. [70] propose an implicit mor-
+phable model that decouples shape, expression, appearance,
+and hair style. Ramon et al. [49] estimate a full head model
+from a few input images by pre-training signed distance
+ﬁelds on a large number of raw 3D scans. These works
+demonstrate an improved ability to represent the full head
+and torso along with detailed geometry, but the estimated
+shapes cannot be animated. In contrast, our implicit surface
+representation can be controlled via 3DMM parameters.
+Neural volumetric representations such as NeRF [40]
+have also been explored in the context of faces [9, 22, 66].
+These representations enable the encoding of thin structures
+2
+
+
+Figure 2. Method overview. Given a pixel location, our method performs ray marching in the deformed space. For each deformed
+point xi
+d, we conduct correspondence search to ﬁnd the corresponding canonical point xi
+c. Our novel implicit morphing leverages the
+canonical blendshape and skinning-weight ﬁelds E, W and P to morph the canonical point xi
+c to its deformed location xi
+d given expression
+and pose conditions. After ﬁnding the nearest canonical surface intersection xc, our novel analytical gradient formula allows efﬁcient
+computation of gradients for the geometry and deformation ﬁelds. Finally, we predict the RGB values by querying the canonical texture
+network. We use an image reconstruction loss and a mask loss, and optionally supervise the predicted blendshapes and skinning-weights.
+such as hair, and they can model complex surface/light in-
+teractions. Wang et al. [66] propose a localized composi-
+tional model that combines discrete low-resolution voxels
+with neural radiance ﬁelds. Their method requires a com-
+plex multi-view video system for training. The closest work
+to ours is NerFACE [22], which recovers an animatable neu-
+ral radiance ﬁeld from a single monocular video by condi-
+tioning on the expression parameters from a 3DMM. While
+NerFACE achieves good image quality on novel views and
+interpolated expressions, it struggles to extrapolate to un-
+seen expressions, and the quality of the geometry is too
+noisy to be used in 3D settings (Fig. 6).
+Implicit deformation ﬁelds. Modeling dynamic objects
+with implicit neural ﬁelds is an active research topic, with
+currently three main approaches. The ﬁrst is to condition
+each frame on a latent code, e.g. a time stamp [67], a learned
+latent vector [43,66], or a vector from a pre-computed para-
+metric model [16, 22, 38, 52].
+A second, possibly com-
+plementary approach, is to use a “backward” deformation
+ﬁeld. This is an additional neural network that maps ob-
+servations in deformed space to observations in canoni-
+cal space, where the implicit function is then evaluated
+[41,43,43,48,52,62,64]. The deformation ﬁelds are mod-
+eled as velocity ﬁelds [41], translation ﬁelds [48, 62], rigid
+transformations [43], or skinning-weight ﬁelds [29,38,52].
+While they have demonstrated an impressive capacity for
+learning correspondences even in the absence of ground-
+truth supervision, the backwards formulation makes them
+pose-dependent and hence requires a large dataset for learn-
+ing, showing reduced generalization when deformations are
+too far away from the training set.
+To tackle this, for-
+ward deformation ﬁelds have been recently proposed [12]
+for learning 3D body avatars.
+These learn a continuous
+forward skinning weight ﬁeld, and corresponding canoni-
+cal points are found using iterative root ﬁnding. Concurrent
+work extends the idea to model textured [19,30] and gener-
+ative human avatars [11]. To improve generalization outside
+the scope of train-time expressions, here we extend the idea
+of forward skinning to the problem of facial deformations
+and propose a new analytical gradient formula that allows
+the deformation ﬁelds to be directly learned from videos.
+3. Method
+We propose IMavatar, an implicit morphable head avatar
+that equips implicit surfaces with ﬁne-grained expression
+control by leveraging morphing-based deformation ﬁelds.
+In this section, we ﬁrst recap the deformation formulation
+of the FLAME face model [35], followed by the representa-
+tions for the canonical geometry, deformation, and texture
+ﬁelds. Then, we introduce correspondence search to ﬁnd
+canonical points for image pixels and derive the analytical
+gradients for end-to-end training.
+3
+
+
+3.1. Recap: FLAME Face Morphable Model
+The FLAME face model [35] parameterizes facial geom-
+etry with shape, pose, and expression components. Since
+we focus on personal facial avatars, we speciﬁcally repre-
+sent the pose- and expression-dependent shape variations.
+The simpliﬁed FLAME mesh model is denoted by:
+M(θ, ψ) = LBS(TP (θ, ψ), J(ψ), θ, W),
+(1)
+where θ and ψ denote the pose and expression parameters,
+and LBS(·) and J(·) deﬁne the standard skinning func-
+tion and the joint regressor, respectively. W represents the
+per-vertex skinning weights for smooth blending, and TP
+denotes the canonical vertices after adding expression and
+pose correctives, represented as:
+TP (θ, ψ) = ¯T + BE(ψ; E) + BP (θ; P),
+(2)
+where ¯T is the personalized canonical template. BP (·) and
+BE(·) calculate the additive pose and expression offsets us-
+ing the corrective blendshape bases P and E given the ani-
+mation conditions θ and ψ. Our method extends the discrete
+W, E, and P deﬁned on vertices to be continuous ﬁelds rep-
+resented by MLPs, making it possible to morph continuous
+canonical representations.
+3.2. IMavatar
+IMavatar is represented by three neural implicit ﬁelds,
+deﬁning the canonical geometry, deformation bases, and
+texture of the person, as shown in Fig. 2. Details of the
+network architecture can be found in the Sup. Mat.
+Geometry. We represent the canonical geometry using an
+MLP that predicts the occupancy values for each canonical
+3D point. We additionally condition the geometry network
+fσf on a per-frame learnable latent code l ∈Rnl, similar
+to NerFace [22], and leverage positional encoding [40] to
+encourage high frequency details in the canonical geometry
+fσf (x, l) : R3 × Rnl →occ.
+(3)
+Deformation. Following FLAME [35], our deformation
+network dσd predicts the additive expression blendshape
+vectors E ∈Rne×3, the pose correctives P ∈Rnj×9×3,
+and the linear blend skinning weights W ∈Rnj for each
+point in the canonical space, where ne and nj denote the
+number of expression parameters and bone transformations
+dσd(x) : R3 →E, P, W.
+(4)
+In a slight abuse of notation we reuse E, P, and W from
+FLAME – please note that these denote continuous implicit
+ﬁelds from here on. For each canonical point xc, the trans-
+formed location xd := wσd(xc) is:
+xd = LBS(xc+BP (θ; P)+BE(ψ; E), J(ψ), θ, W), (5)
+where J is the joint regressor from FLAME. This deﬁnes
+the forward mapping from canonical points xc to deformed
+locations xd. We detail the computation of the inverse map-
+ping from deformed to canonical space in Sec. 3.3.
+Normal-conditioned texture. We leverage a texture MLP
+cσc to map each location in the canonical space to an RGB
+color value. To account for non-uniform lighting effects,
+we additionally condition the texture network on the nor-
+mal direction of the deformed shape. For implicit surfaces,
+the normal direction can be calculated as the normalized
+gradient of the occupancy ﬁeld w.r.t. the 3D location. In our
+case, the gradient of the deformed shape is given by:
+∂fσf (xc)
+∂xd
+= ∂fσf (xc)
+∂xc
+∂xc
+∂xd
+= ∂fσf (xc)
+∂xc
+∂wσd(xc)
+∂xc
+−1
+.
+(6)
+Since the appearance in the mouth region cannot be mod-
+eled purely by warping due to dis-occlusions [43], our ﬁnal
+predicted color c is calculated from the canonical location
+xc, the normal direction of the deformed shape nd, and the
+jaw pose and expression parameters θ and ψ
+cσc(xc, nd, θ, ψ) : R3 × R3 × R3 × R50 →c.
+(7)
+3.3. Differentiable Rendering
+To optimize the canonical networks from videos with ex-
+pressions and poses, we ﬁrst introduce non-rigid ray march-
+ing to ﬁnd the canonical surface point for each ray, and in-
+troduce analytical gradients that enable end-to-end training
+of the geometry and deformation networks.
+Non-rigid ray marching. Given a camera location ro and a
+ray direction rd in the deformed space, we follow IDR [69]
+and perform ray marching in the deformed space. To deter-
+mine the occupancy values for the sampled points xd, we
+follow SNARF [12] and leverage iterative root ﬁnding to
+locate the canonical correspondences xc and query their oc-
+cupancy values. Thus, we can locate the nearest canonical
+surface intersection for each ray iteratively.
+Gradient. To avoid back-propagation through the iterative
+process, we derive analytical gradients for the location of
+the canonical surface point xc, leveraging that xc must sat-
+isfy the surface and ray constraints:
+fσf (xc)
+≡
+0.5,
+(8)
+(wσd(xc) −ro) × rd
+≡
+0,
+(9)
+where 0.5 is deﬁned as the level set for the surface. For con-
+venience, we rewrite this equality constraint as FσF (xc) ≡
+0, which implicitly deﬁnes the canonical surface intersec-
+tion xc. The learnable parameters of the geometry and de-
+formation networks are σF = σf ∪σd. We leverage implicit
+4
+
+
+differentiation to attain the gradient of xc w.r.t. the parame-
+ters of the geometry and deformation networks:
+dFσF (xc)
+dσF
+= 0
+⇔∂FσF (xc)
+∂σF
++ ∂FσF (xc)
+∂xc
+∂xc
+∂σF
+= 0
+⇔∂xc
+∂σF
+= −(∂FσF (xc)
+∂xc
+)−1 ∂FσF (xc)
+∂σF
+.
+(10)
+We also supervise non-surface rays with a mask loss
+(Eq. 12), in which case the equality constraint is deﬁned
+as wσd(xc) ≡x⋆
+d, where x⋆
+d is the point on the ray with the
+smallest occupancy value, located via ray sampling.
+3.4. Training Objectives
+RGB loss supervises the rendered pixel color:
+LRGB =
+1
+|P|
+X
+p∈P in
+∥Cp −cσc(xc)∥1,
+(11)
+where P denotes the set of training pixels, and P in ⊂P
+denotes the foreground pixels where a ray-intersection has
+been found. Cp and cσc(xc) represent the ground-truth and
+predicted RGB values of pixel p. The analytical gradient
+formula enables LRGB to not only optimize texture, but also
+the geometry and deformation networks.
+Mask loss supervises the occupancy values for non-
+surface rays p ∈P \ P in:
+LM =
+1
+|P|
+X
+p∈P \P in
+CE(Op, fσf (x⋆
+c)),
+(12)
+where CE(·) is the cross-entropy loss calculated be-
+tween the ground-truth Op and predicted occupancy values
+fσf (x⋆
+c). The mask loss also optimizes the deformation net-
+work thanks to the analytical gradient.
+An optional FLAME loss leverages prior knowledge
+about expression and pose deformations from FLAME [35]
+by supervising the deformation network with the corre-
+sponding values of the nearest FLAME vertices:
+LF L =
+1
+|P|
+X
+p∈P in
+(λe∥EGT
+p
+−Ep∥2
++λp∥PGT
+p
+−Pp∥2 + λw∥WGT
+p
+−Wp∥2), (13)
+where Ep, Pp, and Wp denote the predicted values of the
+deformation network, and EGT
+p
+, PGT
+p
+and WGT
+p
+denote the
+pseudo ground truth deﬁned by the nearest FLAME ver-
+tices. We set λe = λp = 1000, and λw = 0.1 for our
+experiments. Our ﬁnal training loss is
+L = LRGB + λMLM + λF LLF L,
+(14)
+where λM = 2 and λF L = 1.
+D-Net
+B-Morph
+C-Net
+Fwd-Skin
+Ours
+GT
+Neutral
+Medium
+Strong
+Zoom
+RGB
+Figure 3. Qualitative results on synthetic data. As the expres-
+sion strength increases from left to right, baseline methods either
+collapse to a neutral expression (D-Net, B-Morph) or produce in-
+valid geometry (C-Net, Fwd-Skin). In contrast, our method suc-
+cessfully handles even the most extreme expressions.
+4. Experiments
+This section empirically evaluates the beneﬁts of the pro-
+posed approach in terms of geometry accuracy and expres-
+sion generalization. We conduct experiments on both syn-
+thetic data with known geometry and real video sequences.
+4.1. Datasets
+Synthetic Dataset. We conduct controlled experiments on
+a synthetic dataset by rendering posed and textured FLAME
+meshes. For the training set, we render a video that is repre-
+sentative of a speech sequence. We take FLAME expression
+parameters from the VOCA speech dataset [14] and head
+poses ﬁtted from real videos. We build the test set with un-
+seen, stronger expressions extracted from COMA [50]. Our
+synthetic dataset consists of 10 subjects with varied facial
+shapes and appearance, with an average of 5,368 frames for
+training and 1876 frames for testing per subject. For testing,
+we subsample every 10th frame. We release the synthetic
+dataset for research purposes.
+Real Video Dataset. We evaluate on real videos from a sin-
+gle stationary camera. We calculate foreground masks with
+5
+
+
+MODNet [31] and estimate the initial FLAME parameters
+using DECA [21], which are reﬁned by ﬁtting to 2D facial
+keypoints [6]. Please see Sup. Mat. for more details. The
+real video dataset consists of 4 subjects, with roughly 4,000
+frames for training and 1,000 frames for testing per subject.
+The training videos cover mostly neutral expressions in a
+speech video, while the test videos include unseen, difﬁcult
+expressions such as jaw opening, big smiles, and more. We
+subsample every 10th frame for testing.
+4.2. Ablation Baselines
+This paper tackles the key difﬁculty in building animat-
+able avatars: capturing the per-frame deformations with re-
+spect to the canonical shape. We compare our method with
+the commonly used previous approaches by replacing our
+deformation module with the following alternatives:
+Pose- and expression-conditioned network (C-Net). C-
+Net is inspired by NerFACE [22] but is designed for im-
+plicit surfaces. It ﬁrst applies a rigid transformation to the
+deformed shape, which brings the full upper body to the
+canonical space with the inverse head pose transformation;
+it then models other deformations by conditioning on the
+pose and expression parameters.
+Displacement warping (D-Net). D-Net uses a deformation
+network with pose and expression parameters as input, and
+predicts displacement vectors for deformed points, warping
+them to the canonical space. The predicted displacements
+are supervised with FLAME, similar to Eq. 13.
+Backward morphing (B-Morph). B-Morph leverages the
+morphing formulation of FLAME and predicts expression
+blendshapes, pose corrective vectors, and LBS weights.
+However, the deformation network is conditioned on the
+deformed location as well as pose and expression param-
+eters and performs backward morphing. In contrast, our de-
+formation network takes as input only the canonical point,
+which is pose- and expression-independent, enabling better
+generalization [12]. The learned blendshapes and weights
+of this baseline are supervised by FLAME pseudo GT.
+Forward skinning + expression-conditioning (Fwd-
+Skin). This baseline is adapted from SNARF [12], which
+was originally proposed for human body avatars. Here, the
+deformation network only models the LBS weights, while
+the expression and pose-related correctives are handled by
+conditioning on the geometry and texture networks.
+IMavatar unsupervised (Ours-). This baseline eliminates
+the FLAME pseudo GT supervision, learning solely from
+images and masks (only used for exp. with real data).
+4.3. Metrics
+The goal of this work is to obtain an animatable 3D head
+from a video, and hence we evaluate the geometric accuracy
+Method
+Expression ↓
+Normals ↓
+L1 ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+C-Net
+3.248
+9.108
+0.02245
+26.67
+0.9829
+0.03053
+D-Net
+7.452
+26.174
+0.07881
+19.62
+0.9481
+0.05881
+B-Morph
+4.941
+12.150
+0.03293
+24.95
+0.9726
+0.03340
+Fwd-Skin
+2.825
+8.130
+0.01920
+27.30
+0.9852
+0.02812
+Ours
+2.558
+5.901
+0.01807
+28.75
+0.9900
+0.01581
+Table 1. Quantitative results for synthetic experiment. Com-
+pared to the baselines, our method achieves more consistent sur-
+face normals, better image quality, and more accurate expressions.
+Figure 4. Expression extrapolation. Performance of baseline
+methods worsen drastically as expressions become more extreme
+(higher norm). Geom. error denotes the angular error of the sur-
+face normals (lower is better, see Sec. 4.3).
+(only available for the synthetic dataset), image quality, and
+expression ﬁdelity. Image quality is measured via the Man-
+hattan distance (L1), SSIM, PSNR and LPIPS [72] metrics,
+following the practice in NerFACE [22]. To measure ge-
+ometric consistency for synthetic data, we report the aver-
+age angular normal error between the generated normal map
+and ground truth, denoted as the Normals metric in Tab. 1.
+Since we focus on modeling deformation-related geometry
+and texture, both normal consistency and image similarity
+metrics are measured in the face interior region. For both
+synthetic and real data, we measure the expression ﬁdelity
+by calculating the distance between generated and (pseudo)
+GT facial keypoints. We estimate the facial keypoints of
+predicted images with [6], and (pseudo) GT keypoints are
+obtained from posed FLAME meshes.
+4.4. Results on Synthetic Dataset
+We train IMavatar and baseline methods for the 10 syn-
+thetic identities and measure geometry, expression and im-
+age reconstruction errors on 12 sequences with renderings
+from the COMA dataset. We outperform all baselines by a
+large margin on all metrics (Tab. 1).
+Extrapolation. While other methods are limited to interpo-
+lation, our method is capable of extrapolating beyond seen
+expressions and poses. In Fig. 4, we plot the geometric error
+for different strength of expressions. Most methods perform
+well for mild expressions (small expression norm).
+For
+stronger expressions, however, their errors increase signiﬁ-
+cantly. In contrast, our method only incurs a slight increase
+even for strong expressions (large norm). See Sup. Mat. for
+an analogous plot for the jaw pose. Figure 3 shows visual
+examples for neutral, medium, and strong expressions.
+6
+
+
+Exp
+Jaw
+Neck
+Figure 5. Expression and pose control beyond the training dis-
+tribution. We show interpolation and extrapolation results along
+with histograms of the training distribution, where the blue bars
+correspond to the 5 visualized samples. Our method generalizes
+to expression and pose conditions outside the training distribution.
+4.5. Result on Real Video sequences
+To evaluate performance on real data, we compare to all
+baselines and NerFACE [22]. Additional comparisons with
+Varitex [5], Zhakarov et al. [71] and HyperNeRF [44] can be
+found in Sup. Mat. Figure 6 shows that all methods can gen-
+erate realistic and correctly-posed images for easy expres-
+sions (row 1 and 2). For easy expressions, Ours, Ours- and
+Backward Morphing (B-Morph) achieve the most accurate
+geometry because they leverage the morphing formulation
+of the FLAME face model. The FLAME-guided morphing
+ﬁeld enables the joint optimization of a single canonical rep-
+resentation using information from all frames, even though
+they contain different expressions and poses. In contrast,
+C-Net, Fwd-Skin, and NerFACE [22] model expression de-
+formations via direct conditioning on the implicit ﬁelds,
+and do not enforce a shared canonical geometry for differ-
+ent expressions. These methods are too under-constrained
+to deal with the ill-posed problem of extracting geometry
+from monocular videos. D-Net, on the other hand, does
+model the correspondence between frames. However, given
+the complexity of expression and pose deformations, the
+displacement-based deformation network cannot accurately
+represent the warping ﬁeld, which leads to reduced qual-
+ity. Inspecting Fig. 6 top-to-bottom, reveals that the perfor-
+mance of the baselines degrades with increasingly strong
+poses and expressions.
+For the last two rows, we show
+strong extrapolations where only our method can generate
+reasonable outputs that faithfully reﬂect the expression and
+pose conditions. This ﬁnding is also supported by Tab. 2.
+Method
+Expression ↓
+L1 ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+C-Net
+3.615
+0.05824
+22.23
+0.9524
+0.03421
+D-Net
+3.769
+0.06130
+21.77
+0.9474
+0.03227
+B-Morph
+2.786
+0.04980
+23.50
+0.9599
+0.02231
+Fwd-Skin
+3.088
+0.05456
+22.92
+0.9586
+0.02781
+NerFACE [22]
+2.994
+0.04564
+23.58
+0.9596
+0.02156
+Ours-
+2.843
+0.04918
+23.68
+0.9615
+0.02155
+Ours
+2.548
+0.04878
+23.91
+0.9655
+0.02085
+Table 2. Quantitative results on real videos. We compare our
+method with the SOTA and baselines on test sequences with un-
+seen expressions and poses. Our method reconstructs the expres-
+sions more accurately while being on par in terms of image quality.
+When evaluating on test videos with novel expressions and
+poses, our method achieves a much lower facial keypoint er-
+ror, indicating more accurate reconstruction of expressions.
+Ours- achieves similar image and geometry quality as our
+full model, but is not as accurate in expression deforma-
+tions. We show in Sup. Mat. that the FLAME loss can be
+replaced via more training data without losing accuracy.
+Figure 5, demonstrates control over expressions and
+poses by interpolating and extrapolating an example expres-
+sion (ﬁrst expression component in FLAME [35]), plus jaw
+(pitch), and neck (yaw) poses separately. For each parame-
+ter, we show generated images and the training data distri-
+bution with 5 vertical lines corresponding to the 5 samples.
+This shows that our method generalizes to expressions and
+poses far beyond the training distribution. More interpola-
+tion and extrapolation examples can be found in Sup. Mat.
+5. Conclusion
+We propose IMavatar, an implicit morphable head avatar,
+controlled via expression and pose parameters in a similar
+way to 3DMMs, but with the ability to model diverse and
+detailed hairstyles and facial appearance. Our method—
+learned end-to-end from RGB videos—demonstrates accu-
+rate deforming geometry and extrapolates to strong expres-
+sions beyond the training distribution.
+While our method contributes towards building control-
+lable implicit facial avatars, some challenges remain. First,
+surface representations achieve detailed facial geometry, but
+they cannot model the ﬁne occlusions produced by hair.
+Future work could address this by combining volumetric
+representations [40] with animatable surfaces. Second, the
+iterative non-rigid ray marching makes IMavatar slow to
+train (∼2 GPU days). Initializing with mesh-ray inter-
+sections could speed up the process, as done in concurrent
+work [30]. Third, our method relies on accurate face track-
+ing and our performance degenerates with noisy 3DMM pa-
+rameters (See Sup. Mat.). Reﬁning the poses and expres-
+sions during training is a promising future direction. Fi-
+nally, the appearance in the mouth interior region can be
+7
+
+
+D-Net
+B-Morph
+Fwd-Skin
+C-Net
+NerFACE [22]
+Ours-
+Ours
+GT
+Expression and pose extrapolation
+−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−→
+D-Net
+B-Morph
+Fwd-Skin
+C-Net
+NerFACE [22]
+Ours-
+Ours
+GT
+Figure 6. Qualitative comparison on real data. Unlike the baselines, Ours generates complete images and accurate geometry even when
+extrapolating expressions beyond the training data. The examples become more challenging from top to bottom.
+unrealistic (last two examples in Fig. 6). We propose an im-
+provement in the Sup. Mat. We discuss potential negative
+societal impact in light of disinformation and deep-fakes in
+the Sup. Mat.
+Acknowledgements: We thank the authors of [25] for
+sharing their evaluation dataset.
+Yufeng Zheng and Xu
+Chen were supported by the Max Planck ETH Center for
+Learning Systems. This project has received funding from
+the European Research Council (ERC) under the European
+Union’s Horizon 2020 research and innovation program
+grant agreement No 717054. MJB has received research
+gift funds from Adobe, Intel, Nvidia, Meta/Facebook, and
+Amazon. MJB has ﬁnancial interests in Amazon, Datagen
+Technologies, and Meshcapade GmbH. MJB’s research was
+performed solely at, and funded solely by, the Max Planck.
+8
+
+
+Supplemental Materials
+This supplementary document provides additional ablation studies and results in Sec. 1, implementation and training
+details in Sec. 2, and discussion on broader impact in Sec. 3. Please also watch the accompanying video to see animated
+results and hear an explanation of our proposed method.
+1. Additional Ablations and Results
+1.1. Comparison with Additional SOTAs
+Tab. 1 lists comparisons with additional SOTA methods where code is publicly available. We run the pretrained models
+for Zhakarov et al. [71] and Buehler et al. [5] and train HyperNeRF [44] for all four real subjects. Since HyperNeRF is not
+3DMM-controllable, we condition the warping and slicing networks on the FLAME expression and pose parameters instead
+of a learnable latent code ωi.
+Method
+Expression ↓
+L1 ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+Zhakarov et al.
+17.107
+0.13929
+15.24
+0.8900
+0.07040
+VariTex
+3.704
+0.09968
+17.01
+0.9233
+0.04890
+HyperNeRF
+7.201
+0.08143
+18.94
+0.9207
+0.03953
+Ours
+2.548
+0.04878
+23.91
+0.9655
+0.02085
+Table 1. Additional SOTA baselines. We evaluate SOTA baselines on our real dataset, and provide quantitative comparisons.
+1.2. Experiment on MakeHuman Synthetic Dataset [25]
+Metric
+Female 1
+Female 2
+Male 1
+Male 2
+↑Mask IoU
+0.972
+0.973
+0.966
+0.971
+↓RGB L1(Intersec)
+0.035
+0.025
+0.019
+0.039
+↑Normal(Intersec)
+0.961
+0.966
+0.954
+0.955
+[25] on Normal(Intersec)
+0.94
+0.95
+0.94
+0.94
+Table 2. MakeHuman. IMavatar is competitive with concurrent work [25] without test-time pose optimization.
+Figure 1. MakeHuman. IMavatar learns accurate and detailed deformable geometry from monocular RGB videos.
+We follow Grassal et al. [25] and train with the same frames for 4 subjects from MakeHuman. Tab. 2 lists IoU between
+the predicted and GT masks, image L1 over the intersection, and compares geometry with [25]. Our method achieves more
+accurate geometry without test-time pose optimization used in [25]. Qualitative results are shown in Fig. 1.
+1.3. Ablation on FLAME Pseudo GT Supervision
+Our method can also be trained without 3DMM supervision, using only mask and RGB losses (‘Ours-’ in Tab. 3 and
+Fig. 2). Expression error is higher without pseudo GT supervision (row 1 and 2). However, with TrainData+, which contains
+30% more frames and more expression variation than the original trainset, Ours- achieves comparable performance without
+leveraging pseudo GT (row 3 and 4).
+1
+
+
+Method
+TrainData+
+Expr. ↓
+L1 ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+Ours-
+3.337
+0.0496
+22.32
+0.9532
+0.0317
+Ours
+2.973
+0.0480
+22.55
+0.9572
+0.0292
+Ours-
+x
+2.955
+0.0447
+21.98
+0.9591
+0.0277
+Ours
+x
+2.876
+0.0457
+22.07
+0.9596
+0.0296
+Table 3. Pseudo GT supervision improves metrics given limited data. With TrainData+, it is sufﬁcient to learn unsupervisedly from
+images. Scores are calculated on one subject. See Fig. 2 for qualitative results.
+Figure 2. Our method can be trained without FLAME pseudo ground-truth supervision. With more diversed training data, IMavatar learns
+more detailed expression and pose deformations. Neck geometry, however, is not guaranteed to be correct due to the lack of movement
+and ambiguity between head and neck rotation in the training data.
+1.4. Mouth Interior Improvement
+Figure 3. With more diverse data and pre-estimated semantic segmentations, IMavatar can learn better mouth interior geometry and texture.
+Simply training on a dataset with more expressions (TrainData+) and setting blendshape supervision in the mouth interior
+region to 0 (with estimated semantic maps) faithfully reproduces teeth (Fig. 3)
+1.5. Ablation on Pre-processing: Tracking and Segmentation
+We experiment on Female 2 from MakeHuman.
+3DMM tracking:. We add uniformly distributed noise to the ﬁtted 3DMM global, neck and jaw poses, with a noise range
+from 0.025( 1.4◦) to 0.1( 5.7◦).
+Foreground mask:. We randomly select a 61 × 61 square and set the mask value to True or False randomly. We degrade
+10%, 50% and 100% of the masks. For both ablation experiments, the random degradation is a pre-processing step (not
+changed during training). See Tab. 4.
+Metric
+3DMM tracking
+Baseline
+Foreground Mask
+0.1
+0.05
+0.025
+10%
+50%
+100%
+↑Mask IoU
+0.927
+0.954
+0.967
+0.983
+0.982
+0.980
+0.975
+↑Normal
+0.905
+0.938
+0.959
+0.958
+0.961
+0.958
+0.932
+↓RGB L1
+0.062
+0.045
+0.032
+0.023
+0.024
+0.027
+0.029
+Table 4. Ablation Pre-processing. IMavatar relies on accurate 3DMM tracking, but it is reasonably robust to mis-segmentations.
+2

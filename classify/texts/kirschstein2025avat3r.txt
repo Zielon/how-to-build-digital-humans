@@ -1,0 +1,1049 @@
+Title: Avat3r: Large Animatable Gaussian Reconstruction Model for High-fidelity 3D Head Avatars
+
+Avat3r: Large Animatable Gaussian Reconstruction Model
+for High-fidelity 3D Head Avatars
+Tobias Kirschstein1,2∗Javier Romero2 Artem Sevastopolsky1,2∗Matthias Nießner1 Shunsuke Saito2
+Technical University of Munich1
+Meta Reality Labs Pittsburgh2
+Avat3r
+(a) Phone scan
+(b) Sparse 3D head reconstruction
+(c) Zero-shot 3D facial animation
+Figure 1. Avat3r. Given just four images of a person’s head (a), Avat3r achieves two things: (b) it creates a faithful 3D reconstruction
+of the head in a feed-forward manner, and (c) it allows facial animation without having seen any of the corresponding expressions of the
+person. This simplifies the capturing process as it drops the need for recording long sequences of facial movement. As a result, the entire
+pipeline from head scan to final 3D head avatar can be executed within a few minutes and runs on a single consumer-grade GPU.
+Abstract
+Traditionally, creating photo-realistic 3D head avatars re-
+quires a studio-level multi-view capture setup and expen-
+sive optimization during test-time, limiting the use of dig-
+ital human doubles to the VFX industry or offline render-
+ings. To address this shortcoming, we present Avat3r, which
+regresses a high-quality and animatable 3D head avatar
+from just a few input images, vastly reducing compute re-
+quirements during inference. More specifically, we make
+Large Reconstruction Models animatable and learn a pow-
+erful prior over 3D human heads from a large multi-view
+video dataset. For better 3D head reconstructions, we em-
+ploy position maps from DUSt3R and generalized feature
+maps from the human foundation model Sapiens. To an-
+imate the 3D head, our key discovery is that simple cross-
+attention to an expression code is already sufficient. Finally,
+we increase robustness by feeding input images with differ-
+ent expressions to our model during training, enabling the
+∗Work done while Tobias Kirschstein and Artem Sevastopolsky were
+interns at Reality Labs Research, Pittsburgh, PA, USA
+Project website: https://tobias-kirschstein.github.io/avat3r/
+reconstruction of 3D head avatars from inconsistent inputs,
+e.g., an imperfect phone capture with accidental movement,
+or frames from a monocular video. We compare Avat3r with
+current state-of-the-art methods for few-input and single-
+input scenarios, and find that our method has a competi-
+tive advantage in both tasks. Finally, we demonstrate the
+wide applicability of our proposed model, creating 3D head
+avatars from images of different sources, smartphone cap-
+tures, single images, and even out-of-domain inputs like an-
+tique busts.
+1. Introduction
+Lifelike 3D head avatars find use in a variety of applica-
+tions such as telepresence, movie production, personalized
+games, or digital education. Typically, the creation of a
+high-fidelity avatar requires studio-quality videos that have
+to be recorded in hour-long sessions in expensive capture
+setups. This limits the applicability of a 3D head avatar
+creation pipeline, especially in casual settings where users
+may only want to use a few images taken with their smart-
+phone to create a convincing digital double. In this paper,
+arXiv:2502.20220v2  [cs.CV]  15 Sep 2025
+
+
+we present Avat3r, a method that can reconstruct an animat-
+able 3D head avatar from just a few images of a person.
+Building such a system involves several hard challenges.
+First, sparse 3D reconstruction poses a heavily under-
+constrained optimization problem since some regions such
+as the mouth interior or the side of the head may have sim-
+ply not been seen in the available images. Next, animating
+the head requires plausibly morphing the reconstructed face
+without ever having seen that particular person talking or
+sticking their tongue out. Finally, the input images may
+be inconsistent, e.g., because the person could not remain
+completely static during a casual capture. All of these three
+challenges, i.e., sparse 3D reconstruction, face animation,
+and robust reconstruction, have to be solved simultaneously
+to successfully reconstruct a photo-realistic 3D head avatar
+given just a few images.
+Due to the aforementioned challenges, the current best
+methods for high-quality avatar creation [23, 30, 36, 49, 51,
+58, 59, 70, 85] cannot be applied since their optimization-
+based approach requires many more observations than just
+a few images of a person.
+On the other hand, methods
+that aim at 3D-aware portrait animation [13, 14, 20, 62]
+learn a prior over 3D heads from large video datasets. As
+a result, existing methods can already convincingly ani-
+mate faces from as few as just a single input image. How-
+ever, such methods typically focus on frontal facial appear-
+ance and may sacrifice 3D-consistency or temporal con-
+sistency to reach satisfying image synthesis quality. This
+makes these methods less applicable in scenarios where
+a proper 3D model is required.
+Another approach is to
+build a photo-realistic 3D head model that learns the dis-
+tribution of 3D face geometry, expression, and appearance,
+akin to classic 3DMMs. While such unconditional genera-
+tive models are very versatile and recent works have shown
+promising results [72, 81], they typically suffer from lim-
+ited generalizability along the identity axis due to existing
+3D face datasets only providing a few hundred different per-
+sons [35, 46, 48, 73].
+Our approach is motivated by the observation that 3D
+data for faces is limited in the identity axis, but not in
+the expression axis that is already well captured in existing
+datasets. We therefore design a system that is conditional on
+the identity of a person, but generalizes along the expression
+axis. Opposed to photo-realistic 3D face models, the net-
+work does not have to learn the full extent of human facial
+appearance but just needs to understand how to reconstruct
+it from a few example images, which simplifies the task. In-
+spired by recent Large Reconstruction Models [56, 71, 78],
+we devise an architecture that predicts 3D Gaussians for
+each pixel in the input images. As such, we deliberately
+avoid anchoring the 3D Gaussians on a template mesh, as
+common in the 3D Head Avatar domain [6, 49, 51]. The
+reason is that human facial appearance is complex and di-
+verse. Limiting the 3D representation to a fixed number of
+Gaussians anchored on a template mesh with uniform topol-
+ogy will cause issues in regions such as hair or face acces-
+sories. Instead, when predicting Gaussians for each fore-
+ground pixel, a person with voluminous hair will receive
+more primitives to model their head than a bald person.
+To simplify the task of sparse 3D reconstruction, we en-
+rich each input image with feature maps from Sapiens [33]
+and position maps from DUSt3R [65]. These position maps
+are injected into the network via skip connections and act
+as a coarse starting position for each Gaussian. We find
+that DUSt3R is still capable of producing reasonable posi-
+tion maps even if the input images are not consistent. We
+exploit this remarkable capability of DUSt3R to train our
+model on input images taken at different timesteps, which
+not only enables training and inference on larger monocular
+video datasets but also makes the model more robust to in-
+consistencies in the input images. Such inconsistencies can
+quickly occur in a real-life scenario where a person may not
+stay completely still during a phone capture of their head.
+Finally, to model the animation of the face, we find that sim-
+ple cross-attention between intermediate feature maps and
+a descriptive expression code are already sufficient to gen-
+eralize over the space of facial expressions. Taken together,
+our contributions are as follows:
+• We design Avat3r, a novel pipeline for creating high-
+quality 3D head avatars from just a few images in a matter
+of minutes.
+• We build the first animatable large 3D reconstruction
+model and show that simple cross-attention on expression
+codes is sufficient to model complex facial animations.
+• To improve robustness, we integrate priors from Dust3r
+and Sapiens via skip connections, and feed input images
+from different timesteps to the network during training.
+2. Related Work
+2.1. Large 3D Reconstruction Models
+Recently, generalized feed-forward models for 3D recon-
+struction from sparse input views have garnered consider-
+able attention due to their applicability in heavily under-
+constrained scenarios.
+The Large Reconstruction Model
+(LRM) [28] uses a transformer-based encoder-decoder
+pipeline to infer a NeRF reconstruction from just a single
+image. Newer iterations have shifted the focus towards gen-
+erating 3D Gaussian representations from four input im-
+ages [10, 12, 42, 56, 71, 78], showing remarkable novel
+view synthesis results. Very recently, FaceLift [45] has pro-
+posed a combination of personalized multi-view image dif-
+fusion and a large reconstruction model for single-image 3D
+head reconstruction. The paradigm of transformer-based
+sparse 3D reconstruction has also successfully been applied
+to lifting monocular videos to 4D [50].
+
+
+Yet, none of the existing works in the domain have stud-
+ied the use-case of inferring animatable 3D representations
+from sparse input images, which is the focus of our work.
+2.2. Monocular 3D Head Avatar Reconstruction
+A popular task is to reconstruct an animatable 3D head
+avatar from a monocular input video. Several methods have
+been proposed based on meshes [24], NeRFs [22, 69, 86],
+SDFs [82], points [83], and Gaussians [11, 67]. However,
+due to their optimization-based nature, these approaches of-
+ten exhibit poor viewpoint extrapolation capabilities due to
+overfitting on the input viewpoint. Very recently, Tang et al.
+[55] proposed to improve the geometric fidelity of recon-
+structed monocular avatars by incorporating priors from a
+personalized image diffusion model, still requiring a full
+monocular input video. In contrast, our method requires
+only 4 input images to reconstruct a complete and animat-
+able 3D head with extensive viewpoint coverage.
+2.3. 3D-aware Portrait Animation
+A different line of work focuses on animating portraits in a
+3D-aware manner, based on 3D volumes [20], neural ren-
+dering [60], meshes [32], TriPlanes [14, 17, 18, 61, 62], or
+3D Gaussians [13]. Typically, the animation control is in-
+jected via a 3D morphable model (3DMM) [4, 40]. Concur-
+rent to our work, CAP4D [57] uses personalized multi-view
+image diffusion and LAM [26] uses cross attention to build
+a 3D head avatar from a single image. While the aforemen-
+tioned methods can animate a single portrait, they mostly
+focus on image synthesis from a frontal camera, often trad-
+ing 3D consistency for better image quality by using 2D
+screen-space neural renderers. In contrast, our work aims
+to produce a truthful and complete 3D avatar representation
+from the input images that can be viewed from any angle.
+2.4. Photo-realistic 3D Face Models
+The increasing availability of large-scale multi-view face
+datasets [5, 35, 46, 48, 73] has enabled building photo-
+realistic 3D face models that learn a detailed prior over both
+geometry and appearance of human faces. HeadNeRF [27]
+conditions a Neural Radiance Field (NeRF) [47] on identity,
+expression, albedo, and illumination codes. VRMM [74]
+builds a high-quality and relightable 3D face model us-
+ing volumetric primitives [44]. One2Avatar [76] extends
+a 3DMM by anchoring a radiance field to its surface. More
+recently, GPHM [72] and HeadGAP [81] have adopted 3D
+Gaussians to build a photo-realistic 3D face model. An-
+other line of work utilizes 3D Generative Adversarial Net-
+works [7, 8, 25] to learn the distribution of animatable head
+avatars [2, 38, 53, 54] from frontal 2D image datasets.
+To obtain the final 3D avatar, typically a costly fitting pro-
+cess is necessary, impeding casual use-cases on consumer-
+grade devices. While this limitation may be circumvented
+by learning a generalized encoder that maps images into the
+3D face model’s latent space [3, 43, 52, 77, 80], another fun-
+damental limitation remains. Even with more multi-view
+face datasets being published, the number of available train-
+ing subjects rarely exceeds the thousands, making it hard to
+truly learn the full distribution of human facial appearance.
+3DGAN-based approaches mitigate this by training on sin-
+gle image datasets, but typically struggle with view extra-
+polation. In this paper, we pursue a different approach that
+avoids generalizing over the identity axis, by conditioning
+on some images of a person, and only generalizes over the
+expression axis, for which plenty of data is available.
+A similar motivation has inspired recent work on codec
+avatars where a generalized network infers an animat-
+able 3D representation given a registered mesh of a per-
+son [6, 39]. The resulting avatars exhibit excellent qual-
+ity at the cost of several minutes of video capture per sub-
+ject and expensive test-time optimization.
+For example,
+URAvatar [39] finetunes their network on the given video
+recording for 3 hours on 8 A100 GPUs, making inference
+on consumer-grade devices impossible. In contrast, our ap-
+proach directly regresses the final 3D head avatar from just
+four input images without the need for expensive test-time
+fine-tuning.
+3. Method
+The goal of Avat3r is to predict a high-quality 3D Gaussian
+representation of a human head from just a few posed in-
+put images while simultaneously animating the 3D head to
+match a desired facial expression:
+G = AVAT3R(I, π, zexp)
+(1)
+where I = {I1, ..., IV } are the V input images, π their
+corresponding camera parameters, and zexp a code describ-
+ing the desired facial expression, such as an expression code
+of FLAME [40]. In our experiments, V = 4. Note that the
+images I do not necessarily have to stem from multi-view
+camera systems or synthetic multi-view renderings of ob-
+jects as it is common for large reconstruction models. In-
+stead, the input images may show the scene at different in-
+stances in time, making the model amenable for training and
+inference on frames from monocular videos.
+Under the hood, Avat3r employs a Vision Transformer
+backbone [19] to predict 3D Gaussian primitives for each
+pixel in the input images. Fig. 2 depicts the model archi-
+tecture. In the following, we introduce the different compo-
+nents of our pipeline.
+3.1. Pre-trained Foundation Models
+We simplify the task by employing two foundation models:
+DUSt3R [65], and Sapiens [33]. DUSt3R predicts dense
+
+
+Skip Connections
+Gaussian 
+Attribute 
+Maps
+Expression Codes  
+Input View 1
+Encoder
+Feat. map 
+𝐼𝑓𝑒𝑎𝑡
+Self-
+attention
+Cross-
+attention
+c
++
++
+Pos. map
+𝐼𝑝𝑜𝑠
+MLP
+𝑧𝑒𝑥𝑝
+Input Images
+𝐼𝑝𝑜𝑠
+𝐼
+sample
+Linear
+Per-View
+Encoding
+Cross-View
+Transformer
+𝐼𝑐𝑜𝑛𝑓
+⋅
+⋅
+Upsampler
+Avat3r
+Figure 2. Method Overview: Avat3r reconstructs a high-quality 3D representation from just a few input images by predicting 3D Gaussian
+attributes for each input pixel. We first obtain position maps Ipos from DUSt3R and feature maps Ifeat from Sapiens for each view. These
+are then patchified to serve as image tokens for the Vision Transformer back-end. Dense Self-attention performs matching within tokens
+of the same image and across views to infer 3D structure. Dynamics are modelled via cross-attention layers that attend to a sequenced
+expression code. The resulting intermediate feature maps are decoded into Gaussian position, scale, rotation, color, and opactiy maps, and
+then upsampled to the original input image resolution. Finally, we add skip connections to the predicted position and color maps. Gaussians
+that belong to pixels with a confidence larger than a pre-defined threshold are collected and can be rendered from arbitrary viewpoints.
+position maps for a set of input images and globally aligns
+them with the known camera parameters π. These posi-
+tion maps will be beneficial for placing the 3D Gaussians.
+The Sapiens backbone predicts a rich low-resolution feature
+map for each image. The semantic nature of the extracted
+features will simplify the view matching task that has to be
+performed by the subsequent Transformer.
+Ipos, Iconf = DUST3R(I, π)
+(2)
+Ifeat = SAPIENS(I)
+(3)
+where Ipos, Iconf are position and confidence maps pre-
+dicted by DUSt3R, and Ifeat are the Sapiens feature maps.
+3.2. Animatable Large 3D Reconstruction Model
+We adopt a Vision Transformer architecture follow-
+ing GRM [71] by first patchifying the input maps
+I, Ipos, Ipluck ∈RV ×H×W ×C with a convolutional layer:
+h = CONV
+ [I, Ipos, Ipluck]
+
+(4)
+where Ipluck are the per-ray plucker coordinates stored
+for each pixel and h ∈RV ×Hp×Wp×D will be the low-
+resolution intermediate feature maps for each input view.
+Next, we incorporate the pre-computed per-image feature
+maps Ifeat ∈RV ×Hf ×Wf ×Cf :
+hfeat = GRIDSAMPLE
+ Ifeat
+(5)
+h ←LINEAR([h, hfeat])
+(6)
+where the grid sampling step is necessary to transform the
+Sapiens features maps Ifeat to the same Hp×Wp resolution
+as the intermediate feature maps h. The subsequent linear
+layer then squashes the concatenated feature maps back to
+dimension D to avoid excessive compute increase in the fol-
+lowing transformer layers.
+The core of the Vision Transformer consists of several self-
+attention layers that perform cross-view matching between
+all V × Hp × Wp tokens to infer 3D information from the
+given input images:
+h ←SELFATT(h, h)
+(7)
+To make Avat3r animatable, we employ several cross-
+attention layers that allow each image token to attend to a
+sequence of expression tokens following [36, 75]:
+fexp = MLP(zexp)
+(8)
+h ←CROSSATT(h, fexp)
+(9)
+where the MLP projects a single descriptive expression
+code zexp ∈RCexp to the expression code sequence fexp ∈
+RS×D. In our case, S = 4. Surprisingly, by simply en-
+riching each image token in h with expression-dependent
+information, Avat3r is already capable of modeling com-
+plex facial animations in 3D.
+We upsample the image tokens again to the original in-
+put resolution using the transformer-based upsampler from
+GRM [71]:
+M = UPSAMPLE(h)
+(10)
+where M ∈RV ×H×W ×CG denote the Gaussian attribute
+maps consisting of per-pixel Gaussian positions, scales, ro-
+tations, colors, and opacities. After upsampling, we add two
+
+
+skip connections for positions and colors:
+M pos ←M pos + Ipos
+(11)
+M rgb ←M rgb + I
+(12)
+which incorporate the inductive bias that a pixel should pri-
+marily spawn a 3D Gaussian that models the pixel’s corre-
+sponding 3D geometry.
+Finally, we make use of DUSt3R’s per-pixel confidence
+maps Iconf to decide which pixel in the generated Gaussian
+attribute maps M should actually spawn a 3D Gaussian:
+G = {M[x, y] : Iconf[x, y] > τ}
+(13)
+where τ = 0.5 is a threshold describing the minimal confi-
+dence needed to create a 3D Gaussian. This serves two pur-
+poses: First, it avoids artifacts that arise from incorrect 3D
+position initializations from DUSt3R. Second, it naturally
+adjusts the number of Gaussians to the person at hand. In
+that sense, the confidence mask acts much like a foreground
+segmentation: If the person had large voluminous hair, then
+more pixels will belong to the foreground and thus more
+Gaussians will be kept.
+The final set of 3D Gaussians G can then be rendered from
+any desired novel viewpoint πnv using the tile-based differ-
+entiable rasterizer R [31]:
+Inv = R(G, πnv)
+(14)
+3.3. Losses
+Avat3r can be trained with only photometric losses on novel
+viewpoints following the original 3D Gaussian Splatting
+work [31]:
+Ll1 = ∥Inv −Igt∥1
+(15)
+Lssim = SSIM(Inv, Igt)
+(16)
+Furthermore, we incorporate perceptual losses [79] to
+encourage the emergence of more high-frequency details:
+Llpips = LPIPS(Inv, Igt)
+(17)
+The final loss term is comprised as follows:
+L = λl1Ll1 + λssimLssim + λlpipsLlpips
+(18)
+with λl1 = 0.8, λssim = 0.2, and λlpips = 0.01.
+4. Experimental Results
+4.1. Training
+We train Avat3r on multi-view video captures from the Ava-
+256 dataset [46]. In particular, we use the 4TB version of
+the dataset which contains 7.5fps videos from 80 cameras
+(roughly 5000 frames each) at a resolution of 1024 × 667.
+Avat3r is trained on 244 persons from the dataset with the
+remaining 12 being held out. We use the provided tracked
+mesh to crop each image to a head-centric 512 × 512 por-
+trait which will be fed as input to our model. For each
+training sample, we randomly select 4 reasonably diverse
+viewpoints and 4 timesteps with diverse expressions as in-
+put images I. On the other hand, the supervision images
+Igt are left at the highest resolution and are randomly sam-
+pled over all available cameras and timesteps. For zexp, we
+use the expression codes that are provided with the Ava256
+dataset.
+Avat3r is trained with Adam [34] using a learning rate of
+5e-5. We only introduce Llpips after 3M optimization steps
+to avoid focusing on high-frequency details too early. In to-
+tal, the model is trained for 3.5M steps with a batch size of
+1 per GPU on 8 A100 GPUs which takes roughly 4 days.
+We further find that training convergence is significantly
+improved when supervising multiple viewpoints for each
+batch. I.e., a batch consists of 12 images: 4 with random
+expression that are used as input, and 8 viewpoints from the
+target expression that are used as supervision.
+4.2. Experiment Setup
+Task.
+We evaluate the ability to create a 3D head avatar
+from four images of an unseen person.
+Metrics.
+We employ three paired-image metrics to mea-
+sure the quality of individual rendered images:
+Peak
+Signal-to-Noise Ratio (PSNR), Structural Similarity Index
+(SSIM) [66], and Learned Perceptual Image Patch Similar-
+ity (LPIPS) [79]. Furthermore, we make use of two face-
+specific metrics: Average Keypoint Distance (AKD) mea-
+sured in pixels with keypoints estimated from PIPNet [29],
+and cosine similarity (CSIM) of identity embeddings based
+on ArcFace [16].
+Baselines.
+We compare our method with recent state-of-
+the-art systems for 3D head avatar creation from few input
+images.
+HeadNeRF [27]. A NeRF-based Autodecoder with dis-
+entangled identity and expression spaces that can be fitted
+to an arbitrary number of images.
+InvertAvatar [80]. A feed-forward encoder that predicts
+the underlying representation of Next3D [53] from 4 input
+images which then can be animated.
+GPAvatar [14].
+A NeRF-based method that predicts
+canonical TriPlanes from multiple input images.
+Ani-
+mations are then modeled by querying 3D points in an
+expression-dependent feature field inferred from FLAME.
+4.3. Few-shot 3D Head Avatar Creation
+We compare the ability to create a realistic 3D head avatar
+from just four input images on both the Ava256 dataset [46]
+
+
+Ava256 dataset
+z
+}|
+{
+NeRSemble dataset
+z
+}|
+{
+Input images
+HeadNeRF [27]
+InvertAvatar [80]
+GPAvatar [14]
+Ours
+GT
+Figure 3. Comparison for few-shot 3D Head Avatar creation. We evaluate the ability of Avat3r to create 3D head avatars from four
+input images in a self-reenactment setting. Note that the NeRSemble dataset has not been used during training of Avat3r and therefore both
+source and driver person are out-of-domain in this case. Nevertheless, our method produces high quality avatars.
+and the NeRSemble dataset [35].
+To this end, we train
+GPAvatar on the Ava256 dataset in the same setting as our
+model and use the high-quality tracked meshes provided
+with the dataset to drive GPAvatar. For HeadNeRF and In-
+vertAvatar, we use the published code bases for reconstruc-
+tion, animation and rendering. We evaluate all methods at
+512 × 512 pixels resolution on the same hold-out persons.
+For evaluation on Ava256, we sample 1000 different target
+expressions from 12 persons from different viewpoints. On
+NeRSemble, we sample 100 target images from 3 male and
+3 female subjects.
+The quantitative results are listed in Tab. 1. It can be seen
+that our method clearly outperforms the baselines.
+We
+observe large differences in metrics measuring alignment
+(PSNR, SSIM), identity similarity (CSIM), and facial key-
+point similarity (AKD). This indicates that Avat3r produces
+3D head avatars that better resemble the person in the in-
+put images and produces more realistic animations. Note
+that HeadNeRF cannot render any other background than
+white. We therefore compute metrics against ground truth
+images with white background for that method. We further
+show qualitative comparisons in Fig. 3. Our method pro-
+duces more expressive avatars with higher rendering quality
+than the baselines and even performs well on a person with
+colored hair who wears a headband. Also, note that the
+NeRSemble dataset has not been used during training and
+the images in this dataset exhibit entirely different charac-
+teristics in terms of lighting, camera parameters, and view-
+points, compared to the training images from the Ava256
+dataset. Nevertheless, Avat3r generates realistic 3D head
+avatars in this setting as well.
+For video renderings and single-image results, see our sup-
+plemental material.
+4.4. Ablations
+In the following, we study the efficacy of our design choices
+for Avat3r.
+In particular, we look at the usefulness of
+DUSt3R’s position maps, the Sapiens feature maps, and
+using input images with different expressions during train-
+ing. More ablations and a runtime analysis can be found
+in the supplemental material. Our findings are summarized
+in Tab. 2 and Fig. 4.
+
+
+Input Images
+(a) Dynamic
+GRM
+(b) w/o
+DUSt3R
+(c) w/o
+Sapiens
+(d) w/o rand.
+timesteps
+(e) Ours full
+GT
+Figure 4. Ablation study. Adding Sapiens features (b) noticeably improves sharpness but still exhibits misalignments. Conversely, using
+position maps from Dust3r improves alignment but is overall less sharp (c). Combining both but training on multi-view images from
+the same timestep produces sharp results but is less robust to inconsistencies in the input (d). Our final model exhibits the best trade-off
+between alignment, sharpness, and robustness (e).
+PSNR↑SSIM↑LPIPS↓AKD↓CSIM↑
+Ava256
+HeadNeRF
+9.1
+0.64
+0.52
+6.9
+0.11
+InvertAvatar
+14.2
+0.36
+0.55
+15.8
+0.29
+GPAvatar
+19.4
+0.69
+0.34
+5.3
+0.31
+Ours
+20.7
+0.71
+0.33
+4.8
+0.59
+NeRSemble
+HeadNeRF
+9.8
+0.69
+0.47
+4.9
+0.22
+InvertAvatar
+17.2
+0.44
+0.49
+5.6
+0.44
+GPAvatar†
+17.6
+0.67
+0.40
+5.7
+0.07
+Ours
+20.5
+0.75
+0.33
+3.7
+0.50
+Table 1. 3D Head Avatar Creation Comparison. Our method
+outperforms the baselines in all metrics.
+S D T PSNR↑LPIPS↓AKD↓
+Dynamic GRM
+□□⊠
+20.8
+0.439
+8.60
+w/o Sapiens
+□⊠⊠
+20.9
+0.434
+8.59
+w/o Dust3r
+⊠□⊠
+21.1
+0.429
+9.60
+w/o rand. timesteps⊠⊠□
+21.3
+0.409
+8.86
+Avat3r
+⊠⊠⊠
+21.6
+0.410
+8.08
+Table 2. Ablation. We analyze the effect of Sapiens features (S),
+DUSt3R position maps (D), and training on randomized input
+timesteps (T ). All ablation models are trained without LPIPS loss.
+Metrics are computed on 667 × 667 renderings.
+Effect of DUSt3R position maps.
+Removing DUSt3R
+from our pipeline mostly impairs geometric fidelity.
+In Fig. 4, it can be seen that Avat3r without DUSt3R strug-
+gles with aligning the Gaussian predictions from the four
+input images.
+Effect of Sapiens feature maps.
+Sapiens provides rich
+semantic information for the input images that mostly help
+in producing sharper predictions, e.g., in the hair area.
+Effect of training with inconsistent input images.
+A
+model that is trained on only multi-view consistent input
+images produces slightly sharper images. However, any in-
+consistencies in the input images, which can easily happen
+in practice, carry over to the generated 3D representation
+causing unwanted artifacts.
+4.5. Additional Results
+Extreme expressions.
+We showcase the generalization
+capability of our method by interpolating between two ex-
+treme expressions in Fig. 5. Both source and driver person
+are unseen.
+Driver 1 −−−−−−−−−−−−−−−−−−−−−−−−−−−→
+Expression Interpolation
+Driver 2
+Figure 5. Expression Generalization.
+Adapting to arbitrary input views.
+Despite only being
+trained with 4 input views, our model can be directly used
+when more or fewer views are available, see Fig. 6.
+4.6. Applications
+To make Avat3r amenable for inference on only a single in-
+put image, we make use of a pre-trained 3D GAN [77] to
+first lift the single image to 3D and then render four views
+of the head. In Fig. 7, we show three use-cases of Avat3r:
+(i) Generating a novel 3D head with GGHead [37] and then
+animating it with Avat3r, (ii) Generating a portrait image
+with a text-to-image diffusion model [15], lifting it with a
+3D GAN [77], and animating it with Avat3r, and (iii) Lifting
+an existing photograph with a 3D GAN [77] and animating
+it with Avat3r. The results demonstrate that, despite be-
+ing designed for a few-shot scenario and only being trained
+on real studio data, Avat3r can be used in a variety of ca-
+
+
+−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−−→
+input images
+3
+4 (train)
+5
+6
+Figure 6. Input Flexibility. Our model accepts different numbers of views. Colors indicate from which view a Gaussian originates.
+“fairy 
+tale woman”
+3D GAN Inversion
+3D GAN Inversion
+Real image
+𝑧∼𝒩(0, 1)
+3D GAN
+Randomly sampled 
+3D head
+(a) Animate
+sampled 3D head
+(b) Animate a
+generated image
+(c) Animate
+photo of a bust
+Figure 7. Application scenarios of Avat3r. We demonstrate vari-
+ous use-cases of our model such as animating a randomly sampled
+3D head, animating an image generated by a text-to-image diffu-
+sion model, and animating a picture of a greek bust.
+sual situations. For example, our findings for case (i) sug-
+gest that Avat3r may be used to animate images from any
+3D GAN that generates 3D heads, effectively making any
+purely static 3D generation model animatable.
+4.7. Limitations
+Despite Avat3r’s great ability to create 3D head avatars
+from a few or even just a single input image, several lim-
+itations remain. For example, the current pipeline for in-
+ferring avatars from a single image requires a 3D GAN for
+3D lifting which accumulates errors in the process in two
+ways: First, the 3D GAN cannot perfectly explain the per-
+son, inevitably loosing some details, and second, existing
+inversion frameworks employ NeRF-based 3D GANs that
+rely on screen-space super-resolution after rendering which
+introduces view-inconsistencies to the final images. Both
+aspects hamper the quality of the final avatar. However,
+these issues will decrease as newer and better 3D GANs be-
+come available that do not require screen-space rendering
+anymore [37, 63]. Another limitation of our framework is
+the requirement of camera poses during inference. While
+reasonable estimates for face images can be obtained by
+head tracking algorithms [84], incorrect camera estimates
+still remain a potential source of error for real use-cases.
+Possible remedies may include teaching the network to deal
+with incorrect camera estimates already during training, or
+dropping the requirement for camera poses alltogether [64].
+Finally, our current pipeline does not provide control over
+the lighting and instead bakes in light effects from the in-
+put images. This limits applications that put avatars into
+novel environments since the generated head will look out
+of place. Adressing this issue by explicitly disentangling the
+lighting properties is an exciting avenue for future research.
+5. Conclusion
+We have presented Avat3r, a system for directly regress-
+ing an animatable 3D head avatar from just four input im-
+ages. Our pipeline combines recent advancements in large
+reconstruction models with the powerful foundation mod-
+els DUSt3R and Sapiens to obtain high quality results, and
+models dynamics with simple cross attention layers. More-
+over, we demonstrate that Avat3r can also be employed in
+a single image scenario by using a pre-trained 3D GAN.
+Our experiments show that Avat3r learns a powerful prior
+over 3D facial movement that even generalizes to out-of-
+distribution examples like pictures of antique busts or AI-
+generated images. We believe that our findings open up in-
+teresting avenues for future research. For example, we have
+shown that LRM-like architectures have the ability to in-
+fer 3D representations even from inconsistent input images
+such as frames of a monocular video. This opens up the
+possibility to train models on large-scale monocular video
+datasets with a much larger variety of identities. Finally,
+the underlying architecture could also be used as a 3D lift-
+ing and denoising module in a diffusion framework [1, 9],
+enabling training of diffusion models on monocular video
+data for unconditional 3D head avatar generation.
+
+
+Acknowledgements
+This work was supported by the ERC Starting Grant
+Scan2CAD
+(804724)
+and
+the
+German
+Research
+Foundation
+(DFG)
+Research
+Unit
+“Learning
+and
+Simulation in Visual Computing”.
+We would also
+like to thank Angela Dai for the video voice-over.
+References
+[1] Titas Anciukeviˇcius, Zexiang Xu, Matthew Fisher, Paul Hen-
+derson, Hakan Bilen, Niloy J Mitra, and Paul Guerrero. Ren-
+derdiffusion: Image diffusion for 3d reconstruction, inpaint-
+ing and generation. In Proceedings of the IEEE/CVF con-
+ference on computer vision and pattern recognition, pages
+12608–12618, 2023. 8
+[2] Alexander Bergman, Petr Kellnhofer, Wang Yifan, Eric
+Chan, David Lindell, and Gordon Wetzstein. Generative neu-
+ral articulated radiance fields. Advances in Neural Informa-
+tion Processing Systems, 35:19900–19916, 2022. 3
+[3] Ananta R Bhattarai, Matthias Nießner, and Artem Sev-
+astopolsky. Triplanenet: An encoder for eg3d inversion. In
+Proceedings of the IEEE/CVF Winter Conference on Appli-
+cations of Computer Vision, pages 3055–3065, 2024. 3
+[4] V Blanz and T Vetter. A morphable model for the synthesis
+of 3d faces. In 26th Annual Conference on Computer Graph-
+ics and Interactive Techniques (SIGGRAPH 1999), pages
+187–194. ACM Press, 1999. 3
+[5] Marcel C Buehler, Gengyan Li, Erroll Wood, Leonhard
+Helminger, Xu Chen, Tanmay Shah, Daoye Wang, Stephan
+Garbin, Sergio Orts-Escolano, Otmar Hilliges, et al. Cafca:
+High-quality novel view synthesis of expressive faces from
+casual few-shot captures. In SIGGRAPH Asia 2024 Confer-
+ence Papers, pages 1–12, 2024. 3
+[6] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabriel Schwartz,
+Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi,
+Shih-En Wei, Danielle Belko, Shoou-I Yu, et al. Authentic
+volumetric avatars from a phone scan. 2022. 2, 3
+[7] Eric R Chan, Marco Monteiro, Petr Kellnhofer, Jiajun Wu,
+and Gordon Wetzstein. pi-gan: Periodic implicit generative
+adversarial networks for 3d-aware image synthesis. In Pro-
+ceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, pages 5799–5809, 2021. 3
+[8] Eric R Chan, Connor Z Lin, Matthew A Chan, Koki Nagano,
+Boxiao Pan, Shalini De Mello, Orazio Gallo, Leonidas J
+Guibas, Jonathan Tremblay, Sameh Khamis, et al. Efficient
+geometry-aware 3d generative adversarial networks. In Pro-
+ceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, pages 16123–16133, 2022. 3
+[9] Eric R. Chan, Koki Nagano, Matthew A. Chan, Alexan-
+der W. Bergman, Jeong Joon Park, Axel Levy, Miika Ait-
+tala, Shalini De Mello, Tero Karras, and Gordon Wetzstein.
+GeNVS: Generative novel view synthesis with 3D-aware dif-
+fusion models. In arXiv, 2023. 8
+[10] David Charatan, Sizhe Lester Li, Andrea Tagliasacchi, and
+Vincent Sitzmann. pixelsplat: 3d gaussian splats from image
+pairs for scalable generalizable 3d reconstruction. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 19457–19467, 2024. 2
+[11] Yufan Chen, Lizhen Wang, Qijing Li, Hongjiang Xiao,
+Shengping Zhang, Hongxun Yao, and Yebin Liu. Monogaus-
+sianavatar: Monocular gaussian point-based head avatar. In
+ACM SIGGRAPH 2024 Conference Papers, pages 1–9, 2024.
+3
+[12] Yuedong Chen, Haofei Xu, Chuanxia Zheng, Bohan Zhuang,
+Marc Pollefeys, Andreas Geiger, Tat-Jen Cham, and Jianfei
+Cai. Mvsplat: Efficient 3d gaussian splatting from sparse
+multi-view images. In European Conference on Computer
+Vision, pages 370–386. Springer, 2025. 2
+[13] Xuangeng Chu and Tatsuya Harada.
+Generalizable
+and animatable gaussian head avatar.
+arXiv preprint
+arXiv:2410.07971, 2024. 2, 3, 1, 5
+[14] Xuangeng Chu, Yu Li, Ailing Zeng, Tianyu Yang, Lijian
+Lin, Yunfei Liu, and Tatsuya Harada. Gpavatar: Generaliz-
+able and precise head avatar from image (s). arXiv preprint
+arXiv:2401.10215, 2024. 2, 3, 5, 6
+[15] Xiaoliang Dai, Ji Hou, Chih-Yao Ma, Sam Tsai, Jialiang
+Wang, Rui Wang, Peizhao Zhang, Simon Vandenhende, Xi-
+aofang Wang, Abhimanyu Dubey, et al.
+Emu: Enhanc-
+ing image generation models using photogenic needles in a
+haystack. arXiv preprint arXiv:2309.15807, 2023. 7
+[16] Jiankang Deng, Jia Guo, Niannan Xue, and Stefanos
+Zafeiriou. Arcface: Additive angular margin loss for deep
+face recognition.
+In Proceedings of the IEEE/CVF con-
+ference on computer vision and pattern recognition, pages
+4690–4699, 2019. 5
+[17] Yu Deng, Duomin Wang, Xiaohang Ren, Xingyu Chen, and
+Baoyuan Wang.
+Portrait4d: Learning one-shot 4d head
+avatar synthesis using synthetic data.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 7119–7130, 2024. 3
+[18] Yu Deng, Duomin Wang, and Baoyuan Wang. Portrait4d-v2:
+Pseudo multi-view data creates better 4d head synthesizer.
+arXiv preprint arXiv:2403.13570, 2024. 3, 1, 2
+[19] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Syl-
+vain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is
+worth 16x16 words: Transformers for image recognition at
+scale. ICLR, 2021. 3
+[20] Nikita Drobyshev, Jenya Chelishev, Taras Khakhulin, Alek-
+sei Ivakhnenko, Victor Lempitsky, and Egor Zakharov.
+Megaportraits: One-shot megapixel neural head avatars. In
+Proceedings of the 30th ACM International Conference on
+Multimedia, pages 2663–2671, 2022. 2, 3
+[21] Sankeerth Durvasula, Adrian Zhao, Fan Chen, Ruofan
+Liang, Pawan Kumar Sanjaya, and Nandita Vijaykumar.
+Distwar: Fast differentiable rendering on raster-based ren-
+dering pipelines. arXiv preprint arXiv:2401.05345, 2023. 5
+[22] Guy Gafni, Justus Thies, Michael Zollhofer, and Matthias
+Nießner. Dynamic neural radiance fields for monocular 4d
+facial avatar reconstruction. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 8649–8658, 2021. 3
+
+
+[23] Simon Giebenhain, Tobias Kirschstein, Martin R¨unz, Lour-
+des Agapito, and Matthias Nießner. Npga: Neural parametric
+gaussian avatars. arXiv preprint arXiv:2405.19331, 2024. 2
+[24] Philip-William Grassal,
+Malte Prinzler,
+Titus Leistner,
+Carsten Rother, Matthias Nießner, and Justus Thies. Neu-
+ral head avatars from monocular rgb videos. In Proceedings
+of the IEEE/CVF conference on computer vision and pattern
+recognition, pages 18653–18664, 2022. 3
+[25] Jiatao
+Gu,
+Lingjie
+Liu,
+Peng
+Wang,
+and
+Christian
+Theobalt.
+Stylenerf:
+A style-based 3d-aware genera-
+tor for high-resolution image synthesis.
+arXiv preprint
+arXiv:2110.08985, 2021. 3
+[26] Yisheng He, Xiaodong Gu, Xiaodan Ye, Chao Xu, Zhengyi
+Zhao, Yuan Dong, Weihao Yuan, Zilong Dong, and Liefeng
+Bo. Lam: Large avatar model for one-shot animatable gaus-
+sian head. arXiv preprint arXiv:2502.17796, 2025. 3
+[27] Yang Hong, Bo Peng, Haiyao Xiao, Ligang Liu, and Juy-
+ong Zhang.
+Headnerf: A real-time nerf-based parametric
+head model. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 20374–
+20384, 2022. 3, 5, 6, 1, 2
+[28] Yicong Hong, Kai Zhang, Jiuxiang Gu, Sai Bi, Yang Zhou,
+Difan Liu, Feng Liu, Kalyan Sunkavalli, Trung Bui, and Hao
+Tan. Lrm: Large reconstruction model for single image to
+3d. arXiv preprint arXiv:2311.04400, 2023. 2
+[29] Haibo Jin, Shengcai Liao, and Ling Shao. Pixel-in-pixel net:
+Towards efficient facial landmark detection in the wild. In-
+ternational Journal of Computer Vision, 2021. 5
+[30] Berna Kabadayi, Wojciech Zielonka, Bharat Lal Bhatnagar,
+Gerard Pons-Moll, and Justus Thies. Gan-avatar: Control-
+lable personalized gan-based human head avatar. In 2024 In-
+ternational Conference on 3D Vision (3DV), pages 882–892.
+IEEE, 2024. 2
+[31] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Trans. Graph., 42(4):139–1,
+2023. 5
+[32] Taras Khakhulin, Vanessa Sklyarova, Victor Lempitsky, and
+Egor Zakharov. Realistic one-shot mesh-based head avatars.
+In European Conference on Computer Vision, pages 345–
+362. Springer, 2022. 3
+[33] Rawal Khirodkar, Timur Bagautdinov, Julieta Martinez, Su
+Zhaoen, Austin James, Peter Selednik, Stuart Anderson, and
+Shunsuke Saito. Sapiens: Foundation for human vision mod-
+els.
+In European Conference on Computer Vision, pages
+206–228. Springer, 2025. 2, 3, 4
+[34] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization.
+arXiv preprint arXiv:1412.6980,
+2014. 5
+[35] Tobias Kirschstein, Shenhan Qian, Simon Giebenhain, Tim
+Walter, and Matthias Nießner. Nersemble: Multi-view radi-
+ance field reconstruction of human heads. ACM Transactions
+on Graphics (TOG), 42(4):1–14, 2023. 2, 3, 6
+[36] Tobias Kirschstein,
+Simon Giebenhain,
+and Matthias
+Nießner.
+Diffusionavatars: Deferred diffusion for high-
+fidelity 3d head avatars. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 5481–5492, 2024. 2, 4
+[37] Tobias Kirschstein,
+Simon Giebenhain,
+Jiapeng Tang,
+Markos Georgopoulos, and Matthias Nießner.
+Gghead:
+Fast and generalizable 3d gaussian heads.
+arXiv preprint
+arXiv:2406.09377, 2024. 7, 8
+[38] Yeonkyeong Lee, Taeho Choi, Hyunsung Go, Hyunjoon Lee,
+Sunghyun Cho, and Junho Kim. Exp-gan: 3d-aware facial
+image generation with expression control. In Proceedings
+of the Asian Conference on Computer Vision, pages 3812–
+3827, 2022. 3
+[39] Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar,
+Christian Richardt, Tomas Simon, Yaser Sheikh, and Shun-
+suke Saito. Uravatar: Universal relightable gaussian codec
+avatars. arXiv preprint arXiv:2410.24223, 2024. 3
+[40] Tianye Li, Timo Bolkart, Michael J Black, Hao Li, and Javier
+Romero. Learning a model of facial shape and expression
+from 4d scans. ACM Trans. Graph., 36(6):194–1, 2017. 3
+[41] Shanchuan
+Lin,
+Andrey
+Ryabtsev,
+Soumyadip
+Sen-
+gupta, Brian Curless, Steve Seitz, and Ira Kemelmacher-
+Shlizerman. Real-time high-resolution background matting.
+arXiv, pages arXiv–2012, 2020. 4
+[42] Tianqi Liu, Guangcong Wang, Shoukang Hu, Liao Shen,
+Xinyi Ye, Yuhang Zang, Zhiguo Cao, Wei Li, and Ziwei Liu.
+Mvsgaussian: Fast generalizable gaussian splatting recon-
+struction from multi-view stereo. In European Conference
+on Computer Vision, pages 37–53. Springer, 2025. 2
+[43] Yuchen Liu, Zhixin Shu, Yijun Li, Zhe Lin, Richard Zhang,
+and Sun-Yuan Kung. 3d-fm gan: Towards 3d-controllable
+face manipulation. In European conference on computer vi-
+sion, pages 107–125. Springer, 2022. 3
+[44] Stephen Lombardi,
+Tomas Simon,
+Gabriel Schwartz,
+Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. Mix-
+ture of volumetric primitives for efficient neural rendering.
+ACM Transactions on Graphics (ToG), 40(4):1–13, 2021. 3
+[45] Weijie Lyu, Yi Zhou, Ming-Hsuan Yang, and Zhixin Shu.
+Facelift: Single image to 3d head with view generation and
+gs-lrm, 2024. 2
+[46] Julieta Martinez, Emily Kim, Javier Romero, Timur Bagaut-
+dinov, Shunsuke Saito, Shoou-I Yu, Stuart Anderson,
+Michael Zollh¨ofer, Te-Li Wang, Shaojie Bai, Chenghui Li,
+Shih-En Wei, Rohan Joshi, Wyatt Borsos, Tomas Simon,
+Jason Saragih, Paul Theodosis, Alexander Greene, Anjani
+Josyula, Silvio Mano Maeta, Andrew I. Jewett, Simon Ven-
+shtain, Christopher Heilman, Yueh-Tung Chen, Sidi Fu, Mo-
+hamed Ezzeldin A. Elshaer, Tingfang Du, Longhua Wu,
+Shen-Chi Chen, Kai Kang, Michael Wu, Youssef Emad,
+Steven Longay, Ashley Brewer, Hitesh Shah, James Booth,
+Taylor Koska, Kayla Haidle, Matt Andromalos, Joanna Hsu,
+Thomas Dauer, Peter Selednik, Tim Godisart, Scott Ardis-
+son, Matthew Cipperly, Ben Humberston, Lon Farr, Bob
+Hansen, Peihong Guo, Dave Braun, Steven Krenn, He Wen,
+Lucas Evans, Natalia Fadeeva, Matthew Stewart, Gabriel
+Schwartz, Divam Gupta, Gyeongsik Moon, Kaiwen Guo,
+Yuan Dong, Yichen Xu, Takaaki Shiratori, Fabian Prada,
+Bernardo R. Pires, Bo Peng, Julia Buffalini, Autumn Trim-
+ble, Kevyn McPhail, Melissa Schoeller, and Yaser Sheikh.
+Codec Avatar Studio: Paired Human Captures for Complete,
+Driveable, and Generalizable Avatars.
+NeurIPS Track on
+Datasets and Benchmarks, 2024. 2, 3, 5, 4

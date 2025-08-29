@@ -1,0 +1,780 @@
+Title: "Look Ma, no landmarks!"--Unsupervised, model-based dense face alignment
+
+Towards Metrical Reconstruction
+of Human Faces
+Wojciech Zielonka, Timo Bolkart, and Justus Thies
+Max Planck Institute for Intelligent Systems, T¨ubingen
+Fig. 1: An RGB image of a subject serves as input to MICA, which predicts a met-
+rical reconstruction of the human face. Images from NoW [63], StyleGan2 [42].
+Abstract. Face reconstruction and tracking is a building block of nu-
+merous applications in AR/VR, human-machine interaction, as well as
+medical applications. Most of these applications rely on a metrically cor-
+rect prediction of the shape, especially, when the reconstructed subject
+is put into a metrical context (i.e., when there is a reference object of
+known size). A metrical reconstruction is also needed for any application
+that measures distances and dimensions of the subject (e.g., to virtually
+fit a glasses frame). State-of-the-art methods for face reconstruction from
+a single image are trained on large 2D image datasets in a self-supervised
+fashion. However, due to the nature of a perspective projection they are
+not able to reconstruct the actual face dimensions, and even predicting
+the average human face outperforms some of these methods in a metrical
+sense. To learn the actual shape of a face, we argue for a supervised train-
+ing scheme. Since there exists no large-scale 3D dataset for this task, we
+annotated and unified small- and medium-scale databases. The resulting
+unified dataset is still a medium-scale dataset with more than 2k identi-
+ties and training purely on it would lead to overfitting. To this end, we
+take advantage of a face recognition network pretrained on a large-scale
+2D image dataset, which provides distinct features for different faces and
+is robust to expression, illumination, and camera changes. Using these
+features, we train our face shape estimator in a supervised fashion, inher-
+iting the robustness and generalization of the face recognition network.
+Our method, which we call MICA (MetrIC fAce), outperforms the state-
+of-the-art reconstruction methods by a large margin, both on current
+non-metric benchmarks as well as on our metric benchmarks (15% and
+24% lower average error on NoW, respectively).
+Project website: https://zielon.github.io/mica/
+arXiv:2204.06607v2  [cs.CV]  19 Oct 2022
+
+
+2
+W. Zielonka et al.
+1
+Introduction
+Learning to reconstruct 3D content from 2D imagery is an ill-posed inverse
+problem [4]. State-of-the-art RGB-based monocular facial reconstruction and
+tracking methods [20, 25] are based on self-supervised training, exploiting an
+underlying metrical face model which is constructed using a large-scale dataset
+of registered 3D scans (e.g., 33000 scans for the FLAME [51] model). However,
+when assuming a perspective camera, the scale of the face is ambiguous since
+a large face can be modeled by a small face that is close to the camera or a
+gigantic face that is far away. Formally, a point x ∈R3 of the face is projected
+to a point p ∈R2 on the image plane with the projective function π(·) and a
+rigid transformation composed of a rotation R ∈R3×3 and a translation t ∈R3:
+p = π(R · x + t) = π(s · (R · x + t)) = π(R · (s · x) + (s · t))).
+The perspective projection is invariant to the scaling factor s ∈R, and thus, if
+x is scaled by s, the rigid transformation can be adapted such that the point
+still projects onto the same pixel position p by scaling the translation t by s. In
+consequence, face reconstruction methods might result in a good 2D alignment
+but can fail to reconstruct the metrical 3D surface and the meaningful metrical
+location in space. However, a metric 3D reconstruction is needed in any scenario
+where the face is put into a metric context. E.g., when the reconstructed human is
+inserted into a virtual reality (VR) application or when the reconstructed geome-
+try is used for augmented reality (AR) applications (teleconferencing in AR/VR,
+virtual try-on, etc.). In these scenarios, the methods mentioned above fail since
+they do not reproduce the correct scale and shape of the human face. In the
+current literature [27, 63, 89], we also observe that methods use evaluation mea-
+surements not done in a metrical space. Specifically, to compare a reconstructed
+face to a reference scan, the estimation is aligned to the scan via Procrustes anal-
+ysis, including an optimal scaling factor. This scaling factor favors the estimation
+methods that are not metrical, and the reported numbers in the publications are
+misleading for real-world applications (relative vs. absolute/metrical error). In
+contrast, we aim for a metrically correct reconstruction and evaluation that di-
+rectly compares the predicted geometry to the reference data without any scaling
+applied in a post-processing step which is fundamentally different. As discussed
+above, the self-supervised methods in the literature do not aim and cannot re-
+construct a metrically correct geometry. However, training these methods in a
+supervised fashion is not possible because of the lack of data (no large-scale 3D
+dataset is available). Training on a small- or medium-scale 3D dataset will lead
+to overfitting of the networks (see study in the supplemental document). To this
+end, we propose a hybrid method that can be trained on a medium-scale 3D
+dataset, reusing powerful descriptors from a pretrained face recognition network
+(trained on a large-scale 2D dataset). Specifically, we propose the usage of ex-
+isting 3D datasets like LYHM [18], FaceWarehouse [11], Stirling [28], etc., that
+contain RGB imagery and corresponding 3D reconstructions to learn a metrical
+reconstruction of the human head. To use these 3D datasets, significant work
+
+
+Towards Metrical Reconstruction of Human Faces
+3
+has been invested to unify the 3D data (i.e., to annotate and non-rigidly fit
+the FLAME model to the different datasets). This unification provides us with
+meshes that all share the FLAME topology. Our method predicts the head geom-
+etry in a neutral expression, only given a single RGB image of a human subject
+in any pose or expression. To generalize to unseen in the wild images, we use a
+state-of-the-art face recognition network [19] that provides a feature descriptor
+for our geometry-estimating network. This recognition network is robust to head
+poses, different facial expressions, occlusions, illumination changes, and different
+focal lengths, thus, being ideal for our task (see Figure 3). Based on this feature,
+we predict the geometry of the face with neutral expression within the face space
+spanned by FLAME [51], effectively disentangling shape and expression. As an
+application, we demonstrate that our metrical face reconstruction estimator can
+be integrated in a new analysis-by-synthesis face tracking framework which re-
+moves the requirement of an identity initialization phase [75]. Given the metrical
+face shape estimation, the face tracker is able to predict the face motion in a
+metrical space.
+In summary, we have the following contributions:
+– a dataset of 3D face reference data for about 2300 subjects, built by unifying
+existing small- and medium-scale datasets under common FLAME topology.
+– a metrical face shape predictor – MICA– which is invariant to expression,
+pose and illumination, by exploiting generalized identity features from a face
+recognition network and supervised learning.
+– a hybrid face tracker that is based on our (learned) metrical reconstruction
+of the face shape and an optimization-based facial expression tracking.
+– a metrical evaluation protocol and benchmark, including a discussion on the
+current evaluation practise.
+2
+Related Work
+Reconstructing human faces and heads from monocular RGB, RGB-D, or multi-
+view data is a well-explored field at the intersection of computer vision and com-
+puter graphics. Zollh¨ofer et al. [91] provide an extensive review of reconstruction
+methods, focusing on optimization-based techniques that follow the principle of
+analysis-by-synthesis. Primarily, the approaches that are based on monocular
+inputs are based on a prior of face shape and appearance [6, 7, 29, 30, 44, 71–
+76, 83, 84]. The seminal work of Blanz et al. [8] introduced such a 3D morphable
+model (3DMM), which represents the shape and appearance of a human in a
+compressed, low-dimensional, PCA-based space (which can be interpreted as a
+decoder with a single linear layer). There is a large corpus of different morphable
+models [23], but the majority of reconstruction methods use either the Basel
+Face Model [8, 56] or the Flame head model [51]. Besides using these models for
+an analysis-by-synthesis approach, there is a series of learned regression-based
+methods. An overview of these methods is given by Morales et al. [54]. In the fol-
+lowing, we will discuss the most relevant related work for monocular RGB-based
+reconstruction methods.
+
+
+4
+W. Zielonka et al.
+Optimization-based Reconstruction of Human Faces. Along with the introduc-
+tion of a 3D morphable model for faces, Blanz et al. [8] proposed an optimization-
+based reconstruction method that is based on the principle of analysis-by-
+synthesis. While they used a sparse sampling scheme to optimize the color re-
+production, Thies et al. [74, 75] introduced a dense color term considering the
+entire face region that is represented by a morphable model using differentiable
+rendering. This method has been adapted for avatar digitization from a single
+image [40] including hair, is used to reconstruct high-fidelity facial reflectance
+and geometry from a single images [85], for reconstruction and animation of
+entire upper bodies [76], or avatars with dynamic textures [55]. Recently, these
+optimization-based methods are combined with learnable components such as
+surface offsets or view-dependent surface radiance fields [35]. In addition to a
+photometric reconstruction objective, additional terms based on dense corre-
+spondence [38] or normal [1, 35] estimations of neural network can be employed.
+Optimization-based methods are also used as a building block for neural render-
+ing methods such as deep video portraits [44], deferred neural rendering [73], or
+neural voice puppetry [72]. Note that differentiable rendering is not only used
+in neural rendering frameworks but is also a key component for self-supervised
+learning of regression-based reconstruction methods covered in the following.
+Regression-based Reconstruction of Human Faces. Learning-based face recon-
+struction methods can be categorized into supervised and self-supervised ap-
+proaches. A series of methods are based on synthetic renderings of human faces
+to perform a supervised training of a regressor that predicts the parameters of a
+3D morphable model [22, 45, 60, 61]. Genova et al. [34] propose a 3DMM param-
+eter regression technique that is based on synthetic renderings (where ground
+truth parameters are available) and real images (where multi-view identity losses
+are applied). It uses FaceNet [64] to extract features for the 3DMM regression
+task. Tran et al. [77] and Chang et al. [13] (ExpNet) directly regress 3DMM
+parameters using a CNN trained on fitted 3DMM data. Tu et al. [80] propose
+a dual training pass for images with and without 3DMM fittings. Jackson et
+al. [41] propose a model-free approach that reconstructs a voxel-based repre-
+sentation of the human face and is trained on paired 2D image and 3D scan
+data. PRN [26] is trained on ’in-the-wild’ images with fitted 3DMM reconstruc-
+tions [90]. It is not restricted to a 3DMM model space and predicts a position
+map in the UV-space of a template mesh. Instead of working in UV-space, Wei
+et al. [82] propose to use graph convolutions to regress the coordinates of the
+vertices. MoFA [70] is a network trained to regress the 3DMM parameters in a
+self-supervised fashion. As a supervision signal, it uses the dense photometric
+losses of Face2Face [75]. Within this framework, Tewari et al. proposed to refine
+the identity shape and appearance [69] as well as the expression basis [68] of a
+linear 3DMM. In a similar setup, one can also train a non-linear 3DMM [79]
+or personalized models [14]. RingNet [63] regresses 3DMM parameters and is
+trained on 2D images using losses on the reproduction of 2D landmarks and
+shape consistency (different images of the same subject) and shape inconsis-
+tency (images of different subjects) losses. DECA [25] extends RingNet with
+
+
+Towards Metrical Reconstruction of Human Faces
+5
+expression dependent offset predictions in UV space. It uses dense photomet-
+ric losses to train the 3DMM parameter regression and the offset prediction
+network. This separation of a coarse 3DMM model and a detailed bump map
+has been introduced by Tran et al. [78]. Chen et al. [15] use a hybrid train-
+ing composed of self-supervised and supervised training based on renderings to
+predict texture and displacement maps. Deng et al. [20] train a 3DMM param-
+eter regressor based on multi-image consistency losses and ’hybrid-level’ losses
+(photometric reconstruction loss with skin attention masks, and a perception-
+level loss based on FaceNet [64]). On the NoW challenge [63], DECA [25] and
+the method of Deng et al. [20] show on-par state-of-the-art results. Similar to
+DECA’s offset prediction, there are GAN-based methods that predict detailed
+color maps [32, 33] or skin properties [48, 49, 62, 85] (e.g., albedo, reflectance,
+normals) in UV-space of a 3DMM-based face reconstruction. In contrast to these
+methods, we are interested in reconstructing a metrical 3D representation of a
+human face and not fine-scale details. Self-supervised methods suffer from the
+depth-scale ambiguity (the face scale, translation away from the camera, and the
+perspective projection are ambiguous) and, thus, predict a wrongly scaled face,
+even though 3DMM models are by construction in a metrical space. We rely on
+a strong supervision signal to learn the metrical reconstruction of a face using
+high-quality 3D scan datasets which we unified. In combination with an identity
+encoder [19] trained on in-the-wild 2D data, including occlusions, different illu-
+mination, poses, and expressions, we achieve robust geometry estimations that
+significantly outperform state-of-the-art methods.
+3
+Metrical Face Shape Prediction
+Based on a single input RGB image I, MICA aims to predict a metrical shape of
+a human face in a neutral expression. To this end, we leverage both ’in-the-wild’
+2D data as well as metric 3D data to train a deep neural network, as shown
+in Figure 2. We employ a state-of-the-art face recognition network [19] which is
+trained on ’in-the-wild’ data to achieve a robust prediction of an identity code,
+which is interpreted by a geometry decoder.
+Identity Encoder. As an identity encoder, we leverage the ArcFace [19] archi-
+tecture which is pretrained on Glint360K [2]. This ResNet100-based network is
+trained on 2D image data using an additive angular margin loss to obtain highly
+discriminative features for face recognition. It is invariant to illumination, ex-
+pression, rotation, occlusion, and camera parameters which is ideal for a robust
+shape prediction. We extend the ArcFace architecture by a small mapping net-
+work M that maps the ArcFace features to our latent space, which can then be
+interpreted by our geometry decoder:
+  \boldsymbol {z} = \mathcal {M}(ArcFace(I)), 
+where z ∈R300. Our mapping network M consists of three fully-connected linear
+hidden layers with ReLU activation and the final linear output layer.
+
+
+6
+W. Zielonka et al.
+Fig. 2: We propose a method for metrical human face shape estimation from a
+single image which exploits a supervised training scheme based on a mixture
+of different 2D,2D/3D and 3D datasets. This estimation can be used for facial
+expression tracking using analysis-by-synthesis which optimizes for the camera
+intrinsics, as well as the per-frame illumination, facial expression and pose.
+Geometry Decoder. There are essentially two types of geometry decoders used in
+the literature, model-free and model-based. Throughout the project of this paper,
+we conducted experiments on both types and found that both perform similarly
+on the evaluation benchmarks. Since a 3DMM model efficiently represents the
+face space, we focus on a model-based decoder. Specifically, we use FLAME [51]
+as a geometry decoder, which consists of a single linear layer:
+  \mathc a l  { G }_{3DMM}(\boldsymbol {z}) = \boldsymbol {B} \cdot \boldsymbol {z} + \boldsymbol {A}, 
+where A ∈R3N is the geometry of the average human face and B ∈R3N×300
+contains the principal components of the 3DMM and N = 5023.
+Supervised Learning. The networks described above are trained using paired
+2D/3D data from existing, unified datasets D (see Section 5). We fix large por-
+tions of the pre-trained ArcFace network during the training and refine the last
+3 ResNet blocks. Note that ArcFace is trained on a much larger amount of iden-
+tities, therefore, refining more hidden layers results in worse predictions due to
+overfitting. We found that using the last 3 ResNet blocks gives the best gener-
+alization (see supplemental document). The training loss is:
+  
+\
+mathcal
+ {L} = \sum _{(I,\mathcal { G })\in \mathcal {D}} |\kappa _{mask}(\mathcal {G}_{3DMM}(\mathcal {M}(ArcFace(I))) - \mathcal {G})|, 
+(1)
+where G is the ground truth mesh and κmask is a region dependent weight (the
+face region has weight 150.0, the back of the head 1.0, and eyes with ears 0.01).
+We use AdamW [53] for optimization with fixed learning rate η = 1e−5 and
+weight decay λ = 2e−4. We select the best performing model based on the
+validation set loss using the Florence dataset [3]. The model was trained for
+160k steps on Nvidia Tesla V100.
+
+
+Towards Metrical Reconstruction of Human Faces
+7
+4
+Face Tracking
+Based on our shape estimate, we demonstrate optimization-based face tracking
+on monocular RGB input sequences. To model the non-rigid deformations of the
+face, we use the linear expression basis vectors and the linear blendskinning of
+the FLAME [51] model, and use a linear albedo model [24] to reproduce the
+appearance of a subject in conjunction with a Lambertian material assumption
+and a light model based on spherical harmonics. We adapt the analysis-by-
+synthesis scheme of Thies et al. [75]. Instead of using a multi-frame model-based
+bundling technique to estimate the identity of a subject, we use our one-shot
+shape identity predictor. We initialize the albedo and spherical harmonics based
+on the same first frame using the energy:
+  E( \ boldsymbol {\ph i  }) = w_{de n se}E_{dense}(\boldsymbol {\phi }) + w_{lmk}E_{lmk}(\boldsymbol {\phi }) + w_{reg}E_{reg}(\boldsymbol {\phi }), \label {eq:objective_function} 
+(2)
+where ϕ is the vector of unknown parameters we are optimizing for. The energy
+terms Edense(ϕ) and Ereg(ϕ) measure the dense color reproduction of the face
+(ℓ1-norm) and the deviation from the neutral pose respectively. The sparse land-
+mark term Elmk(ϕ) measures the reproduction of 2D landmark positions (based
+on Google’s mediapipe [36, 43] and Face Alignment [9]). The weights wdense,
+wlmk and wreg balance the influence of each sub-objectives on the final loss. In
+the first frame vector ϕ contains the 3DMM parameters for albedo, expression,
+and rigid pose, as well as the spherical harmonic coefficients (3 bands) that are
+used to represent the environmental illumination [58]. After initialization, the
+albedo parameters are fixed and unchanged throughout the sequence tracking.
+Optimization. We optimize the objective function Equation (2) using Adam [46]
+in PyTorch. While recent soft-rasterizers [52, 59] are popular, we rely on a sam-
+pling based scheme as introduced by Thies et al. [75] to implement the differ-
+entiable rendering for the photo-metric reproduction error Edense(ϕ). Specifi-
+cally, we use a classical rasterizer to render the surface of the current estima-
+tion. The rasterized surface points that survive the depth test are considered
+as the set of visible surface points V for which we compute the energy term
+Edense(ϕ) = P
+i∈V |I(π(R · pi(ϕ) + t)) −ci(ϕ)| where pi and ci being the i-th
+vertex and color of the reconstructed model, and I the RGB input image.
+5
+Dataset Unification
+In the past, methods and their training scheme were limited by the availability of
+3D scan datasets of human faces. While several small and medium-scale datasets
+are available, they are in different formats and do not share the same topology.
+To this end, we unified the available datasets such that they can be used as
+a supervision signal for face reconstruction from 2D images. Specifically, we
+register the FLAME [51] head model to the provided scan data. In an initial step,
+we fit the model to landmarks and optimize for the FLAME parameters based on
+an iterative closest point (ICP) scheme [5]. We further jointly optimize FLAME’s
+
+
+8
+W. Zielonka et al.
+Table 1: Overview of our unified datasets. The used datasets vary in the capture
+modality and the capture protocol. Here, we list the number of subject, the
+minimum number of images per subjects, and whether the dataset includes facial
+expressions. In total our dataset contains 2315 subjects with FLAME topology.
+Dataset
+#Subj.
+#Min. Img.
+Expr.
+Stirling [28]
+W
+133
+8
+✓
+D3DFACS [17]
+W
+10
+videos
+✓
+Florence 2D/3D [3]
+W
+53
+videos
+✓
+BU-3DFE [87]
+W
+100
+83
+✓
+LYHM [18]
+W
+1211
+2
+✗
+FaceWarehouse [11]
+W
+150
+119
+✓
+FRGC [57]
+W
+531
+7
+✓
+BP4D+ [88]
+W
+127
+videos
+✓
+model parameters, and refine the fitting with a non-rigid deformation regularized
+by FLAME, similar to Li and Bolkart et al. [51]. In Table 1, we list the datasets
+that we unified for this project. We note that the datasets vary in the capturing
+modality and capturing script (with and without facial expressions, with and
+without hair caps, indoor and outdoor imagery, still images, and videos), which
+is suitable for generalization. The datasets are recorded in different regions of
+the world and are often biased towards ethnicity. Thus, combining other datasets
+results in a more diverse data pool. In the supplemental document, we show
+an ablation on the different datasets. Upon agreement of the different dataset
+owners, we will share our unified dataset, i.e., for each subject one registered
+mesh with neutral expression in FLAME topology.
+Note that in addition to
+the datasets listed in Table 1, we analyzed the FaceScape dataset [86]. While it
+provides a large set of 3D reconstructions (∼17k), which would be ideal for our
+training, the reconstructions are not done in a metrical space. Specifically, the
+data has been captured in an uncalibrated setup and faces are normalized by the
+eye distance, which has not been detailed in their paper (instead, they mention
+sub-millimeter reconstruction accuracy which is not valid). This is a fundamental
+flaw of this dataset, and also questions their reconstruction benchmark [89].
+6
+Results
+Our experiments mainly focus on the metrical reconstruction of a human face
+from in the wild images. In the supplemental document, we show results for the
+sequential tracking of facial motions using our metrical reconstruction as ini-
+tialization. The following experiments are conducted with the original models of
+the respective publications including their reconstructions submitted to the given
+benchmarks. Note that these models are trained on their large-scale datasets,
+training them on our medium-scale 3D dataset would lead to overfitting.
+
+
+Towards Metrical Reconstruction of Human Faces
+9
+Table 2: Quantitative evaluation of the face shape estimation on the NoW Chal-
+lenge [63]. Note that we list two different evaluations: the non-metrical evaluation
+from the original NoW challenge and our new metrical evaluation (including a
+cumulative error plot on the left). The original NoW challenge cannot be con-
+sidered metrical since Procrustes analysis is used to align the reconstructions to
+the corresponding reference meshes, including scaling. We list all methods from
+the original benchmark and additionally show the performance of the average
+human face of FLAME [51] as a reference (first row).
+NoW-Metric Challenge
+Non-Metrical [63]
+Metrical (mm)
+Method
+Median
+Mean
+Std
+Median
+Mean
+Std
+Average Face (FLAME [51])
+1.21
+1.53
+1.31
+1.49
+1.92
+1.68
+3DMM-CNN [77]
+1.84
+2.33
+2.05
+3.91
+4.84
+4.02
+PRNet [26]
+1.50
+1.98
+1.88
+–
+–
+–
+Deng et al [20] (TensorFlow)
+1.23
+1.54
+1.29
+2.26
+2.90
+2.51
+Deng et al [20] (PyTorch)
+1.11
+1.41
+1.21
+1.62
+2.21
+2.08
+RingNet [63]
+1.21
+1.53
+1.31
+1.50
+1.98
+1.77
+3DDFA-V2 [37]
+1.23
+1.57
+1.39
+1.53
+2.06
+1.95
+MGCNet [66]
+1.31
+1.87
+2.63
+1.70
+2.47
+3.02
+UMDFA [47]
+1.52
+1.89
+1.57
+2.31
+2.97
+2.57
+Dib et al. [21]
+1.26
+1.57
+1.31
+1.59
+2.12
+1.93
+DECA [25]
+1.09
+1.38
+1.18
+1.35
+1.80
+1.64
+FOCUS [50]
+1.04
+1.30
+1.10
+1.41
+1.85
+1.70
+Ours
+0.90
+1.11
+0.92
+1.08
+1.37
+1.17
+6.1
+Face Shape Estimation
+In recent publications, face shape estimation is evaluated on datasets where
+reference scans of the subjects are available. The NoW Challenge [63] and the
+benchmark of Feng et al. [27] which is based on Stirling meshes [28] are used
+in the state-of-the-art methods [20, 25, 63]. We conduct several studies on these
+benchmarks and propose different evaluation protocols.
+Non-Metrical Benchmark. The established evaluation methods on these
+datasets are based on an optimal scaling step, i.e., to align the estimation to
+the reference scan, they optimize for a rigid alignment and an additional scaling
+factor which results in a non-metric/relative error. This scaling compensates for
+shape mispredictions, e.g., the mean error evaluated on the NoW Challenge for
+the average FLAME mesh (Table 2) drops from 1.92mm to 1.53mm because
+of the applied scale optimization. This is an improvement of around 20% which
+has nothing to do with the reconstruction quality and, thus, creates a misleading
+benchmark score where methods appear better than they are. Nevertheless, we
+evaluate our method on these benchmarks and significantly outperform all state-
+of-the-art methods as can be seen in Tables 2 and 4 (‘Non-Metrical’ column).
+Metrical Benchmark. Since for a variety of applications, actual metrical re-
+constructions are required, we argue for a new evaluation scheme that uses a
+purely rigid alignment, i.e., without scale optimization (see Figure 5). The er-
+ror is calculated using an Euclidean distance between each scan vertex and the
+closest point on the mesh surface. This new evaluation scheme enables a com-
+parison of methods based on metrical quantities (see Tables 2 and 4) and, thus,
+
+
+10
+W. Zielonka et al.
+Table 3: Quantitative evaluation of the face shape estimation on the Stirling
+Reconstruction Benchmark [27] using the NoW protocol [63]. We list two differ-
+ent evaluations: the non-metric evaluation from the original benchmark and the
+metric evaluation. Note that for this experiment, we exclude the Stirling dataset
+from our training set.
+Stirling (NoW Protocol)
+Non-Metrical
+Metrical (mm)
+Median
+Mean
+Std
+Median
+Mean
+Std
+LQ
+HQ
+LQ
+HQ
+LQ
+HQ
+LQ
+HQ
+LQ
+HQ
+LQ
+HQ
+Average Face (FLAME [51])
+1.23
+1.22
+1.56
+1.55
+1.38
+1.35
+1.44
+1.40
+1.84
+1.79
+1.64
+1.57
+RingNet [63]
+1.17
+1.15
+1.49
+1.46
+1.31
+1.27
+1.37
+1.33
+1.77
+1.72
+1.60
+1.54
+3DDFA-V2 [37]
+1.26
+1.20
+1.63
+1.55
+1.52
+1.45
+1.49
+1.38
+1.93
+1.80
+1.78
+1.68
+Deng et al. [20] (TensorFlow)
+1.22
+1.13
+1.57
+1.43
+1.40
+1.25
+1.85
+1.81
+2.41
+2.29
+2.16
+1.97
+Deng et al. [20] (PyTorch)
+1.12
+0.99
+1.44
+1.27
+1.31
+1.15
+1.47
+1.31
+1.93
+1.71
+1.77
+1.57
+DECA [25]
+1.09
+1.03
+1.39
+1.32
+1.26
+1.18
+1.32
+1.22
+1.71
+1.58
+1.54
+1.42
+Ours w/o. Stirling
+0.96
+0.92
+1.22
+1.16
+1.11
+1.04
+1.15
+1.06
+1.46
+1.35
+1.30
+1.20
+Table 4: Quantitative evaluation of the face shape estimation on the Stirling Re-
+construction Benchmark [27]. We list two different evaluations: the non-metric
+evaluation from the original benchmark and the metric evaluation. This bench-
+mark is based on an alignment protocol that only relies on reference landmarks
+and, thus, is very noisy and dependent on the landmark reference selection (in our
+evaluation, we use the landmark correspondences provided by the FLAME [51]
+model). We use the image file list from [63] to compute the scores (i.e., excluding
+images where a face is not detectable). Note that for this experiment, we exclude
+the Stirling dataset from our training set.
+Stirling/ESRC Benchmark
+Non-Metrical [27]
+Metrical (mm)
+Median
+Mean
+Std
+Median
+Mean
+Std
+LQ
+HQ
+LQ
+HQ
+LQ
+HQ
+LQ
+HQ
+LQ
+HQ
+LQ
+HQ
+Average Face (FLAME [51])
+1.58
+1.62
+2.06
+2.08
+1.82
+1.83
+1.70
+1.62
+2.19
+2.09
+1.96
+1.85
+RingNet [63]
+1.56
+1.60
+2.01
+2.05
+1.75
+1.76
+1.67
+1.64
+2.16
+2.09
+1.90
+1.81
+3DDFA-V2 [37]
+1.58
+1.49
+2.03
+1.90
+1.74
+1.63
+1.70
+1.56
+2.16
+1.98
+1.88
+1.70
+Deng et al. [20] (TensorFlow)
+1.56
+1.41
+2.02
+1.84
+1.77
+1.63
+2.13
+2.14
+2.71
+2.65
+2.33
+2.12
+Deng et al. [20] (PyTorch)
+1.51
+1.29
+1.95
+1.64
+1.71
+1.39
+1.78
+1.54
+2.28
+1.97
+1.97
+1.68
+DECA [25]
+1.40
+1.32
+1.81
+1.72
+1.59
+1.50
+1.56
+1.45
+2.03
+1.87
+1.81
+1.64
+Ours w/o. Stirling
+1.26
+1.22
+1.62
+1.55
+1.41
+1.34
+1.36
+1.26
+1.73
+1.60
+1.48
+1.37
+is fundamentally different from the previous evaluation schemes. In addition,
+the benchmark of Feng et al. [27] is based on the alignment using sparse facial
+(hand-selected) landmarks. Our experiments showed that this scheme is highly
+dependent on the selection of these markers and results in inconsistent evaluation
+results. In our listed results, we use the marker correspondences that come with
+the FLAME model [51]. To get a more reliable evaluation scheme, we evaluate
+the benchmark of Feng et al. using the dense iterative closest point (ICP) tech-
+nique from the NoW challenge, see Table 3. On all metrics, our proposed method
+significantly improves the reconstruction accuracy. Note that some methods are
+even performing worse than the mean face [51].

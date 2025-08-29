@@ -1,0 +1,1051 @@
+Title: InvertAvatar: Incremental GAN Inversion for Generalized Head Avatars
+
+InvertAvatar: Incremental GAN Inversion for Generalized Head Avatars
+XIAOCHEN ZHAO∗, Tsinghua University, China
+JINGXIANG SUN∗, Tsinghua University, China
+LIZHEN WANG, Tsinghua University, China
+JINLI SUO, Tsinghua University, China
+YEBIN LIU†, Tsinghua University, China
+Fig. 1. Given single or more source images, our method rapidly reconstructs photorealistic 3D facial avatars under one second, enabling precise control over
+full-head rotations and subtle expressions like lopsided grins and eye gazes.
+While high fidelity and efficiency are central to the creation of digital head
+avatars, recent methods relying on 2D or 3D generative models often ex-
+perience limitations such as shape distortion, expression inaccuracy, and
+identity flickering. Additionally, existing one-shot inversion techniques fail
+to fully leverage multiple input images for detailed feature extraction. We
+propose a novel framework, Incremental 3D GAN Inversion, that en-
+hances avatar reconstruction performance using an algorithm designed
+to increase the fidelity from multiple frames, resulting in improved recon-
+struction quality proportional to frame count. Our method introduces a
+unique animatable 3D GAN prior with two crucial modifications for en-
+hanced expression controllability alongside an innovative neural texture
+∗Both authors contributed equally to the paper
+†Corresponding authors
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+© 2024 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-0525-0/24/07.
+https://doi.org/10.1145/3641519.3657478
+encoder that categorizes texture feature spaces based on UV parameter-
+ization. Differentiating from traditional techniques, our architecture em-
+phasizes pixel-aligned image-to-image translation, mitigating the need to
+learn correspondences between observation and canonical spaces. Further-
+more, we incorporate ConvGRU-based recurrent networks for temporal data
+aggregation from multiple frames, boosting geometry and texture detail
+reconstruction. The proposed paradigm demonstrates state-of-the-art per-
+formance on one-shot and few-shot avatar animation tasks. Code will be
+available at https://github.com/XChenZ/invertAvatar.
+CCS Concepts: • Computing methodologies →Motion processing; Image-
+based rendering.
+Additional Key Words and Phrases: 3D head avatar, one-shot reconstruction,
+few-shot reconstruction, recurrent neural network, GAN inversion
+ACM Reference Format:
+XIAOCHEN ZHAO, JINGXIANG SUN, LIZHEN WANG, JINLI SUO, and YEBIN
+LIU. 2024. InvertAvatar: Incremental GAN Inversion for Generalized Head
+Avatars. In Special Interest Group on Computer Graphics and Interactive Tech-
+niques Conference Conference Papers ’24 (SIGGRAPH Conference Papers ’24),
+July 27-August 1, 2024, Denver, CO, USA. ACM, New York, NY, USA, 15 pages.
+https://doi.org/10.1145/3641519.3657478
+1
+arXiv:2312.02222v3  [cs.CV]  27 May 2024
+
+
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+Zhao et al.
+1
+INTRODUCTION
+The creation of digital head avatars [Athar et al. 2022; Deng et al.
+2020; Doukas et al. 2021; Gafni et al. 2021; Grassal et al. 2022; Ren
+et al. 2021; Wang et al. 2023; Zhang et al. 2022; Zheng et al. 2022,
+2023] has long been a task of interest in the fields of computer
+vision and graphics. The ability to interactively generate photo-
+realistic head avatars opens up new possibilities in areas such as
+augmented/virtual reality (AR/VR), 3D telepresence, and video con-
+ferencing. The primary aims when developing a digital head avatar
+are two-fold: high fidelity and efficiency. High fidelity involves pre-
+serving intricate details from input images, reconstructing occluded
+facial regions (especially in profile views), and accurately modeling
+dynamic features such as facial expressions, while maintaining con-
+sistent identity throughout animation. Efficiency demands a model
+that can adapt to varied unseen identities and motions without
+additional optimization at the inference stage.
+Recent literature showcases numerous attempts to create avatars
+from a single input image and perform animation with video frames.
+Several 2D generative models [Deng et al. 2020; Doukas et al. 2021;
+Ren et al. 2021; Wang et al. 2023] perform image animation by
+incorporating the 3D Morphable Face Models (3DMM) [Blanz and
+Vetter 1999] into the portrait synthesis. These 2D-based methods
+achieve photo-realism but suffer from shape distortion during large
+motion due to a lack of geometry constraints.
+Towards better view consistency, many recent efforts [Bai et al.
+2023; Ma et al. 2023] leverage 3D GAN prior and decouple motion
+and appearance in latent space with video data. The main drawback
+of this paradigm is that the motion and appearance are naturally
+entangled in 3D GAN which leads to expression inaccuracy and
+identity flickering during animation. The other line of works [Li
+et al. 2023a; Sun et al. 2023; Tang et al. 2023; Wu et al. 2022] directly
+learn a controllable 3D GAN from only 2D image collections, and
+perform GAN inversion to restore an avatar from one single image.
+The methods employing the controllable generative prior demon-
+strate efficiency, yet they are constrained by their dependency on
+a singular source image. A single image often falls short in fully
+representing the subject owing to factors such as occlusions and
+limited pose information. Utilizing diverse source images enriches
+appearance data, thereby diminishing the extent of hallucination
+required by an image generator. However, these one-shot inver-
+sion techniques do not directly enable the aggregation of partial
+observations across distinct frames to reconstruct more personal-
+ized details. Consequently, this represents a significant limitation to
+their capacity for detailed feature extraction.
+In this paper, we address the challenge of enhancing avatar recon-
+struction performance when multiple input images are present.Our
+proposed algorithm is designed to elevate the fidelity of the recov-
+ered avatar both within and beyond the face region across multiple
+frames, with improvements in personal detail reconstruction scaling
+with the increase in frame count. To achieve this, we introduce a
+novel framework capable of efficient incremental 3D head avatar
+reconstruction, fusing multiple inputs without necessitating any
+additional optimization during inference from a sequence of monoc-
+ular images.
+Specifically, we utilize an animatable 3D GAN prior, incorporat-
+ing two key modifications to enhance expression controllability’s
+efficiency and accuracy. Subsequently, we introduce an innovative
+neural texture encoder designed to categorize texture feature spaces
+in accordance with UV parameterization. This differentiates our
+approach from prevalent techniques that depend on networks to
+map an unposed image to a canonical tri-plane representation. Our
+proposed architecture emphasizes pixel-aligned image-to-image
+translation, which effectively eradicates the need for learning corre-
+spondences between observation and canonical spaces. This focus
+significantly improves its capacity for recovering fine details.
+To accumulate temporal data from numerous frames, we further
+modify the one-shot inversion architecture to accommodate multi-
+ple inputs by leveraging ConvGRU-based [Ballas et al. 2015] recur-
+rent networks. This unique recurrent mechanism allows a flexible
+number of inputs and autonomously determines which information
+should be retained or discarded within streaming frames, thereby
+bolstering geometry and texture detail reconstruction capabilities.
+To summarize, the contributions of our approach are:
+• We provide a new paradigm for efficient avatar reconstruction
+for streaming data based on a concept called incremental 3D
+GAN inversion. The paradigm supports one to multiple source
+images inputs and achieves state-of-the-art performance on
+one- and few-shot facial avatar animation tasks.
+• We propose an innovative neural texture encoder alongside
+an animatable 3D GAN prior, allowing for the definition of
+a texture feature space on the UV parameterization which
+enhances the recovery of fine details by pixel-aligned nature.
+• We incorporate recurrent networks for temporal aggregation
+from multiple input frames extracted from monocular video,
+enhancing the quality of avatar reconstruction by considering
+sequential data.
+2
+RELATED WORKS
+2.1
+3D GAN inversion
+Building upon the achievements of 2D Generative Adversarial Net-
+work (GAN) inversion for image editing and manipulation [Alaluf
+et al. 2021; Dinh et al. 2022; Richardson et al. 2021; Tov et al. 2021;
+Wang et al. 2022b], current 3D GAN inversion methodologies [Ko
+et al. 2023; Lin et al. 2022; Sun et al. 2022] perform a projection
+of specific images onto multiple instances within the pre-trained
+StyleGAN2 latent space [Abdal et al. 2019; Karras et al. 2020]. While
+the global latent space enhances 3D-aware portrait editing abilities,
+it results in a trade-off between reconstruction accuracy and ed-
+itability, thereby complicating the accurate reconstruction of input
+images. Consequently, contemporary 3D GAN inversion techniques
+necessitate an estimated camera pose and slight generator weight
+adjustment [Feng et al. 2022; Roich et al. 2021; Xie et al. 2023] during
+testing to reconstruct out-of-domain input images accurately. In
+contrast to latent code inversion or tedious generator fine-tuning,
+recent efforts have shifted towards directly applying 3D GAN in-
+version on a triplane architecture for 3D GANs. For instance, Tri-
+PlaneNet [Bhattarai et al. 2023] presents a triplane encoder while
+2
+
+
+InvertAvatar: Incremental GAN Inversion for Generalized Head Avatars
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+Live3DPortrait [Trevithick et al. 2023] integrates a Vision Trans-
+former architecture into the triplane encoder, both showing sub-
+stantial enhancements in robustness and 3D inversion quality for
+out-of-domain images. Furthermore, Control3Diff [Gu et al. 2023]
+suggests a diffusion-based tri-plane encoder that demonstrates mul-
+timodal control capabilities.
+2.2
+2D Facial animation
+Leveraging the benefits of 3DMM, 2D facial animation tasks [Gecer
+et al. 2019; Thies et al. 2016] are able to accurately and continuously
+model facial part deformations. However, these methods tend to lack
+fine-grained facial details, and grapple with representing non-facial
+areas that are beyond the scope of 3DMM, such as hair, teeth, eyes,
+and body. To compensate for these limitations and generate more
+realistic facial details, subsequent research [Deng et al. 2020; Doukas
+et al. 2021; Fried et al. 2019; Gecer et al. 2018; Kim et al. 2018; Ren
+et al. 2021; Tewari et al. 2020; Thies et al. 2019; Wang et al. 2023; Xu
+et al. 2020] has applied learned techniques atop 3DMM renderings.
+Getting rid of 3DMM, some methods [Burkov et al. 2020; Drobyshev
+et al. 2022; Liang et al. 2022; Wang et al. 2021b] are trained on
+the large-scale face video datasets containing rich identities and
+expressions, thus can be generalized to unseen motion and identity
+given just a single input image. While these 2D-based approaches
+have successfully facilitated efficient and photorealistic animation,
+they do not model 3D geometry and hence fail to maintain stringent
+3D consistency during significant head pose alterations.
+2.3
+Neural 3D head avatars
+For strict 3D consistency, recent efforts [Athar et al. 2022; Chen
+et al. 2024; Gafni et al. 2021; Grassal et al. 2022; Xu et al. 2024, 2023b;
+Zhang et al. 2022; Zhao et al. 2023; Zheng et al. 2022] incorporate
+3DMM into implicit representations [Kanazawa et al. 2018; Kerbl
+et al. 2023; Mildenhall et al. 2020; Peng et al. 2020; Sitzmann et al.
+2019] to achieve view-consistent facial animation. Although these
+methods demonstrate realistic reconstruction results, they ineffi-
+ciently learn separate networks for different identities and require
+thousands of frames from a specific individual for training. Another
+line of works [Bai et al. 2023; Li et al. 2023b,a; Ma et al. 2023; Sun
+et al. 2023; Xu et al. 2023a; Yu et al. 2023] focus on reconstruct-
+ing 3D portraits in one-shot or few-shot manner incorporating 3D
+GAN prior or training in a generative manner. Next3D [Sun et al.
+2023] learns a controllable 3D head avatar from random noise and
+reconstructs an avatar by PTI inversion. [Li et al. 2023a] proposes
+to encode input images into a canonical branch for coarse geometry
+and texture, and introduces an additional appearance branch that
+captures personal details and an expression branch that modifies
+the reconstruction to the desired expression. These methods show
+efficient promising one-shot reconstruction but none of them are
+architected to accommodate the utilization of multiple source im-
+ages as input. Contrastingly, our proposed framework is designed
+to leverage the complementary information inherent in multiple
+input images, thereby facilitating superior reconstruction quality.
+Fig. 2. The architecture review of Next3D, along with the visualization of
+the modifications in our adopted 3D generative model.
+3
+METHOD
+Our method innovatively harnesses the prior knowledge embed-
+ded in an animatable 3D generative model, integrating it with an
+incremental inversion architecture to enable rapid and high-fidelity
+3D avatar reconstruction. Utilizing either a single source image or
+a short sequence of dynamic frames from a source video, our sys-
+tem is capable of reconstructing a 3D facial avatar, which is readily
+animatable through a 3D Morphable Face Model (3DMM) [Wang
+et al. 2022a]. In Sec. 3.2, we introduce our compact yet highly ex-
+pressive animatable GAN, which provides a strong 3D prior. Sec. 3.3
+details our one-shot learning-based avatar reconstruction method,
+intricately designed to capitalize on the aforementioned GAN prior.
+Conclusively, in Section 3.4, we describe the employment of RNN-
+based temporal aggregation networks, which are instrumental in
+enhancing the shape and appearance precision of the reconstructed
+avatar by harnessing temporal data.
+3.1
+Preliminary: Next3D
+Our chosen framework for animatable 3D GAN is Next3D [Sun
+et al. 2023], which currently stands as the SOTA in generating high-
+quality, 3D consistent facial avatars from unstructured 2D images.
+The innovation within Next3D lies in its proposed 3D representation,
+termed Generative Texture-Rasterized Tri-planes. Illustrated in Fig. 2,
+given a randomly sampled latent code 𝑧, the mapping network
+maps 𝑧to an intermediate latent code 𝑤. This intermediate latent
+code modulates a StyleGAN generator to synthesize Generative
+Neural Textures atop parametric mesh templates. Subsequently,
+these are projected onto three orthogonally oriented feature planes
+via rasterization of a conditional facial 3DMM, thus establishing
+a tri-plane feature schema for volume rendering and 2D super-
+resolution (𝐺𝑠𝑢𝑝𝑒𝑟𝑟𝑒𝑠). This dual approach combines the nuanced
+expression control afforded by mesh-guided explicit deformation
+with the adaptive prowess of implicit volumetric representation. For
+more details please refer to [Sun et al. 2023].
+3.2
+Compact and Expressive Animatable 3D GAN
+Drawing from Next3D for our 3D facial avatar generator, we make
+the following improvements for our avatar reconstruction task. First,
+since 3DMM does not contain the inner mouth area, Next3D supple-
+ments and reintegrates the inner mouth features by two additional
+UNets, which leads to additional complexity and meory burden. To
+improve this, as shown in Fig. 2, we replace the two UNets with
+3
+
+
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+Zhao et al.
+𝐼0
+𝑬𝒍𝒂𝒕𝒆𝒏𝒕
+𝑤∈𝑊+
+𝑮𝒕𝒆𝒙
+𝐹𝑡𝑒𝑥𝑤
+GAN
+𝐼0
+Δ𝐼0
+GAN
+Multi-frames observation
+𝐹𝑡𝑟𝑖−𝑆𝐹𝑇
+𝐹𝑡𝑒𝑥𝑜𝑓𝑓
+𝑃𝑟𝑒𝑑𝑁
+𝐹𝑡𝑒𝑥𝑤
+Δ𝐼1
+Δ𝐼𝑁
+𝐼1
+𝐼𝑁
+𝑬𝒕𝒆𝒙_𝒓𝒆𝒄
+𝑀0𝑀1
+𝑀𝑁
+𝐼0𝐼1
+𝐼𝑁
+UV extraction
+෡𝐼𝑁
+෡𝐼1
+෡𝐼0
+Tracked 3DMMs
+Latent Space Inversion
+Canonical Feature Spaces Inversion
+𝑤∈𝑊+
+𝐺𝑡𝑒𝑥
+𝐺𝑓𝑎𝑐𝑒
+Rasterization
+Neural 
+Renderer
+𝐺𝑠𝑢𝑝𝑒𝑟𝑟𝑒𝑠
+𝐺𝑠𝑡𝑎𝑡𝑖𝑐
+𝐹𝑡𝑟𝑖
+𝐹𝑡𝑒𝑥
+𝑤
+𝐹𝑡𝑒𝑥𝑜𝑓𝑓
+𝐹𝑡𝑟𝑖−𝑆𝐹𝑇
+Channel-Split SFT
+𝑤
+Conditional 
+Mesh
+Animatable 
+3D GAN
+3DMM
+parameters
+Tracked 3DMM
+Sec.3.3&Sec.3.4
+Sec.3.2
+Δ𝐼0Δ𝐼1
+Δ𝐼𝑁
+𝑬𝒕𝒓𝒊_𝒓𝒆𝒄
+Fig. 3. The left part illustrates our two-stage avatar reconstruction pipeline. The coarse stage "Latent Space Inversion" (Sec3.3) inverts the first frame in the
+GAN prior’s 𝑊+ latent space with 𝐸𝑙𝑎𝑡𝑒𝑛𝑡, forming an initial avatar. The fine stage performs offset prediction in canonical feature spaces (Sec3.3) and we
+specifically design recurrent networks 𝐸𝑡𝑒𝑥_𝑟𝑒𝑐and 𝐸𝑡𝑟𝑖_𝑟𝑒𝑐to aggregate temporal information, incrementally refining a high-fidelity avatar (Sec3.4). The
+architecture of our advanced animatable 3D generative model is depicted in the right box.
+a single generator 𝐺𝑓𝑎𝑐𝑒by conditioning 𝐺𝑓𝑎𝑐𝑒with the multi-
+scale rasterized neural texture feature maps, which allows the inner
+mouth features to be gradually generated through multiple convo-
+lutional layers. Consequently, our more memory-efficient model
+design allows for larger neural rendering resolution of 1282.
+Besides, we practically notice that the misalignment between con-
+ditional 3DMM and 2D image expressions can weaken their correla-
+tion during adversarial training, impeding the correct deformation
+of generated images. To rectify this, we employ Faceverse [Wang
+et al. 2022a], a parametric model with more expression bases, to
+accurately fit subtle expression changes in 2D images. During train-
+ing, we also supply the discriminator with the tracked landmarks
+map to bolster the consistency between synthesized images and the
+conditional mesh.
+In the subsequent inversion and animation phases, we will ini-
+tially fit Faceverse to the source portrait image or images of a person,
+capturing their expressions and head poses. Next, GAN inversion
+will be applied to reconstruct the corresponding head character.
+Finally, by changing the input expression parameters of FaceVerse,
+we gain the ability to animate the inverted avatar.
+3.3
+One-shot Avatar Reconstruction
+To extract maximum personal information from a single image with
+the reconstructed avatar, we introduce an effective one-shot 3D
+GAN inversion framework. This framework utilizes a coarse-to-
+fine inversion architecture that carries out inversions in the latent
+and feature spaces of our animatable generative model separately.
+Due to the disentangled nature of the dynamic face and static head
+features, we divide the feature space into two specific canonical
+spaces: 𝐹𝑡𝑒𝑥defined by 𝐺𝑡𝑒𝑥(the canonical texture space), and 𝐹𝑡𝑟𝑖
+defined by 𝐺𝑠𝑡𝑎𝑡𝑖𝑐(the canonical tri-plane space). The ultimate goal
+then becomes learning the mapping from the input portrait image
+to the facial avatar represented in these latent and canonical feature
+spaces.
+In the first stage, we introduce a latent encoder 𝐸𝑙𝑎𝑡𝑒𝑛𝑡to project
+the image to the𝑊+ latent space of the pretrained GAN. Specifically,
+given a source image 𝐼, we embed an inverted latent code ˆ𝑤=
+𝐸𝑙𝑎𝑡𝑒𝑛𝑡(𝐼) and initially generate a coarse facial avatar, represented
+by canonical features 𝐹𝑡𝑒𝑥𝑤= 𝐺𝑡𝑒𝑥( ˆ𝑤) and 𝐹𝑡𝑟𝑖𝑤= 𝐺𝑠𝑡𝑎𝑡𝑖𝑐( ˆ𝑤).
+With the estimated pose and expression of the source image 𝐼, we
+can synthesize the fake image ˆ𝐼= 𝑅(𝐺𝑓𝑎𝑐𝑒(𝐹𝑡𝑒𝑥𝑤), 𝐹𝑡𝑟𝑖𝑤), where 𝑅
+is the rendering block.
+In the second stage, with the aim to offset the information loss
+instigated by 𝐸𝑙𝑎𝑡𝑒𝑛𝑡, we formulate two separate image encoders
+𝐸𝑡𝑒𝑥and 𝐸𝑡𝑟𝑖. These are specifically designed to refine the feature
+maps in each of the two canonical spaces independently. Different
+from existing methods that rely on networks to map a posed im-
+age to the canonical tri-plane representation, benefiting from the
+neural texture architecture of our GAN prior, the face appearance
+represented by texture feature space is explicitly defined on the
+UV parameterization. Hence we design a U-Net network 𝐸𝑡𝑒𝑥to
+translate the observation to the canonical texture feature space in
+the UV domain, as shown in Fig. 31. Such a pixel-aligned image-to-
+image translation architecture helps eliminate the learning burden
+of correspondences between observation space and canonical space,
+making it concentrate on recovering fine details, as demonstrated in
+Sec. 4.3.2. Specifically, the input of the 𝐸𝑡𝑒𝑥contains three maps, the
+source image 𝐼and the residual map Δ𝐼= 𝐼−ˆ𝐼that are projected to
+the UV plane, and a mask indicating the visibility region of the face.
+𝐸𝑡𝑒𝑥outputs multi-resolution feature offsets 𝐹𝑡𝑒𝑥𝑜𝑓𝑓to compensate
+for the texture features 𝐹𝑡𝑒𝑥𝑤obtained in the first stage.
+As for the static tri-plane features, we introduce an image-to-
+plane encoder 𝐸𝑡𝑟𝑖to predict multi-scale feature maps. Specifically,
+the multi-resolution features 𝐹𝑡𝑟𝑖−𝑆𝐹𝑇output by 𝐸𝑡𝑟𝑖are used to
+1𝐸𝑡𝑒𝑥_𝑟𝑒𝑐in Fig. 3 refers to the encoder 𝐸𝑡𝑒𝑥equipped with a recurrent decoder. We
+describe it in Sec. 3.4 in detail.
+4
+
+
+InvertAvatar: Incremental GAN Inversion for Generalized Head Avatars
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+spatially modulate 𝐺𝑠𝑡𝑎𝑡𝑖𝑐with the Channel-Split SFT2 layer [Wang
+et al. 2021a] in a coarse-to-fine manner.
+The training for all image encoders can also be divided into two
+stages. Firstly, we only train 𝐸𝑙𝑎𝑡𝑒𝑛𝑡, with the loss terms follow-
+ing [Richardson et al. 2021; Tov et al. 2021]. Secondly, we simultane-
+ously train 𝐸𝑡𝑒𝑥and 𝐸𝑡𝑟𝑖. Referring to Live 3D Portrait [Trevithick
+et al. 2023], our training set includes the synthetic data and we
+supervise the training with many intermediate feature maps, as well
+as an adversarial loss to generate photo-realistic results. Please refer
+to our supplemental material for more details.
+3.4
+Incremental GAN inversion
+While the aforementioned GAN encoder effectively facilitates high-
+quality one-shot avatar reconstruction, a solitary image lacks suf-
+ficient pose and expression information to fully portray the shape
+and appearance. Therefore, we propose an approach termed Incre-
+mental GAN Inversion: incrementally enhances the quality of GAN
+inversion while concurrently integrating temporal information.
+We transition from a one-shot to a multi-frame inversion struc-
+ture using temporal aggregation networks 𝐸𝑡𝑒𝑥_𝑟𝑒𝑐and 𝐸𝑡𝑟𝑖_𝑟𝑒𝑐
+equipped with recurrent decoders. Given an input video clip I𝑁=
+{𝐼𝑡}𝑁
+0 , we aim at fusing the information of all frames to generate
+canonical representation 𝐹𝑡𝑒𝑥and 𝐹𝑡𝑟𝑖. First, the first frame is input
+to the 𝐸𝑙𝑎𝑡𝑒𝑛𝑡for 𝑊+ space latent code 𝑤and initial canonical fea-
+tures 𝐹𝑡𝑒𝑥𝑤and 𝐹𝑡𝑟𝑖𝑤. According to the poses and expressions of
+the input sequence, we synthesize a fake image sequence and calcu-
+late the residual map for each frame Δ𝐼𝑡= 𝐼𝑡−ˆ𝐼𝑡. We sequentially
+input the observation and residual of each frame into the network
+𝐸𝑡𝑒𝑥_𝑟𝑒𝑐and 𝐸𝑡𝑟𝑖_𝑟𝑒𝑐respectively on the UV domain and the picture
+domain.
+Performing in a seq2one fashion, the recurrent decoders of 𝐸𝑡𝑒𝑥_𝑟𝑒𝑐
+and 𝐸𝑡𝑟𝑖_𝑡𝑒𝑥merge frame-wise feature maps in the temporal domain
+to predict one 𝐹𝑡𝑟𝑖−𝑆𝐹𝑇and 𝐹𝑡𝑒𝑥𝑜𝑓𝑓. Specifically, the recurrent de-
+coder adopts ConvGRU [Ballas et al. 2015] at each scale to aggregate
+temporal information, which is defined as:
+𝑧𝑡,𝑟𝑡= 𝜎(𝐶𝑜𝑛𝑣(𝑓𝑡,ℎ𝑡−1))
+𝑜𝑡= 𝑡𝑎𝑛ℎ(𝐶𝑜𝑛𝑣(𝑓𝑡,𝑟𝑡∗ℎ𝑡−1))
+ℎ𝑡= 𝑧𝑡∗ℎ𝑡−1 + (1 −𝑧𝑡) ∗𝑜𝑡
+(1)
+where operator ∗denotes element-wise product. For each ConvGRU
+block, the feature map of one frame 𝑓𝑡is input to calculate the
+update weights map 𝑧𝑡and reset weights map 𝑟𝑡, to merge the
+current frame’s information into hidden state ℎ𝑡. With the initial
+recurrent state ℎ0 all zero tensor, after inputting all frames in turn,
+the final fully updated hidden state serves as the output.
+Contrary to systems employing straightforward feed forwarding
+of multiple frames as auxiliary inputs, our recurrent mechanism
+accommodates a flexible number of inputs. It intelligently learns the
+information to keep or discard from streaming data, thereby circum-
+venting the constraints of fixed-size input windows and interval-
+based updates.
+2Channel-Split Spatial Feature Transform is a layer tailored for the StyleGAN2 backbone
+to perform spatial modulation while preserving the generative prior.
+Fig. 4. Compare our animatable 3D generative model with Next3D [Sun et al.
+2023]. We extract frames from a driving video clip and use the estimated
+facial model parameters to animate sampled random virtual avatars. Please
+zoom in and also refer to our video for more clear comparisons.
+Table 1. Quantitative comparison with Next3D on image synthesis quality,
+animation accuracy, identity preservation and memory consumption.
+FID↓
+AKD↓
+CSIM↑
+Params
+Ours
+4.1
+0.057
+0.853
+84.21M
+Next3D
+3.9
+0.248
+0.841
+164.81M
+4
+EXPERIMENTS
+4.1
+Experiment Setting
+Baseline methods. Firstly, we compare the utilized animatable 3D
+GAN prior with Next3D [Sun et al. 2023]. Then, we mainly compare
+our method with image-driven-based generalized head avatar reen-
+actment methods, including a 2D face reenactment method [Yin et al.
+2022] and two 3D avatar synthesis methods [Khakhulin et al. 2022;
+Ma et al. 2023]. We also compare with an optimization-based base-
+line Next3D-PTI, which incorporates an animatable 3D GAN [Sun
+et al. 2023] and pivotal tuning inversion [Roich et al. 2021]. We
+do not make comparisons with person-specific head avatar meth-
+ods, since these multi-shot methods cannot generalize to different
+identities.
+Evaluation Metrics. We evaluate generation, reconstruction and
+reenactment quality using Frechet Inception Distance (FID) [Heusel
+et al. 2017], peak signal-to-noise ratio (PSNR), Learned Perceptual
+Image Patch Similarity (LPIPS) [Zhang et al. 2018] for synthetic
+quality, cosine similarity (CSIM) [Deng et al. 2019] for identity
+preservation, and average keypoint distance (AKD) using a SOTA
+off-the-shelf facial landmarks detector3 for reenactment quality.
+3https://github.com/google/mediapipe
+5
+
+
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+Zhao et al.
+Table 2. Quantitative Evaluation for one-shot avatar reconstruction and animation.
+Same-ID on HDTF
+Cross-ID on HDTF
+Cross-ID on CelebA
+Method
+PSNR ↑
+L1 ↓
+LPIPS ↓
+CSIM ↑
+AKD ↓
+CSIM ↑
+AKD ↓
+CSIM ↑
+AKD ↓
+Ours
+23.27
+0.029
+0.111
+0.873
+0.018
+0.759
+0.041
+0.755
+0.069
+OTAvatar
+22.85
+0.035
+0.133
+0.794
+0.136
+0.669
+0.420
+0.569
+2.050
+Next3D-PTI
+22.05
+0.038
+0.128
+0.850
+0.312
+0.651
+0.577
+0.648
+0.788
+StyleHEAT
+22.32
+0.036
+0.130
+0.827
+0.109
+0.710
+0.216
+0.604
+0.348
+ROME
+22.91
+0.034
+0.127
+0.832
+0.120
+0.722
+0.239
+0.682
+0.299
+Table 3. Quantitative Evaluation on VFHQ-Test using multiple source images.
+2 source frames
+4 source frames
+PSNR ↑
+LPIPS ↓
+AKD ↓
+CSIM ↑
+Time(s)
+PSNR ↑
+LPIPS ↓
+AKD ↓
+CSIM ↑
+Time(s)
+Ours
+23.39
+0.170
+0.024
+0.867
+0.20
+23.58
+0.162
+0.022
+0.873
+0.32
+OTAvatar
+17.39
+0.281
+0.696
+0.736
+50
+17.76
+0.276
+0.614
+0.721
+100
+Ours-OS
+22.40
+0.202
+0.029
+0.846
+0.36
+22.78
+0.202
+0.026
+0.839
+0.71
+Next3D-PTI
+20.23
+0.199
+0.637
+0.821
+150
+20.74
+0.1771
+0.287
+0.845
+150
+4.2
+Comparisons
+4.2.1
+Animatable 3D GAN prior. To validate the superiority of our
+compact and expressive animatable 3D GAN, we compare our gen-
+erative model with Next3D. Fig. 4 and Tab. 1 demonstrate qualitative
+and quantitative results. We measure image quality with FID be-
+tween the entire FFHQ dataset and 50k generated images using
+randomly sampled latent codes, camera poses and estimated fa-
+cial model parameters. Then we randomly sample 100 identities
+and animate each with randomly sampled 100 images from FFHQ,
+synthesizing 10000 images. AKD is calculated between the driving
+images and the animated generated ones, and CSIM is calculated
+for each identity. The comparison proves that, with roughly half the
+number of parameters, our generative model achieves the similar
+synthesis quality as Next3D and significantly improves animation
+accuracy. In the supplemental video, the video animation results
+present that Next3D suffers from shaking facial appearance and tex-
+ture sticking artifacts, while our method achieves better temporal-
+and view-consistency.
+4.2.2
+One-shot Avatar Reconstruction. We evaluate same-identity
+and cross-identity reenactment using various methods. For self-
+reenactment, the first frame of HDTF test videos served as the
+source, with the next 500 frames as the driving video. In cross-
+identity cases, the first 200 frames of one HDTF clip compose the
+driving video, and the first frame of other videos as source images.
+Besides, following [Yin et al. 2022], We also transfer motions from
+videos to CelebA-HQ monocular images [Karras et al. 2018], using
+test videos from HDTF and VFHQ, creating 100,000 synthesized
+images from 1000 CelebA-HQ images and 25 video clips 4. Without
+ground truth for cross-reenactment, we relied on CSIM and AKD
+metrics for evaluation.
+Tab. 2 presents quantitative evaluations on the HDTF and CelebA-
+HQ datasets, while Fig. 8 showcases the qualitative results of cross-
+identity reenactment on the CelebA-HQ dataset. Our method shows
+4In addition to 19 videos from the testing split of HDTF, we also select 6 videos with
+rich expression changes from VFHQ as supplements.
+superior generalization on these unseen datasets, surpassing oth-
+ers in identity preservation, appearance recovery, and expression
+control. It outperforms baselines in capturing fine details such as
+hair strands and earrings. Additionally, it also excels in expres-
+sion transfer, offering precise control over nuanced expressions
+like asymmetrical mouth movements and eye gazes. In comparison,
+ROME [Khakhulin et al. 2022] fails to capture high-frequency details,
+StyleHeat [Yin et al. 2022] struggles with inner mouth synthesis, and
+OTAvatar [Ma et al. 2023] is unable to generate photo-realistic facial
+avatars with compact latent vector encoding. Although Next3D-PTI
+can reconstruct avatars with test-time optimization, it falls short in
+precise expression control.
+4.2.3
+Few-shot Avatar Reconstruction. Without readily available
+benchmarks for few-shot avatar reconstruction, we adapt one-shot
+methods, both our method and OTAvatar [Ma et al. 2023], to ac-
+commodate multiple source images. This adaptation involves recon-
+structing canonical features from each source image, followed by
+averaging these features to derive a canonical space representation.
+Specifically, for OTAvatar, we compute the mean identity latent
+code. For our one-shot method, we averaged the feature maps 𝐹𝑡𝑒𝑥
+and 𝐹𝑡𝑟𝑖in both two canonical spaces.
+Due to the diverse expressions and poses in VFHQ [Xie et al.
+2022], we evaluate using a test dataset of 100 VFHQ videos, each
+with 300 frames, excluding training set subjects. We sample input
+frames evenly from the initial 200 frames and use the last 100 frames
+for performance evaluation.
+Tab. 3 and Fig. 9 display the results obtained with varying num-
+bers of input frames. Our incremental GAN inversion framework,
+in comparison to the one-shot inversion using only the first frame,
+adeptly integrates multi-frame data to fill in information gaps present
+in a single image, thus enhancing the geometry and texture details.
+For example, this is evident in the improved depiction of hair shape
+(row 1, Fig. 9), pupil color (row 2), and teeth refinement (row 3).
+Adapted one-shot methods, despite warping features from each
+source image to the canonical space, suffer from the misalignment
+6
+
+
+InvertAvatar: Incremental GAN Inversion for Generalized Head Avatars
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+Fig. 5. With a continuous input video stream, our method incrementally
+refines facial shape and texture details, in contrast to the fixed-window
+baseline “ConvFusion_avg”, which tends to produce blurry outcomes.
+of these inverted features, leading to blurry and inaccurate outputs.
+Our approach mitigates these issues, thanks to our RNN-based tem-
+poral aggregation network’s effectiveness in merging sequential
+features, which is critical for achieving realistic detail recovery, as
+seen in the hair strands in Fig. 1.
+For efficiency, OTAvatar[Ma et al. 2023] and Next3D-PTI require
+lengthy optimization for novel identities. In contrast, our learning-
+based solution achieves rapid avatar reconstruction within one sec-
+ond, with the time cost increasing only marginally with the number
+of input frames.
+4.3
+Ablation Studies
+4.3.1
+Recurrent mechanism for temporal aggregation. To evaluate
+our recurrent mechanism, we establish a fixed-window baseline
+termed “ConvFusion”, which replaces each GRU block with a convo-
+lutional block to compress temporal features. Due to its fixed input
+capacity, “ConvFusion” averages the inverted canonical features
+when handling longer sequences.
+Fig. 5 demonstrates the use of an 8-frame video clip to mimic
+an online stream. Our method shows incremental improvements
+in the reconstructed shape and appearance with the increase in
+frames. In contrast, “ConvFusion” lacks the ability to discern which
+information to retain or discard, and a simple averaging strategy
+results in a blurred feature space and inferior rendering results.
+A similar pattern emerges in Fig. 6, where we simulate processing
+offline video sequences, assessing performance against the number
+of input frames. On the VFHQ-test, with denser sampling in the first
+200-frame sequence, The error of “ConvFusion” initially decreases
+but then increases after the frame count exceeds its fixed-window
+size. Conversely, our recurrent framework’s performance improves
+incrementally with additional frames and then remains stable.
+4.3.2
+Encoder design for canonical space inversion .
+Remove the second stage inversion. We set a baseline only utilizing
+𝐸𝑙𝑎𝑡𝑒𝑛𝑡. As shown in Fig. 7 and Tab. 4, without both 𝐸𝑡𝑒𝑥and 𝐸𝑡𝑟𝑖,
+the reconstructed portrait cannot recover the identity.
+Prediction of tri-plane SFT parameters. We introduce a baseline
+approach that utilizes 𝐸𝑡𝑟𝑖to directly predict feature offsets. As
+Fig. 6. LPIPS over the number of input frames on VFHQ-test. With longer
+sequences, our method shows improving and converging metrics, affirming
+its proficiency in long-term temporal aggregation, unlike fixed-window
+baselines that degrade as source image count consistently increases.
+Fig. 7. Qualitative ablation study results on the encoder design for canonical
+space inversion. Zoom in for the best view.
+Table 4. Ablation studies on CelebA-HQ for portrait reconstruction, to
+validate the effectiveness of our encoder design. We sample 1000 images to
+calculate metrics.
+LPIPS↓
+PSNR↑
+CSIM↑
+FID↓
+Ours
+0.180
+25.34
+0.933
+23.25
+wo both Enc
+0.393
+17.67
+0.809
+26.42
+wo NT Enc
+0.201
+24.35
+0.910
+28.23
+𝐸𝑡𝑟𝑖offsets
+0.244
+21.97
+0.889
+34.36
+illustrated in Fig. 7 and Tab. 4, our approach of predicting SFT pa-
+rameters for modulating 𝐺𝑠𝑡𝑎lessens the impact of the initial coarse
+facial avatar, thereby reducing artifacts and improving fidelity.
+Neural Texture Encoder. We set a baseline with posed images as
+inputs to 𝐸𝑡𝑒𝑥. As shown in Fig. 7 and Tab. 4, our neural texture
+encoder, designed to prioritize pixel-aligned image-to-image trans-
+lation on the UV domain, is vital for faithful facial detail recovery.
+5
+DISCUSSION AND CONCLUSION
+Limitation. Dependent on a parametric model to control facial ex-
+pressions, our method is error-prone to tracking errors and struggles
+with extreme expressions beyond the model’s capability, like frown-
+ing and sticking tongue out. Additionally, synthesizing stable, clear
+dynamic lower teeth remains challenging. Future advancements
+7
+
+
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+Zhao et al.
+in more robust facial models capable of tracking these aspects are
+likely to enhance the performance.
+Potential Social Impact. Considering our method can reconstruct
+a vivid personalized head character using a single image in less than
+one second, it may be used for generating “deepfakes”, which should
+be addressed carefully before deploying the technology.
+Conclusion. We present Incremental 3D GAN Inversion, a feedfor-
+ward pipeline for generalized 3D head avatar creation, supporting
+one or multiple image inputs. We employ an animatable 3D GAN
+prior and a novel UV-aligned neural texture encoder for detail re-
+covery and ConvGRU-based recurrent networks for effective tem-
+poral fusing of streaming data. Experiments have demonstrated our
+method outperforms the state-of-the-art approaches in both one-
+shot and few-shot avatar animation tasks. We believe our method
+with a flexible number of input frames will make progress for the
+GAN inversion methods.
+ACKNOWLEDGMENTS
+This paper is supported by National Key R&D Program of China
+(2022YFF0902200), the NSFC project No.62125107.
+REFERENCES
+Rameen Abdal, Yipeng Qin, and Peter Wonka. 2019. Image2StyleGAN: How to Embed
+Images Into the StyleGAN Latent Space?. In Int. Conf. Comput. Vis.
+Yuval Alaluf, Or Patashnik, and Daniel Cohen-Or. 2021. ReStyle: A Residual-Based
+StyleGAN Encoder via Iterative Refinement. In Int. Conf. Comput. Vis.
+ShahRukh Athar, Zexiang Xu, Kalyan Sunkavalli, Eli Shechtman, and Zhixin Shu. 2022.
+RigNeRF: Fully Controllable Neural 3D Portraits. In IEEE Conf. Comput. Vis. Pattern
+Recog.
+Yunpeng Bai, Yanbo Fan, Xuan Wang, Yong Zhang, Jingxiang Sun, Chun Yuan, and Ying
+Shan. 2023. High-fidelity Facial Avatar Reconstruction from Monocular Video with
+Generative Priors. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition. 4541–4551.
+Nicolas Ballas, Li Yao, Chris Pal, and Aaron Courville. 2015. Delving deeper into convo-
+lutional networks for learning video representations. arXiv preprint arXiv:1511.06432
+(2015).
+Ananta R Bhattarai, Matthias Nießner, and Artem Sevastopolsky. 2023. TriPlaneNet:
+An Encoder for EG3D Inversion. arXiv preprint arXiv:2303.13497 (2023).
+Volker Blanz and Thomas Vetter. 1999. A Morphable Model for the Synthesis of
+3D Faces. In Proceedings of the 26th Annual Conference on Computer Graphics and
+Interactive Techniques (SIGGRAPH ’99). ACM Press/Addison-Wesley Publishing Co.,
+USA, 187–194. https://doi.org/10.1145/311535.311556
+Egor Burkov, Igor Pasechnik, Artur Grigorev, and Victor Lempitsky. 2020. Neural head
+reenactment with latent pose descriptors. In Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition. 13786–13795.
+Eric R. Chan, Connor Z. Lin, Matthew A. Chan, Koki Nagano, Boxiao Pan, Shalini De
+Mello, Orazio Gallo, Leonidas Guibas, Jonathan Tremblay, Sameh Khamis, Tero
+Karras, and Gordon Wetzstein. 2022. Efficient Geometry-aware 3D Generative
+Adversarial Networks. In IEEE Conf. Comput. Vis. Pattern Recog.
+Yufan Chen, Lizhen Wang, Qijing Li, Hongjiang Xiao, Shengping Zhang, Hongxun Yao,
+and Yebin Liu. 2024. Monogaussianavatar: Monocular gaussian point-based head
+avatar. In ACM SIGGRAPH 2024 Conference Proceedings.
+Jiankang Deng, Jia Guo, Xue Niannan, and Stefanos Zafeiriou. 2019. ArcFace: Additive
+Angular Margin Loss for Deep Face Recognition. In IEEE Conf. Comput. Vis. Pattern
+Recog.
+Yu Deng, Jiaolong Yang, Dong Chen, Fang Wen, and Tong Xin. 2020. Disentangled
+and Controllable Face Image Generation via 3D Imitative-Contrastive Learning.
+In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR).
+Tan M. Dinh, Anh Tuan Tran, Rang Nguyen, and Binh-Son Hua. 2022. HyperInverter:
+Improving StyleGAN Inversion via Hypernetwork. In IEEE Conf. Comput. Vis. Pattern
+Recog.
+Michail Christos Doukas, Stefanos Zafeiriou, and Viktoriia Sharmanska. 2021. Headgan:
+One-shot neural head synthesis and editing. In Proceedings of the IEEE/CVF Interna-
+tional Conference on Computer Vision. 14398–14407.
+Nikita Drobyshev, Jenya Chelishev, Taras Khakhulin, Aleksei Ivakhnenko, Victor Lem-
+pitsky, and Egor Zakharov. 2022. Megaportraits: One-shot megapixel neural head
+avatars. In Proceedings of the 30th ACM International Conference on Multimedia.
+2663–2671.
+Qianli Feng, Viraj Shah, Raghudeep Gadde, Pietro Perona, and Aleix Martinez. 2022.
+Near perfect gan inversion. arXiv preprint arXiv:2202.11833 (2022).
+Ohad Fried, Ayush Tewari, Michael Zollhöfer, Adam Finkelstein, Eli Shechtman, Dan B
+Goldman, Kyle Genova, Zeyu Jin, Christian Theobalt, and Maneesh Agrawala. 2019.
+Text-based editing of talking-head video. ACM Transactions on Graphics (TOG) 38, 4
+(2019), 1–14.
+Guy Gafni, Justus Thies, Michael Zollhofer, and Matthias Nießner. 2021. Dynamic
+neural radiance fields for monocular 4d facial avatar reconstruction. In Proceedings
+of the IEEE/CVF Conferfence on Computer Vision and Pattern Recognition. 8649–8658.
+Baris Gecer, Binod Bhattarai, Josef Kittler, and Tae-Kyun Kim. 2018. Semi-supervised
+adversarial learning to generate photorealistic face images of new identities from
+3d morphable model. In Proceedings of the European conference on computer vision
+(ECCV). 217–234.
+Baris Gecer, Stylianos Ploumpis, Irene Kotsia, and Stefanos Zafeiriou. 2019. Ganfit:
+Generative adversarial network fitting for high fidelity 3d face reconstruction. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition.
+1155–1164.
+Philip-William Grassal, Malte Prinzler, Titus Leistner, Carsten Rother, Matthias Nießner,
+and Justus Thies. 2022. Neural head avatars from monocular RGB videos. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+18653–18664.
+Jiatao Gu, Qingzhe Gao, Shuangfei Zhai, Baoquan Chen, Lingjie Liu, and Josh Susskind.
+2023. Learning Controllable 3D Diffusion Models from Single-view Images. arXiv
+preprint arXiv:2304.06700 (2023).
+Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, Günter Klam-
+bauer, and Sepp Hochreiter. 2017. GANs Trained by a Two Time-Scale Update Rule
+Converge to a Nash Equilibrium.
+Angjoo Kanazawa, Shubham Tulsiani, Alexei A. Efros, and Jitendra Malik. 2018. Learn-
+ing Category-Specific Mesh Reconstruction from Image Collections. In Eur. Conf.
+Comput. Vis.
+Tero Karras, Timo Aila, Samuli Laine, and Jaakko Lehtinen. 2018. Progressive Growing
+of GANs for Improved Quality, Stability, and Variation. In Int. Conf. Learn. Represent.
+Tero Karras, Samuli Laine, Miika Aittala, Janne Hellsten, Jaakko Lehtinen, and Timo
+Aila. 2020. Analyzing and Improving the Image Quality of StyleGAN. In IEEE Conf.
+Comput. Vis. Pattern Recog.
+Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George Drettakis. 2023.
+3d gaussian splatting for real-time radiance field rendering. ACM Transactions on
+Graphics 42, 4 (2023), 1–14.
+Taras Khakhulin, Vanessa Sklyarova, Victor Lempitsky, and Egor Zakharov. 2022. Real-
+istic One-shot Mesh-based Head Avatars. In Eur. Conf. Comput. Vis.
+Hyeongwoo Kim, Pablo Garrido, Ayush Tewari, Weipeng Xu, Justus Thies, Matthias
+Niessner, Patrick Pérez, Christian Richardt, Michael Zollhöfer, and Christian
+Theobalt. 2018. Deep video portraits. ACM Transactions on Graphics (TOG) 37,
+4 (2018), 1–14.
+Jaehoon Ko, Kyusun Cho, Daewon Choi, Kwangrok Ryoo, and Seungryong Kim. 2023.
+3D GAN Inversion with Pose Optimization. In WACV.
+Weichuang Li, Longhao Zhang, Dong Wang, Bin Zhao, Zhigang Wang, Mulin Chen,
+Bang Zhang, Zhongjian Wang, Liefeng Bo, and Xuelong Li. 2023b. One-Shot High-
+Fidelity Talking-Head Synthesis with Deformable Neural Radiance Field. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+17969–17978.
+Xueting Li, Shalini De Mello, Sifei Liu, Koki Nagano, Umar Iqbal, and Jan Kautz. 2023a.
+Generalizable One-shot Neural Head Avatar. arXiv preprint arXiv:2306.08768 (2023).
+Borong Liang, Yan Pan, Zhizhi Guo, Hang Zhou, Zhibin Hong, Xiaoguang Han, Junyu
+Han, Jingtuo Liu, Errui Ding, and Jingdong Wang. 2022. Expressive talking head gen-
+eration with granular audio-visual control. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition. 3387–3396.
+C.Z. Lin, D.B. Lindell, E.R. Chan, and G. Wetzstein. 2022. 3D GAN Inversion for
+Controllable Portrait Image Animation. In ECCV Workshop on Learning to Generate
+3D Shapes and Scenes.
+Zhiyuan Ma, Xiangyu Zhu, Guo-Jun Qi, Zhen Lei, and Lei Zhang. 2023. OTAvatar: One-
+shot Talking Face Avatar with Controllable Tri-plane Rendering. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 16901–16910.
+Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ra-
+mamoorthi, and Ren Ng. 2020. NeRF: Representing Scenes as Neural Radiance Fields
+for View Synthesis. In Eur. Conf. Comput. Vis.
+Songyou Peng, Michael Niemeyer, Lars Mescheder, Marc Pollefeys, and Andreas Geiger.
+2020. Convolutional occupancy networks. In Eur. Conf. Comput. Vis.
+Yurui Ren, Ge Li, Yuanqi Chen, Thomas H Li, and Shan Liu. 2021. Pirenderer: Control-
+lable portrait image generation via semantic neural rendering. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision. 13759–13768.
+Elad Richardson, Yuval Alaluf, Or Patashnik, Yotam Nitzan, Yaniv Azar, Stav Shapiro,
+and Daniel Cohen-Or. 2021. Encoding in Style: a StyleGAN Encoder for Image-to-
+Image Translation. In IEEE Conf. Comput. Vis. Pattern Recog.
+8
+
+
+InvertAvatar: Incremental GAN Inversion for Generalized Head Avatars
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+Daniel Roich, Ron Mokady, Amit H Bermano, and Daniel Cohen-Or. 2021. Pivotal
+Tuning for Latent-based Editing of Real Images. arXiv preprint arXiv:2106.05744
+(2021).
+Vincent Sitzmann, Justus Thies, Felix Heide, Matthias Nießner, Gordon Wetzstein, and
+Michael Zollhöfer. 2019. DeepVoxels: Learning Persistent 3D Feature Embeddings.
+In IEEE Conf. Comput. Vis. Pattern Recog.
+Jingxiang Sun, Xuan Wang, Yichun Shi, Lizhen Wang, Jue Wang, and Yebin Liu. 2022.
+IDE-3D: Interactive Disentangled Editing for High-Resolution 3D-aware Portrait
+Synthesis. SIGGRAPH ASIA (2022).
+Jingxiang Sun, Xuan Wang, Lizhen Wang, Xiaoyu Li, Yong Zhang, Hongwen Zhang,
+and Yebin Liu. 2023. Next3d: Generative neural texture rasterization for 3d-aware
+head avatars. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition. 20991–21002.
+Junshu Tang, Bo Zhang, Binxin Yang, Ting Zhang, Dong Chen, Lizhuang Ma, and Fang
+Wen. 2023. 3DFaceShop: Explicitly Controllable 3D-Aware Portrait Generation. IEEE
+Transactions on Visualization and Computer Graphics (2023).
+Ayush Tewari, Mohamed Elgharib, Gaurav Bharaj, Florian Bernard, Hans-Peter Seidel,
+Patrick Pérez, Michael Zollhofer, and Christian Theobalt. 2020. Stylerig: Rigging
+stylegan for 3d control over portrait images. In Proceedings of the IEEE Conference
+on Computer Vision and Pattern Recognition (CVPR).
+Justus Thies, Michael Zollhöfer, and Matthias Nießner. 2019. Deferred neural rendering:
+Image synthesis using neural textures. ACM Transactions on Graphics (TOG) 38, 4
+(2019), 1–12.
+Justus Thies, Michael Zollhofer, Marc Stamminger, Christian Theobalt, and Matthias
+Nießner. 2016. Face2face: Real-time face capture and reenactment of rgb videos.
+In Proceedings of the IEEE conference on computer vision and pattern recognition.
+2387–2395.
+Omer Tov, Yuval Alaluf, Yotam Nitzan, Or Patashnik, and Daniel Cohen-Or. 2021.
+Designing an Encoder for StyleGAN Image Manipulation. SIGGRAPH (2021).
+Alex Trevithick, Matthew Chan, Michael Stengel, Eric R. Chan, Chao Liu, Zhiding
+Yu, Sameh Khamis, Manmohan Chandraker, Ravi Ramamoorthi, and Koki Nagano.
+2023. Real-Time Radiance Fields for Single-Image Portrait View Synthesis. In ACM
+Transactions on Graphics (SIGGRAPH).
+Lizhen Wang, Zhiyua Chen, Tao Yu, Chenguang Ma, Liang Li, and Yebin Liu. 2022a.
+FaceVerse: a Fine-grained and Detail-controllable 3D Face Morphable Model from
+a Hybrid Dataset. In IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR2022).
+Lizhen Wang, Xiaochen Zhao, Jingxiang Sun, Yuxiang Zhang, Hongwen Zhang, Tao
+Yu, and Yebin Liu. 2023. StyleAvatar: Real-time Photo-realistic Portrait Avatar from
+a Single Video. arXiv preprint arXiv:2305.00942 (2023).
+Tengfei Wang, Yong Zhang, Yanbo Fan, Jue Wang, and Qifeng Chen. 2022b. High-
+Fidelity GAN Inversion for Image Attribute Editing. In IEEE Conf. Comput. Vis.
+Pattern Recog.
+Ting-Chun Wang, Arun Mallya, and Ming-Yu Liu. 2021b. One-shot free-view neu-
+ral talking-head synthesis for video conferencing. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition. 10039–10049.
+Xintao Wang, Yu Li, Honglun Zhang, and Ying Shan. 2021a. Towards Real-World Blind
+Face Restoration with Generative Facial Prior. In The IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR).
+Yue Wu, Yu Deng, Jiaolong Yang, Fangyun Wei, Qifeng Chen, and Xin Tong. 2022.
+Anifacegan: Animatable 3d-aware face image generation for video avatars. Advances
+in Neural Information Processing Systems 35 (2022), 36188–36201.
+Jiaxin Xie, Hao Ouyang, Jingtan Piao, Chenyang Lei, and Qifeng Chen. 2023. High-
+fidelity 3D GAN Inversion by Pseudo-multi-view Optimization. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 321–331.
+Liangbin Xie, Xintao Wang, Honglun Zhang, Chao Dong, and Ying Shan. 2022. Vfhq: A
+high-quality dataset and benchmark for video face super-resolution. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 657–666.
+Hongyi Xu, Guoxian Song, Zihang Jiang, Jianfeng Zhang, Yichun Shi, Jing Liu, Wanchun
+Ma, Jiashi Feng, and Linjie Luo. 2023a. Omniavatar: Geometry-guided controllable
+3d head synthesis. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition. 12814–12824.
+Sicheng Xu, Jiaolong Yang, Dong Chen, Fang Wen, Yu Deng, Yunde Jia, and Xin Tong.
+2020. Deep 3d portrait from a single image. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition. 7710–7720.
+Yuelang Xu, Benwang Chen, Zhe Li, Hongwen Zhang, Lizhen Wang, Zerong Zheng,
+and Yebin Liu. 2024. Gaussian head avatar: Ultra high-fidelity head avatar via dy-
+namic gaussians. In The IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR).
+Yuelang Xu, Lizhen Wang, Xiaochen Zhao, Hongwen Zhang, and Yebin Liu. 2023b.
+Avatarmav: Fast 3d head avatar reconstruction using motion-aware neural voxels.
+In ACM SIGGRAPH 2023 Conference Proceedings. 1–10.
+Fei Yin, Yong Zhang, Xiaodong Cun, Mingdeng Cao, Yanbo Fan, Xuan Wang, Qingyan
+Bai, Baoyuan Wu, Jue Wang, and Yujiu Yang. 2022. Styleheat: One-shot high-
+resolution editable talking face generation via pre-trained stylegan. In European
+conference on computer vision. Springer, 85–101.
+Wangbo Yu, Yanbo Fan, Yong Zhang, Xuan Wang, Fei Yin, Yunpeng Bai, Yan-Pei Cao,
+Ying Shan, Yang Wu, Zhongqian Sun, et al. 2023. Nofa: Nerf-based one-shot facial
+avatar reconstruction. In ACM SIGGRAPH 2023 Conference Proceedings. 1–12.
+Jingbo Zhang, Xiaoyu Li, Ziyu Wan, Can Wang, and Jing Liao. 2022. FDNeRF: Few-shot
+Dynamic Neural Radiance Fields for Face Reconstruction and Expression Editing.
+arXiv preprint arXiv:2208.05751 (2022).
+Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. 2018.
+The Unreasonable Effectiveness of Deep Features as a Perceptual Metric. In IEEE
+Conf. Comput. Vis. Pattern Recog.
+Xiaochen Zhao, Lizhen Wang, Jingxiang Sun, Hongwen Zhang, Jinli Suo, and Yebin
+Liu. 2023. Havatar: High-fidelity head avatar via facial model conditioned neural
+radiance field. ACM Transactions on Graphics 43, 1 (2023), 1–16.
+Yufeng Zheng, Victoria Fernández Abrevaya, Marcel C Bühler, Xu Chen, Michael J
+Black, and Otmar Hilliges. 2022. Im avatar: Implicit morphable head avatars from
+videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition. 13545–13555.
+Yufeng Zheng, Wang Yifan, Gordon Wetzstein, Michael J Black, and Otmar Hilliges. 2023.
+Pointavatar: Deformable point-based head avatars from videos. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 21057–21067.
+9
+
+
+SIGGRAPH Conference Papers ’24, July 27-August 1, 2024, Denver, CO, USA
+Zhao et al.
+Fig. 8. Qualitative comparison on the CelebA-HQ for one-shot avatar reconstruction. The results demonstrate the superior performance of our method in
+terms of realistic appearance recovery and fine-grained expression control.
+10

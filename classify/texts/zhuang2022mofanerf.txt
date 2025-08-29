@@ -1,0 +1,447 @@
+Title: Mofanerf: Morphable facial neural radiance field
+
+MoFaNeRF: Morphable Facial Neural
+Radiance Field
+Yiyu Zhuang∗, Hao Zhu∗, Xusen Sun, and Xun Cao†
+Nanjing University, Nanjing, China
+{yiyu.zhuang, xusensun}@smail.nju.edu.cn {zhuhaoese, caoxun}@nju.edu.cn
+Abstract. We propose a parametric model that maps free-view images
+into a vector space of coded facial shape, expression and appearance with
+a neural radiance field, namely Morphable Facial NeRF. Specifically, Mo-
+FaNeRF takes the coded facial shape, expression and appearance along
+with space coordinate and view direction as input to an MLP, and out-
+puts the radiance of the space point for photo-realistic image synthesis.
+Compared with conventional 3D morphable models (3DMM), MoFaN-
+eRF shows superiority in directly synthesizing photo-realistic facial de-
+tails even for eyes, mouths, and beards. Also, continuous face morphing
+can be easily achieved by interpolating the input shape, expression and
+appearance codes. By introducing identity-specific modulation and tex-
+ture encoder, our model synthesizes accurate photometric details and
+shows strong representation ability. Our model shows strong ability on
+multiple applications including image-based fitting, random generation,
+face rigging, face editing, and novel view synthesis. Experiments show
+that our method achieves higher representation ability than previous
+parametric models, and achieves competitive performance in several ap-
+plications. To the best of our knowledge, our work is the first facial
+parametric model built upon a neural radiance field that can be used in
+fitting, generation and manipulation. The code and data is available at
+https://github.com/zhuhao-nju/mofanerf.
+Keywords: neural radiance field, 3D morphable models, face synthesis.
+1
+Introduction
+Modeling 3D face is a key problem to solve face-related vision tasks such as
+3D face reconstruction, reenactment, parsing, and digital human. The 3D mor-
+phable model (3DMM)[3] has long been the key solution to this problem, which is
+a parametric model transforming the shape and texture of the faces into a vector
+space representation. 3DMMs are powerful in representing various shapes and
+appearances, but require a sophisticated rendering pipeline to produce photo-
+realistic images. Besides, 3DMMs struggled to model non-Lambertian objects
+∗These authors contributed equally to this work.
+† Xun Cao is the corresponding author.
+arXiv:2112.02308v2  [cs.CV]  22 Jul 2022
+
+
+2
+Y. Zhuang et al.
+Fig. 1. We propose MoFaNeRF, which is a parametric model that can synthesize free-
+view images by fitting to a single image or generating from a random code. The syn-
+thesized face is morphable that can be rigged to a certain expression and be edited to
+a certain shape and appearance.
+like pupils and beards. Recently, the neural radiance field (NeRF)[37] was pro-
+posed to represent the shapes and appearances of a static scene using an im-
+plicit function, which shows superiority in the task of photo-realistic free-view
+synthesis. The most recent progress shows that the modified NeRF can model
+a dynamic face[13,59,41,40], or generate diversified 3D-aware images[48,6,17].
+However, there is still no method to enable NeRF with the abilities of single-
+view fitting, controllable generation, face rigging and editing at the same time.
+In summary, conventional 3DMMs are powerful in representing large-scale ed-
+itable 3D faces but lack the ability of photo-realistic rendering, while NeRFs are
+the opposite.
+To combine the best of 3DMM and NeRF, we aim at creating a facial para-
+metric model based on the neural radiance field to have the powerful repre-
+sentation ability as well as excellent free-view rendering performance. However,
+achieving such a goal is non-trivial. The challenges come from two aspects: firstly,
+how to memorize and parse the very large-scale face database using a neural ra-
+diance field; secondly, how to effectively disentangle the parameters (e.g. shape,
+appearance, expression), which are important to support very valuable applica-
+tions like face rigging and editing.
+To address these challenges, we propose the Morphable Facial NeRF (Mo-
+FaNeRF) that maps free-view images into a vector space of coded facial identity,
+expression, and appearance using a neural radiance field. Our model is trained on
+two large-scale 3D face datasets, FaceScape[62,68] and HeadSpcae[9] separately.
+FaceScape contains 359 available faces with 20 expressions each, and HeadSpace
+contains 1004 faces in the neutral expression. The training strategy is elaborately
+designed to disentangle the shape, appearance and expression in the paramet-
+ric space. The identity-specific modulation and texture encoder are proposed
+to maximize the representation ability of the neural network. Compared to tra-
+ditional 3DMMs, MoFaNeRF shows superiority in synthesizing photo-realistic
+images even for pupils, mouth, and beards which can not be modeled well by 3D
+mesh models. Furthermore, we also propose the methods to use our model to
+achieve image-based fitting, random face generation, face rigging, face editing,
+and view extrapolation. Our contributions can be summarized as follows:
+
+
+MoFaNeRF: Morphable Facial Neural Radiance Field
+3
+– To the best of our knowledge, we propose the first parametric model that
+maps free-view facial images into a vector space using a neural radiance field
+and is free from the traditional 3D morphable model.
+– The neural network for parametric mapping is elaborately designed to max-
+imize the solution space to represent diverse identities and expressions. The
+disentangled parameters of shape, appearance and expression can be inter-
+polated to achieve a continuous and morphable facial synthesis.
+– We present to use our model for multiple applications like image-based fit-
+ting, view extrapolation, face editing, and face rigging. Our model achieves
+competitive performance compared to state-of-the-art methods.
+2
+Related Work
+As our work is a parametric model based on neural radiance field, we will review
+the related work of 3D morphable model and neural radiance field respectively.
+3D Morphable Model. 3DMM is a statistical model which transforms the
+shape and texture of the faces into a vector space representation[3]. By opti-
+mizing and editing parameters, 3DMMs can be used in multiple applications
+like 3D face reconstruction[61], alignment[23], animation[66], etc. We recom-
+mend referring to the recent survey[11] for a comprehensive review of 3DMM. To
+build a 3DMM, traditional approaches first capture a large number of 3D facial
+meshes, then align them into a uniform topology representation, and finally pro-
+cess them with principal component analysis algorithm[62,68,55,4,31,21]. The
+parameter of the 3DMM can be further disengaged into multiple dimensions
+like identity, expression, appearance, and poses. In recent years, several works
+tried to enhance the representation power of 3DMM by using a non-linear
+mapping[2,50,53,52,8,51], which is more powerful in representing detailed shape
+and appearance than transitional linear mapping. However, they still suffer from
+the mesh representation which is hard to model fine geometry of pupils, eyelashes
+and hairs. Besides, traditional 3DMMs require sophisticated rendering pipelines
+to render photo-realistic images. By contrast, our model doesn’t explicitly gen-
+erate shape but directly synthesizes photo-realistic free-view images even for
+pupils, inner-mouth and beards.
+Very recently, Yenamandra et al. [63] proposed to build the 3DMM with an
+implicit function representing facial shape and appearance. They used a neural
+network to learn a signed distance field(SDF) of 64 faces, which can model the
+whole head with hair. Similarly, our model is also formulated as an implicit
+function but very different from SDF. SDF still models shape while our method
+focuses on view synthesis and releases constraints of the shape, outperforming
+SDF in rendering performance by a large margin.
+Neural Radiance Field. NeRF[37] was proposed to model the object or scene
+with an impressive performance in free-view synthesis. NeRF synthesizes novel
+views by optimizing an underlying continuous volumetric scene function that is
+learned from multi-view images.
+As the original NeRF is designed only for a static scene, many efforts have
+been devoted to reconstructing deformable objects. Aiming at the human face
+
+
+4
+Y. Zhuang et al.
+Fig. 2. MoFaNeRF takes appearance code α, shape code β, expression code ϵ, posi-
+tion code x and view direction d as input, synthesizing a coarse result which is then
+refined by a RefineNet. As shown in the right bottom corner, MoFaNeRF can be used
+in generating (synthesize free-view images given parameters) or fitting (optimize for
+parameters given a single image).
+many methods[13,59,41] modeled the motion of a single human head with a
+designed conditional neural radiance field, extending NeRF to handle dynamic
+scenes from monocular or multi-view videos. Aiming at human body, several
+methods have been proposed by introducing human parametric model (e.g.
+SMPL)[39,7,34,43] or skeleton[42] as prior to build NeRF for human body. For
+a wide range of dynamic scenarios, Park et al. [40] proposed to augment NeRF by
+optimizing an additional continuous volumetric deformation field, while Pumarola
+et al. [45] optimized an underlying deformable volumetric function. Another
+group of works [48,6,17] turned NeRF into a generative model that is trained
+or conditioned on certain priors, which achieves 3D-aware images synthesis from
+a collection of unposed 2D images. To reduce the image amount for training,
+many works [64,56,46,14] trained the model across multiple scenes to learn a
+scene prior, which achieved reasonable novel view synthesis from a sparse set of
+views.
+Different from previous NeRFs, our method is the first parametric model for
+facial neural radiance field trained on a large-scale multi-view face dataset. Our
+model supports multiple applications including random face generation, image-
+based fitting and facial editing, which is unavailable for previous NeRFs.
+3
+Morphable Facial NeRF
+Morphable facial NeRF is a parametric model that maps free-view facial portraits
+into a continuous morphable parametric space, which is formulated as:
+  \ma th ca l {M } : ( \mathbf {x,d,\beta ,\alpha ,\epsilon }) \to \{\mathbf {c,\sigma }\}, 
+(1)
+where x is the 3D position of a sample point; d is the viewing direction
+consisting of pitch and yaw angles; β, α, ϵ are the parameters denoting facial
+shape, appearance, and expression respectively; c and σ are the RGB color and
+
+
+MoFaNeRF: Morphable Facial Neural Radiance Field
+5
+the density used to represent the neural radiance field. In the next, we will
+explain x, d, c, σ that are referred from NeRF in Section 3.1, then introduce
+β, α, ϵ in Section 3.2. The network design is illustrated in Section 3.3 and the
+training details are explained in Section 3.4.
+3.1
+Neural Radiance Field
+As defined in NeRF[37], the radiance field is represented as volumetric density
+σ and color c = (R, G, B). An MLP is used to predict σ and c from a 3D point
+x = (x, y, z) and viewing direction d = (θ, ϕ). Position encoding is introduced to
+transform the continuous inputs x and d into a high-dimensional space, which
+is also used in our model. The field of σ and c can be rendered to images using a
+differentiable volume rendering module. For a pixel in the posed image, a ray r is
+cast through the neural volume field from the ray origin o along the ray direction
+d according to the camera parameters, which is formulated as r(z) = o + zd.
+Through sampling points along this ray, and accumulating the sampled density
+σ(·) and RGB values c(·) computed by F, the final output color C(r) of this
+pixel can be evaluated by:
+  \ma
+t hb
+f 
+{C(r)}\!=\!\int _{ z_{n } }^{z_ {f}} T(z
+)
+ 
+\ s
+ig
+ma ( \mat
+h
+bf {r}(z)) \mathbf {c}(\mathbf {r}(z),\mathbf {d})dz\,, \:\textup {where}\:T(z)\!=\!\exp \!\left (-\int _{z_{n}}^{z}\sigma (\mathbf {r}(s))\mathrm {ds}\right ) . (2)
+T(t) is defined as the accumulated transmittance along the ray from zn to z,
+where zn and zf are near and far bounds. Through the rendered color, a photo-
+metric loss can be applied to supervise the training of the MLP.
+3.2
+Parametric Mapping
+Our model is conditioned on the parameters to represent the identity and facial
+expression ϵ, and the identity is further divided into shape β and appearance α.
+Initially, we consider integrating β and α into a single identity code, however, we
+find it is hard for an MLP to memorize the huge amount of appearance informa-
+tion. Therefore, we propose to decouple the identity into shape and appearance.
+These parameters need to be disentangled to support valuable applications like
+face rigging and editing.
+Shape parameter β represents the 3D shape of the face that is only related
+to the identity of the subject, like the geometry and position of the nose, eyes,
+mouth and overall face. A straightforward idea is to use one-hot encoding to
+parameterize β, while we find it suffers from redundant parameters because the
+similarity of large-amount faces is repeatedly expressed in one-hot code. Instead,
+we adopt the identity parameters of the bilinear model of FaceScape[62] as shape
+parameter, which is the PCA factors of the 3D mesh for each subject. The
+numerical variation of the identity parameter reflects the similarity between face
+shapes, which makes the solution space of facial shapes more efficient.
+Appearance parameter α reflects photometric features like the colors of skin,
+lips, and pupils. Some fine-grained features are also reflected by appearance
+
+
+6
+Y. Zhuang et al.
+parameters, such as beard and eyelashes. Considering that the UV texture pro-
+vided by FaceScape dataset is the ideal carrier to convey the appearance in a
+spatial-aligned UV space, we propose to encode the UV texture maps into α for
+training. The texture encoding module (TEM) is proposed to transfer the coded
+appearance information into the MLP, which is a CNN based encoder network.
+TEM is only used in the training phase, and we find it significantly improves
+the quality of synthesized images. We consider the reason is that the appearance
+details are well disentangled from shape and spatial-aligned, which relieves the
+burden of memorizing appearances for the MLP.
+Expression parameter ϵ is corresponding to the motions caused by facial
+expressions. Previous methods[41,54] try to model the dynamic face by adding a
+warping vector to the position code x, namely deformable volume. However, our
+experiments show that the deformable volume doesn’t work in our task where
+too many subjects are involved in a single model. More importantly, our training
+data are not videos but images with discrete 20 expressions, which makes it
+even harder to learn a continuous warping field. By contrast, we find directly
+concatenating expression parameters with the position code as [32,13] causes
+fewer artifacts, and our identity-specific modulation (detailed in Section 3.3)
+further enhances the representation ability of expression. We are surprised to
+find that MLP without a warping module can still synthesize continuous and
+plausible interpolation for large-scale motions. We believe this is the inherent
+advantage of the neural radiance field over 2D-based synthesis methods.
+3.3
+Network Design
+As shown in Figure 2, the backbone of MoFaNeRF mainly consists of MLPs,
+identity-specific modulation (ISM) module and texture encoding module(TEM).
+These networks transform the parameters α, β, ϵ, position code x and viewing
+direction d into the color c and density σ. The predicted colors are then synthe-
+sized from c and σ through volume rendering. Considering that the appearance
+code α is only related to the color c, it is only fed into the color decoder. The
+expression code ϵ is concatenated to the position code after the identity-specific
+modulation, as it mainly reflects the motions that are intuitively modulated by
+shape β. The RefineNet takes the coarse image predicted by MoFaNeRF as input
+and synthesizes a refined face. The results presented in this paper are the refined
+results by default. The additional texture encoding module (TEM) is used only
+in the training phase, which consists of 7 convolution layers and 5 full connected
+layers . The detailed parameters of our network are shown in the supplementary.
+To represent a large-scale multi-view face database, the capacity of the net-
+work needs to be improved by increasing the number of layers in MLP and the
+number of nodes in each hidden layer. The generated images indeed gets im-
+proved after enlarging the model size, but is still blurry and contains artifacts
+in the expressions with large motions. To further improve the performance, we
+present the identity-specific modulation and RefineNet.
+Identity-specific modulation (ISM). Intuitively, facial expressions of differ-
+ent individuals differ from each other as individuals have their unique expression
+
+
+MoFaNeRF: Morphable Facial Neural Radiance Field
+7
+idiosyncrasies. However, we observed that the MLPs erase most of these unique
+characteristics after the disentanglement, homogenizing the expressions from dif-
+ferent subjects. Motivated by AdaIN[24,25], we consider the unique expression
+of individuals as a modulation relationship between β and ϵ, which can be for-
+mulated as:
+  \ epsil o n  '=M_s(\beta )\cdot \epsilon +M_b(\beta ), 
+(3)
+where ϵ′ is the updated value to the expression code, Ms and Mb are the shal-
+low MLPs to transform β into an identity-specific code to adjust ϵ. Both Ms
+and Mb output tensors with the same length as ϵ. Our experiments show that
+ISM improves the representation ability of the network especially for various
+expressions.
+RefineNet. We propose to take advantage generative adversial networks to
+further improve the synthesis of the facial details. We use Pix2PixHD[57] as the
+backbone of RefineNet, which refine the results of MoFaNeRF with GAN loss[16]
+and perceptual loss[22]. The input of RefineNet is the coarse image rendered by
+MoFaNeRF, and the output is a refined image with high-frequency details. We
+find that RefineNet significantly improves details and realism with less impact
+on identity-consistency. The influence of RefineNet on identity-consistency are
+validated in the ablation study in Section 4.2.
+3.4
+Training
+Data preparation. We use 7180 models released by FaceScape[62] and 1004
+models released by HeadSpace[9] to train two models respectively. In FaceScape,
+the models are captured from 359 different subjects with 20 expressions each.
+For FaceScape, we randomly select 300 subjects (6000 scans) as training data,
+leaving 59 subjects (1180 scans) for testing. For HeadSpace, we randomly select
+904 subjects as training data, leaving 100 subjects for testing. As HeadSpace
+only consists of a single expression for each subjects, the expression input part
+of the network to train HeadSpace data is removed. All these models are aligned
+in a canonical space, and the area below the shoulder is removed. We render
+120 images in different views for each subjects. The details about the rendering
+setting are shown in the supplementary.
+Landmark-based sampling. In the training phase, the frequency of ray-sampling
+is modified besides the uniform sampling to make the network focus on the fa-
+cial region. Specifically, we dectect 64 2D key-points of the mouth, nose, eyes,
+and eyebrows, and the inverse-projecting rays are sampled around each key-
+point based on a Gaussian distribution. The standard deviation of the Gaussian
+distribution is set to 0.025 of the image size all our experiments. The uniform
+sampling and the landmark-based sampling are combined with the ratio of 2:3.
+Loss function. The loss function to train MoFaNeRF is formulated as:
+  
+L
+=\s
+um \ limits  _{\m
+ath
+b
+f  
+{r} \in \m a thca
+l {
+R
+}
+}
+ \left [ \left \| \hat {C}_c(\mathbf {r}) - C(\mathbf {r}) \right \|^2_2 + \left \| \hat {C}_f(\mathbf {r}) - C(\mathbf {r}) \right \|^2_2 \right ], 
+(4)
+
+
+8
+Y. Zhuang et al.
+Fig. 3. Our model is able to synthesize diverse appearance, shape and expressions,
+while these three dimensions are well disentangled. The interpolation in the parametric
+space shows that the face can morph smoothly between two parameters.
+Fig. 4. The pipeline for fitting our model to a single image.
+where R is the set of rays in each batch, C(r) is the ground-truth color, ˆCc(r)
+and ˆCf(r) are the colors predicted by coarse volume and fine volume along ray r
+respectively. It is worth noting that the expression and appearance parameters
+are updated according to the back-propagated gradient in the training, while the
+shape parameters remain unchanged. We firstly train the network of MoFaNeRF,
+then keep the model fixed and train the RefineNet. The RefineNet is trained with
+the loss function following Pix2PixHD[57], which is the combination of GAN
+loss[16] and perceptual loss[10,15,22]. The implementation details can be found
+in the supplementary material.
+3.5
+Application
+In addition to directly generating faces from a certain or random vector, Mo-
+FaNeRF can also used in image-based fitting, face rigging and editing.
+Image-based fitting. As shown in Figure 4, we propose to fit our model to
+an input image. Firstly, we normalize the image to the canonical image with an
+
+
+MoFaNeRF: Morphable Facial Neural Radiance Field
+9
+affine transformation. Specifically, we first extract the 2D landmarks Lt from the
+target image with [26] , then align Lt to the predefined 3D landmarks Lc of the
+canonical face by solving:
+  \ t ext bf {d, s} = \ a r g  \mi n \left \|(\Pi (L_c, \textbf {d})) \cdot \textbf {s} - L_t \right \|_2, 
+(5)
+where d is the view direction, s is the scale. Π(Lc,d) is the function to project
+3D points to the 2D image plane according to the view direction d. The scale s
+is applied to the target image, and d is used in the fitting and remains constant.
+Then we use EHANet [35,29] to segment the background out, and normalize
+the lighting with the relighting method [67]. In practice, we find it important to
+eliminate the influence of light because our model cannot model complex lighting
+well.
+After the pre-processing, we can optimize for β, α, ϵ through the network.
+Specifically, β and α are randomly initialized by Gaussian distribution, and ϵ
+is initialized with the learned value from the training. Then we freeze the pre-
+trained network weights and optimize α, β, ϵ through the network by minimizing
+only the MSE loss function between the predicted color and the target color.
+Only points around landmarks are sampled in fitting.
+Face rigging and editing. The generated or fitted face can be rigged by in-
+terpolating in expression dimension with controllable view-point. The expres-
+sion vector can be obtained by fitting to a video or manually set. Currently,
+we only use the basic 20 expressions provided by FaceScape to generate simple
+expression-changing animation. By improving the rigging of the face to higher
+dimensions[30], our model has the potential to perform more complex expres-
+sions. The rigged results are shown in Figure 1, Figure 3 and the supplementary
+materials.
+The generated or fitted face can be edited by manipulating the shape and
+appearance code. As explained in Section 3.2, shape coder refers to the shape
+of the face, the geometry and position of the nose, eyes, and mouth; while ap-
+pearance refers to the color of skin, lips, pupils, and fine-grained features like
+beard and eyelashes. These features can be replaced from face A to face B by
+simply replacing the shape or appearance code, as shown in Figure 1. Our model
+supports manually editing by painting texture map, then using TEM to generate
+appearance code for a generation. However, we find only large-scale features of
+the edited content in the texture map will take effect, like skin color and beard,
+while small-scale features like moles won’t be transferred to the synthesized face.
+We also demonstrate that the face can morph smoothly by interpolating in the
+vector space, as shown in Figure 3.
+4
+Experiment
+We firstly compare our model with previous parametric models in representa-
+tion ability, then show the effectiveness of the parameter disentanglement and
+the network design in the ablation study. Finally, we evaluate the performance
+of MoFaNeRF in single-view image-based fitting, view extrapolation, and face
+manipulation.
+
+
+10
+Y. Zhuang et al.
+Table 1. Quantitative evaluation of representation ability.
+Model
+PSNR(dB)↑
+SSIM∗↑
+LPIPS∗↓
+FaceScape[62]
+27.96±1.34
+0.932±0.012
+0.069±0.009
+FaceScape∗[62]
+27.07±1.46
+0.933±0.011
+0.080±0.014
+i3DMM[63]
+24.45±1.58
+0.904±0.014
+0.112±0.015
+MoFaNeRF
+31.49±1.75 0.951±0.010 0.061±0.011
+MoFaNeRF-fine 30.17±1.71
+0.935±0.013 0.034±0.007
+Fig. 5. Visual comparison of representation ability. Facescape∗is the smaller version
+with comparable model size to our model(≈120M).
+4.1
+Comparison of Representation Ability
+We compare the representation ability of our MoFaNeRF with two SOTA facial
+parametric models - FaceScape bilinear model[62] and i3DMM[63]. FaceScape
+is the traditional 3DMM that applies PCA to 3D triangle mesh, while i3DMM
+is the learning-based 3DMM that represents shape via SDF. Both models are
+trained on FaceScape dataset as described in Section 3.4. The default generated
+number of parameters for FaceScape is very large(≈630M), so to be fair, we
+also generated a model with a similar number of parameters to our model(≈
+120M), labeled as FaceScape∗. PSNR[20], SSIM[58] and LPIPS[65] are used to
+measure the objective, structural, and perceptual similarity respectively. The
+better performance in similarity between the generated face image and ground
+truth indicates better representation ability.
+From the visual comparison in Figure 5, we can see that the FaceScape bi-
+linear model doesn’t model pupils and inner mouth, as it is hard to capture
+accurate 3D geometry for these regions. The rendered texture is blurry due to
+the misalignment in the registration phase and the limited representation ability
+of the linear PCA model. i3DMM is able to synthesize the complete head, but
+the rendering result is also blurry. We observed that the performance of i3DMM

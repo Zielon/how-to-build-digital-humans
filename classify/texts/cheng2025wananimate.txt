@@ -1,0 +1,581 @@
+Title: Wan-Animate: Unified Character Animation and Replacement with Holistic Replication
+
+WAN-ANIMATE:
+UNIFIED CHARACTER ANIMATION
+AND REPLACEMENT WITH HOLISTIC REPLICATION
+HumanAIGC Team
+Tongyi Lab, Alibaba
+ABSTRACT
+We introduce Wan-Animate, a unified framework for character animation and re-
+placement. Given a character image and a reference video, Wan-Animate can
+animate the character by precisely replicating the expressions and movements of
+the character in the video to generate high-fidelity character videos. Alternatively,
+it can integrate the animated character into the reference video to replace the orig-
+inal character, replicating the scene’s lighting and color tone to achieve seamless
+environmental integration. Wan-Animate is built upon the Wan model. To adapt it
+for character animation tasks, we employ a modified input paradigm to differen-
+tiate between reference conditions and regions for generation. This design unifies
+multiple tasks into a common symbolic representation. We use spatially-aligned
+skeleton signals to replicate body motion and implicit facial features extracted
+from source images to reenact expressions, enabling the generation of charac-
+ter videos with high controllability and expressiveness. Furthermore, to enhance
+environmental integration during character replacement, we develop an auxiliary
+Relighting LoRA. This module preserves the character’s appearance consistency
+while applying the appropriate environmental lighting and color tone. Experimen-
+tal results demonstrate that Wan-Animate achieves state-of-the-art performance.
+We are committed to open-sourcing the model weights and its source code. Project
+Page: https://humanaigc.github.io/wan-animate/
+1
+INTRODUCTION
+Character image animation is a significant research area that has achieved remarkable progress,
+driven by advancements in visual generative techniques, particularly the application of diffusion
+models. This technology holds substantial potential value, with wide-ranging applications in film-
+making, advertising, and the creation of digital avatars. Previous works, such as Hu (2024); Zhu
+et al. (2025); Tu et al. (2025), have thoroughly explored diffusion-based architectures for charac-
+ter image animation, introducing significant enhancements in consistency and controllability. Fur-
+thermore, some studies Hu et al. (2025); Men et al. (2024); Xu et al. (2024c); Wang et al. (2025a)
+have incorporated environmental information, extending the generative capabilities to more versatile
+tasks like character replacement and human-object interaction synthesis. More recently, following
+the introduction of Sora Brooks et al. (2024) by OpenAI, video generation leveraging the Diffusion
+Transformer Peebles & Xie (2023) architecture has undergone explosive development. The emer-
+gence of numerous open-source works Kong et al. (2025); Wan et al. (2025) has catalyzed parallel
+advancements in related sub-tasks. Consequently, DiT-based character image animation Gan et al.
+(2025); Zhou et al. (2025); Luo et al. (2025) has also garnered considerable research interest. By
+capitalizing on the capabilities of pre-trained video foundation models, the realism and temporal
+coherence of the generated character videos have been substantially improved.
+However, a critical gap remains: no existing framework provides a holistic solution for high-fidelity
+character animation that unifies the control of motion, expression, and environment interaction.
+Within the open-source domain, existing works on character image animation exhibit significant
+shortcomings in both performance and completeness. The majority of open-source contributions,
+such as Zhu et al. (2025); Zhang et al. (2024); Tu et al. (2025); Wang et al. (2024), are designed
+based on UNet-based foundation models (e.g., SD Rombach et al. (2022), SVD Blattmann et al.
+(2023)), and their results lag considerably behind the current state-of-the-art. While some DiT-based
+open-source projects Zhou et al. (2025); Wang et al. (2025b) focus on motion control, they fall short
+1
+arXiv:2509.14055v1  [cs.CV]  17 Sep 2025
+
+
+Animation
+Replacement
+Figure 1: Given a character image and a reference video, Wan-Animate supports two core func-
+tionalities. In the first, which we term ”Animation,” it reenacts the motion and expression of the
+character in the reference video to animate the static source image. In the second, termed ”Replace-
+ment,” it substitutes the character in the reference video with the source identity, ensuring seamless
+integration with the environment.
+in holistically replicating expressive facial dynamics in conjunction with body movements. Fur-
+thermore, there is a scarcity of dedicated open-source methods for integrating character animation
+with environmental contexts (i.e., character replacement). Although some video generation methods
+Jiang et al. (2025) can approximate this functionality, they typically suffer from issues with consis-
+tency and usability. These unresolved challenges collectively hinder the continuous development
+and innovation of character image animation within the open-source community.
+To address the aforementioned issues, this report introduces a unified framework for Character
+Animation and Replacement, termed Wan-Animate, which achieves holistic replication with high-
+fidelity results. As illustrate in Figure 1, given a character image and a reference video, Wan-Animate
+can accurately replicate the facial expressions and body movements from the reference to animate
+the character, generating a realistic character video. Concurrently, Wan-Animate supports character
+replacement, enabling the animated character to be integrated into the reference video to replace
+the original character. This process also replicates the video’s lighting and color tone, achieving a
+seamless fusion of the character and the environment.
+Methodologically, Wan-Animate is built upon the Wan-I2V model as its foundation and is enhanced
+through post-training with additional control conditions. Compared to Wan-I2V, Wan-Animate fea-
+tures a modified input definition tailored for the demands of character animation. We employ a
+modified input paradigm to differentiate between reference conditions and regions designated for
+generation, which in turn guides the injection of corresponding latents. This design unifies reference
+image injection, temporal frame guidance, and the mode selection between full-frame generation and
+character replacement into a common symbolic representation. Crucially, this approach preserves
+the original input structure of Wan-I2V, thereby minimizing distributional shift during post-training.
+To achieve holistic character control, we decouple the control signals into body motion and facial
+expressions. For body motion, we adopt a skeleton-based representation to balance accuracy and
+generality. As this signal is spatially aligned, it is injected by being added to the initial noise latents.
+For expression replication, we directly use the original face images from the reference video as the
+driving signal to preserve maximum detail. These face images are encoded into latent vectors to
+disentangle expression information from identity attributes. These latents are then temporally com-
+pressed to align with the video latents and are injected into the model via cross-attention. This joint
+control strategy demonstrates high robustness and precision. When performing character replace-
+ment, we develop an auxiliary Relighting LoRA to enhance the consistency between character and
+2
+
+
+environment. After the base model ensures the consistent transfer of the character’s appearance,
+this module applies appropriate environmental lighting and color tones, resulting in a more seamless
+integration of the replaced character into the video.
+We are committed to releasing the entire Wan-Animate framework to the public, encompassing the
+model weights and the complete pipeline. Experimental results demonstrate that Wan-Animate pos-
+sesses excellent and versatile capabilities. It not only animates characters to generate expressive
+videos but also generalizes well to a wide range of humanoid characters, demonstrating strong ro-
+bustness across various scenarios such as portraits, half-body, and full-body shots. Furthermore,
+it exhibits a competitive advantage in quality even when compared to several closed-source com-
+mercial products. We hope that the release of Wan-Animate will make a significant contribution to
+accelerating the development of character image animation. We also aim to empower developers of
+all levels with access to a high-caliber model, enabling them to build diverse applications, inspire
+novel product paradigms, and ultimately facilitate the technology’s real-world deployment.
+2
+RELATED WORKS
+Character Image Animation.
+Earlier works in image animation primarily focused on warping-
+based feature representations and GAN-based architectures Siarohin et al. (2019); Zhao & Zhang
+(2022); Siarohin et al. (2021). In contrast, recent approaches Hu (2024); Xu et al. (2024b); Chang
+et al. (2023); Zhu et al. (2025); Tu et al. (2025) have shifted to designing architectures based on
+diffusion models Ho et al. (2020), which has led to significant improvements in performance. For
+instance, Animate Anyone Hu (2024) utilizes a ReferenceNet structure to inject the character’s ap-
+pearance features, achieving excellent results in consistency preservation. For temporal modeling,
+it employs temporal layers inspired by AnimateDiff Guo et al. (2023), which are embedded within
+the Stable Diffusion Rombach et al. (2022) architecture. This design paradigm has been adopted
+by many subsequent methods Zhu et al. (2025); Tu et al. (2025). However, as a foundation model
+primarily for image generation, Stable Diffusion lacks inherent temporal knowledge. To address
+this limitation, some works Wang et al. (2024); Zhang et al. (2024) have started building upon video
+foundation models. Since these models already possess knowledge of inter-frame consistency and
+continuity from their pre-training, the resulting image animation architectures can be more stream-
+lined. More recently, with the dramatic improvement in video generation capabilities brought by
+DiT-based models Kong et al. (2025); Wan et al. (2025); Yang et al. (2024), their application to
+image animation Zhou et al. (2025); Luo et al. (2025) has led to substantial enhancements in the
+realism and temporal continuity of generated characters. Correspondingly, our Wan-Animate is also
+built upon the open-source model Wan2.1, fully leveraging its robust pre-trained knowledge to en-
+sure high-quality visual generation from the outset.
+Beyond the generation of the character itself, some works also investigate the fusion of the animated
+character with its surrounding environment or with objects it interacts with. For instance, Men et al.
+(2024) takes an additional background image as input, enabling the generated character video to
+feature a specified scene. Another approach, proposed by Hu et al. (2025), utilizes a masking mech-
+anism to differentiate between the background environment and interactive objects, which results in
+generated characters that are highly compatible with the environment. Conceptually, these methods
+can be adapted for the task of video character replacement. Furthermore, a related line of research
+focuses on generating videos of human-object interactions Xu et al. (2024c); Wang et al. (2025a).
+These methods aim to generate not only a moving character but also a co-moving object that is
+animated in a physically consistent and synchronized manner.
+Facial Animation. The field of facial animation Wang et al. (2022); Guo et al. (2024) has also ben-
+efited significantly from the application of diffusion models, achieving remarkable advancements.
+Drawing inspiration from pose-guided human animation, some early works Wei et al. (2024); Ma
+et al. (2024); Zhang et al. (2024); Tu et al. (2025) employed facial landmarks as control signals
+to generate expressions, with their architectural designs closely following the human animation
+paradigm. However, compared to body poses, facial landmarks can lose fine-grained details during
+extraction, which compromises the expressiveness of the resulting animations and makes it diffi-
+cult to synthesize subtle expressions. Moreover, in cross-identity application scenarios, dense facial
+landmarks demand high precision in signal retargeting, posing a significant challenge when driving
+diverse character identities. More recently, some methods Xu et al. (2024a); Drobyshev et al. (2024);
+3
+
+
+VAE
+Encoder
+Target Latent
+Ref Latent
+Vision 
+Inputs
+Tempo Latent
+Env Latent
+DiT Block
+DiT Block
+Face Block
+…
+Transformer
+DiT Block
+Face Block
+Body Adapter
+Face Adapter
+C
+Mask
+C
+Concat
+Frozen
+Add
+Control
+Signals
+Latents
+VAE
+Decoder
+Relighting
+LoRA
+Relighting
+LoRA
+Relighting
+LoRA
+…
+Optional
+Add Noise
+Output
+Symbol
+Figure 2: Overview of Wan-Animate, which is built upon Wan-I2V. We modify its input formula-
+tion to unify reference image input, temporal frame guidance, and environmental information (for
+dual-mode compatibility) under a common symbolic representation. For body motion control, we
+use skeleton signals that are merged via spatial alignment. For facial expression control, we lever-
+age implicit features extracted from face images as the driving signal. Additionally, for character
+replacement, we train an auxiliary Relighting LoRA to enhance the character’s integration with the
+new environment.
+Ki et al. (2024); Xie et al. (2024); Zhao et al. (2025); Xu et al. (2025); Luo et al. (2025) have begun
+to move away from manually defined motion signals, instead using the raw source images to extract
+implicit representations as control inputs. This approach has led to substantial improvements in both
+expressiveness and generality.
+Video Generation. Since the release of Sora Brooks et al. (2024) by OpenAI, DiT-based Peebles &
+Xie (2023) approaches have gradually supplanted UNet-based ones, becoming the mainstream tech-
+nical route in video generation research. The adoption of a pure Transformer architecture allows
+model parameters to be scaled up significantly. Coupled with the expansion of training data, this
+has resulted in a qualitative leap in video generation quality. To fuse multi-modal features within
+a Transformer, videos are tokenized into discrete sequences. Specifically, a 3D VAE Kingma &
+Welling (2014) is first used to compress the video in both spatial and temporal dimensions, drasti-
+cally reducing feature length. The compressed representation is then discretized through a patchify-
+ing process. Most recent DiT-based video generation models Kong et al. (2025); Wan et al. (2025);
+Yang et al. (2024) follow this pipeline. As the technology has matured, a growing number of foun-
+dation models for video generation have been open-sourced, with HunyuanVideo and Wan being
+particularly representative works. These have spurred a surge of follow-up research and applica-
+tions in video generation. Consequently, the field of character image animation has also benefited
+from the advancements in video foundation models, with its performance gradually aligning with
+the capabilities of general video generation.
+3
+MODEL DESIGN AND ARCHITECTURE
+3.1
+TASK DEFINITION
+Wan-Animate features two core functionalities: Animation Mode and Replacement Mode. In Ani-
+mation Mode, the character from a source image is animated according to the motion of the character
+in a reference video, while the background from the source image is preserved. This process is anal-
+ogous to an Image-to-Video (I2V) synthesis task. In Replacement Mode, the character from the
+source image is driven by the same reference motion but is then integrated into the environment of
+the reference video. This effectively replaces the original subject, a task that corresponds to Video-
+to-Video (V2V) translation. The common objective of both modes is to accurately replicate the
+motion and facial expressions from the reference character. The key distinction lies in the source
+of the final video’s background: in Animation Mode, it is derived from the source image, whereas
+in Replacement Mode, it is inherited from the reference video. Wan-Animate unifies both modes
+within a single, jointly trained model, with the exception of the Relighting LoRA which is specific
+to the Replacement Mode. By making minor adjustments to the input format, the model can generate
+outputs in the desired mode. The overall architecture is shown in Figure 2.
+4
+
+
+3.2
+INPUTS FORMULATION
+Wan-Animate leverages Wan-I2V as its foundational architecture. The input to Wan-I2V consists of
+three components: noise latent, conditional latent, and binary mask. Since the I2V task is defined
+as generating a video from a given image as the first frame, the conditional latent is constructed by
+concatenating the given image with zero-filled frames along the temporal dimension. The binary
+mask, which shares the same spatial and temporal dimensions as the conditional latent, uses a value
+of 1 to denote preserved frames and 0 for frames to be generated. For I2V, only the mask for the
+first frame is set to 1. However, character image animation imposes different requirements on the
+input paradigm. Firstly, unlike the I2V setup where the image serves as the starting frame, our task
+requires a character image to act as a consistent appearance reference. The content of the generated
+video is dictated by driving signals, not initiated from the character image itself. Secondly, to enable
+animation of arbitrary length, the generation of subsequent segments must be conditioned on the
+final frame(s) of the preceding segment. This provides temporal guidance and ensures continuity,
+facilitating the synthesis of long videos. Third, we aim to unify the Animation Mode and Replace-
+ment Mode into a single model through a compatible representation, thereby reducing redundant
+training efforts. Therefore, to accommodate these unique demands, Wan-Animate introduces a mod-
+ified input paradigm based on the original Wan-I2V formulation.
+Reference Formulation.
+Given a reference character image, we first encode it into a dedicated
+reference latent using the Wan-VAE. To fully leverage the inter-frame consistency capabilities pre-
+trained in the Wan model, the reference latent is concatenated with the conditional latents along the
+temporal dimension (with the binary mask set to 1). This concatenation serves as the primary mech-
+anism for injecting the character’s appearance. To accommodate the temporal guidance required for
+long video synthesis, we randomly select the first few latents from the target sequence to serve as
+temporal latents. For these selected latents, their corresponding ground-truth values are used as the
+condition latents, and the associated binary mask is set to 1 across the entire frame. This enables
+the model to generate temporally coherent videos guided by these temporal frames. We employ a
+probabilistic training strategy where temporal latents are used only with a certain probability. This
+approach ensures the model learns to balance its generative capabilities across different conditional
+inputs. Notably, the denoising process generates a complete output sequence, including the por-
+tions for the references. The resulting frames that correspond to these references are subsequently
+discarded.
+Environment Formulation.
+In Animation Mode, the conditional frames corresponding to the
+target frames are zero-filled, and their associated binary mask is set entirely to 0. Consequently, Wan-
+Animate generates the character video while preserving the background from the given reference
+image, a process analogous to the standard I2V mode. In Replacement Mode, we first segment
+the character from the reference video. Following the mask formulation strategy from Hu et al.
+(2025), we then generate environment images by zeroing out the segmented subject region. This
+environment image serves as the content for the condition frames. Correspondingly, the binary
+mask is set to 1 for the environment regions and 0 for the subject region. As a result, Wan-Animate
+only generates content within the mask-zeroed areas, thereby preserving the original background of
+the reference video.
+In summary, the input paradigm of Wan-Animate, while adapted for new tasks, fundamentally in-
+herits the core philosophy of Wan-I2V. This design elegantly accommodates the diverse conditional
+requirements of character animation and supports dual generative modes. This adaptability allows
+the model to be fine-tuned rapidly and effectively during post-training, leading to strong empirical
+results.
+3.3
+CONTROL SIGNALS
+Body Control.
+Prior research has demonstrated the effectiveness of spatially-aligned signals for
+guiding human video generation. In terms of current technical approaches, there are two primary
+types of body control signals: 2D skeleton-based representations and rendered images from 3D
+SMPL Loper et al. (2023). The skeleton-based approach offers better generality, particularly for
+non-humanoid characters with unconventional shapes, demonstrating greater robustness. However,
+it faces challenges in representing complex motions due to spatial ambiguity and is susceptible to
+issues like missing or erroneous keypoints. Conversely, SMPL, as a 3D signal, provides a more
+5
+
+
+Figure 3: Face images are encoded into frame-wise implicit latents, which are then temporally
+aligned with the DiT latents. These features are injected via a cross-attention mechanism that oper-
+ates within each corresponding temporal segment.
+accurate representation of inter-limb relationships in complex poses but may lack precision for ex-
+tremity positions and has poor capture capability for non-human characters. Additionally, rendered
+SMPL images contain the character’s shape information. This can cause the model to rely on the
+shape cues embedded within the motion signal, which complicates the learning of identity con-
+sistency, especially if the SMPL shape is not accurate. After careful consideration, we adopt the
+skeleton-based representation for body control, as it better caters to the majority of mainstream use
+cases. In our implementation, the skeleton for the character in the target frames is extracted using
+VitPose Xu et al. (2022) to generate pose frames. In our design of Body Adapter, these pose frames
+are compressed by Wan-VAE to align spatially and temporally with the target latents. We use a
+projection layer to patchify the pose latents and add them to the patchified noise latents. Crucially,
+the reference latent is not injected with pose information. This design choice serves to temporally
+differentiate the reference latent from the target latents.
+Face Control. A straightforward approach would be to use facial landmarks as a spatially-aligned
+signal for driving facial animation, similar to body control. However, this method suffers from a
+loss of fine-grained detail during landmark extraction, making it difficult to fully replicate the ex-
+pressiveness of the character from the reference video. Moreover, as dense signals, facial landmarks
+demand high precision; otherwise, they can severely compromise identity consistency, especially in
+cross-identity scenarios involving significant facial shape disparities. In contrast, we avoid manu-
+ally defined facial signals and instead use the raw facial image directly as the driving input. During
+training, we leverage the character’s skeletal information to locate and crop the facial region from
+the driving image. Since our training is self-supervised, it is crucial to disentangle identity infor-
+mation from expression information when extracting facial features. This prevents the model from
+using identity cues to guide generation, which could lead to identity leakage. We employ two pri-
+mary strategies to address this challenge: 1) We spatially compress the facial image into a 1D latent,
+which reduces the storage of low-level, identity-specific information. 2) During training, we ap-
+ply a suite of data augmentations to the facial image, including scaling, color jittering, and random
+noise. This introduces deliberate discrepancies between the augmented face and the target face,
+discouraging the model from overfitting to identity features.
+Architecturally, in Face Adapter, we adopt an encoder structure identical to that of Wang et al.
+(2022) to extract features from each face image. We also employ Linear Motion Decomposition to
+orthogonalize these features, which facilitates a better disentanglement of expression information.
+Input face images are resized to 512 × 512, and each frame is compressed into a latent vector. As
+shown in Figure 3, we use a stack of 1D causal convolutional layers to temporally downsample the
+face latents, aligning their sequence length with that of the noise latents. The aligned face latents
+are then injected into dedicated ”Face Blocks” within the Transformer. Feature fusion is achieved
+via a temporally-aligned cross-attention mechanism, where the attention computation is confined to
+the corresponding set of tokens at each timestep. To reduce the computational load, we opt to inject
+face information only into specific layers of the DiT network. Empirically, we perform this injection
+every 5 layers in the 40-layer Wan-14B model, resulting in a total of 8 injection layers.
+6
+
+
+Source Reference Image
+Relighting Augmentation via IC-Light
+Figure 4: Examples of data augmentation using IC-Light.
+3.4
+RELIGHTING LORA
+Preserving the character’s appearance is a crucial feature in character image animation. However,
+when performing character replacement, a challenge arises because the character and the environ-
+ment originate from different sources. Strictly maintaining appearance consistency can lead to a
+mismatch between the animated character’s lighting and color tone and those of the new environ-
+ment, which compromises the realism of the final result. Therefore, for Replacement Mode, we
+introduce an auxiliary Relighting LoRA Hu et al. (2022). This module allows for further adjust-
+ments to the character’s lighting and color tone during replacement, enabling it to adapt to the new
+environment. The Relighting LoRA is applied exclusively to the self-attention and cross-attention
+layers within the DiT blocks. To train this LoRA, we construct specific data pairs. For a reference
+image sampled from a video clip, we first segment and crop the character from the original image.
+We then use IC-Light Zhang et al. (2025) to synthesize the character onto a new, random back-
+ground. As illustrated in Figure 4, leveraging IC-Light’s capabilities, the character’s lighting and
+color tone are influenced by the new background, creating a discrepancy with the original video se-
+quence. This newly synthesized image is then used as the reference, allowing the Relighting LoRA
+to learn the ability to perform lighting and color adjustments. When augmented with the Relight-
+ing LoRA, Wan-Animate can produce a better environmental fusion for the replaced character while
+simultaneously preserving its identity.
+3.5
+TRAINING
+The training process of Wan-Animate is divided into the following stages:
+Body Control Training. We first focus exclusively on training the model for Animation Mode. In
+this stage, conditioning is limited to the body control signal, with no facial signal injection. The goal
+is for the model to quickly learn our modified input paradigm (i.e., the specific configurations for
+the reference image and temporal images) and to master the alignment with the body control signal.
+Face Control Training.
+Next, we introduce facial signal injection. Building upon the model
+from Stage 1, we integrate the Face Adapter and Face Block modules. To accelerate training, we
+initialize a portion of their parameters using the pre-trained encoder weights from Wang et al. (2022).
+This stage primarily utilizes portrait data, as facial motion is the dominant dynamic in such videos,
+allowing for a focused learning of expression-driven animation. We also use facial landmarks to
+identify head, eye, and mouth regions, applying a higher loss weight to these areas to enhance their
+fidelity.
+Joint Control Training. Here, we combine the Face Adapter and Face Block modules from Stage
+2 with the main model trained in Stage 1, and perform joint control training on the full dataset.
+Our experiments show that the standalone face module already possesses strong expression-driving
+capabilities, enabling the full model to converge rapidly.
+Joint Mode Training.
+In this stage, we adapt the training data to include formats for both An-
+imation Mode and Replacement Mode. Given the model’s established animation capabilities and
+the compatibility of our input formulation with Wan-I2V’s pre-training, this transition is remarkably
+smooth.
+Relighting LoRA Training. Finally, we exclusively train the relighting capability for the Replace-
+ment Mode by applying the Relighting LoRA. The detailed methodology for this stage is described
+in Section 3.4.
+7
+
+
+3.6
+INFERENCE
+Pose Retargeting.
+During inference, the characters in the provided image and reference video
+often have different identities. Due to disparities in bone proportions and relative size, for Anima-
+tion Mode, we perform pose retargeting on the skeletons extracted from the reference video. This
+involves calculating the length ratio of each corresponding limb between the two characters and
+adjusting the target pose’s bone lengths to match the character in the source image. Additionally,
+the pose is translated to align with the character’s position in the image. The reference point for
+this translation is determined by the framing of the shot (e.g., feet for full-body and neck for half-
+body or portraits). We will open-source a simplified version our retargeting pipeline. Since we use
+a 2D skeleton, the character’s posture can affect the accuracy of the calculated bone lengths. To
+mitigate this, we provide an auxiliary solution. Specifically, we use the image editing model Wu
+et al. (2025); Labs et al. (2025) to edit the characters in both the reference and driving images into a
+standard T-pose. The scaling factors are then calculated based on the bone lengths from these edited
+T-pose images. In most scenarios, this approach leads to more accurate retargeting. In Replacement
+Mode, given that the character may have specific interactions with the environment, we aim to avoid
+disrupting these relationships. Therefore, we do not recommend using pose retargeting during char-
+acter replacement. This, however, introduces a limitation for certain use cases, such as replacing
+characters with significant body shape differences, which may result in some deformation.
+Long Video.
+For long video generation, we adopt an iterative generation approach. Specifically,
+for the first segment, we concatenate only the reference latent and the noise latents. After generating
+the video result for this segment, we select its last few frames to serve as the temporal guidance for
+the subsequent segment. The generation of all subsequent segments then involves a concatenation
+of the reference latent, the temporal latents, and the new noise latents. Based on practical usage, we
+typically use one or two latents as temporal guidance, corresponding to 1 or 5 frames, respectively.
+After the denoising process is complete for each segment, we discard the portions corresponding
+to the reference latent and the temporal guidance latents. The remaining generated content is then
+concatenated to form the final long video.
+4
+IMPLEMENTATION
+4.1
+DATA CONSTRUCTION
+We collected a large dataset of human-centric videos, covering activities such as speaking, facial
+expressions, and body movements. We implemented quality measures Wu et al. (2023); Xu et al.
+(2023); Schuhmann (2022) similar to those required for general video generation. To ensure iden-
+tity consistency during training, we verified that each video clip features only a single, consistent
+character. We extracted skeleton information for each character, which serves a dual purpose: first,
+as the motion signal annotation, and second, as a criterion for filtering videos based on character
+behavior. For the character replacement task, we use the annotated skeletons to track the character
+and then extract the corresponding character masks using SAM2 Ravi et al. (2024). Additionally,
+we used the QwenVL2.5-72B Bai et al. (2025) model to generate textual descriptions for each video
+to support the post-training requirements of Wan. While Wan-Animate supports a degree of textual
+control, the motion signal is the dominant control factor, making text control a non-core feature. In
+practice, we recommend using a default text prompt.
+4.2
+PARALLEL STRATEGY
+Our training process involves loading multiple models: DiT, T5 Raffel et al. (2020), VAE, and
+CLIP Radford et al. (2021). For the memory-intensive models, DiT and T5, we employ Fully
+Sharded Data Parallelism (FSDP) Zhao et al. (2023) to reduce the per-GPU memory footprint. The
+remaining models are trained using standard Data Parallelism (DP). For the DiT model specifically,
+we also utilize a Context Parallelism scheme, which combines RingAttention and Ulysses Fang &
+Zhao (2024) to enable parallel training. This approach further reduces memory consumption and
+accelerates training speed. For the frame-wise facial feature extraction within the Face Adapter, we
+parallelize the computation within each Ulysses group by treating the facial frames from a single
+video clip as a batch and processing them concurrently.
+8
+
+
+Method
+SSIM↑
+LPIPS↓
+FVD↓
+Method
+SSIM↑
+LPIPS↓
+FVD↓
+Moore-AA
+0.761
+0.288
+170.07
+LivePortrait
+0.811
+0.231
+118.67
+Champ
+0.749
+0.297
+177.64
+AniPortrait
+0.791
+0.252
+135.08
+MicmicMotion
+0.742
+0.307
+184.71
+Emoji
+0.803
+0.244
+127.95
+Unianimate
+0.787
+0.271
+155.03
+X-portrait2
+0.825
+0.212
+98.03
+StableAnimator
+0.794
+0.265
+147.92
+SkyReel-A1
+0.821
+0.231
+101.45
+Wan-Animate
+0.813
+0.227
+118.65
+Wan-Animate
+0.834
+0.205
+94.65
+Table 1: Quantitative comparisons.
+4.3
+DETAILS
+Wan-Animate supports arbitrary output resolutions. In Animation Mode, the output aspect ratio
+conforms to that of the input character image. In Replacement Mode, it conforms to the reference
+video’s aspect ratio. The final inference resolution is determined based on the total number of
+video tokens after patchify. For example, we first calculate a target token count based on a standard
+resolution like 1280 × 720. Then, for a given aspect ratio, we select the resolution that yields a
+token count closest to this target. Each inference segment consists of 78 frames. One frame is
+statically reserved for the character image. Of the remaining 77 frames, for any segment other than
+the first, 1 or 5 frames are used as temporal reference frames, sourced from the end of the preceding
+segment. To maintain high inference efficiency, classifier-free guidance (CFG) is disabled by default.
+However, in scenarios where finer control over facial expression is desired, CFG can be optionally
+enabled for the face conditioning input to adjust the reenactment effect.
+5
+EXPERIMENTS
+5.1
+QUANTITATIVE EVALUATION
+We conducted a quantitative comparison with several mainstream open-source character animation
+frameworks. To facilitate a more comprehensive evaluation, we established our own benchmark for
+quantitative assessment. The test dataset contains videos of human subjects in various scenarios,
+featuring different character scales and actions. For the evaluation, we adopted a self-reconstruction
+task: the first frame of a video is used as the reference image, and the model then reconstructs the
+video using motion signals from the subsequent frames. We employed several widely-used quanti-
+tative metrics, including SSIM Wang et al. (2004), LPIPS Zhang et al. (2018), and FVD Unterthiner
+et al. (2018). Additionally, we partitioned a subset containing only portraits from our test data to
+conduct a separate quantitative comparison against specialized facial animation methods. The com-
+parison results are presented in Table 6. Most of the existing open-source frameworks are built upon
+earlier UNet-based foundation models, which results in certain shortcomings in generation quality,
+particularly regarding human realism, local details, and temporal smoothness. While recent open-
+source works based on DiT have improved the performance baseline, they are often limited in their
+comprehensiveness (e.g., body-driven models lack effective expression reenactment, expression-
+driven models do not include the body, and support for diverse character types and scales is lacking).
+In comparison, Wan-Animate performs better than these current open-source works, standing as the
+most comprehensive and highest-performing open-source model to date.
+5.2
+HUMAN EVALUATION
+Currently, the solutions that most closely resemble Wan-Animate in terms of both functionality
+and performance are primarily closed-source: Runway’s Act-two Runway (2025) and Bytedance’s
+DreamActor-M1 Luo et al. (2025). Compared to existing open-source alternatives, these two pro-
+prietary solutions represent the state-of-the-art in character animation in the industry. We compare
+Wan-Animate with these two methods to demonstrate its superiority. Since conventional quantitative
+reconstruction metrics may not accurately reflect perceptual differences when the results are of high
+quality, we employ a cross-ID animation setup and conduct a user study for this comparison. Each
+data pair in our evaluation set consists of a driving video and a different character image. After gen-
+erating the results, we invited 20 participants for a subjective evaluation. Specifically, we presented
+9
+
+
+Figure 5: Human evaluation with current SOTA.
+Wan-Animate
+DreamActor-M1
+Runway Act-two
+VACE
+Animate Anyone
+Figure 6: Qualitative comparison for Animation Mode.
+two generated videos side-by-side in an anonymous fashion (one from Wan-Animate, one from a
+competing method) and asked participants to choose their preferred result. Their preference was
+based on a comprehensive consideration of video generation quality, overall identity consistency,
+motion accuracy, and expression accuracy. The results of the user study are shown in Figure 5,
+which clearly indicates that Wan-Animate achieved a superior outcome. We believe that the open-
+sourcing of Wan-Animate will raise the performance baseline for open-source models in this domain,
+contributing to the application and long-term development of this technology.
+10

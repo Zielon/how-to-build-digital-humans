@@ -1,0 +1,1008 @@
+Title: Neural head avatars from monocular rgb videos
+
+Neural Head Avatars from Monocular RGB Videos
+Philip-William Grassal1∗
+Malte Prinzler1∗
+Titus Leistner1
+Carsten Rother1
+Matthias Nießner2
+Justus Thies3
+1Heidelberg University
+2Technical University of Munich
+3Max Planck Institute for Intelligent Systems
+Monocular RGB Video
+Neural Head Avatar with Articulated Geometry & Photorealistic Texture
+Figure 1. Given a monocular portrait video of a person, we reconstruct a Neural Head Avatar. Such a 4D avatar will be the foundation of
+applications like teleconferencing in VR/AR, since it enables novel-view synthesis and control over pose and expression.
+Abstract
+We present Neural Head Avatars, a novel neural repre-
+sentation that explicitly models the surface geometry and
+appearance of an animatable human avatar that can be
+used for teleconferencing in AR/VR or other applications in
+the movie or games industry that rely on a digital human.1
+Our representation can be learned from a monocular RGB
+portrait video that features a range of different expressions
+and views. Speciﬁcally, we propose a hybrid representa-
+tion consisting of a morphable model for the coarse shape
+and expressions of the face, and two feed-forward networks,
+predicting vertex offsets of the underlying mesh as well as
+a view- and expression-dependent texture. We demonstrate
+that this representation is able to accurately extrapolate to
+unseen poses and view points, and generates natural ex-
+pressions while providing sharp texture details. Compared
+to previous works on head avatars, our method provides a
+disentangled shape and appearance model of the complete
+human head (including hair) that is compatible with the
+standard graphics pipeline. Moreover, it quantitatively and
+qualitatively outperforms current state of the art in terms of
+reconstruction quality and novel-view synthesis.
+* Both authors contributed equally to the paper
+1philgras.github.io/neural_head_avatars/neural_head_avatars.html
+1. Introduction
+Reconstructing and reenacting human heads has been a
+long studied research problem and will be a key driver for
+future applications in VR/AR, teleconferencing, games and
+the movie industry. For those applications, it is of particular
+interest to get an accurate 3D shape and appearance model
+that provides 3D consistency and strong identity preserva-
+tion under novel view points, poses and expressions. Re-
+constructing such a model, especially from monocular input
+data (e.g., from a webcam), is difﬁcult due to the complex
+geometry of facial dynamics and the missing 3D informa-
+tion [96]. Indeed, several state-of-the-art methods for talk-
+ing head synthesis avoid explicit geometry reconstruction
+and rely on image or feature-based warping for motion con-
+trol and generative networks for image synthesis [73,84,92].
+These methods are generalized and deliver impressive reen-
+actment results even with only a single input image of the
+subject. However, the quality of the approaches drops sig-
+niﬁcantly for larger changes in pose or view point as no 3D-
+consistent geometry representation is used. Shape proxies
+such as a 3D morphable model [9,28] can be utilized to im-
+prove the 3D consistency of synthetic faces [15, 44, 79, 81]
+since the facial information is embedded on the proxy sur-
+face. Besides image- or surface-based representations, vol-
+umetric representations are used [31,52]. While they show
+promising results without an explicit surface prior, these
+methods still lack a consistent full head shape reconstruc-
+1
+arXiv:2112.01554v2  [cs.CV]  28 Mar 2022
+
+
+tion from single view inputs and are not compatible with
+the standard rasterization pipelines.
+In this work, we present Neural Head Avatars, an ex-
+plicit shape and appearance representation of the complete
+human head (including hair) which can be used in exist-
+ing graphics pipelines that use triangular meshes. Speciﬁ-
+cally, we employ coordinate-based multi-layer perceptrons
+(MLPs) to predict the 3D meshes and dynamic textures, de-
+pending on the facial expression and pose of real humans.
+These networks are embedded on the surface of the FLAME
+morphable head model [49] which also serves as a coarse
+shape and expression proxy. We show that one can opti-
+mize such an explicit head representation based on a short
+monocular RGB video sequence. Using color-dependent
+and color-independent energy terms during optimization,
+we disentangle the reconstruction of surface geometry and
+color detail. The resulting controllable 4D avatar (3D model
++ motion) is subject-speciﬁc and generates novel poses and
+expressions while preserving high photo-realism.
+More-
+over, it demonstrates great visual quality under large view
+point changes and, therefore, addresses one of the main
+drawbacks of related approaches.
+In summary, our contributions are:
+• Neural Head Avatars, a novel, subject-speciﬁc repre-
+sentation for articulated human heads that explicitly re-
+constructs the full head geometry and produces photo-
+realistic results even under large view point changes,
+• A fully differentiable optimization pipeline to optimize
+Neural Head Avatars from a short, monocular RGB
+video with color-dependent and color-independent en-
+ergy terms that allow for the disentanglement of the
+surface shape and color detail.
+2. Related Work
+Reconstructing controllable 4D head or facial avatars is
+an actively studied ﬁeld at the intersection of computer vi-
+sion and computer graphics. For an extensive review of
+methods, we refer to the state of the art report of Zollh¨ofer
+et al. [96].
+Image-based models.
+Image-based models synthesize
+the face of a subject without relying on any (explicit or
+implicit) representation in 3D space.
+These methods ei-
+ther utilize (learned) warping ﬁelds [6, 73] to deform an
+input image to match new poses or expressions, or deploy
+encoder-decoder architectures, where the encoder extracts
+an identity code from a given source image and a decoder
+synthesizes the output image [57, 83, 92, 94]. The decoder
+may be conditioned by facial landmarks [57,92], facial con-
+tours [83], or parsing maps [94]. Even though these meth-
+ods produce high-quality results and even allow for real-
+time synthesis [92], they suffer from artifacts for strong
+pose and expression changes, and lack geometric and tem-
+poral consistency. This is mainly due to the fact, that the ap-
+pearance of deformations in three-dimensional space (e.g.,
+yaw opening, head rotation) must be learned in 2D by these
+models.
+Implicit models.
+Implicit models represent the geome-
+try using implicit surface functions (e.g., signed distance
+functions) or by volumetric representations. A common ap-
+proach is to represent the appearance of a target person in a
+discrete latent feature voxel grid that can be deformed to
+synthesize dynamic deformations [52, 84]. Motivated by
+their recent success in 3D scene reconstruction [77], neu-
+ral radiance ﬁelds (NeRF) in combination with volumet-
+ric rendering [55] have been used to replace the discrete
+feature voxel grids [5, 31, 43, 50, 58–60, 63, 64, 68, 75, 90].
+Articulated head avatars can be synthesized by condition-
+ing the NeRF on low-dimensional parameters of a face
+model [31, 86] or audio signals [38]. Pixel-aligned Volu-
+metric avatars [68] are generalized across subjects and can
+generate novel views, based on single or multiple input im-
+ages. Even though solving geometric and temporal incon-
+sistencies, the proposed methods either fail to disentangle
+pose and expression [84], are limited to static reconstruc-
+tions [43, 68, 69, 85] or fail to generalize to unseen poses
+and expressions [31].
+Explicit models.
+The majority of head reconstruction
+methods relies on explicit scene representations, i.e., tri-
+angular meshes [7, 8, 13, 19, 20, 22, 32–34, 39, 40, 44, 48,
+78–82, 88, 89, 96]. For these methods, morphable models
+are used as a prior to reconstruct the face from incomplete
+(e.g., partially occluded) or noisy data (e.g., from depth
+maps). Morphable models are computed from a population
+of 3D head scans [28], and provide statistical information
+on physiologically plausible head shapes and facial move-
+ments [12, 25, 49, 62]. In addition to the geometry, these
+models can provide a statistical linear model for the texture
+[3,9,10,29,62] which can be used to reconstruct faces from
+RGB data only [9, 81, 96]. Recent work utilizes generative
+adversarial networks (GAN) [37, 56] to generate and opti-
+mize albedo and normal maps for speciﬁc subjects [36,47].
+Other approaches utilize 2D neural rendering [76, 77], to
+learn how to render photo-realistic imagery of a speciﬁc
+subject from a short training dataset [44,78,79]. These ap-
+proaches are based on deep neural networks which can be
+conditioned on coarse RGB renderings based on a linear
+texture model [44], uv-maps [15], latent feature maps [79]
+or point clouds [67]. While these methods produce geo-
+metrically consistent avatars that can be easily controlled,
+they either are limited to craniofacial structures and do not
+include the synthesis of hair [36,47] or suffer from tempo-
+ral and spatial inconsistencies due to their loose bound to
+2
+
+
+Figure 2. Overview of our method. Given an RGB input frame, we use an adaption of the real-time face tracker [81] to estimate low-
+dimensional shape, expression, and pose parameters of the linear head model FLAME [49]. We adapt the geometry generated by FLAME
+with a geometry reﬁnement network G. The resulting mesh is rasterized with a standard computer graphics pipeline. The texture network
+T synthesizes the mesh texture of the rasterized surface. Conditioning T on the canonical surface position, a local normal patch, and ﬂame
+parameters enables the synthesis of view- and expression-dependent effects. The networks and FLAME parameters are optimized in an
+analysis-by-synthesis fashion with color-dependent and color-independent energy terms that allow for the disentanglement of the surface
+shape and color detail. The reconstructed Neural Head Avatar can be animated using the expression and pose parameters ψ, θ, and can be
+rendered under novel viewpoints.
+the geometric backbone [15,67,79]. Other methods model
+mesh displacements to reconstruct ﬁne detail wrinkles and
+hair [4, 18, 30], therefore, maintaining a close bound to the
+underlying geometry.
+However, none of them produces
+photo-realistic outputs under novel views.
+In contrast to previous work, we jointly optimize a
+photo-realistic dynamic texture together with subject spe-
+ciﬁc geometry that includes facial detail and hair structure,
+stored in a coordinate-based, fully connected neural net-
+work. By deploying a texture-based approach, we tightly
+link appearance and underlying geometry which ensures
+spatial consistency and generalization to unseen poses and
+expressions. Articulated jaw, neck, and eyes allow for intu-
+itive avatar control. We demonstrate that an avatar can be
+optimized from a short monocular RGB sequence without
+the need of special (multi-view) camera setups as in [51,54].
+3. Method
+Given an RGB video sequence of a talking person con-
+sisting of N consecutive frames I1, I2, ..., IN, we recon-
+struct a 4D neural avatar based on an explicit representation
+that allows for pose- and expression-dependent novel view-
+point synthesis. Speciﬁcally, our model outputs a classical
+triangle mesh, i.e., vertices V = (v1, v2, ..., vn), vi ∈R3,
+connecting faces F and a texture function T that assigns
+an RGB color value to each point on the surface deﬁned
+by V and F (see Section 3.1). Thus, the standard graphics
+pipeline can be utilized to obtain a rendered image ˆI assum-
+ing a full perspective camera projection. Based on this im-
+age formation model, we optimize our avatar representation
+in an analysis-by-synthesis-based fashion (see Section 3.2).
+An overview of our method is depicted in Figure 2.
+3.1. Explicit Neural Head Representation
+Our explicit surface representation is embedded on the
+FLAME [49] template surface and shares its topology F.
+Speciﬁcally, we employ a multi-layer perceptron (MLP) G
+which models the pose-dependent offsets w.r.t. the tem-
+plate surface. To generate the view-, pose-, and expression-
+dependent texture of the face, we use an MLP T which pre-
+dicts a color value at any surface point of the mesh.
+Template Model.
+We deploy the parametric FLAME
+head model [49] as a geometric backbone of our method:
+Vﬂame : R300, R100, R3k →R16227×3
+β, ψ, φ 7→Vﬂame(β, ψ, φ)
+where β, ψ and φ describe shape, expression and k = 4
+joint pose parameters, respectively. We perform minor ad-
+justments to the FLAME topology, namely, we uniformly
+subdivide the faces (four-way subdivision), remove the
+faces belonging to the lower neck region and add additional
+faces to close the mouth cavity. This increases the original
+number of vertices from 5023 to 16227.
+Geometry Reﬁnement Network G.
+To model facial de-
+tail and hair which is not represented by the FLAME head
+model, we introduce a pose-dependent offset function for
+geometry corrections:
+G : R3k →R16227×3
+φ 7→G(φ).
+Using this offset function, the mesh geometry is given by:
+V (β, ψ, φ) = Vﬂame(β, ψ, φ) + G(φ).
+3
+
+
+(a) Landmarks [16]
+(b)
+Semantic
+La-
+bels [95]
+(c) Normals [1]
+Figure 3. Our optimization is based on the color data of a short
+video sequence, the corresponding detected facial landmarks (a),
+predicted semantic labels (b) and predicted normal maps (c).
+Texture Network T .
+While [29] provides a linear tex-
+ture space for the FLAME head model, due to its Gaus-
+sian nature it lacks ﬁne detail and photo-realism. We intro-
+duce a novel appearance model T which generates a photo-
+realistic texture, including the synthesis of expression and
+view dependent effects. In order to predict the color of a
+point on the mesh, T receives the 3D coordinates of that
+point on the canonical FLAME template mesh, the expres-
+sion and pose of the current frame, and a local patch of
+the rendered normals as input, and returns the estimated
+color value. This conditioning of T enables the synthesis of
+expression- and view-dependent effects (compare Figure 8
+(b)). Formally, T performs the mapping:
+T : R3, R100, R3k, Rn×n×3 →R3
+pi, ψ, φ, ˆNi 7→ci
+with ci denoting the predicted color at pixel i, ˆNi a local
+patch of the rendered normal map around i and pi being
+the 3D location on the canonical FLAME template mesh
+depicted in i.
+We
+approximate
+both
+functions
+G
+and
+T
+using
+two subject-speciﬁc, coordinate-based multi-layer percep-
+trons [21]. Please refer to Appendix A.2 for additional im-
+plementation details.
+3.2. Optimization based on Monocular RGB Data
+The joint optimization of head geometry and texture is
+a highly underconstrained optimization problem for short
+monocular video sequences. Besides the data terms that are
+based on the RGB inputs, we employ regularization strate-
+gies that ensure smooth reconstructed surfaces, and view-
+consistent texture synthesis. The objective of the joint opti-
+mization Ejoint is deﬁned as:
+Ejoint = Egeom + Eapp,
+(1)
+where Egeom measures the data and regularization terms
+w.r.t. the geometry and Eapp contains the terms w.r.t. the
+appearance, i. e., texture and color reproduction.
+Geometry Objective Egeom.
+To disentangle appearance
+and geometry, we deﬁne a geometry energy term which is
+independent of the actual appearance:
+Egeom = wlmk · Elmk + wnormal · Enormal
++ wsemantic · Esemantic + wreg,geom · Ereg, geom.
+(2)
+The landmark energy Elmk measures the ℓ1 distance of
+detected 2D facial landmarks [16, 53] and the projected
+counterparts on the mesh surface. Besides the absolute po-
+sitions of the landmarks, it also measures the relative dis-
+tances of the eye landmarks at the upper and lower lid to
+improve the reconstruction of eye lid closure [30] (see abla-
+tion study in Figure 8 (c)).
+The energy term Enormal is based on pseudo-normal maps
+N ∈RH×W ×3 using the pretrained model of Abrevaya et
+al. [1]. Based on these predictions, we formulate a recon-
+struction energy term for ﬁne geometric detail. As our focus
+lies on high-frequency geometry detail, instead of minimiz-
+ing the absolute difference between pseudo-normals N and
+our predicted normals ˆN, we instead match their image-
+space Laplacians λ(·):
+Enormal = |λ( ˆN) −λ(N)|1.
+We employ Esemantic, to match the semantic regions Sk
+of the input and ˆSk of the reconstructed mesh for facial skin
+and neck, eyes, ears, and hair:
+Esemantic =
+4
+X
+k=1
+Sk ⊕ˆSk,
+where ⊕denotes an xor on the region. The respective se-
+mantic maps Sk are computed using [91, 95] (see Figure 3
+(b)).
+Besides the data terms, we employ a regularization term
+Ereg, geom which regularizes the FLAME parameters, as well
+as the geometry MLP G:
+Ereg,geom = wreg, ﬂame · Ereg, ﬂame + wreg,offset · Ereg,offset.
+Following [9,81], Ereg,ﬂame uses the statistical properties of
+the linear shape model, and regularizes the prediction to-
+wards the canonical template head using an ℓ2-norm on
+β, ψ, φ. The offsets are regularized using Ereg,offset which
+consists of a Laplacian regularizer and a regularizer that
+controls the pose-consistency and distribution of the pre-
+dicted offsets. We refer to Appendix A.3 for additional de-
+tails.
+Appearance Objective Eapp.
+The appearance term Eapp
+measures the reproduction of the color image I. It depends
+on both the geometry as well as the texture parameters of
+our neural head model. We use dense per-pixel energy terms
+4
+
+
+Ephot, as well as an energy term that measures the perceptual
+distance Eperc [42]:
+Eapp = wphot · Ephot + wperc · Eperc.
+(3)
+Eperc compares image features of predicted and ground truth
+images extracted by the face detector from [26].
+Initialization and Optimization Strategy
+To initialize
+our reconstruction method, we adopt the tracking algo-
+rithm proposed by [81] which optimizes camera, shape,
+expression, and pose parameters based on an analysis-by-
+synthesis approach, using the FLAME model [49] with a
+linear texture space [29]. The resulting reconstruction is
+in coarse alignment with the training sequence, but the
+FLAME model is limited to bald heads and lacks ﬁne,
+subject-speciﬁc geometric detail (see Figure 2). We ini-
+tialize the geometry reﬁnement network G, by optimizing
+only for the Egeom term deﬁned in Equation (2).
+Once,
+we obtained an estimate of the full head geometry, we op-
+timize for the texture MLP parameters w.r.t. Eapp (Equa-
+tion (3)). Based on this initialization scheme, we optimize
+jointly the geometry and texture parameters to minimize
+Ejoint (Equation (1)). For implementation details, we refer
+to Appendix A.2
+4. Results
+We quantitatively and qualitatively evaluate the perfor-
+mance of our model on the tasks of geometry reconstruction
+as well as novel pose-, expression-, and view synthesis, and
+compare it to state-of-the-art methods.
+4.1. Datasets
+Since the current literature does not provide suitable
+datasets for the evaluation of dynamic full head approaches,
+we created two datasets.
+Synthetic Data.
+Our synthetic dataset has been generated
+with the open source MakeHuman project [14] which al-
+lows to model fully animatable and texturized human mod-
+els with high variance in appearance and facial geometry.
+We generated two female and two male subjects with dif-
+ferent ethnicity and head geometry, and render animated se-
+quences (200 training frames, 210 validation frames). The
+resulting sequences provide ground truth RGB-, normal-
+and semantic maps as well as landmarks and 3D meshes
+which is used to quantitatively evaluate the geometry recon-
+struction of our method. Consequently, for evaluation pur-
+poses, we will not rely on predicted pseudo-ground truth
+(normal and semantic maps, landmarks) for experiments
+with this dataset. Note that the synthetic meshes have dif-
+ferent topologies compared to FLAME and our model.
+2Additionally, we will release the code for research purposes.
+Metric
+Female 1
+Female 2
+Male 1
+Male 2
+Normal: FLAME
+15.8◦
+13.3◦
+15.0◦
+14.8◦
+Normal: Ours
+14.4◦
+12.2◦
+13.7◦
+13.7◦
+Hausdorff: FLAME (Face)
+1.4
+0.9
+1.5
+1.1
+Hausdorff: Ours (Face)
+1.2
+0.9
+1.4
+1.2
+Hausdorff: FLAME
+5.5
+4.8
+6.1
+5.7
+Hausdorff: Ours
+2.6
+2.5
+3.0
+3.1
+Table 1.
+For four synthetic characters shown in Figure 4, we
+evaluate our shape prediction using the validation sequence (210
+frames) of our dataset. We list the averaged normal error (angular
+error) and the average mesh alignment error (Hausdorff distance
+in mm). Normal vectors are compared per pixel in the rendered
+image, masked by the head region. The single-sided Hausdorff
+distance is computed from prediction to ground truth meshes, on
+either the full head or the facial region only. We compare against
+the reconstruction by FLAME [49] as a baseline.
+Real Data.
+Our real dataset contains four sequences of
+humans, two with male actors, two with a female actor. The
+sequences capture various hair styles such as short hair, long
+hair and a hair bun. All sequences show the subjects dur-
+ing a natural conversation in front of a green screen in an
+environment with uniform lighting. We capture 750 train-
+ing frames and 750 validation frames for each sequence
+and ensure that both sides of the head are visible at least
+once in the training partition. We complement the obtained
+RGB ground truth with detected facial landmarks as well as
+normal- and semantic maps by deploying pretrained mod-
+els [1,16,95]. The resulting dataset is used to qualitatively
+and quantitatively evaluate our model on the task of novel
+pose-, expression-, and view synthesis, and to compare to
+state-of-the-art methods.
+4.2. Geometry Reconstruction Quality
+To quantify the head shape reconstruction quality, we
+utilize the rendered ground truth normals, as well as the
+meshes provided by the synthetic recordings. Those are
+compared with the predicted meshes and normal maps by
+computing their single-sided Hausdorff distance in millime-
+ters (mesh alignment error, as in [66]) and their normal an-
+gular error on the validation sequence. The Hausdorff dis-
+tance is computed once for the full head and once for the
+facial region only. We compare with the reconstructions by
+FLAME [49] obtained from our tracker as a baseline. The
+quantitative results are reported in Table 1. Our reconstruc-
+tion and the misalignment error w.r.t. the ground truth are
+visualized in Figure 4. We can see that our approach recon-
+structs the talking head faithfully, and even regions, where
+only a few silhouette views are available (side of the bun or
+front/back of the neck) can be estimated, however, with a
+slightly higher reconstruction error. The reconstruction of
+real subjects in neutral pose is compared with multi-view
+stereo (MVS) recordings in Figure 18 in the Appendix.
+5
+
+
+10 mm
+0 mm
+Subject
+GT Mesh
+Ours
+Error
+Figure 4. From left to right: Ground truth image of the synthetic
+subject, its ground truth geometry, and our predicted geometry. On
+the right, we show the average Hausdorff distance in mm (from
+prediction to the ground-truth mesh) over all validation frames.
+4.3. Novel Pose and Expression Synthesis
+The animatable geometric backbone of our model al-
+lows to synthesize new expressions and poses for an op-
+timized avatar. We quantitatively and qualitatively evalu-
+ate our model on this task by optimizing it on the training
+partition of the real dataset and using the resulting avatar
+to reconstruct the validation frames. For reconstructing the
+validation frames, we optimize the expression and pose pa-
+rameters of our method in an analysis-by-synthesis man-
+ner, i.e., minimizing Equation (1) only for ψ and θ, while
+keeping all other components ﬁxed. We compare the re-
+sults to recent works on talking-head synthesis: NerFACE
+[31], Deep Video Portraits (DVP) [44], First-Order Motion
+Model (FOMM) [73], Bi-Layer [92], and VariTex [15]. All
+one-shot approaches (FOMM, Bi-Layer and VariTex) are
+given the ﬁrst frontal frame of the training sequence, while
+the subject-speciﬁc methods (NerFACE and DVP) utilize
+the whole training sequence. For evaluation, we deploy the
+pixel-wise ℓ1 metric; the reference-free cumulative prob-
+ability blur detection metric (CPBD) [11]; the multi-scale
+structural similarity metric (MS-SSIM) [87]; the learned
+perceptual image patch similarity (LPIPS) [93]; and the
+cosine distance of a pretrained face recognition network
+(CSIM) [26]. Table 2 shows the resulting scores of percep-
+tual and photometric metrics averaged over all sequences
+Method
+L1 ↓
+MS-SSIM ↑
+LPIPS ↓
+CSIM ↑
+CPBD ↑
+VariTex [15]
+0.207
+0.640
+0.316
+0.347
+0.565
+Bi-Layer [92]
+0.108
+0.805
+0.283
+0.757
+0.403
+FOMM [73]
+0.055
+0.911
+0.201
+0.800
+0.370
+DVP [44]
+0.042
+0.904
+0.098
+0.815
+0.632
+NerFACE [31]
+0.057
+0.897
+0.156
+0.864
+0.485
+Ours
+0.033
+0.923
+0.079
+0.884
+0.674
+Table 2. Quantitative evaluation of the appearance reconstruction
+on the real dataset. Reported are the average scores over all vali-
+dation frames for all subjects in our real dataset (see Section 4.1).
+of our real dataset, and demonstrates that we outperform
+related approaches consistently. The qualitative compari-
+son in Figure 5 conﬁrms that our model synthesizes images
+with higher detail and better expression conservation than
+related methods.
+4.4. Novel View Synthesis
+The explicit geometry representation for each subject
+(shown in Figure 6) enables 3D-consistent novel viewpoint
+synthesis. We evaluate the novel viewpoint synthesis, by
+rendering frames from the validation set of the real se-
+quences under novel yaw angles. We compare our method
+against NerFACE [31] and DeepVideoPortraits (DVP) [44]
+as these methods rely on a representation in 3D space that
+can be rotated accordingly. The underlying 3D representa-
+tions are centered on the image plane before rendering to
+account for varying coordinate origin deﬁnitions. Figure 12
+demonstrates that while related methods suffer from signif-
+icant artifacts, our method maintains its high visual quality.
+4.5. Ablation Study
+We evaluate the inﬂuence of different architecture
+choices and optimization terms on the real dataset. Our ge-
+ometry is based on the FLAME model, and extends it to
+capture person-speciﬁc detail. For deformations of the face,
+we rely on the blendshape-based expression model and the
+linear blend-skinning of the yaw bone. Nevertheless, in our
+experiments, we found that a static geometry reﬁnement of
+the underlying FLAME model does not reconstruct the neck
+region realistically as the joint poses and global rotation of
+the initial FLAME estimate are highly ambiguous. To this
+end, we condition the geometry network G with the joint
+poses of the FLAME model which compensates errors in
+the neck region, see Figure 8 (a).
+Similar to the dynamic geometry network, we use a
+pose- and expression-dependent network T to predict the
+surface radiance. Figure 8 (b) demonstrates that the use of
+a static texture, i.e. when the dynamic conditionings of T
+are ﬁxed to zero, results in less authentic synthesis results,
+especially for the highly dynamic mouth region.
+Our model also supports eye blinks, which are modelled
+by the geometry of the FLAME model. To enforce the re-
+6
+
+
+VariTex [15]
+Bi-Layer [92]
+FOMM [73]
+DVP [44]
+NerFACE [31]
+Ours
+Ground Truth
+Figure 5. Comparison of novel pose & expression synthesis results. VariTex, Bi-Layer and FOMM are one-shot approaches and estimate
+the avatar from the ﬁrst frontal training frame. All other methods are optimized subject-speciﬁcally on the respective training set.
+Figure 6. Our 3D mesh reconstruction for the subjects in the real
+dataset. The meshes align accurately with the real head shapes,
+even for longer hair, and preserve ﬁne facial details.
+constructions of eye blinks, we introduced a speciﬁc energy
+term on the landmarks in the eye region (see Elmk in Sec-
+tion 3.2). Using this energy term in the shape optimization,
+the geometry faithfully reconstructs blinking eyes, see Fig-
+ure 8 (c). Without this term, eye blinks are not recovered.
+Further energy term ablations are shown in the Appendix.
+4.6. Discussion
+We have demonstrated that our method produces high
+quality results even for large head rotations due to our ex-
+plicit geometry reconstruction of the face and hair region.
+As such, our method addresses one of the main issues of
+other learning-based approaches which suffer from signiﬁ-
+cant artifacts when synthesizing novel views. Similar to all
+baselines, we do not address the synthesis of physical ef-
+fects like ﬂoating or deforming hair. Incorporating physics
+into a 4D avatar is an interesting ﬁeld for future work.
+Moreover, our method exhibits limitations in regions
+where the explicit geometry is greatly unconstrained, most
+prominently the mouth cavity. As a consequence, the visual
+quality of the synthesized inner mouth region, especially
+teeth, may decrease if expressions and poses lie far outside
+of the training corpus (see Figure 9). The most natural ap-
+proach to overcome this issue would be the integration of
+a well-aligned geometry of the inner mouth cavity. How-
+ever, so far none of the publicly available parametric head
+models provides such geometry due to the difﬁculties in the
+acquisition of ground truth data. Similar to NerFACE [31]
+and DVP [44], our method is person-speciﬁc and, thus, re-
+quires optimization of the neural network for every new ac-
+tor which takes 7 hours using two Nvidia A100 GPUs, when
+optimizing on images with a resolution of 512×512 px. The
+optimization time and necessary computational resources
+can be reduced greatly when optimizing against smaller im-
+ages or image patches. Generalizing our approach is future
+work which can beneﬁt from the ﬁndings of VariTex [15]
+and pi-GAN [21].
+7
+
+
+Ours
+NerFACE [31]
+DVP [44]
+Figure 7.
+Qualitative novel viewpoint synthesis comparison.
+While related methods suffer signiﬁcant artifacts during novel
+viewpoint synthesis, our method exhibits high robustness even un-
+der large rotations and preserves its high texture detail.
+Ethical Considerations
+With the advances in the synthe-
+sis of photo-realistic human avatars, the potential misuse
+(e.g., misinformation) becomes an increasingly important
+ethical concern. While active watermarking of generated
+content can be employed, there is no guarantee that this wa-
+termark can not be removed. To this end, there exists the
+ﬁeld of multi-media forensics which analyzes methods for
+active and passive forgery detection. Passive forgery detec-
+tion [2, 23, 24, 71, 72] is able to detect manipulated or syn-
+thetic imagery without any explicit watermarking. While
+these methods can be trained to detect speciﬁc manipula-
+tion methods [71,72], generalized methods [2,23,24] have
+problems in reliably detecting fakes. Also, forgery detec-
+tors can be used in an adversarial training to improve the
+quality of the synthetic renderings. Thus, besides forgery
+detection algorithms, cryptographical approaches for sign-
+ing the authenticity of video material have to be used in the
+future (which requires a trust network).
+5. Conclusion
+In this work, we presented Neural Head Avatars, a
+method that accurately reconstructs geometry and appear-
+ance of the human head from a monocular RGB sequence.
+Our approach combines a parametric head model with
+multi-layer perceptrons that reﬁne geometry and synthesize
+a photorealistic texture. The resulting 4D avatar is robust
+with respect to large pose-, view- and expression changes,
+and we show that it outperforms state-of-the-art head avatar
+methods qualitatively and quantitatively.
+While recent work on head avatar synthesis moved to-
+Static Offsets
+Dynamic Offsets
+w/o Eye Term
+w/ Eye Term
+Ground Truth
+Static Texture
+Dynamic Texture
+Ground Truth
+c)
+b)
+a)
+Figure 8. Ablations: a) Static vertex offsets lead to bulky neck re-
+constructions compared to dynamic (pose-conditioned) geometry.
+b) Static texture representations fail to reconstruct highly dynamic
+face regions such as the interior of the mouth cavity. c) Explicit
+optimization for lid closing reconstructs eye closure faithfully.
+(a)
+(b)
+GT
+(c)
+Figure 9. Failure cases. Misaligned eye lids in the reconstructed
+mesh can cause rare eye artifacts (a). Extreme mouth poses may
+degrade the synthesized mouth interior (b). The reconstruction of
+ear shapes that deviate strongly from the statistical average yields
+local geometric artifacts (c).
+wards implicit representations of spatial geometry, our work
+demonstrates the beneﬁts of an explicit geometry recon-
+struction in combination with a deep appearance network
+for dynamic surface textures in terms of photorealism and
+generalizability. We hope that our work inspires further re-
+search at the intersection of explicit geometry reconstruc-
+tion and deep appearance representations.
+Acknowledgements
+This project has received funding from the DFG in the
+joint German-Japan-France grant agreement (RO 4804/3-
+1), the ERC Starting Grant Scan2CAD (804724), and a Mi-
+crosoft Research Grant. We thank the recorded actors and
+video narrator for their help, as well as, Mohit Mendiratta
+and Guy Gafni for providing the synthesis results of [44]
+and [31] for our comparisons. We gratefully acknowledge
+the GWK support for funding this project by providing
+computing time through the Center for Information Ser-
+vices and HPC (ZIH) at TU Dresden.
+8
+
+
+References
+[1] Victoria
+Fernandez
+Abrevaya,
+Adnane
+Boukhayma,
+Philip H.S. Torr, and Edmond Boyer. Cross-modal deep face
+normals with deactivable skip connections. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), June 2020. 4, 5
+[2] Shruti Agarwal, Hany Farid, Tarek El-Gaaly, and Ser-Nam
+Lim. Detecting deep-fake videos from appearance and be-
+havior. pages 1–6, 12 2020. 8
+[3] Oswald Aldrian and WA Smith.
+A linear approach of 3d
+face shape and texture recovery using a 3d morphable model.
+In Proceedings of the British Machine Vision Conference,
+pages, pages 75–1. Citeseer, 2010. 2
+[4] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Detailed human avatars
+from monocular video. In 2018 International Conference on
+3D Vision (3DV), pages 98–109. IEEE, 2018. 3
+[5] Thiemo Alldieck, Hongyi Xu, and Cristian Sminchisescu.
+imghum: Implicit generative models of 3d human shape and
+articulated pose. In International Conference on Computer
+Vision (ICCV), 2021. 2
+[6] Hadar Averbuch-Elor, Daniel Cohen-Or, Johannes Kopf, and
+Michael F. Cohen. Bringing portraits to life. ACM Transac-
+tions on Graphics (Proceeding of SIGGRAPH Asia 2017),
+36(6):196, 2017. 2
+[7] Volker Blanz, Curzio Basso, Tomaso Poggio, and Thomas
+Vetter. Reanimating faces in images and video. In Proc.
+EUROGRAPHICS, volume 22, pages 641–650, 2003. 2
+[8] Volker Blanz, Kristina Scherbaum, Thomas Vetter, and
+Hans-Peter Seidel.
+Exchanging faces in images.
+CGF,
+23(3):669–676, 2004. 2
+[9] Volker Blanz and Thomas Vetter. A morphable model for
+the synthesis of 3d faces. In Proceedings of the 26th an-
+nual conference on Computer graphics and interactive tech-
+niques, pages 187–194, 1999. 1, 2, 4, 15
+[10] Volker Blanz and Thomas Vetter. Face recognition based on
+ﬁtting a 3d morphable model. IEEE Transactions on pattern
+analysis and machine intelligence, 25(9):1063–1074, 2003.
+2
+[11] P Bohr, Rupali Gargote, Rupali Vhorkate, RU Yawle, and
+VK Bairagi. A no reference image blur detection using cu-
+mulative probability blur detection (cpbd) metric. Interna-
+tional Journal of Science and Modern Engineering, 1(5),
+2013. 6
+[12] James Booth, Anastasios Roussos, Allan Ponniah, David
+Dunaway, and Stefanos Zafeiriou.
+Large scale 3d mor-
+phable models. International Journal of Computer Vision,
+126(2):233–254, 2018. 2
+[13] Soﬁen Bouaziz, Yangang Wang, and Mark Pauly.
+Online
+modeling for realtime facial animation. ACM TOG, 32:40:1–
+40:10, 2013. 2
+[14] Leyde Briceno and Gunther Paul. Makehuman: a review of
+the modelling framework. In Congress of the International
+Ergonomics Association, pages 224–232. Springer, 2018. 5
+[15] Marcel C B¨uhler, Abhimitra Meka, Gengyan Li, Thabo
+Beeler, and Otmar Hilliges. Varitex: Variational neural face
+textures. arXiv preprint arXiv:2104.05988, 2021. 1, 2, 3, 6,
+7, 17
+[16] Adrian Bulat and Georgios Tzimiropoulos. How far are we
+from solving the 2d & 3d face alignment problem? (and a
+dataset of 230,000 3d facial landmarks).
+In International
+Conference on Computer Vision, 2017. 4, 5, 15, 17
+[17] Andrei Burov, Matthias Nießner, and Justus Thies. Dynamic
+surface function networks for clothed human bodies. arXiv
+preprint arXiv:2104.03978, 2021. 13, 15
+[18] Chen Cao, Derek Bradley, Kun Zhou, and Thabo Beeler.
+Real-time high-ﬁdelity facial performance capture.
+ACM
+Trans. Graph., 34(4), jul 2015. 3
+[19] Chen Cao, Qiming Hou, and Kun Zhou. Displaced dynamic
+expression regression for real-time facial tracking and ani-
+mation. ACM Trans. Graph., 33(4), jul 2014. 2
+[20] Chen Cao, Yanlin Weng, Stephen Lin, and Kun Zhou. 3d
+shape regression for real-time facial animation. ACM Trans.
+Graph., 32(4), jul 2013. 2
+[21] Eric Chan, Marco Monteiro, Petr Kellnhofer, Jiajun Wu, and
+Gordon Wetzstein. pi-gan: Periodic implicit generative ad-
+versarial networks for 3d-aware image synthesis. In Proc.
+CVPR, 2021. 4, 7, 13, 14
+[22] Yen-Lin Chen, Hsiang-Tao Wu, Fuhao Shi, Xin Tong, and
+Jinxiang Chai. Accurate and robust 3d facial capture using a
+single rgbd camera. Proc. ICCV, pages 3615–3622, 2013. 2
+[23] Davide Cozzolino, Andreas R¨ossler, Justus Thies, Matthias
+Nießner, and Luisa Verdoliva.
+Id-reveal: Identity-aware
+deepfake video detection. 2021. 8
+[24] Davide Cozzolino, Justus Thies, Andreas R¨ossler, Christian
+Riess, Matthias Nießner, and Luisa Verdoliva. Forensictrans-
+fer: Weakly-supervised domain adaptation for forgery detec-
+tion. arXiv, 2018. 8
+[25] Hang Dai, Nick Pears, William Smith, and Christian Dun-
+can. Statistical modeling of craniofacial shape and texture.
+International Journal of Computer Vision, 128(2):547–571,
+Nov 2019. 2
+[26] Jiankang Deng, Jia Guo, Tongliang Liu, Mingming Gong,
+and Stefanos Zafeiriou. Sub-center arcface: Boosting face
+recognition by large-scale noisy web faces. In Proceedings of
+the IEEE Conference on European Conference on Computer
+Vision, 2020. 5, 6, 17
+[27] Vincent Dumoulin, Ethan Perez, Nathan Schucher, Florian
+Strub, Harm de Vries, Aaron Courville, and Yoshua Bengio.
+Feature-wise transformations. Distill, 3(7):e11, 2018. 13, 14
+[28] Bernhard Egger, William A. P. Smith, Ayush Tewari, Ste-
+fanie Wuhrer, Michael Zollhoefer, Thabo Beeler, Florian
+Bernard, Timo Bolkart, Adam Kortylewski, Sami Romd-
+hani, Christian Theobalt, Volker Blanz, and Thomas Vetter.
+3d morphable face models - past, present and future. ACM
+Transactions on Graphics, 39(5), Aug. 2020. 1, 2
+[29] Haven Feng and Timo Bolkart.
+Photometric ﬂame
+ﬁtting.
+https : / / github . com / HavenFeng /
+photometric_optimization, 2020. Accessed: 2021-
+08-10. 2, 4, 5
+[30] Yao Feng, Haiwen Feng, Michael J. Black, and Timo
+Bolkart.
+Learning an animatable detailed 3D face model
+from in-the-wild images. volume 40, 2021. 3, 4, 15
+9
+
+
+[31] Guy Gafni, Justus Thies, Michael Zollh¨ofer, and Matthias
+Nießner. Dynamic neural radiance ﬁelds for monocular 4d
+facial avatar reconstruction. 2021. 1, 2, 6, 7, 8, 16, 17
+[32] Pablo Garrido, Levi Valgaerts, Ole Rehmsen, Thorsten Thor-
+maehlen, Patrick Perez, and Christian Theobalt. Automatic
+face reenactment. In Proc. CVPR, 2014. 2
+[33] Pablo Garrido, Levi Valgaerts, Hamid Sarmadi, Ingmar
+Steiner,
+Kiran Varanasi,
+Patrick Perez,
+and Christian
+Theobalt. VDub - modifying face video of actors for plausi-
+ble visual alignment to a dubbed audio track. In Computer
+Graphics Forum (Proceedings of EUROGRAPHICS), 2015.
+2
+[34] Pablo Garrido, Levi Valgaerts, Chenglei Wu, and Christian
+Theobalt. Reconstructing detailed dynamic face geometry
+from monocular video.
+In ACM TOG, volume 32, pages
+158:1–158:10, 2013. 2
+[35] Leon A. Gatys, Alexander S. Ecker, and Matthias Bethge.
+A neural algorithm of artistic style. CoRR, abs/1508.06576,
+2015. 16
+[36] Baris Gecer, Stylianos Ploumpis, Irene Kotsia, and Stefanos
+Zafeiriou.
+Ganﬁt: Generative adversarial network ﬁtting
+for high ﬁdelity 3d face reconstruction. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 1155–1164, 2019. 2
+[37] Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing
+Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and
+Yoshua Bengio. Generative adversarial networks. Commu-
+nications of the ACM, 63(11):139–144, 2020. 2
+[38] Yudong Guo, Keyu Chen, Sen Liang, Yongjin Liu, Hujun
+Bao, and Juyong Zhang. Ad-nerf: Audio driven neural radi-
+ance ﬁelds for talking head synthesis. In IEEE/CVF Interna-
+tional Conference on Computer Vision (ICCV), 2021. 2
+[39] Pei-Lun Hsieh, Chongyang Ma, Jihun Yu, and Hao Li. Un-
+constrained realtime facial performance capture. In Com-
+puter Vision and Pattern Recognition (CVPR), 2015. 2
+[40] Alexandru Eugen Ichim, Soﬁen Bouaziz, and Mark Pauly.
+Dynamic 3d avatar creation from hand-held video input.
+ACM TOG, 34(4):45:1–45:14, 2015. 2
+[41] Phillip Isola, Jun-Yan Zhu, Tinghui Zhou, and Alexei A
+Efros. Image-to-image translation with conditional adver-
+sarial networks. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 1125–1134,
+2017. 16
+[42] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. Perceptual
+losses for real-time style transfer and super-resolution. In
+European conference on computer vision, pages 694–711.
+Springer, 2016. 5
+[43] Petr Kellnhofer, Lars C Jebe, Andrew Jones, Ryan Spicer,
+Kari Pulli, and Gordon Wetzstein. Neural lumigraph render-
+ing. In Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition, pages 4287–4297,
+2021. 2
+[44] Hyeongwoo Kim, Pablo Garrido, Ayush Tewari, Weipeng
+Xu, Justus Thies, Matthias Niessner, Patrick P´erez, Chris-
+tian Richardt, Michael Zollh¨ofer, and Christian Theobalt.
+Deep video portraits. ACM Transactions on Graphics (TOG),
+37(4):1–14, 2018. 1, 2, 6, 7, 8, 16, 17
+[45] Diederik P. Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. CoRR, abs/1412.6980, 2015. 17
+[46] Anders Boesen Lindbo Larsen, Søren Kaae Sønderby, Hugo
+Larochelle, and Ole Winther. Autoencoding beyond pixels
+using a learned similarity metric. In International conference
+on machine learning, pages 1558–1566. PMLR, 2016. 16
+[47] Alexandros Lattas, Stylianos Moschoglou, Baris Gecer,
+Stylianos
+Ploumpis,
+Vasileios
+Triantafyllou,
+Abhijeet
+Ghosh, and Stefanos Zafeiriou. Avatarme: Realistically ren-
+derable 3d facial reconstruction” in-the-wild”. In Proceed-
+ings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 760–769, 2020. 2
+[48] Hao Li, Jihun Yu, Yuting Ye, and Chris Bregler. Realtime
+facial animation with on-the-ﬂy correctives. In ACM TOG,
+volume 32, 2013. 2
+[49] Tianye Li, Timo Bolkart, Michael. J. Black, Hao Li, and
+Javier Romero. Learning a model of facial shape and ex-
+pression from 4D scans. ACM Transactions on Graphics,
+(Proc. SIGGRAPH Asia), 36(6):194:1–194:17, 2017. 2, 3, 5,
+13
+[50] Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu
+Sarkar, Jiatao Gu, and Christian Theobalt.
+Neural actor:
+Neural free-view synthesis of human actors with pose con-
+trol. ACM Trans. Graph.(ACM SIGGRAPH Asia), 2021. 2
+[51] Stephen Lombardi, Jason Saragih, Tomas Simon, and Yaser
+Sheikh. Deep appearance models for face rendering. ACM
+Transactions on Graphics (TOG), 37(4):1–13, 2018. 3
+[52] Stephen Lombardi, Tomas Simon, Jason Saragih, Gabriel
+Schwartz, Andreas Lehrmann, and Yaser Sheikh. Neural vol-
+umes: Learning dynamic renderable volumes from images.
+arXiv preprint arXiv:1906.07751, 2019. 1, 2
+[53] Camillo Lugaresi, Jiuqiang Tang, Hadon Nash, Chris Mc-
+Clanahan, Esha Uboweja, Michael Hays, Fan Zhang, Chuo-
+Ling Chang, Ming Guang Yong, Juhyun Lee, et al. Medi-
+apipe: A framework for building perception pipelines. arXiv
+preprint arXiv:1906.08172, 2019. 4, 15
+[54] Shugao Ma, Tomas Simon, Jason Saragih, Dawei Wang,
+Yuecheng Li, Fernando De La Torre, and Yaser Sheikh. Pixel
+codec avatars. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 64–73,
+2021. 3
+[55] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance ﬁelds for view syn-
+thesis. In European conference on computer vision, pages
+405–421. Springer, 2020. 2
+[56] Koki Nagano, Jaewoo Seo, Jun Xing, Lingyu Wei, Zimo Li,
+Shunsuke Saito, Aviral Agarwal, Jens Fursund, and Hao Li.
+pagan: real-time avatars using dynamic textures. pages 1–12,
+12 2018. 2, 17, 18
+[57] Yuval Nirkin, Yosi Keller, and Tal Hassner. FSGAN: Sub-
+ject agnostic face swapping and reenactment. In Proceedings
+of the IEEE International Conference on Computer Vision,
+pages 7184–7193, 2019. 2
+[58] Atsuhiro Noguchi, Xiao Sun, Stephen Lin, and Tatsuya
+Harada. Neural articulated radiance ﬁeld. In International
+Conference on Computer Vision (ICCV), 2021. 2
+10

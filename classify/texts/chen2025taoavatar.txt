@@ -1,0 +1,1052 @@
+Title: TaoAvatar: Real-Time Lifelike Full-Body Talking Avatars for Augmented Reality via 3D Gaussian Splatting
+
+TaoAvatar: Real-Time Lifelike Full-Body Talking Avatars for
+Augmented Reality via 3D Gaussian Splatting
+Jianchuan Chen*,
+Jingchuan Hu*,
+Gaige Wang*,
+Zhonghua Jiang
+Tiansong Zhou,
+Zhiwen Chen‡,
+Chengfei Lv†
+Alibaba Group, Hangzhou, China
+(a) Input: Multi-view Sequences
+(b) Output: Drivable Full-Body Talking Avatar
+(c) Runnable on AR Devices
+Normal
+Mesh
+Gaussians
+Deploy
+Android App
+MacBook App
+Training
+3024x1964@90FPS
+1080x2400@60FPS
+VisionPro App
+Stereo, 2000x1800@90FPS, 0.18MB/frame
+Figure 1. TaoAvatar generates photorealistic, topology-consistent 3D full-body avatars from multi-view sequences. It provides high-quality,
+real-time rendering with low storage requirements, compatible across various mobile and AR devices like the Apple Vision Pro.
+Abstract
+Realistic 3D full-body talking avatars hold great poten-
+tial in AR, with applications ranging from e-commerce
+live streaming to holographic communication. Despite ad-
+vances in 3D Gaussian Splatting (3DGS) for lifelike avatar
+creation, existing methods struggle with fine-grained con-
+trol of facial expressions and body movements in full-body
+talking tasks.
+Additionally, they often lack sufficient de-
+tails and cannot run in real-time on mobile devices. We
+present TaoAvatar, a high-fidelity, lightweight, 3DGS-based
+full-body talking avatar driven by various signals.
+Our
+approach starts by creating a personalized clothed human
+parametric template that binds Gaussians to represent ap-
+pearances. We then pre-train a StyleUnet-based network
+to handle complex pose-dependent non-rigid deformation,
+which can capture high-frequency appearance details but is
+too resource-intensive for mobile devices. To overcome this,
+we ”bake” the non-rigid deformations into a lightweight
+MLP-based network using a distillation technique and de-
+velop blend shapes to compensate for details. Extensive
+experiments show that TaoAvatar achieves state-of-the-art
+rendering quality while running in real-time across various
+devices, maintaining 90 FPS on high-definition stereo de-
+vices such as the Apple Vision Pro.
+*Equal contribution.
+‡Project Leader and †Corresponding author.
+Project: https://PixelAI-Team.github.io/TaoAvatar
+1. Introduction
+Creating lifelike 3D human avatars is a dynamic and rapidly
+advancing research area in computer vision and graph-
+ics, essential for applications in AR/VR, 3D entertainment,
+and virtual communication. Despite decades of research,
+achieving realistic and immersive avatars on mobile de-
+vices—particularly AR—remains challenging due to com-
+putational limitations. Current industry solutions, such as
+MetaHuman, often rely on high-precision scans and exten-
+sive manual effort by artists for 3D modeling, rigging, and
+motion capture.
+In recent years, academic researchers have adopted para-
+metric models [36, 42] for human representation, which
+are constructed from massive body scans and can cap-
+ture a performer’s shape, expression, and pose from im-
+ages or videos. These methods [4–6, 26] extend the naked
+model [36, 42] by adding offsets to represent tailored cloth-
+ing, but are still struggling with complex geometries and
+high-frequency details, such as loose skirts and fine hair,
+due to limitations of topology and texture resolution. With
+the rise of neural radiance fields (NeRF) [39], many re-
+searchers tend to define implicit neural human represen-
+tations in canonical space, animated by backward linear
+blend skinning [43, 64] of these parametric models [36, 42].
+While these methods can handle arbitrary topology and
+deliver higher rendering quality, they are highly time-
+consuming due to the large amount of sampling required
+1
+arXiv:2503.17032v2  [cs.CV]  23 Jul 2025
+
+
+during volume rendering. Although many efforts [9, 23]
+have significantly improved rendering efficiency by intro-
+ducing iNGP [41], the animated results still fail to escape
+the Uncanny Valley effect when driven. Recently, 3D Gaus-
+sian Splatting (3DGS) [28], an explicit and efficient point-
+based representation, has gained tremendous attention from
+researchers for its ability to deliver both high-quality ren-
+dering and real-time performance. Compared to implicit
+representations [39, 53], the explicit point-based represen-
+tation is more compatible with being integrated with the
+mesh-based parametric models [36, 42], which can be di-
+rectly driven by forward linear blend skinning. Many recent
+methods [19, 33, 45, 47], combining 3DGS and the para-
+metric models [36, 42], have made significant strides toward
+realizing lifelike 3D human avatars. However, achieving
+real-time rendering on mobile devices remains challenging,
+especially for AR glasses, which require high resolution,
+stereo rendering, and seamless interaction.
+We introduce TaoAvatar, a high-fidelity, lightweight,
+3DGS-based full-body talking avatar designed for running
+in real-time on Augmented Reality (AR) devices. Unlike
+previous approaches [8, 10, 33], which develop implicit pa-
+rameterized models from scratch, we construct a personal-
+ized, clothed parameterized template that preserves the fa-
+cial expressions and gesture controls inherent to the native
+SMPLX [42]. At the same time, we bind the Gaussians to
+the triangles as texture to create a hybrid avatar representa-
+tion. Inspired by [33], we pre-train a large StyleUnet-based
+teacher network to learn pose-dependent dynamic deforma-
+tion maps of Gaussians in 2D space by front and back or-
+thogonal projection. Although the teacher network is pow-
+erful enough to capture high-frequency appearance details
+in various poses, its large number of parameters makes it
+difficult to run in real-time on AR devices.
+To achieve
+high-performance rendering, we bake the dynamic defor-
+mation of Gaussians into the non-rigid deformation field of
+the mesh using a distillation technique, employing a com-
+pact MLP-based student network. Meanwhile, we propose
+two lightweight, learnable blend shapes to compensate for
+the non-rigid deformation of the Gaussians.
+After fine-
+tuning, our student model achieves high-performance ren-
+dering without compromising quality.
+To evaluate our approach, we propose a multi-view
+dataset named TalkBody4D, focusing on prevalent full-
+body talking scenarios encountered in daily life, which
+includes rich facial expressions and gestures with syn-
+chronous audios different from existing full-body motion
+datasets [11, 21, 68]. Experimental results demonstrate that
+our method effectively captures high-frequency appearance
+details of human avatars while maintaining a lightweight
+architecture capable of rendering stereo images at 2K res-
+olution on common mobile and AR devices, including the
+Apple Vision Pro. The resulting full-body avatar is highly
+expressive, enabling users to animate it with facial expres-
+sions, hand gestures, and body poses, thereby highlighting
+the potential applications of our method. Our contributions
+can be summarized as follows:
+• We introduce TaoAvatar, a novel teacher-student frame-
+work which yields topologically consistent, well-aligned
+geometry, further creating a high-fidelity, lightweight,
+3DGS-based drivable full-body talking avatar.
+• We propose two innovative strategies including non-rigid
+deformation baking and two lightweight blend shapes
+compensations to ensure high-quality rendering and ef-
+ficient performance on mobile and AR devices, achiev-
+ing 2K resolution rendering at 90 FPS on high-definition
+stereo devices like the Apple Vision Pro.
+• We contribute TalkBody4D, a multi-view dataset to be
+released, designed for full-body talking scenarios, fea-
+turing diverse facial expressions and gestures with syn-
+chronous audios. Extensive experiments demonstrate that
+our approach outperforms other state-of-the-art methods
+in both quality and performance.
+2. Related work
+3D Avatar Representation. Traditional computer graph-
+ics techniques [12, 18, 49, 50] use 3D scanning or multi-
+view stereo (MVS) to create full-body meshes, which are
+then combined with a 3D skeleton to produce driveable tem-
+plates. However, this approach is both expensive and inef-
+ficient. As parametric body models, SMPL [36] and SM-
+PLX [42] are widely used for their versatility but lack detail
+in simulating loose clothing. Some works [4, 5, 26] have
+attempted to add clothing offsets to SMPLX, effectively
+handling tight clothing but struggling with loose garments.
+Due to the limited expressiveness of traditional meshes, re-
+searchers have combined SMPL with advanced rendering
+techniques. Some methods [7, 22, 35, 56] use NeRF [39] to
+implicitly express human bodies, mapping points from the
+observation space backward to canonical space. Although
+high-quality, volume rendering is slow and poses challenges
+for real-time applications. In contrast, 3DGS [28] uses 3D
+Gaussian distributions for scenes, offering real-time render-
+ing [37, 57], fast training, and the ability to handle com-
+plex materials such as hair and translucency. Some methods
+[33, 45, 47, 55, 62] combining SMPLX [42] and 3DGS [28],
+like GaussianAvatar [19], use explicit GS point clouds and
+forward skinning to efficiently simulate the deformations,
+offering good rendering quality and speed. This representa-
+tion presents potential solutions for achieving both real-time
+performance and computational efficiency.
+Dynamic Nonrigid Deformation Modeling.
+Various
+methods have been developed to simulate non-rigid human
+deformation realistically. The MLP-based methods [20, 29,
+32, 40], like 3DGS-Avatar [45], are noted for lightweight
+flexibility but struggle with handling novel poses. Physical
+2
+
+
+simulation methods [58, 67] produce physics-based anima-
+tions but require unified topology, and complex modeling,
+and are computationally expensive, which negatively im-
+pacts real-time performance. Additionally, some methods
+[16, 17] use GNNs to learn non-rigid deformations in a data-
+driven manner. These methods are faster than traditional
+cloth simulations. Recently, dynamic texture methods are
+emerging, these methods [25, 31, 35] model complex details
+in the 2D texture space, while AnimatableGS [33] and Me-
+shAvatar [10] enhance modeling with front and back pro-
+jection strategies which avoid texture unwarping.
+3D Drivable Talking Avatars. Research on drivable dig-
+ital humans is rapidly advancing for various applications.
+In 3D Talking Heads, methods [13, 44, 46, 59, 60, 65]
+excel in capturing and driving facial expressions, enhanc-
+ing the realism of virtual characters. For drivable bodies,
+these methods [8, 19, 33, 55, 69] achieve precise restora-
+tion of body movements by learning pose-dependent de-
+formation fields. Furthermore, some methods [48, 58] not
+only support detailed body modeling and animation but also
+enable head expressions and lip-syncing. Despite enhanc-
+ing realism, running these methods in real-time on mobile
+or AR devices is challenging due to their high computa-
+tional demands, exceeding current edge platform capabili-
+ties. Optimizing computational efficiency without compro-
+mising high-quality output is a key research focus.
+3. Method
+Leveraging multi-view RGB videos of a performer along-
+side corresponding SMPLX registrations for each frame, we
+aim to develop a high-fidelity, lightweight full-body talk-
+ing avatar capable of high-resolution and high-performance
+rendering on mobile devices. To achieve this, we first cre-
+ate a hybrid clothed parametric representation by integrat-
+ing 3D Gaussian Splatting (3DGS) [28] and SMPLX [42],
+which is more expressive for simulating loose clothing and
+hair, while maintaining high-quality rendering (Sec. 3.1).
+Next, we propose a teacher-student framework to recon-
+struct high-frequency, pose-dependent dynamic details as
+illustrated in Fig. 2. By leveraging non-rigid deformation
+baking and incorporating two lightweight blend shape com-
+pensations, our method achieves a tradeoff between high
+quality and high performance (Sec. 3.2).
+3.1. Hybrid Clothed Parametric Representations
+The Clothed Extension of SMPLX. To extend SMPLX to
+complete clothed human geometry with clothes, hair, etc.,
+we choose a frame close to T-pose as a reference, which pro-
+vides more visible details and less sticky geometry. First,
+we utilize NeuS2 [53] to reconstruct the geometry of this
+reference frame and parse out non-body components (e.g.,
+clothes) from it using [52]. However, the body’s skeleton
+cannot directly drive these components. We estimate the
+shape and pose of the SMPLX [36] in the current frame
+and use robust skinning transfer [3] to propagate the body’s
+skinning weights to these non-body components. Finally,
+we apply inverse skinning to transform these components
+back to the standard T-pose, resulting in a comprehensive
+personalized parametric model, referred to as SMPLX++.
+Binding Gaussians on Mesh as Texture.
+After ob-
+taining the complete geometric model, we bind 3D Gaus-
+sians to the mesh’s triangles as textures, enabling them to
+move synchronously with the mesh. Inspired by these hy-
+brid representations [44, 47], we define the attributes of the
+Gaussians in a local coordinate system relative to the trian-
+gles. Specifically, for each triangle, we randomly initialize
+k Gaussians, each of which maintains the local attributes
+{f, (u, v), γ, r, s, o, sh}, where f is the index of the par-
+ent triangle, (u, v) is the barycentric coordinates, γ repre-
+sents the translation along the triangle’s normal direction, r
+and s denote rotation and scaling in the local space, o indi-
+cates opacity, and sh consists of spherical harmonic coeffi-
+cients. Additionally, we define the normal of each Gaussian
+as ng = [1, 0, 0] within the local space, ensuring consis-
+tency with the mesh’s normal for subsequent transforma-
+tions. To deform each Gaussian from the local to the world
+space, we construct a transformation based on its parent tri-
+angle Ff(v1, v2, v3), where v1, v2, v3 are the vertices of
+the triangle Ff in the world space:
+p = u · v1 + v · v2 + (1 −u −v) · v3,
+R = [n, q, n × q], q =
+(v2 + v3) /2 −v1
+∥(v2 + v3) /2 −v1∥,
+e = (∥v1 −v2∥+ ∥v2 −v3∥+ ∥v1 −v3∥) /3,
+(1)
+where n = (v1−v2)×(v3−v1)
+∥v1−v2∥·∥v3−v1∥is the normal of the triangle,
+p denotes the surface point on the parent triangle, and e
+denotes the average edge length.
+uw = p + γRn,
+rw = Rr,
+sw = e · s,
+(2)
+here, uw, rw, sw represent the position, rotation, and scal-
+ing in the world spaces after transformation, respectively.
+Furthermore, cw = SH
+ sh, R−1d
+
+denotes the color
+along the view direction d in the world space.
+3.2. Dynamic Mesh-based Gaussian Reconstruction
+Learning Dynamic Non-Rigid Gaussian Deformation
+Maps. Although SMPLX++ can be directly driven by the
+skeleton, linear blend skinning is insufficient for performing
+dynamic non-rigid deformation such as clothing folds and
+swaying motions. Like dynamic Gaussian avatars [25, 33],
+we utilize a large StyleUnet [51] as the teacher network to
+capture complex pose-dependent dynamic non-rigid defor-
+mation of Gaussians in 2D texture space. Following [33],
+we rasterize the T-pose mesh, which is colored using posed
+3
+
+
+MLP
+MLP
+Rotation       𝒓 
+Scaling         𝒔
+Opacity       𝒐
+SH                𝒔𝒉
+Mesh Non-rigid Deformation 
+(a) Template Reconstruction
+MLP
+Head BS
+Body BS
+SMPLX++  Mesh  & Rigged Gaussian 
+Posed 
+3D Gaussians
+Semantic position maps
+Gaussian maps
+StyleUnet
+Non-rigid maps
+(b) Teacher Branch
+(c) Student Branch
+𝛾
+𝑣
+𝑢
+Mesh-aligned Gaussian
+BaryCoord  (𝒖, 𝒗)
+     𝜸
+expr 𝜖
+Baking
+Gaussian Non-rigid Deformation 
+Color Blend Shapes
+Position Blend Shapes
+LBS &
+Render
+Ground Truth
+LBS 
+Render
+Baking
+1 𝑢𝑣-
+-
+pose 𝜃
+View Direction
+🔥
+🔥
+🔥
+🔥
+🔥
+❄
+🔥
+🔥
+Trainable Params
+Pretrained
+Gamma
++
+,
+❄
+🔥
+Figure 2. Illustration of our Method. Our pipeline begins by reconstructing (a) a cloth-extended SMPLX mesh with aligned Gaussian
+textures. To address complex dynamic non-rigid deformations, (b) we employ a teacher StyleUnet to learn pose-dependent non-rigid maps,
+which are then baked into a lightweight student MLP to infer non-rigid deformations of our template mesh. For high-fidelity rendering, (c)
+we introduce learnable Gaussian blend shapes to enhance appearance details.
+coordinates and segmentation colors, to obtain the front and
+back position maps {Pf, Pb}. These position maps are then
+fed into the StyleUnet network along with view directions
+to generate the non-rigid deformation maps {∆Uf, ∆Ub}
+and other residual Gaussian attribute maps. We add these
+residuals to the Gaussian’s local attributes and transform
+them into the world space according to Eq. (2). To train
+the StyleUnet-based teacher network T , we adopt the losses
+including L1, D-SSIM [28], and perceptual loss [63]. Ad-
+ditionally, we introduce a normal loss Lnor. Consequently,
+the total reconstruction loss Lrec is defined as:
+Lrec = L1 + λssimLssim + λlpipsLlpips + λnorLnor, (3)
+where λ∗is the loss weights. The normal loss is defined
+as Lnor = ∥Nt −Ng∥, where Nt is the rendered normal
+image by the teacher network, and the ground truth normal
+image Ng can be obtained from the method [53].
+Baking Non-Rigid Gaussian Deformation into Mesh De-
+formation. Although the StyleUnet-based network T can
+achieve good results, it struggles to run in real-time on mo-
+bile devices due to its large number of parameters, espe-
+cially for AR devices, which require high resolution, stereo
+rendering, and high performance. Inspired by knowledge
+distillation, we bake the Gaussian non-rigid deformation of
+the teacher network into the mesh non-rigid deformation
+field, which is a compact MLP-based student network S.
+∆¯vi = S (¯vi, θ, zt) ,
+(4)
+where ¯vi is the i-th vertex coordinate in the canonical space,
+θ is the pose parameter, and zt is a learnable embedding
+for each frame to compensate for inaccurate pose estima-
+tion. To train the student network S with the capability
+of pose-dependent non-rigid deformation, we directly su-
+pervise its output using the Gaussian non-rigid deforma-
+tion maps {∆Uf, ∆Ub} of the teacher network T . Specifi-
+cally, we render the mesh non-rigid deformations {∆vi}N
+i=1
+to front and back deformation maps {∆Vf, ∆Vb} in the
+canonical space, and then calculate the differences:
+Lnon = ∥∆Vf −∆Uf∥+ ∥∆Vb −∆Ub∥.
+(5)
+Furthermore, to mitigate the intersection between clothing
+and the body, we introduce a semantic loss Lsem. For each
+vertex, we assign a semantic label ei = ci + sin (τ ¯vi) that
+integrates the candidate coordinates ¯vi and the artificial seg-
+mentation color ci, and τ is a scale factor. The semantic
+label for each Gaussian can be obtained by interpolating the
+semantic label of the three vertices of its parent triangle.
+Subsequently, we render the Gaussian semantic map Et and
+the mesh semantic map Es in the world space separately and
+compute the semantic loss Lsem:
+Lsem = ∥Es −Et∥.
+(6)
+4
+
+
+In addition, we refine the local attributes by computing
+the reconstruction loss Lrec, which takes the rendered im-
+age of the teacher network as ground truth. The total loss
+Lbak during baking is:
+Lbak = Lrec + λnonLnon + λsemLsem.
+(7)
+Compensating Gaussian Deformation with Lightweight
+Blend Shapes.
+Inspired by pose corrective blend shapes
+in SMPL [36], we build learnable blend shapes for po-
+sition and color for each Gaussian.
+The position blend
+shapes, U ∈R3×n, primarily compensate for Gaussian
+positional adjustments (e.g., hair fluttering, clothing folds)
+across different poses. Meanwhile, the color blend shapes,
+C ∈R3×n, address appearance changes, such as shadow
+variations caused by self-obscuration. To obtain the corre-
+sponding driving coefficients, we employ a mapping net-
+work H for the head using the expression parameters ϵ as
+input and a mapping network B for the body which inputs
+the body pose parameters θ, to get the coefficients zh ∈Rnh
+for the head and zb ∈Rnb for the body, respectively, en-
+abling independent and fine-grained control over head and
+body deformations. The compensation of position and color
+for each Gaussian can be expressed as:
+δu = BS (zh ⊕zb; U) ,
+δc = BS (zh ⊕zb; C) ,
+(8)
+where ⊕is a concatenation operation, resulting in the size
+n = nh + nb. The function BS(·, ·) represents the blend
+shapes operation mentioned in SMPL [36]. We add these
+residuals to local attributes:
+uw = p + R (γn + δu) ,
+cw = SH
+ R−1d
+
++ δc.
+(9)
+For the fine-tuning stage on training data, we freeze the non-
+rigid deformation field network S, optimize the two map-
+ping networks H and B, and two blend shapes U and C.
+The loss during fine-tuning is the same as that pre-training
+the teacher network.
+After baking mesh non-rigid deformation and applying
+Gaussian non-rigid compensation, the performance of our
+student model is significantly enhanced compared to the
+teacher model, while still maintaining high quality.
+4. Experiments
+4.1. Experimental Settings
+Datasets.
+To evaluate the performance on the full-body
+talking task, we introduce a new dataset, TalkBody4D, de-
+signed for common full-body talking scenarios in everyday
+life, primarily characterized by rich mouth movements and
+diverse gestures with synchronous audios. The dataset com-
+prises 4 distinct identities, each wearing 2 different outfits.
+Each talking sequence consists of rough 6k frames with 4K
+image resolution, 60 views with 48 full-body, and 12 face-
+region views. To evaluate performance on complex motions
+and expressions, we select 4 sequences (04, 05, 06, 08) from
+the ActorHQ [21] dataset, supplement with 2 dancing and
+2 exaggerated expression sequences. The resolution of our
+training and testing images is 1500 × 2000 for all exper-
+iments. SMPLX registrations for these sequences can be
+obtained by first initializing SMPLX parameters using ex-
+isting tools [1, 2, 44], followed by fine-tuning the poses with
+a photometric loss to improve geometry alignment.
+Implementation Details. The clothed parametric template
+has roughly 22k vertices and 45k faces in total, which con-
+tains additional 23k faces for clothes, hair, and shoes, com-
+pared to the naive SMPLX. We randomly initialize about
+220k Gaussians in total to bind with the template as texture,
+for each triangle containing roughly 4 to 6, and optimize
+these Gaussians for 10k iterations using the multi-view im-
+ages of the reference frame. We pre-train our StyleUnet-
+based[33] teacher network for 600k iterations, and set the
+loss weights λssim = 0.2, λlpips = 0.01, λnor = 0.02 and
+batch size is 1 during the training process. Then we bake
+the teacher network into a small 5-layer MLP-based student
+network, which set λnon = 0.1, λsem = 1.0 and optimize
+30k iterations. Finally, we finetune the mapping networks
+and blend shapes for Gaussian non-rigid compensation on
+training data 100k iterations at the batch size of 4. The size
+of two blend shapes for position and color is n = 28, in
+which nh = 8 for the head and nb = 20 for the body.
+4.2. Comparison
+We conduct an extensive comparison between our method
+and recent state-of-the-art full-body avatar methods include
+GaussianAvatar [19], 3DGS-Avatar [45], MeshAvatar [10],
+and AnimatableGS [33]. All of these methods learn pose-
+dependent non-rigid deformations in the canonical space
+and then utilize the skeleton-based rigid transformations of
+SMPL [36] or SMPLX [42] into observation space to model
+the dynamic human. We uniformly use SMPLX [42] across
+all these methods to ensure a fair comparison.
+Comparison on Full-body Talking. We conduct exper-
+iments on typical full-body talking scenarios encountered
+in daily life, which include a variety of mouth movements
+and gestures. We provide the quantitative comparison on
+full-body talking as shown in Tab. 1. We also show the
+qualitative comparison in Fig. 3, and our method can gen-
+erate more realistic and detailed results, especially in the
+face region. 3DGS-Avatar [45] directly learns two MLP-
+based networks to handle the pose-dependent non-rigid de-
+formation of Gaussians but produces very blurry results due
+to the low-frequency bias of MLPs. GaussianAvatar [19]
+uses a 2D CNN network by encoding the position map in
+SMPLX’s UV space to generate the non-rigid deformation
+5
+
+
+Ours
+GaussianAvatar
+3DGS-Avatar
+MeshAvatar
+AnimatableGS
+GT
+Figure 3. Qualitative comparisons on full-body talking tasks. Our method outperforms state-of-the-art methods by producing clearer
+clothing dynamics and enhanced facial details.
+maps of Gaussians. However, it is restricted by the mini-
+clothed topology of SMPLX, struggling to handle loose
+skirts. MeshAvatar [10] chooses mesh as a human represen-
+tation, which is insufficient to express the geometry of de-
+tails, such as hair, and glasses. AnimatableGS [33] can gen-
+erate high-quality dynamic appearance and complex non-
+rigid deformation. However, it is restricted by the implicit
+template of learning from scratch, which makes it difficult
+to handle fine-grained expressions, like blinking and flash-
+ing teeth as shown in the face region in Fig. 3. Therefore
+we adopt the SMPLX++ model as the template whose face
+and hands retain the native SMPLX prior. However, due
+to the amount parameters of the teacher StyleUnet [51], it
+achieves poor performance and is hard to run on a mobile
+device in real time. Through baking non-rigid deformation,
+we can achieve 150+ FPS at the resolution of 1500 × 2000
+on Nvidia RTX4090 using only a small MLP-based mesh
+non-rigid deformation network and two lightweight learn-
+able blend shapes as shown in Tab. 1.
+Comparison on Complex Motion and Expression. Be-
+sides full-body talking scenes, our method is also capable of
+reconstructing complex motions as well as exaggerated ex-
+pressions as shown in Fig. 4. We provide quantitative com-
+parisons in Tab. 2, our student network achieves competi-
+tive results compared to the teacher network, outperforming
+other methods. Especially for exaggerated expressions, our
+method significantly outperforms others in reconstructing
+the face region as shown in Tab. 2. Moreover, our method
+6
+
+
+Novel View
+Novel Gestures and Expression
+Speed
+Model
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+FPS
+GaussianAvatar[19]
+26.58 (23.57)
+.9313 (.8159)
+.10577 (.25242)
+25.99 (23.15)
+.9232 (.8092)
+.12265 (.26207)
+54
+3DGS-Avatar[45]
+28.91 (23.95)
+.9411 (.8303)
+.07984 (.20450)
+26.46 (23.32)
+.9157 (.8184)
+.11804 (.21632)
+55
+MeshAvatar[10]
+28.53 (24.55)
+.9360 (.8083)
+.09470 (.25572)
+27.08 (23.58)
+.9229 (.7965)
+.10783 (.24947)
+22
+AnimatableGS[33]
+32.50 (26.42)
+.9599 (.8587)
+.06695 (.19535)
+28.05 (23.68)
+.9328 (.8142)
+.09191 (.22673)
+16
+Ours (Teacher)
+33.45 (27.01)
+.9649 (.8741)
+.04986 (.15613)
+28.28 (24.28)
+.9336 (.8291)
+.07385 (.18176)
+16
+Ours (Student)
+33.81 (27.80)
+.9689 (.8975)
+.06437 (.14218)
+28.38 (24.99)
+.9389 (.8525)
+.08874 (.13364)
+156
+Table 1. Quantitative comparisons on full-body talking task. The results inside the parentheses are evaluated for the face area, and the
+inference speed is evaluated on Nvidia RTX4090 when rendering images at a resolution of 1500 × 2000.
+Figure 4. Results in challenging scenarios. Our method can obtain high-quality reconstruction even for challenging pose and expressions.
+Model
+PSNR↑
+SSIM↑
+LPIPS↓
+GaussianAvatar[19]
+25.94 (24.33)
+.9294 (.8251)
+.10478 (.24179)
+3DGS-Avatar[45]
+30.04 (25.08)
+.9403 (.8458)
+.08471 (.18044)
+MeshAvatar[10]
+28.51 (24.94)
+.9334 (.8100)
+.08846 (.23517)
+AnimatableGS[33]
+31.81 (26.79)
+.9493 (.8608)
+.07586 (.19521)
+Ours (Teacher)
+32.80 (27.40)
+.9533 (.8768)
+.05581 (.14996)
+Ours (Student)
+32.72 (27.35)
+.9579 (.8836)
+.07326 (.13914)
+Table 2. Quantitative comparisons about complex motions and
+expressions reconstruction. The results inside the parentheses
+are evaluated for face regions with exaggerated expressions.
+can obtain high-quality normals as shown in Fig. 4, which
+can be used for image-based relighting.
+Comparison on Novel Expression and Novel Gesture.
+Benefiting from our parametric human model SMPLX++,
+our full-body avatars can be expression-driven and gesture-
+driven. We provide quantitative comparisons of self-driven
+on full-body talking scenes as shown in Tab. 1. As shown
+in Fig. 5, we provide visualizations of different characters
+driven by the same skeleton. In addition, our model can ac-
+cept expression parameter inputs generated from audio by
+UniTalker [14] as shown in Fig. 5. More demos are pro-
+vided in the supplementary materials.
+4.3. Ablation Study
+In this subsection, we discuss the key contributions of our
+method. Additional quantitative results and experiments are
+available in the supplementary materials.
+The Impact of Template. The choice of template has a
+crucial impact on our approach. If we directly use SMPLX
+as our geometric template, as shown in Tab. 3 (w SMPLX),
+leading to poor results with numerous artifacts, especially
+for loose skirts as seen in Fig. 6. After extending the geom-
+etry of SMPLX to a complete template with clothes, hair,
+and shoes, this quality is significantly improved as shown
+in Tab. 3 (w/o Mesh Non.), which allows our method to re-
+construct more challenging clothes.
+The Impact of Non-rigid Deformation. Despite having a
+complete geometry, the rigid transformations of the skele-
+ton are not able to properly represent non-rigid transforma-
+tions such as skirt swinging and hair flying. We concur-
+rently introduce mesh non-rigid deformation and Gaussian
+non-rigid deformation in our method. The geometry with-
+7
+
+
+/u:/
+/eɪ/
+Figure 5. Novel pose and expression animation. TaoAvatar can
+be driven by the same skeleton and expression parameters vividly.
+out mesh non-rigid deformation is unable to attach to the
+surface of the character as shown in Fig. 6 (w/o Mesh Non.).
+The Gaussian non-rigid compensation also plays a crucial
+role in quantitative metrics. Without the blend shapes for
+Gaussian non-rigid compensation, the results are prone to
+produce artifices due to imprecise geometry and variable
+appearance as shown in Fig. 6 (w/o Gau Non.).
+The Impact of Baking Teacher.
+Compared to directly
+training a small MLP-based network to handle non-rigid de-
+formations as shown in Tab. 3 (w/o Teacher), our proposed
+multi-stage training strategy is more efficient. With direct
+supervision of the non-rigid deformation of the teacher net-
+work, it is easier for the student network to decouple the
+geometry deformation and appearance variations.
+5. Application
+TaoAvatar offers a lightweight, comprehensive representa-
+tion for 3D talking body scenarios, easily deployable on
+various mobile devices using existing tools [24] as demon-
+strated in Fig. 1. It seamlessly integrates with AI models to
+enable real-time dialogue interactions. we deployed a 3D
+digital human agent on the Apple Vision Pro, which inter-
+acts with users through an ASR-LLM-TTS pipeline [15, 30,
+Full
+w/o Mesh Non.
+SMPLX
+w/o Gau Non.
+GT [NeuS2 Mesh]
+Figure 6. Ablation Study. Red and Green boxes show artifacts and
+their improved counterparts.
+Model
+PSNR↑
+SSIM↑
+LPIPS↓
+P2S↓
+Chamfer↓
+w SMPLX
+28.47
+.9476
+.07899
+.7690
+.9995
+w/o Mesh Non.
+32.10
+.9734
+.03814
+.4877
+.5007
+w/o Gau Non.
+31.16
+.9686
+.03932
+.2968
+.3068
+w/o Teacher
+32.67
+.9751
+.03769
+.5236
+.5359
+Full
+33.29
+.9772
+.03464
+.2953
+.3052
+Table 3.
+Ablation Study.
+We use the mesh reconstructed by
+NeuS2 [53] as a pseudo-truth for geometry evaluation.
+38, 61]. Facial expressions and gestures are dynamically
+controlled by an Audio2BS model [14], allowing the agent
+to respond naturally with synchronized speech, expressions,
+and movements. A live demonstration is available in our
+supplementary materials.
+6. Discussion
+Conclusion.
+In this work, we present TaoAvatar, a
+lightweight, lifelike full-body talking avatar solution. We
+demonstrate how the teacher-student framework captures
+high-definition facial and body details while ensuring real-
+time performance on AR devices. TaoAvatar can be driven
+by diverse signals, including facial expressions, hand ges-
+tures, and body poses. Through both quantitative and qual-
+itative evaluations, we showcase the advantages of our ap-
+proach. Additionally, we validate its practical potential with
+a real-world application on the Apple Vision Pro.
+Limitations and Future Works.
+TaoAvatar encounters
+challenges in modeling flexible clothing deformation under
+exaggerated body poses, which are out-of-distribution of
+training data. A possible solution is to integrate GNN simu-
+lators [16, 17] handling larger hemlines, which are compat-
+ible with our approach.
+Potential Social Impact. TaoAvatar can synthesize life-
+like talking digital humans within an augmented reality en-
+vironment, generating fabricated 3D content or 2D videos.
+Therefore, responsible use of this technology is essential.
+8
+
+
+References
+[1] https://github.com/zju3dv/EasyMocap. 5, 13
+[2] https://github.com/ShenhanQian/VHAP. 5, 13
+[3] Rinat Abdrashitov, Kim Raichstat, Jared Monsen, and David
+Hill. Robust skin weights transfer via weight inpainting. In
+SIGGRAPH Asia 2023 Technical Communications, SA Tech-
+nical Communications 2023, Sydney, NSW, Australia, De-
+cember 12-15, 2023, pages 25:1–25:4. ACM, 2023. 3, 13
+[4] Thiemo Alldieck, Marcus A. Magnor, Weipeng Xu, Chris-
+tian Theobalt, and Gerard Pons-Moll. Video based recon-
+struction of 3d people models. In 2018 IEEE Conference
+on Computer Vision and Pattern Recognition, CVPR 2018,
+Salt Lake City, UT, USA, June 18-22, 2018, pages 8387–
+8397. Computer Vision Foundation / IEEE Computer Soci-
+ety, 2018. 1, 2
+[5] Thiemo Alldieck, Marcus A. Magnor, Bharat Lal Bhatna-
+gar, Christian Theobalt, and Gerard Pons-Moll.
+Learning
+to reconstruct people in clothing from a single RGB cam-
+era. In IEEE Conference on Computer Vision and Pattern
+Recognition, CVPR 2019, Long Beach, CA, USA, June 16-
+20, 2019, pages 1175–1186. Computer Vision Foundation /
+IEEE, 2019. 2
+[6] Bharat Lal Bhatnagar, Garvita Tiwari, Christian Theobalt,
+and Gerard Pons-Moll. Multi-garment net: Learning to dress
+3d people from images. In 2019 IEEE/CVF International
+Conference on Computer Vision, ICCV 2019, Seoul, Korea
+(South), October 27 - November 2, 2019, pages 5419–5429.
+IEEE, 2019. 1
+[7] Jianchuan Chen, Ying Zhang, Di Kang, Xuefei Zhe, Linchao
+Bao, Xu Jia, and Huchuan Lu. Animatable neural radiance
+fields from monocular rgb videos, 2021. 2
+[8] Xu Chen, Yufeng Zheng, Michael J. Black, Otmar Hilliges,
+and Andreas Geiger. SNARF: differentiable forward skin-
+ning for animating non-rigid neural implicit shapes. In 2021
+IEEE/CVF International Conference on Computer Vision,
+ICCV 2021, Montreal, QC, Canada, October 10-17, 2021,
+pages 11574–11584. IEEE, 2021. 2, 3
+[9] Xu Chen, Tianjian Jiang, Jie Song, Max Rietmann, Andreas
+Geiger, Michael J Black, and Otmar Hilliges. Fast-snarf: A
+fast deformer for articulated neural fields. IEEE Transac-
+tions on Pattern Analysis and Machine Intelligence, 45(10):
+11796–11809, 2023. 2
+[10] Yushuo Chen, Zerong Zheng, Zhe Li, Chao Xu, and Yebin
+Liu. Meshavatar: Learning high-quality triangular human
+avatars from multi-view videos.
+CoRR, abs/2407.08414,
+2024. 2, 3, 5, 6, 7, 13, 14, 16
+[11] Wei Cheng, Ruixiang Chen, Siming Fan, Wanqi Yin, Keyu
+Chen, Zhongang Cai, Jingbo Wang, Yang Gao, Zheng-
+ming Yu, Zhengyu Lin, Daxuan Ren, Lei Yang, Ziwei Liu,
+Chen Change Loy, Chen Qian, Wayne Wu, Dahua Lin, Bo
+Dai, and Kwan-Yee Lin. Dna-rendering: A diverse neural
+actor repository for high-fidelity human-centric rendering.
+In IEEE/CVF International Conference on Computer Vision,
+ICCV 2023, Paris, France, October 1-6, 2023, pages 19925–
+19936. IEEE, 2023. 2
+[12] Edilson De Aguiar, Christian Theobalt, Carsten Stoll, and
+Hans-Peter Seidel. Marker-less deformable mesh tracking
+for human shape and motion capture. In 2007 IEEE confer-
+ence on computer vision and pattern recognition, pages 1–8.
+IEEE, 2007. 2
+[13] Helisa Dhamo, Yinyu Nie, Arthur Moreau, Jifei Song,
+Richard Shaw, Yiren Zhou, and Eduardo P´erez-Pellitero.
+Headgas: Real-time animatable head avatars via 3d gaussian
+splatting. In ECCV (2), pages 459–476. Springer, 2024. 3
+[14] Xiangyu Fan, Jiaqi Li, Zhiqian Lin, Weiye Xiao, and Lei
+Yang. Unitalker: Scaling up audio-driven 3d facial animation
+through A unified model. CoRR, abs/2408.00762, 2024. 7,
+8, 14
+[15] Zhifu Gao, Shiliang Zhang, Ian McLoughlin, and Zhijie Yan.
+Paraformer: Fast and accurate parallel transformer for non-
+autoregressive end-to-end speech recognition. In 23rd An-
+nual Conference of the International Speech Communication
+Association, Interspeech 2022, Incheon, Korea, September
+18-22, 2022, pages 2063–2067. ISCA, 2022. 8, 14
+[16] Artur Grigorev, Michael J. Black, and Otmar Hilliges.
+HOOD: hierarchical graphs for generalized modelling of
+clothing dynamics. In IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, CVPR 2023, Vancouver,
+BC, Canada, June 17-24, 2023, pages 16965–16974. IEEE,
+2023. 3, 8
+[17] Artur Grigorev, Giorgio Becherini, Michael J. Black, Otmar
+Hilliges, and Bernhard Thomaszewski. Contourcraft: Learn-
+ing to resolve intersections in neural multi-garment simula-
+tions. In ACM SIGGRAPH 2024 Conference Papers, SIG-
+GRAPH 2024, Denver, CO, USA, 27 July 2024- 1 August
+2024, page 81. ACM, 2024. 3, 8
+[18] Marc Habermann, Lingjie Liu, Weipeng Xu, Michael Zoll-
+hoefer, Gerard Pons-Moll, and Christian Theobalt. Real-time
+deep dynamic characters. ACM Transactions on Graphics,
+40(4), 2021. 2
+[19] Liangxiao Hu, Hongwen Zhang, Yuxiang Zhang, Boyao
+Zhou, Boning Liu, Shengping Zhang, and Liqiang Nie.
+Gaussianavatar:
+Towards realistic human avatar model-
+ing from a single video via animatable 3d gaussians.
+In
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, CVPR 2024, Seattle, WA, USA, June 16-22,
+2024, pages 634–644. IEEE, 2024. 2, 3, 5, 7, 14, 16
+[20] Shoukang Hu, Tao Hu, and Ziwei Liu.
+Gauhuman: Ar-
+ticulated gaussian splatting from monocular human videos.
+In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, CVPR 2024, Seattle, WA, USA, June 16-22,
+2024, pages 20418–20431. IEEE, 2024. 2
+[21] Mustafa Isik, Martin R¨unz, Markos Georgopoulos, Taras
+Khakhulin, Jonathan Starck, Lourdes Agapito, and Matthias
+Nießner. Humanrf: High-fidelity neural radiance fields for
+humans in motion. ACM Trans. Graph., 42(4):160:1–160:12,
+2023. 2, 5
+[22] Boyi Jiang, Yang Hong, Hujun Bao, and Juyong Zhang. Sel-
+frecon: Self reconstruction your digital avatar from monocu-
+lar video. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, CVPR 2022, New Orleans, LA, USA,
+June 18-24, 2022, pages 5595–5605. IEEE, 2022. 2
+[23] Tianjian Jiang, Xu Chen, Jie Song, and Otmar Hilliges. In-
+stantavatar: Learning avatars from monocular video in 60
+9
+
+
+seconds. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pages 16922–
+16932, 2023. 2
+[24] Xiaotang Jiang, Huan Wang, Yiliu Chen, Ziqi Wu, Lichuan
+Wang, Bin Zou, Yafeng Yang, Zongyang Cui, Yu Cai, Tian-
+hang Yu, Chengfei Lyu, and Zhihua Wu. MNN: A universal
+and efficient inference engine. In Proceedings of the Third
+Conference on Machine Learning and Systems, MLSys 2020,
+Austin, TX, USA, March 2-4, 2020. mlsys.org, 2020. 8
+[25] Yujiao Jiang, Qingmin Liao, Xiaoyu Li, Li Ma, Qi Zhang,
+Chaopeng Zhang, Zongqing Lu, and Ying Shan. UV gaus-
+sians: Joint learning of mesh deformation and gaussian tex-
+tures for human avatar modeling. CoRR, abs/2403.11589,
+2024. 3
+[26] Yujiao Jiang, Qingmin Liao, Zhaolong Wang, Xiangru Lin,
+Zongqing Lu, Yuxi Zhao, Hanqing Wei, Jingrui Ye, Yu
+Zhang, and Zhijing Shao. Smplx-lite: A realistic and driv-
+able avatar benchmark with rich geometry and texture an-
+notations. In IEEE International Conference on Multimedia
+and Expo, ICME 2024, Niagara Falls, ON, Canada, July 15-
+19, 2024, pages 1–6. IEEE, 2024. 1, 2
+[27] Yingwenqi Jiang, Jiadong Tu, Yuan Liu, Xifeng Gao, Xiaox-
+iao Long, Wenping Wang, and Yuexin Ma. Gaussianshader:
+3d gaussian splatting with shading functions for reflective
+surfaces. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, CVPR 2024, Seattle, WA, USA, June
+16-22, 2024, pages 5322–5332. IEEE, 2024. 16
+[28] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Transactions on Graphics, 42
+(4), 2023. 2, 3, 4
+[29] Muhammed Kocabas, Jen-Hao Rick Chang, James Gabriel,
+Oncel Tuzel, and Anurag Ranjan. HUGS: human gaussian
+splats. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, CVPR 2024, Seattle, WA, USA, June
+16-22, 2024, pages 505–515. IEEE, 2024. 2
+[30] Jungil Kong, Jihoon Park, Beomjeong Kim, Jeongmin Kim,
+Dohee Kong, and Sangjin Kim. VITS2: improving quality
+and efficiency of single-stage text-to-speech with adversarial
+learning and architecture design. In 24th Annual Conference
+of the International Speech Communication Association, In-
+terspeech 2023, Dublin, Ireland, August 20-24, 2023, pages
+4374–4378. ISCA, 2023. 8, 14
+[31] Youngjoong Kwon, Baole Fang, Yixing Lu, Haoye Dong,
+Cheng Zhang, Francisco Vicente Carrasco, Albert Mosella-
+Montoro, Jianjin Xu, Shingo Takagi, Daeil Kim, Aayush
+Prakash, and Fernando De la Torre. Generalizable human
+gaussians for sparse view synthesis. In ECCV (78), pages
+451–468. Springer, 2024. 3
+[32] Jiahui Lei, Yufu Wang, Georgios Pavlakos, Lingjie Liu,
+and Kostas Daniilidis. GART: gaussian articulated template
+models. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, CVPR 2024, Seattle, WA, USA, June
+16-22, 2024, pages 19876–19887. IEEE, 2024. 2
+[33] Zhe Li, Zerong Zheng, Lizhen Wang, and Yebin Liu. Ani-
+matable gaussians: Learning pose-dependent gaussian maps
+for high-fidelity human avatar modeling. In IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, CVPR
+2024, Seattle, WA, USA, June 16-22, 2024, pages 19711–
+19722. IEEE, 2024. 2, 3, 5, 6, 7, 13, 14, 15, 16
+[34] Zhihao Liang, Qi Zhang, Ying Feng, Ying Shan, and Kui
+Jia.
+GS-IR: 3d gaussian splatting for inverse rendering.
+In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, CVPR 2024, Seattle, WA, USA, June 16-22,
+2024, pages 21644–21653. IEEE, 2024. 16
+[35] Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu
+Sarkar, Jiatao Gu, and Christian Theobalt. Neural actor: neu-
+ral free-view synthesis of human actors with pose control.
+ACM Trans. Graph., 40(6):219:1–219:16, 2021. 2, 3
+[36] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J Black. Smpl: A skinned multi-
+person linear model. ACM transactions on graphics (TOG),
+34(6):1–16, 2015. 1, 2, 3, 5
+[37] Jonathon Luiten, Georgios Kopanas, Bastian Leibe, and
+Deva Ramanan. Dynamic 3d gaussians: Tracking by per-
+sistent dynamic view synthesis. In 3DV, 2024. 2
+[38] Chengfei Lv, Chaoyue Niu, Renjie Gu, Xiaotang Jiang,
+Zhaode Wang, Bin Liu, Ziqi Wu, Qiulin Yao, Congyu
+Huang, Panos Huang, Tao Huang, Hui Shu, Jinde Song,
+Bin Zou, Peng Lan, Guohuan Xu, Fei Wu, Shaojie Tang,
+Fan Wu, and Guihai Chen. Walle: An end-to-end, general-
+purpose, and large-scale production system for device-cloud
+collaborative machine learning. In 16th USENIX Symposium
+on Operating Systems Design and Implementation, OSDI
+2022, Carlsbad, CA, USA, July 11-13, 2022, pages 249–265.
+USENIX Association, 2022. 8
+[39] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis. Communications of the ACM, 65(1):99–106, 2021. 1,
+2, 13, 16
+[40] Arthur Moreau, Jifei Song, Helisa Dhamo, Richard Shaw,
+Yiren Zhou, and Eduardo P´erez-Pellitero. Human gaussian
+splatting: Real-time rendering of animatable avatars.
+In
+CVPR, pages 788–798. IEEE, 2024. 2
+[41] Thomas M¨uller, Alex Evans, Christoph Schied, and Alexan-
+der Keller. Instant neural graphics primitives with a mul-
+tiresolution hash encoding. ACM transactions on graphics
+(TOG), 41(4):1–15, 2022. 2
+[42] Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani,
+Timo Bolkart, Ahmed A. A. Osman, Dimitrios Tzionas, and
+Michael J. Black. Expressive body capture: 3D hands, face,
+and body from a single image. In Proceedings IEEE Conf.
+on Computer Vision and Pattern Recognition (CVPR), pages
+10975–10985, 2019. 1, 2, 3, 5, 14
+[43] Sida Peng, Junting Dong, Qianqian Wang, Shangzhan
+Zhang, Qing Shuai, Xiaowei Zhou, and Hujun Bao. Ani-
+matable neural radiance fields for modeling dynamic human
+bodies. In Proceedings of the IEEE/CVF International Con-
+ference on Computer Vision, pages 14314–14323, 2021. 1
+[44] Shenhan Qian, Tobias Kirschstein, Liam Schoneveld, Davide
+Davoli, Simon Giebenhain, and Matthias Nießner.
+Gaus-
+sianavatars: Photorealistic head avatars with rigged 3d gaus-
+sians.
+In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, CVPR 2024, Seattle, WA, USA, June
+16-22, 2024, pages 20299–20309. IEEE, 2024. 3, 5
+10

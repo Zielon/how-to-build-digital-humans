@@ -1,0 +1,981 @@
+Title: PGC: Physics-Based Gaussian Cloth from a Single Pose
+
+PGC: Physics-Based Gaussian Cloth from a Single Pose
+Michelle Guo∗1
+Matt Jen-Yuan Chiang2
+Igor Santesteban2
+Nikolaos Sarafianos2
+Hsiao-yu Chen2
+Oshri Halimi2
+Aljaˇz Boˇziˇc2
+Shunsuke Saito2
+Jiajun Wu1
+C. Karen Liu1
+Tuur Stuyck2
+Egor Larionov2
+1Stanford University
+2Meta Reality Labs
+Figure 1. We present a method to recover photorealistic, simulation-ready garments from a multi-view capture of a single static pose. The
+recovered garments consist of simulatable geometry and fine-detail appearance. Moreover, our results generalize to novel motion as they
+can be simulated on human motion sequences, and our garments are relightable.
+Abstract
+We introduce a novel approach to reconstruct simulation-
+ready garments with intricate appearance. Despite recent
+advancements, existing methods often struggle to balance
+the need for accurate garment reconstruction with the abil-
+ity to generalize to new poses and body shapes or require
+large amounts of data to achieve this.
+In contrast, our
+method only requires a multi-view capture of a single static
+frame. We represent garments as hybrid mesh-embedded
+3D Gaussian splats, where the Gaussians capture near-field
+shading and high-frequency details, while the mesh encodes
+far-field albedo and optimized reflectance parameters. We
+achieve novel pose generalization by exploiting the mesh
+from our hybrid approach, enabling physics-based simula-
+tion and surface rendering techniques, while also capturing
+fine details with Gaussians that accurately reconstruct gar-
+ment details. Our optimized garments can be used for sim-
+ulating garments on novel poses, and garment relighting.
+Project page: phys-gaussian-cloth.github.io.
+1. Introduction
+Clothing plays a vital role in how we present ourselves to
+the world, and it is essential to accurately recreate and rep-
+*This work was conducted during an internship at Meta Reality Labs
+resent a person’s attire when creating virtual avatars. The
+automatic reconstruction of animatable garments is a vital
+research area, and it’s no wonder that the field has wit-
+nessed a surge in interest in garment reconstruction tech-
+niques. Over the years, many advances have been made to
+automatically recreate them from scans [26, 32, 74], text-
+guidance [18, 51], monocular videos [30, 45], RGB-D sen-
+sors [66], or even images [28, 29, 48, 65].
+Traditionally, garment reconstruction methods have fo-
+cused on mesh-based representations [2, 32, 61] due to
+their natural fit for simulation purposes [52]. Physics-based
+simulation models allow one to generate natural and phys-
+ically plausible motions under a variety of body move-
+ments. However, mesh-based representations are limited
+to the mesh resolution and often struggle to capture geo-
+metric details such as belts, pockets, and zippers or fab-
+rics with significant thickness and fuzziness such as knits or
+furs. On the other hand, recent development of 3D Gaus-
+sian splat (3DGS) reconstruction [24] applied to clothed
+avatars [33, 34, 47] have shown that they are capable of
+capturing such detailed features resulting in an appearance
+that is true to the real clothing. Despite significant progress
+in point-based simulation models for point-based represen-
+tations of volumetric objects [9, 22, 62, 73], point-based
+cloth simulation is considered computationally expensive
+[67] but largely under-explored. In addition, existing works
+tend to require multi-frame tracking [47, 74]. A concurrent
+arXiv:2503.20779v1  [cs.GR]  26 Mar 2025
+
+
+work called Gaussian Garments [47] also proposes a hybrid
+representation. Gaussian Garments achieves this by lever-
+aging video sequences of multi-view captures. They use
+StyleUNet to predict color shifts and lighting effects. In or-
+der to train this module, they require tracked sequences of
+garments in motion. However, tracking highly deformable
+and dynamic cloth surfaces is computationally expensive
+and remains a challenging problem. Inaccuracy can lead to
+blurring of the appearance in the final result. In contrast, we
+propose a novel appearance model that reconstructs the ap-
+pearance from a single time instance only, eliminating the
+need for temporally tracking deformable surfaces, leading
+to a less cumbersome and more efficient method.
+The goal of this work is to reconstruct the appearance of
+a garment from a multi-view capture of a single frame. A
+natural approach to this problem is to leverage the recent
+work on 3D Gaussian splat (3DGS) scene reconstruction
+[24], which uses a set of 3D Gaussian splats rendered from
+multiple views to fit a set of captures. Each 3D Gaussian
+splat is essentially a point with a local coordinate frame and
+associated view-dependent appearance properties rendered
+with a soft falloff modelled using a Gaussian kernel. With
+this approach we capture the fine volumetric details on the
+surface of fabrics like pilling and fly-aways that give many
+materials their characteristic look.
+A limitation of the original approach [24] is that splats
+are not constrained to specific locations in space, which
+can lead to severe visually jarring artifacts when their po-
+sitions or rotations are perturbed. To alleviate this issue,
+recent works employed a mesh-embedded splat representa-
+tion [16, 36, 43, 47] that anchors splats on a triangle mesh to
+better control their position and scale, which allows them to
+follow the deforming mesh more faithfully. We adopt this
+approach, recognizing the advantage of this representation
+as it allows for physics-based deformations of the underly-
+ing mesh using a simulation pipeline.
+Another difficulty with Gaussian splatting is that splats
+overfit to the scene appearance, baking in shading ef-
+fects like lighting conditions, specular highlights, and self-
+shadowing. This limits their use beyond mere reconstruc-
+tion. We propose an approach to address this limitation in
+garment assets generated from multi-view single pose gar-
+ment captures. Instead of relying solely on Gaussian splat
+optimization to reconstruct the static scene, we exploit the
+strengths of traditional physically-based rendering (PBR)
+techniques to reproduce far-field pose-dependent shading,
+and use 3DGS reconstruction to fill in the missing pose-
+independent details such that the final result remains faith-
+ful in appearance to the original garment. This decomposi-
+tion of responsibilities based on representation fits well with
+frequency-based decomposition of signals.
+To generate garments in novel poses, we employ a
+physics-based cloth simulator to generate a deformed gar-
+ment mesh. Using the deformed mesh, our method com-
+bines the high frequency information of the reconstructed
+mesh-embedded 3DGS with the low frequency information
+obtained from the mesh-based representation, which is ob-
+tained through physics-based rendering of the mesh with its
+reconstructed texture map and reflectance parameters.
+To summarize, we propose the following contributions:
+• The first method to reconstruct high quality simulation-
+ready garments leveraging only a single frame of a multi-
+view capture.
+• A hybrid garment rendering method, which leverages
+both the PBR-based shading for far-field effects and
+Gaussian splats for reproducing near-field fine details on
+the surface of fabrics.
+• We evaluate the sheen’s impact on far-field garment ap-
+pearance and achieve better reconstruction results with a
+cloth-specific PBR model.
+2. Related Work
+Mesh-based Garment Reconstruction: Garment recon-
+struction methods have tackled this problem using special-
+ized patterns to track cloth geometry accurately [8, 17, 49,
+59], but the reconstruction is limited to garments manu-
+factured with a specific pattern thus limiting the ability to
+capture appearance.
+Recent work [70] demonstrated the
+possibility of synthetically augmenting appearance for cap-
+tured patterned clothing. A plethora of mesh-based works
+have been introduced recently that approach the problem
+from a deformation [48, 61], differentiable cloth simula-
+tion [15, 31, 32, 53], and inverse rendering [57, 74] per-
+spectives. However, mesh-based works are unable to rep-
+resent high-frequency details on the surface of the garment
+that are challenging to model with a mesh (e.g. fur, knits,
+pockets). In contrast, we augment our mesh garments with
+Gaussians to model the appearance of near-field geometry.
+Clothed Gaussian Avatars: Several methods [34, 39, 44,
+47, 57] have been proposed to animate cloth avatars using
+3D Gaussian splats, including learning deformations based
+on the underlying avatar movements. D3GA [76] embeds
+3D Gaussians onto a tetrahedral cage driven by joints and
+keypoints, while Animatable Gaussians (AG) [33] predict
+pose-dependent Gaussian offsets on 2D position maps and
+use linear blend skinning to animate the Gaussians. How-
+ever, these approaches require multi-frame input and of-
+ten struggle with tracking garments due to the lack of dis-
+tinctive texture cues and self-occlusion in clothing. This
+can lead to a degradation in appearance. In contrast, our
+method overcomes these limitations by eliminating the need
+for tracking and requiring only a single static frame.
+Hybrid Approaches: The key motivation behind leverag-
+ing hybrid approaches for clothed human applications is
+that they combine the best of both worlds. Mesh-based ap-
+proaches are fast and easy to render but fail to capture loose
+
+
+Figure 2. Method Overview. Given a multi-view capture of a clothed human in a single pose, we first extract the garment mesh and
+fit a 3DGS representation with mesh-embedded Gaussian splats. Simultaneously, we fit an albedo map of the ground truth image and
+back-project onto the mesh to generate a textured mesh. At inference, the mesh is shaded with a physically-based shading model and the
+resulting mesh colors are then transferred to zero-order spherical harmonics on the pre-optimized splats. Finally, we combine the high-pass
+of the original Gaussian splat reconstruction with the low-pass of the traditionally shaded result to produce the final render.
+clothing and fine-level details whereas Gaussian splat-based
+approaches generate hiqh-quality results but their ability to
+be animated and driven remains an active research problem.
+One line of work [27, 56, 63, 64] has focused on Gaussian
+heads driven by underlying mesh-based representations. In
+addition, a wide-range of works [13, 36, 38, 41, 54, 55, 68]
+has introduced hybrid approaches for modeling the full
+clothed body. Unlike such approaches that rely on monocu-
+lar video inputs, we focus on extracting the fine details from
+a single-pose multi-view setup. Furthermore, our main idea
+is to leverage Gaussians to fit only the high-frequency de-
+tails of fabrics, while leaving low-frequency details to the
+physics-based mesh rendering approach.
+Gaussians from Single Pose: Several works [46, 62, 73]
+have investigated reconstructing objects given a single
+multi-view observation for a variety of applications. Splat-
+Sim [46] leverages Gaussian splat reconstruction for rigid
+body objects to improve robot manipulation tasks while
+PhysDreamer [73] optimizes Gaussians from a multi-view
+capture of a scene. However, they have baked-in appear-
+ance and their method is not applicable to garments. Un-
+like existing works, we reconstruct the Gaussians modeling
+appearance details as well as the underlying surface mesh
+from a single pose, enabling realistic garment simulation.
+3. Method
+We propose a novel method for reconstructing photorealis-
+tic garment appearance from multi-view single-pose cap-
+ture.
+Our system (Fig. 2) consists of three key compo-
+nents: 1. Mesh-embedded 3DGS reconstruction (Sec. 3.2)
+— building on previous work, we create a mesh-embedded
+3DGS representation from our capture.
+It leverages the
+strength of 3DGS in reconstructing fine volumetric fabric
+details while anchoring them on a mesh to enable more
+faithful deformations; 2. Physics-based rendering (PBR)
+[42] appearance reconstruction (Sec. 3.3) — we propose a
+novel cloth-specific physically-based shading model to re-
+construct PBR appearance from real world captures. This
+accurately captures shadowing and indirect illumination ef-
+fects under novel pose and lighting conditions; 3. Gaussian-
+PBR hybrid rendering (Sec. 3.4) — we combine the strength
+of physically-based rendering for far-field pose-dependent
+shading, and use 3DGS reconstruction to fill in the missing
+near-field pose-independent details.
+3.1. Preliminaries
+We represent garments with a hybrid representation that in-
+tegrates a mesh with Gaussian splats. The splats’ positions
+are defined as offsets from the mesh. This allows the mesh
+to aid in simulating new dynamics and predicting shading,
+while the Gaussian splats are used to capture and predict
+
+
+high-frequency volumetric details in the appearance of the
+simulated surface. In this section, we discuss geometric op-
+timization for mesh-embedded Gaussian splatting and re-
+view physically-based rendering used to produce the far-
+field shading effects.
+Mesh Reconstruction: Given a set of multi-view images
+{Ik}C
+k=1 from C camera views of a clothed human in a
+static pose, we reconstruct a triangle mesh (V , F ) with ver-
+tex positions V and triangles F . We select a near A-pose
+frame such that the garment’s surface is visible, and has
+minimal wrinkles. The images are then processed to pro-
+duce a noisy point-cloud via stereo matching [5]. We further
+reconstruct the surface [23] using the generated point-cloud,
+and apply remeshing [50] to improve the triangle quality
+making the mesh suitable for simulation. From the recon-
+structed mesh of the whole body, we automatically segment
+out the garment mesh using image-based segmentation [14]
+and project the maps back to the mesh.
+Mesh-embedded Gaussian Splat Representation:
+To
+couple the Gaussians with the mesh, each Gaussian is
+mapped to a triangle on the mesh via a triangle-local coor-
+dinate frame centered at the centroid of each triangle [43].
+The orientation of this frame is determined by the trian-
+gle’s normal, one of the edges normalized, and their cross
+product. Each 3D Gaussian is parameterized by its position
+µ ∈R3, rotation quaternion r ∈H and scale s ∈R3
++
+relative to this frame as well as the coefficients of three
+degrees of spherical harmonics ϕ ∈[0, 1]16×3 and opac-
+ity α ∈R. The triangle-local splat positions and rotations
+are transformed into world space (Sec. 3.2) giving a set of
+global splat parameters Ω= ψ(α, s, r, µ, ϕ; V , F ), before
+the splats are finally rendered producing the final image
+G = G(Ω), where G is the Gaussian rasterizer [24]. The
+view parameters are implicit in G.
+3.2. Mesh-Embedded 3DGS Reconstruction
+Each garment is rendered using a mesh-embedded 3D
+Gaussian splat representation. In addition to prior work,
+we further exploit the underlying mesh representation to
+model far-field lighting and self-shadowing effects using
+PBR techniques. The pre-computed asset consists of a 3D
+Gaussian splat reconstruction of the garment and a corre-
+sponding mesh with an albedo texture estimated from real
+world captures. These two representations are later com-
+bined to render the fine result as described in Sec. 3.4.
+Gaussian Appearance: We sample 1 million Gaussians
+on the surface of the mesh via triangle point picking [58],
+which defines the local position µ of each Gaussian. We ini-
+tialize the local rotation r, scale s and opacity α to identity,
+1 and 0.1, respectively. Spherical harmonics coefficients
+ϕ are initialized randomly. The parameters are optimized
+through minimizing the sum of two losses. First, the follow-
+ing loss [24] between the reference and rendered images:
+  \ma t h cal  {L}_ { \t e xt {3DGS}}  = \lambda \left \| \gtimage _k - \predimage _k \right \|_1 + (1 - \lambda ) \text {SSIM}(\gtimage _k, \predimage _k), 
+(1)
+where Gk is the rendered image, Ik is the reference im-
+age for camera k and SSIM is the structural similarity in-
+dex [75]. Following [24], we use λ = 0.8 for all our exper-
+iments. To discourage outliers (i.e. Gaussian splats away
+from the surface that may fit details not related to the fab-
+ric), we adapt a regularization loss from NeRF [3] to penal-
+ize splats far away from the surface:
+  \ m ath cal  {L}_ {\text {fg}} = \lambda _{\text {fg}} \left \| \fgmask _k - \alphaimage _k \right \|_1, 
+(2)
+where Mk is the foreground mask of the ground truth image
+Ik obtained using Sapiens [25] and αk is the alpha channel
+of the rendered Gaussians. This encourages foreground and
+background Gaussians to have accumulated opacity close
+to 1 and 0 respectively. We use λfg = 0.1 in our optimiza-
+tion. Unlike [47], which trains on segmented garment im-
+ages, we train Gaussians on entire images. To do so, we use
+αk to blend the rendered garment with images of the empty
+capture dome. This allows us to learn fuzzy details on the
+garment boundaries instead of being limited by the segmen-
+tation model accuracy. Note that the alpha regularization
+loss is also sensitive to the segmentation accuracy and can
+negatively affect the reconstruction of fuzzy details. We al-
+leviate this issue by not enforcing the loss at the contours
+of the garment, which we automatically identify by eroding
+and dilating the foreground mask Mk, and masking the pix-
+els at the exclusion. After optimizing Gaussians on the full
+body, we only keep the Gaussians that are bound to mesh
+triangles belonging to the segmented garment.
+3.3. PBR Appearance Reconstruction
+While the optimized 3D Gaussians (Sec. 3.2) are capable
+of reconstructing the garment appearance well, especially
+for the near-field high-frequency fabric details, they contain
+baked-in lighting from the training frame, and thus novel
+deformations (e.g., new wrinkles) would not be shaded
+correctly as demonstrated in Fig. 5(b).
+Previous works
+typically rely on video sequences to reproduce Gaussian
+parameters for different mesh configurations [39, 47, 74]
+and involve multi-frame tracking.
+Instead, we leverage
+physically-based rendering, which naturally accounts for
+lighting effects such as shadowing and indirect illumina-
+tion under mesh deformation.
+This considerably simpli-
+fies the pipeline and compute load.
+In this section, we
+detail how we reconstruct a PBR representation from our
+capture. We first introduce our cloth-specific PBR shading
+model that is suitable for both cloth appearance modeling
+and reconstruction. Then, we estimate the garment color
+using a learning-based approach, removing baked-in light-
+ing from the input images. The other shading parameters
+of our model are estimated with physically-based differen-
+tiable rendering. Finally, together with the reconstructed
+
+
+Figure 3. PBR model evaluation. Each mesh is shaded with 3
+different shading models and compared with ground truth (a). No-
+tice the sheen around the cardigan sleeve and the wrinkle near the
+fleece abdomen denoted by the red square. The Lambertian model
+(b) shows no sheen, Disney BRDF (c) over-estimates the forward
+scattered sheen, whereas our model (d) produces the best match to
+ground truth sheen. PSNR values are computed to quantitatively
+demonstrate the improvement of our model over prior methods.
+mesh (Sec. 3.2), such PBR-based representation can be ren-
+dered under novel pose, view, and lighting conditions. The
+relighting capability is shown in Fig. 8.
+Cloth Appearance Model: The Lambertian model has
+been commonly used in previous work [74]. However, as
+shown in Fig. 3(b), this naive view-independent approach
+misses several key fabric appearance properties and does
+not fit the actual data well. In contrast, we base our model
+on the Disney Bidirectional Reflectance Distribution Func-
+tion [6] (BRDF) fd , a versatile PBR model that is capa-
+ble of creating realistic appearance for general hard surfaces
+and beyond. Garments exhibit strong backward and forward
+scattering at grazing angles, due to their flyaway fibers. This
+is apparent for fabrics constructed from loose staple yarns
+such as the fleece and cardigan in Fig. 3(a). This effect is
+commonly known as sheen. We observed that the sheen
+component of [6] is unable to match the capture and instead
+adopt the sheen BRDF fs proposed by [69]. It is modeled
+based on optical simulation and takes the important fiber
+multiple scattering into account. Combining two BRDFs,
+our final appearance model f results in:
+  \l ab el  {eq:brd f}  f ( \bm {x},\bm {i} ,\ bm {o}) = \sigma _{s} f_{s}(\bm {x},\bm {i},\bm {o}) + H_{s}(\bm {o}) \sigma _{d}(\bm {x}) f_{d}(\bm {x},\bm {i},\bm {o}), (3)
+where x is the position and (i, o) are the lighting and view-
+ing directions. σs is the constant sheen color and σd(x)
+is the spatially-varying base color.
+Hs(o) is the view-
+dependent sheen transmission [69], which ensures we com-
+bine two BRDFs in an energy conserving way. We found
+that the render using our model matches the input image
+better compared to both Lambertian model (completely lack
+of sheen) and Disney BRDF (only having forward scatter-
+ing component of sheen and lack of roughness control) as
+demonstrated in Fig. 3.
+Base Color Reconstruction: To reconstruct the base color
+σd of our model for PBR shading, our goal is to extract a
+spatially-varying lighting-less albedo map from input views
+of the training frame. To remove baked-in lighting, we use
+a pre-trained intrinsic image decomposition network [7] to
+predict the albedo for each view. Intrinsic image decompo-
+sition is inherently under-constrained and a common prob-
+lem is multi-view inconsistency. To address this, we calcu-
+late a color correction matrix per view that minimizes the
+difference between the input image Ik and the predicted
+albedo within the segmentation mask Mk. We found that
+this normalizes the predicted albedo across views effec-
+tively. We estimate and normalize the albedo from 10 input
+views, then back-project and merge them in texture space.
+Shading Reconstruction: Given the estimated base color
+and the carefully calibrated capture conditions, we use Mit-
+suba [21], a physically-based differentiable renderer, to ob-
+tain the other stationary parameters of our model from our
+training frame. The parameters optimized are roughness,
+sheen color and sheen roughness. To better constrain our
+model in the cloth appearance space, we set all other pa-
+rameters as the configuration of a rough dielectric material,
+including setting metallic and clearcoat to 0. We optimize
+the parameters jointly across all input views of the training
+frame. We observed that together with the reconstructed
+base color, our PBR-based method produces a faithful far-
+field reconstruction for both training and test frames.
+3.4. Gaussian—PBR Hybrid Rendering
+We propose a novel approach that combines the strengths
+of 3DGS (Sec. 3.2) and Physically-Based Rendering (PBR)
+representations (Sec. 3.3). The former excels at capturing
+fine volumetric details on fabric surfaces, but struggles with
+pose-dependent effects, while the latter accurately renders
+far-field lighting effects with novel poses, but is limited by
+the underlying mesh quality. By decomposing an image into
+high-frequency and low-frequency components, we approx-
+imate the former using Gaussian-based representation and
+the latter using PBR-based shading. Our key observation is
+that pose-dependent effects like shadowing and indirect il-
+lumination are mostly in the low-frequency signals of a ren-
+der and can be well-approximated by PBR-based shading,
+while high-frequency signals corresponding to fine fabric
+details remain largely pose-independent and can be effec-
+tively captured by a Gaussian-based representation. To be
+specific, a W × H RGB image I ∈[0, 1]W ×H×3 can be
+naturally decomposed into low- and high- frequency com-
+ponents as
+  \lab e l {eq:decompose} \image = h(\image ) + l(\image ),
+(4)
+where l(I) and h(I) are a low-pass and high-pass filter on
+image I respectively. Our hybrid approach will approx-
+imate h(I) with our 3D-Gaussian representation (we call
+near-field shading) and l(I) with our PBR model (we call
+far-field shading) and then combine them into a final ren-
+der. With this, we generalize our garment rendering to novel
+
+
+deformation using single-pose reconstruction. We are able
+to reproduce both high-frequency fabric details and pose-
+dependent lighting effects. We demonstrate our results in
+Sec. 4. We discuss implementation details below.
+Far-field Shading: To create a deformed mesh, we use a
+physics simulator [35] to generate a set of deformed ver-
+tices at time t, denoted by Vt. It is natural to render the mesh
+with a PBR model directly into screen space [21]. However,
+mesh rasterization requires a substantially different render-
+ing pipeline than Gaussian splatting. To combine the two
+representations at run-time, we choose to render into tex-
+ture space. To be specific, we render the mesh using our
+PBR workflow (introduced in Sec. 3.3) denoted by R with
+reconstructed parameters T (including base color and other
+shading parameters) and a given lighting configuration L.
+This produces a new shaded texture: \b m  {T } _t  = \cg (\texture , \light ; \vertices _t, \faces ).
+Our cloth-specific PBR shading model Eq. (3) and viewing
+information are implicit in R. For each Gaussian splat, we
+find the color on Tt using the pre-computed correspondence
+(introduced in Sec. 3.1) to obtain the zero-order spherical
+harmonics ϕ◦
+t ∈R3. Thus, we can use the existing 3DGS
+renderer G to produce a final image using the new colors,
+but with all other parameters unchanged from the original
+3DGS optimization as follows:
+  \ gsha
+d ed
+ _t
+ &
+=  \ras te ri ze r 
+( \ Ome g a ^{\circ }_t), \label {eq:far_field} \\ \Omega ^{\circ }_t &= \psi (\gopacity , \gscale , \grotation , \gposition , \gsphs ^{\circ }_t; \vertices _t, \faces ). \notag
+In contrast to directly rendering Gaussians, this allows us to
+reconstruct wrinkle details under novel deformations.
+Near-field Shading: As mentioned earlier, PBR shading
+lacks many high-frequency details of textured fabric like
+flyaways. To recover these details, we first render the full
+3DGS reconstruction at the new configuration
+  \ predi
+mag
+e _ t &=  \ ra st er ize r  (\Omega _t) \label {eq:near_field}\\ \Omega _t &= \psi (\gopacity , \gscale , \grotation , \gposition , \gsphs ; \vertices _t, \faces ). \notag
+We then extract the near-field shading and appearance from
+the optimized 3D Gaussians by applying a high-pass fil-
+ter h to the Gaussian rendering: h(\pr e di m age _t) = \predimage _t - \lowpass (\predimage _t),
+where l(I) is an α-scaled low-pass filter on image I where
+α the alpha channel of I. The low-pass is computed with an
+alpha-aware Gaussian blur, so that the background does not
+contaminate the garment color at the boundary. To achieve
+this, we renormalize the kernel after scaling it by alpha as
+K(x, y)α(x, y) for each kernel pixel at position (x, y). The
+alpha weighting is applied before kernel normalization. We
+use the rasterized Gaussian opacity as our alpha mask.
+Composed Render: Our final render ˆI combines the high-
+pass near-field reconstruction of Eq. (6) with a low-pass of
+the corresponding far-field reconstruction from Eq. (5):
+  \ r econs t ruction _t = \highpass (\predimage _t) + \lowpass (\gshaded _t).
+(7)
+Fig. 6 demonstrates the composed render on 4 different gar-
+ments. Together with Eq. (4) we identify the reconstruction
+Figure 4. Reconstruction. The fleece garment I is reconstructed
+from the sum of the far-field approximation l(S) and near-field
+approximation h(G) to produce the final reconstruction ˆI. The
+image on the right shows the reconstruction error.
+error |I −ˆIt| of our hybrid approach for the training frame
+as shown in Fig. 4 and empirically find the size of the blur
+kernel that minimizes the reconstruction error. Please refer
+to the supplemental material for more discussion.
+4. Experiments
+Data: We use four garments: a loose t-shirt, a loose dress, a
+fleece quarter-zip, and a knit cardigan to demonstrate our
+ability to handle loose garments and fuzzy fabrics.
+The
+clothed subjects are recorded with a multi-view system con-
+sisting of 170 cameras arranged uniformly in a half-dome
+configuration above the ground.
+Images are captured at
+4096×2668 resolution. Each subject followed a predefined
+script that includes a variety of poses to ensure diverse data
+capture. However, despite capturing temporal sequences,
+we utilize only a single frame near the A-pose for each sub-
+ject to reconstruct the garments. The rest of the ground truth
+captures represent novel poses, which we use to evaluate
+our method in all figures except Fig. 3 and Fig. 4.
+Metrics:
+We validate our method using two metrics,
+learned perceptual similarity (LPIPS) [72] and feature sim-
+ilarity (FSIM) [71], which compares salient low-level fea-
+tures to better match the human visual system. Note that
+pixel-based metrics such as PSNR are less appropriate for
+our work at test time since we use a simulated result with
+manually defined parameters that may not align with ground
+truth as can be seen in Fig. 7 (see Sec. 4.4 for proposed im-
+provements). The goal of our approach is not to achieve
+perfect pixel-to-pixel correspondence at test time. Instead,
+we show that new wrinkles are generated under new defor-
+mations and their aesthetic is preserved, which we demon-
+strate qualitatively in Fig. 5 and Fig. 7. Quantitative metrics
+were computed on four video sequences containing 150 un-
+seen frames each, including a goal-post pose, spooky pose
+and upside-down U pose as shown in Fig. 1.
+4.1. Ablation Studies
+We compare our method qualitatively and quantitatively
+with a series of ablations where the importance of key com-
+ponents of our method are evaluated. We provide qualitative
+comparisons in Fig. 5 as well as quantitative comparisons in
+Tab. 1 (bottom). Specifically, we explore the performance
+
+
+Table 1. Quantitative Comparisons: Our proposed approach im-
+proves significantly upon top-performing past work (top). In ad-
+dition we conduct ablation studies (bottom) on novel frames with
+unseen poses. Our full method outperforms related work and ab-
+lated results of our hybrid representation.
+Method
+FSIM↑
+LPIPS (×10−2) ↓
+SCARF [12]
+0.764
+5.00
+Animatable Gaussians [33]
+0.827
+3.39
+3DGS-Only
+0.825
+3.41
+PBR-Only
+0.809
+4.67
+Ours
+0.834
+3.38
+Figure 5. Ablation. We compare our approach to different abla-
+tions of our method and ground truth (a) of a novel pose. 3DGS-
+Only (b) has baked in shading from the training pose, resulting in
+unrealistic appearance when deformed to novel poses. PBR-Only
+(c) has reshading, but lacks detailed shading, and can only model
+flat 2D texture colors. Ours (d) has the best of both worlds.
+of: a) 3DGS-Only that has baked in shading from the train-
+ing pose, which makes the appearance unrealistic when de-
+formed to novel poses, b) PBR-Only that has reshading, but
+lacks the detailed shading and volumetric flyaways mean-
+ing that it can only render 2D surfaces, and c) our approach
+that combines the far-field relightable BRDF render with the
+near-field shading and fine volumetric details of the mesh-
+embedded 3DGS.
+Relighting: We demonstrate that our garments can be ren-
+dered under a variety of lighting conditions in Fig. 8. Note
+that compared to pure 3DGS-based methods that require
+learning pose-dependent intrinsic maps from multi-view
+multi-pose data, we rely on a single pose only. This fig-
+ure also demonstrates a clear sheen effect in novel lighting
+optimized against real world captures.
+Figure 6. Decomposition. Our method composes the lowpass
+shaded Gaussians l(S) with the highpass Gaussians h(G) to ren-
+der garments under novel deformations. Note that l(S) contributes
+the far-field shading (e.g., mesh wrinkles) while h(G) contributes
+the near-field, high-frequency details.
+4.2. Body Animation & Cloth Simulation
+Although any simulation method would be effective, we
+simulate the garment on body mesh sequences using an
+implementation of the eXtended Position Based Dynam-
+ics (XPBD) [35] simulation method, chosen for its excellent
+performance characteristics. We use a SMPL-like parame-
+terized statistical body model. Given the tracked skeleton
+motion from the video sequence, we use linear blend skin-
+ning (LBS) to animate the human body. The garment is
+simulated with the body mesh as the collider. The garment
+meshes are directly used for rendering the novel frames.
+4.3. Comparisons with State of the Art
+We compare with two top-performing recent approaches:
+Animatable Gaussians (AG) [33] and SCARF [12] and pro-
+vide our qualitative and quantitative comparisons in Fig. 7
+and Tab. 1. We refer the reader to the supplementary ma-
+terial for additional details for each baseline method. We
+observe that both past works struggle on loose clothing like
+the dress. AG has difficulty modeling loose garments since
+the underlying skinning module cannot represent dynamic
+motions, so it produces blurriness at the loose part of the
+clothing. Since neither baselines use physics simulation to
+drive the dress motion, the resulting dynamical movements
+are unrealistic in comparison to ours. However, despite pro-
+ducing higher quality motion, our approach does not op-
+timize for garment rest shape and instead uses the recon-
+structed geometry as the rest shape for simulation. This is a
+well-known phenomenon (i.e. sagging [20]), which causes
+
+
+Figure 7. Qualitative Comparisons. We compare our proposed
+approach (d) with the state-of-the-art methods SCARF [12] (b)
+Animatable Gaussians [33] (c) in a novel pose setting. We observe
+that both baselines struggle with loose clothing and at the same
+time they are not lighting-aware while our method can faithfully
+represent the dress and render it under novel lighting.
+the dress to sag under gravity and hence the patterns on
+the dress (although more crisp) appear lower in the frame
+than in the reference. We believe this is the main reason
+for AG to produce slightly higher PSNR values and we note
+that other state-of-the-art methods [47] excluded quantita-
+tive comparisons to AG altogether. Additionally, our shad-
+ing model also provides better generalization.
+Although we cannot explicitly compare results against
+Gaussian Garments [47], since their code is not available,
+we note that not unlike their method, we also outperform
+SCARF in all metrics, without the need for multi-frame
+tracking. As a result, our method produces more crisp de-
+tails since we can completely avoid motion-blur effects in
+video captures and averaging artifacts during multi-frame
+tracking. In terms of performance, Gaussian Garments re-
+quires an additional 24.5 hours for multi-view registration,
+which our method bypasses entirely.
+4.4. Limitations and Future Work
+Pose-dependent Details and Relightability. Our approach
+ignores the effects of deformation and novel lighting on
+high-frequency appearance. It is also limited by the capac-
+ity of 3DGS of generalizing to under-observed areas (e.g.
+armpit area). While this can be partially inferred on a full
+garment by tracking multi-view video capture per garment
+as in [47], another approach would be to capture fine details
+using close-up captures of fabrics and with varying lighting
+conditions for a fully relightable model.
+Albedo Extraction and Back-projection.
+Our method
+uses an off-the-shelf albedo extraction technique [7], which
+we apply per camera view, that generates inconsistent colors
+when back-projected onto the mesh. This causes some ar-
+Figure 8. Relighting. The PBR component of the composed ren-
+der enables our assets to correctly respond to different lighting.
+tifacts in the far-field render. Addressing this issue would
+enable us to make use of a smaller blur kernel and rely
+more heavily on the generalizable far-field PBR component.
+Range of Fabrics. We target common fabrics with fuzzy
+surfaces that are difficult to reproduce with pure PBR meth-
+ods. Long fur or transparent fabrics would require mesh-
+reconstruction techniques and accurate tracking [47].
+Geometry Misalignment. To better match ground truth ge-
+ometry, we can leverage differentiable simulation [32, 53]
+to recover more accurate rest shape and material parame-
+ters. This would enable editability, resizing [10], and sag-
+free rest shape estimation [20] to obtain simulated garments
+that remain consistent in size with the reconstructed geome-
+tries. This would improve feature alignment at test time,
+potentially improving similarity metrics to ground truth. Fi-
+nally, our method assumes shell geometry along the entire
+garment, which would not accurately model the deforma-
+tion of pockets, multi-layer garments, or garment openings.
+Runtime: Once reconstructed, our garments can be lever-
+aged in real-time applications such as games or virtual
+telepresence. Our method relies exclusively on techniques
+that run in real-time: a) PBR techniques are commonly used
+in real-time games [1], and b) numerous recent works [37,
+40, 60] demonstrate real-time Gaussian splat rendering.
+This, in combination with real-time simulation [35], en-
+able our garments to be rendered and simulated in real-time,
+making them highly versatile for various applications.
+5. Conclusion
+We introduced a new method that generates real-time capa-
+ble virtual garment assets from a single frame multi-view
+capture. Our approach extends 3D Gaussian splatting ap-
+plied to garment captures with the ability to generalize to
+new deformations such as those produced by cloth simula-
+tion tools and new lighting conditions. Our results outper-
+form both qualitatively and quantitatively recent state-of-
+the-art methods while remaining simple and requiring only
+captures of a single pose. This eliminates the need for com-
+plex surface tracking and prevents blurring of fine details
+due to averaging and motion blur effects of multi-frame cap-
+tures. We believe that this work brings us one step closer to
+more realistic clothed avatars with garment assets suitable
+for virtual try-on and telepresence applications.
+
+
+Acknowledgements
+We thank S´ebastien Speierer for providing advice on inverse
+rendering and Tomas Simon for help with processing cap-
+tures. This research was supported by Meta Reality Labs.
+Michelle Guo is also supported by the NSF GRFP, NSF RI
+#2211258 and #2338203, and the Stanford Institute for Hu-
+man Centered AI (HAI).
+References
+[1] Tomas Akenine-Moller, Eric Haines, and Naty Hoffman.
+Real-time rendering. AK Peters/crc Press, 2019. 8
+[2] Seungbae Bang, Maria Korosteleva, and Sung-Hee Lee. Es-
+timating garment patterns from static scan data.
+In Com-
+puter Graphics Forum, pages 273–287. Wiley Online Li-
+brary, 2021. 1
+[3] Sai Bi, Zexiang Xu, Pratul P. Srinivasan, Ben Milden-
+hall, Kalyan Sunkavalli, Milos Hasan, Yannick Hold-
+Geoffroy, David J. Kriegman, and Ravi Ramamoorthi. Neu-
+ral reflectance fields for appearance acquisition.
+CoRR,
+abs/2008.03824, 2020. 4
+[4] Blender.
+Blender.
+https://www.blender.org//, 2024.
+Ac-
+cessed on November 2024. 1
+[5] Michael Bleyer, Christoph Rhemann, and Carsten Rother.
+Patchmatch stereo-stereo matching with slanted support win-
+dows. In Bmvc, pages 1–11, 2011. 4
+[6] Brent
+Burley
+and
+Walt
+Disney
+Animation
+Studios.
+Physically-based shading at disney.
+In Acm Siggraph,
+pages 1–7. vol. 2012, 2012. 5, 2, 3
+[7] Chris Careaga and Ya˘gız Aksoy. Intrinsic image decomposi-
+tion via ordinal shading. ACM TOG, 43(1), 2023. 5, 8
+[8] He Chen, Hyojoon Park, Kutay Macit, and Ladislav Kavan.
+Capturing detailed deformations of moving human bodies.
+ACM Transactions on Graphics (TOG), 40(4):1–18, 2021. 2
+[9] Hsiao-yu Chen, Edith Tretschk, Tuur Stuyck, Petr Kadlecek,
+Ladislav Kavan, Etienne Vouga, and Christoph Lassner. Vir-
+tual elastic objects. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, pages
+15827–15837, 2022. 1
+[10] Hsiao-yu Chen, Egor Larionov, Ladislav Kavan, Gene Lin,
+Doug Roble, Olga Sorkine-Hornung, and Tuur Stuyck. Dress
+anyone: Automatic physically-based garment pattern refit-
+ting. arXiv preprint arXiv:2405.19148, 2024. 8
+[11] Yao Feng, Vasileios Choutas, Timo Bolkart, Dimitrios
+Tzionas, and Michael Black. Collaborative regression of ex-
+pressive bodies using moderation. In International Confer-
+ence on 3D Vision (3DV), pages 792–804, 2021. 3
+[12] Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black,
+and Timo Bolkart.
+Capturing and animation of body and
+clothing from monocular video. In SIGGRAPH Asia 2022
+Conference Papers, 2022. 7, 8, 3
+[13] Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J Black,
+and Timo Bolkart.
+Capturing and animation of body and
+clothing from monocular video. In SIGGRAPH Asia 2022
+Conference Papers, pages 1–9, 2022. 3
+[14] Cheng-Yang Fu, Tamara L Berg, and Alexander C Berg.
+Imp: Instance mask projection for high accuracy semantic
+segmentation of things. In ICCV, 2019. 4
+[15] Artur Grigorev, Michael J Black, and Otmar Hilliges. Hood:
+Hierarchical graphs for generalized modelling of clothing
+dynamics.
+In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 16965–
+16974, 2023. 2
+[16] Antoine Gu´edon and Vincent Lepetit.
+Sugar:
+Surface-
+aligned gaussian splatting for efficient 3d mesh reconstruc-
+tion and high-quality mesh rendering. CVPR, 2024. 2
+[17] Oshri Halimi, Tuur Stuyck, Donglai Xiang, Timur M
+Bagautdinov, He Wen, Ron Kimmel, Takaaki Shiratori,
+Chenglei Wu, Yaser Sheikh, and Fabian Prada. Pattern-based
+cloth registration and sparse-view animation. ACM Trans.
+Graph., 41(6):196–1, 2022. 2
+[18] Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu,
+and Lan Xu. Dresscode: Autoregressively sewing and gen-
+erating garments from text guidance. ACM Transactions on
+Graphics (TOG), 43(4):1–13, 2024. 1
+[19] Houdini. Houdini. https://www.sidefx.com/products/houdini/,
+2024. Accessed on November 2024. 1
+[20] Jerry Hsu, Nghia Truong, Cem Yuksel, and Kui Wu. A gen-
+eral two-stage initialization for sag-free deformable simula-
+tions. ACM Transactions on Graphics (Proceedings of SIG-
+GRAPH 2022), 41(4):64:1–64:13, 2022. 7, 8
+[21] Wenzel Jakob, S´ebastien Speierer, Nicolas Roussel, Merlin
+Nimier-David, Delio Vicini, Tizian Zeltner, Baptiste Nicolet,
+Miguel Crespo, Vincent Leroy, and Ziyi Zhang. Mitsuba 3
+renderer, 2022. https://mitsuba-renderer.org. 5, 6, 2
+[22] Ying Jiang, Chang Yu, Tianyi Xie, Xuan Li, Yutao Feng,
+Huamin Wang, Minchen Li, Henry Lau, Feng Gao, Yin
+Yang, et al. Vr-gs: A physical dynamics-aware interactive
+gaussian splatting system in virtual reality.
+In ACM SIG-
+GRAPH 2024 Conference Papers, pages 1–1, 2024. 1
+[23] Michael Kazhdan and Hugues Hoppe. Screened poisson sur-
+face reconstruction. ACM Transactions on Graphics (ToG),
+32(3):1–13, 2013. 4
+[24] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Transactions on Graphics, 42
+(4), 2023. 1, 2, 4
+[25] Rawal Khirodkar, Timur Bagautdinov, Julieta Martinez, Su
+Zhaoen, Austin James, Peter Selednik, Stuart Anderson, and
+Shunsuke Saito. Sapiens: Foundation for human vision mod-
+els.
+In Computer Vision – ECCV 2024, pages 206–228,
+Cham, 2025. Springer Nature Switzerland. 4
+[26] Taeksoo Kim, Byungjun Kim, Shunsuke Saito, and Hanbyul
+Joo.
+Gala: Generating animatable layered assets from a
+single scan. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 1535–
+1545, 2024. 1
+[27] Tobias Kirschstein,
+Simon Giebenhain,
+Jiapeng Tang,
+Markos Georgopoulos, and Matthias Nießner.
+Gghead:
+Fast and generalizable 3d gaussian heads.
+arXiv preprint
+arXiv:2406.09377, 2024. 3
+
+
+[28] Boqian Li, Xuan Li, Ying Jiang, Tianyi Xie, Feng Gao,
+Huamin Wang, Yin Yang, and Chenfanfu Jiang. Garment-
+dreamer: 3dgs guided garment synthesis with diverse geom-
+etry and texture details. arXiv preprint arXiv:2405.12420,
+2024. 1
+[29] Ren Li, Corentin Dumery, Benoit Guillard, and Pascal Fua.
+Garment Recovery with Shape and Deformation Priors. In
+Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition, 2024. 1
+[30] Yue Li, Marc Habermann, Bernhard Thomaszewski, Stelian
+Coros, Thabo Beeler, and Christian Theobalt. Deep physics-
+aware inference of cloth deformation for monocular human
+performance capture. In 2021 International Conference on
+3D Vision (3DV), pages 373–384. IEEE, 2021. 1
+[31] Yifei Li, Tao Du, Kui Wu, Jie Xu, and Wojciech Matusik.
+Diffcloth: Differentiable cloth simulation with dry frictional
+contact. ACM Transactions on Graphics (TOG), 42(1):1–20,
+2022. 2
+[32] Yifei Li, Hsiao-yu Chen, Egor Larionov, Nikolaos Sarafi-
+anos, Wojciech Matusik, and Tuur Stuyck.
+DiffAvatar:
+Simulation-ready garment optimization with differentiable
+simulation. In CVPR, 2024. 1, 2, 8
+[33] Zhe Li, Zerong Zheng, Lizhen Wang, and Yebin Liu. Ani-
+matable gaussians: Learning pose-dependent gaussian maps
+for high-fidelity human avatar modeling. In CVPR, 2024. 1,
+2, 7, 8, 3
+[34] Siyou Lin, Zhe Li, Zhaoqi Su, Zerong Zheng, Hongwen
+Zhang, and Yebin Liu. Layga: Layered gaussian avatars for
+animatable clothing transfer. In ACM SIGGRAPH 2024 Con-
+ference Papers, pages 1–11, 2024. 1, 2
+[35] Miles Macklin, Matthias M¨uller, and Nuttapong Chentanez.
+Xpbd: position-based simulation of compliant constrained
+dynamics. In Proceedings of the 9th International Confer-
+ence on Motion in Games, pages 49–54, 2016. 6, 7, 8, 2,
+3
+[36] Gyeongsik Moon, Takaaki Shiratori, and Shunsuke Saito.
+Expressive whole-body 3d gaussian avatar. arXiv preprint
+arXiv:2407.21686, 2024. 2, 3
+[37] Michael Niemeyer, Fabian Manhardt, Marie-Julie Rakoto-
+saona, Michael Oechsle, Daniel Duckworth, Rama Gosula,
+Keisuke Tateno, John Bates, Dominik Kaeser, and Federico
+Tombari. Radsplat: Radiance field-informed gaussian splat-
+ting for robust real-time rendering with 900+ fps.
+arXiv
+preprint arXiv:2403.13806, 2024. 8
+[38] Panwang Pan, Zhuo Su, Chenguo Lin, Zhen Fan, Yongjie
+Zhang, Zeming Li, Tingting Shen, Yadong Mu, and Yebin
+Liu.
+Humansplat:
+Generalizable single-image human
+gaussian splatting with structure priors.
+arXiv preprint
+arXiv:2406.12459, 2024. 3
+[39] Bo Peng, Yunfan Tao, Haoyu Zhan, Yudong Guo, and Juy-
+ong Zhang. Pica: Physics-integrated clothed avatar. arXiv
+preprint arXiv:2407.05324, 2024. 2, 4
+[40] Zhexi Peng, Tianjia Shao, Yong Liu, Jingke Zhou, Yin Yang,
+Jingdong Wang, and Kun Zhou. Rtg-slam: Real-time 3d re-
+construction at scale using gaussian splatting. In ACM SIG-
+GRAPH 2024 Conference Papers, pages 1–11, 2024. 8
+[41] Marco Pesavento, Yuanlu Xu, Nikolaos Sarafianos, Robert
+Maier, Ziyan Wang, Chun-Han Yao, Marco Volino, Edmond
+Boyer, Adrian Hilton, and Tony Tung. Anim: Accurate neu-
+ral implicit model for human reconstruction from a single
+rgb-d image. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 5448–
+5458, 2024. 3
+[42] Matt Pharr, Wenzel Jakob, and Greg Humphreys.
+Physi-
+cally based rendering: From theory to implementation. MIT
+Press, 2023. 3
+[43] Shenhan Qian, Tobias Kirschstein, Liam Schoneveld, Davide
+Davoli, Simon Giebenhain, and Matthias Nießner.
+Gaus-
+sianavatars: Photorealistic head avatars with rigged 3d gaus-
+sians. In Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition (CVPR), pages 20299–
+20309, 2024. 2, 4, 1
+[44] Zhiyin Qian, Shaofei Wang, Marko Mihajlovic, Andreas
+Geiger, and Siyu Tang. 3dgs-avatar: Animatable avatars via
+deformable 3d gaussian splatting. In CVPR, 2024. 2
+[45] Lingteng Qiu, Guanying Chen, Jiapeng Zhou, Mutian Xu,
+Junle Wang, and Xiaoguang Han. Rec-mv: Reconstructing
+3d dynamic cloth from monocular videos. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 4637–4646, 2023. 1
+[46] Mohammad Nomaan Qureshi, Sparsh Garg, Francisco Yan-
+dun, David Held, George Kantor, and Abhishesh Sil-
+wal. Splatsim: Zero-shot sim2real transfer of rgb manip-
+ulation policies using gaussian splatting.
+arXiv preprint
+arXiv:2409.10161, 2024. 3
+[47] Boxiang Rong, Artur Grigorev, Wenbo Wang, Michael J.
+Black, Bernhard Thomaszewski, Christina Tsalicoglou,
+and Otmar Hilliges.
+Gaussian garments:
+Reconstruct-
+ing simulation-ready clothing with photorealistic appearance
+from multi-view video, 2024. 1, 2, 4, 8, 3
+[48] Nikolaos Sarafianos, Tuur Stuyck, Xiaoyu Xiang, Yilei Li,
+Jovan Popovic, and Rakesh Ranjan. Garment3dgen: 3d gar-
+ment stylization and texture generation. 2025 International
+Conference on 3D Vision (3DV), 2025. 1, 2
+[49] Volker Scholz, Timo Stich, Marcus Magnor, Michael Keck-
+eisen, and Markus Wacker. Garment motion capture using
+color-coded patterns. In ACM SIGGRAPH 2005 Sketches,
+pages 38–es, 2005. 2
+[50] SideFX. Houdini, 2024. 4
+[51] Astitva Srivastava, Pranav Manu, Amit Raj, Varun Jampani,
+and Avinash Sharma. Wordrobe: Text-guided generation of
+textured 3d garments. In European Conference on Computer
+Vision, pages 458–475. Springer, 2025. 1
+[52] Tuur Stuyck.
+Cloth simulation for computer graphics.
+Springer Nature, 2022. 1
+[53] Tuur Stuyck and Hsiao-yu Chen. Diffxpbd: Differentiable
+position-based simulation of compliant constraint dynamics.
+Proceedings of the ACM on Computer Graphics and Inter-
+active Techniques, 6(3):1–14, 2023. 2, 8
+[54] David Svitov, Pietro Morerio, Lourdes Agapito, and Alessio
+Del Bue. Haha: Highly articulated gaussian human avatars
+with textured mesh prior. arXiv preprint arXiv:2404.01053,
+2024. 3
