@@ -114,9 +114,9 @@ function initTabs() {
     });
   });
 
-  window.addEventListener("hashchange", function() {
-    var tab = getTabFromHash();
-    if (tab) switchToTab(tab);
+  window.addEventListener("popstate", function() {
+    var tab = getTabFromHash() || "publications";
+    switchToTab(tab);
   });
 
   // Legend filtering: clicking a legend item toggles it in the filter array
