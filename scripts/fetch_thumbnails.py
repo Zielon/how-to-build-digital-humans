@@ -33,7 +33,12 @@ THUMB_DIR.mkdir(parents=True, exist_ok=True)
 ABSTRACT_DIR = ROOT / "assets" / "data" / "abstracts"
 ABSTRACT_DIR.mkdir(parents=True, exist_ok=True)
 
-THUMB_EXT = ".jpg"  # single source of truth for extension
+THUMB_EXT = ".jpg"  # extension produced by pdf2image (converted to .webp afterwards)
+
+
+def thumb_exists(out_dir, fname):
+    """A paper is considered fetched if either .webp (preferred) or .jpg exists."""
+    return (out_dir / f"{fname}.webp").exists() or (out_dir / f"{fname}.jpg").exists()
 
 # Make tables_src importable
 sys.path.insert(0, str(SRC))
@@ -160,8 +165,8 @@ def ensure_thumbnail(key: str, arxiv_url: str, out_dir: Path) -> None:
     fname = thumb_name(key)  # e.g. "MyPaper_2024"
     out_path = out_dir / f"{fname}{THUMB_EXT}"
 
-    if out_path.exists():
-        # Thumbnail already exists
+    if thumb_exists(out_dir, fname):
+        # Thumbnail (.jpg or .webp) already exists
         return
 
     try:
@@ -244,7 +249,7 @@ def main() -> None:
             continue
 
         fname = thumb_name(key)
-        if not (THUMB_DIR / f"{fname}{THUMB_EXT}").exists():
+        if not thumb_exists(THUMB_DIR, fname):
             thumb_tasks.append((key, arxiv))
         if not (ABSTRACT_DIR / f"{fname}.txt").exists():
             abstract_tasks.append((key, arxiv))

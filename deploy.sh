@@ -8,6 +8,9 @@ echo -e "\n======== Fetching thumbnails ========\n"
 cd "$ROOT/scripts"
 $PY fetch_thumbnails.py
 
+echo -e "\n======== Converting thumbnails to WebP ========\n"
+bash "$ROOT/scripts/convert_thumbnails_webp.sh"
+
 echo -e "\n======== Fetching abstracts ========\n"
 cd "$ROOT/tables_src"
 $PY fetch_abstracts.py

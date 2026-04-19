@@ -51,7 +51,7 @@ def check_assets(
         fname = _sanitize_key(entry["key"])
 
         if thumbnails:
-            thumb_path = THUMB_DIR / f"{fname}.jpg"
+            thumb_path = THUMB_DIR / f"{fname}.webp"
             if not thumb_path.exists():
                 missing_thumbs.append(entry)
 

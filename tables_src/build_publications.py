@@ -603,7 +603,7 @@ def build_publications_page():
         video = e["video"]
         arxiv = e["arxiv"]
 
-        thumb_src = f"assets/img/thumbnails/{html.escape(key)}.jpg"
+        thumb_src = f"assets/img/thumbnails/{html.escape(key)}.webp"
 
         # Determine PDF URL for thumbnail click-through
         pdf_url = ""
@@ -650,7 +650,8 @@ def build_publications_page():
             lines.append(f'    <a href="{html.escape(pdf_url)}" target="_blank" rel="noopener" class="pub-thumb-link" title="View PDF">')
         lines.append(
             f'    <img src="{thumb_src}" alt="Thumbnail for {html.escape(title)}" '
-            "loading=\"lazy\" onerror=\"this.classList.add('no-thumb');"
+            "loading=\"lazy\" decoding=\"async\" fetchpriority=\"low\" "
+            "onerror=\"this.classList.add('no-thumb');"
             "this.parentElement.classList.add('has-placeholder');"
             "var s=document.createElement('div');s.className='thumb-placeholder';"
             "s.innerHTML='<svg width=\\'48\\' height=\\'48\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'1.5\\'>"
@@ -728,11 +729,16 @@ def build_publications_page():
         lines.append("</article>")
 
     lines.append("</div>")
+    lines.append('<div id="pub-list-sentinel" aria-hidden="true" style="height:1px"></div>')
 
-    # --- Inline JS for filtering (no pagination) ---
+    # --- Inline JS for filtering + progressive rendering ---
     lines.append('<script>')
     lines.append('(function() {')
     lines.append('  var allCards = Array.prototype.slice.call(document.querySelectorAll("#pub-list .pub-card"));')
+    lines.append('  var PAGE_SIZE = 50;')
+    lines.append('  var visibleLimit = PAGE_SIZE;')
+    lines.append('  var matchedCards = allCards.slice();')
+    lines.append('  var sentinel = document.getElementById("pub-list-sentinel");')
     lines.append('  var searchEl = document.getElementById("pub-search");')
     lines.append('  var yearEl   = document.getElementById("pub-year-filter");')
     lines.append('  var venueEl  = document.getElementById("pub-venue-filter");')
@@ -809,7 +815,7 @@ def build_publications_page():
     lines.append('    var cat = catEl ? catEl.value : "";')
     lines.append('    var lfs = window.__legendFilters || [];')
     lines.append('    renderPills();')
-    lines.append('    var rank = 0;')
+    lines.append('    matchedCards = [];')
     lines.append('    for (var i = 0; i < allCards.length; i++) {')
     lines.append('      var c = allCards[i];')
     lines.append('      var show = true;')
@@ -849,16 +855,10 @@ def build_publications_page():
     lines.append('          } catch(e) { show = false; }')
     lines.append('        } else { show = false; }')
     lines.append('      }')
-    lines.append('      if (show) {')
-    lines.append('        c.style.display = "";')
-    lines.append('        rank++;')
-    lines.append('        var r = c.querySelector(".pub-rank");')
-    lines.append('        if (r) r.textContent = rank;')
-    lines.append('      } else {')
-    lines.append('        c.style.display = "none";')
-    lines.append('      }')
+    lines.append('      if (show) matchedCards.push(c); else c.style.display = "none";')
     lines.append('    }')
-    lines.append('    if (countEl) countEl.textContent = rank + (rank === 1 ? " paper" : " papers");')
+    lines.append('    visibleLimit = PAGE_SIZE;')
+    lines.append('    renderVisible();')
     lines.append('    // Sync notes visibility with filters and checkbox')
     lines.append('    var notesRelevant = false;')
     lines.append('    for (var ni = 0; ni < ttSelected.length; ni++) {')
@@ -878,6 +878,36 @@ def build_publications_page():
     lines.append('      pubList.classList.toggle("show-notes", showNotesCheck.checked);')
     lines.append('    }')
     lines.append('  }')
+    lines.append('')
+    lines.append('  function renderVisible() {')
+    lines.append('    var n = Math.min(matchedCards.length, visibleLimit);')
+    lines.append('    for (var i = 0; i < matchedCards.length; i++) {')
+    lines.append('      var c = matchedCards[i];')
+    lines.append('      if (i < n) {')
+    lines.append('        c.style.display = "";')
+    lines.append('        var r = c.querySelector(".pub-rank");')
+    lines.append('        if (r) r.textContent = i + 1;')
+    lines.append('      } else {')
+    lines.append('        c.style.display = "none";')
+    lines.append('      }')
+    lines.append('    }')
+    lines.append('    if (countEl) countEl.textContent = matchedCards.length + (matchedCards.length === 1 ? " paper" : " papers");')
+    lines.append('    if (sentinel) sentinel.style.display = matchedCards.length > visibleLimit ? "" : "none";')
+    lines.append('  }')
+    lines.append('')
+    lines.append('  if (sentinel && "IntersectionObserver" in window) {')
+    lines.append('    var io = new IntersectionObserver(function(entries) {')
+    lines.append('      for (var i = 0; i < entries.length; i++) {')
+    lines.append('        if (entries[i].isIntersecting && matchedCards.length > visibleLimit) {')
+    lines.append('          visibleLimit += PAGE_SIZE;')
+    lines.append('          renderVisible();')
+    lines.append('        }')
+    lines.append('      }')
+    lines.append('    }, { rootMargin: "800px 0px" });')
+    lines.append('    io.observe(sentinel);')
+    lines.append('  }')
+    lines.append('')
+    lines.append('  renderVisible();')
     lines.append('')
     lines.append('  window.__pubDoFilter = doFilter;')
     lines.append('')
