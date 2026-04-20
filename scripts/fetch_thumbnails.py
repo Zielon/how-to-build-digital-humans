@@ -219,17 +219,8 @@ def ensure_thumbnail(key: str, arxiv_url: str, out_dir: Path) -> None:
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
 
-        # Downsample twice (each time by factor 2 → overall 1/4 size)
-        for _ in range(1):
-            w, h = img.size
-            if w <= 1 or h <= 1:
-                break
-            img = img.resize(
-                (max(1, w // 2), max(1, h // 2)),
-                resample=Image.LANCZOS,
-            )
-
-        # Save as compressed JPEG
+        # Save as compressed JPEG at native render resolution (~1700 px wide at 200 DPI).
+        # WebP conversion (scripts/convert_thumbnails_webp.sh) caps the final width at 800.
         img.save(out_path, format="JPEG", quality=85, optimize=True, progressive=True)
         print(f"✅ [{key}] Saved thumbnail as {out_path.name}")
     except Exception as e:
