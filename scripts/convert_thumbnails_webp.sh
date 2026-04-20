@@ -8,7 +8,7 @@
 set -euo pipefail
 
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)/assets/img/thumbnails"
-MAX_WIDTH=400
+MAX_WIDTH=800
 QUALITY=78
 
 if ! command -v cwebp >/dev/null; then
