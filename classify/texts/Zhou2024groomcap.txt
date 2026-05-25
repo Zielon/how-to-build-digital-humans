@@ -1,0 +1,971 @@
+Title: GroomCap: High-Fidelity Prior-Free Hair Capture
+
+GroomCap: High-Fidelity Prior-Free Hair Capture
+YUXIAO ZHOU, ETH Zurich, Switzerland
+MENGLEI CHAI, Google Inc., United States of America
+DAOYE WANG, Google Inc., Switzerland
+SEBASTIAN WINBERG, Google Inc., Switzerland
+ERROLL WOOD, Google Inc., United Kindom
+KRIPASINDHU SARKAR, Google Inc., Switzerland
+MARKUS GROSS, ETH Zurich, Switzerland
+THABO BEELER, Google Inc., Switzerland
+Fig. 1. GroomCap reconstructs high-fidelity hair geometry across a diverse array of hairstyles. For each result, we show one input view on the left,
+alongside a rendering of the reconstructed hair model from the same view on the right. A pre-defined material is used to better visualize geometric details.
+Despite recent advances in multi-view hair reconstruction, achieving strand-
+level precision remains a significant challenge due to inherent limitations in
+existing capture pipelines. We introduce GroomCap, a novel multi-view hair
+capture method that reconstructs faithful and high-fidelity hair geometry
+without relying on external data priors. To address the limitations of conven-
+tional reconstruction algorithms, we propose a neural implicit representation
+for hair volume that encodes high-resolution 3D orientation and occupancy
+from input views. This implicit hair volume is trained with a new volumetric
+3D orientation rendering algorithm, coupled with 2D orientation distribution
+supervision, to effectively prevent the loss of structural information caused
+Authors’ addresses: Yuxiao Zhou, ETH Zurich, Switzerland, yuxiao.zhou@inf.ethz.
+ch; Menglei Chai, Google Inc., United States of America, mengleichai@google.com;
+Daoye Wang, Google Inc., Switzerland, daoye@google.com; Sebastian Winberg, Google
+Inc., Switzerland, winbergs@google.com; Erroll Wood, Google Inc., United Kindom,
+errollw@google.com; Kripasindhu Sarkar, Google Inc., Switzerland, krsarkar@google.
+com; Markus Gross, ETH Zurich, Switzerland, grossm@inf.ethz.ch; Thabo Beeler,
+Google Inc., Switzerland, tbeeler@google.com.
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+© 2024 Copyright held by the owner/author(s).
+0730-0301/2024/12-ART254
+https://doi.org/10.1145/3687768
+by undesired orientation blending. We further propose a Gaussian-based
+hair optimization strategy to refine the traced hair strands with a novel
+chained Gaussian representation, utilizing direct photometric supervision
+from images. Our results demonstrate that GroomCap is able to capture
+high-quality hair geometries that are not only more precise and detailed
+than existing methods but also versatile enough for a range of applications.
+CCS Concepts: • Computing methodologies →Parametric curve and
+surface models.
+Additional Key Words and Phrases: Strand-level hair modeling, multi-view
+reconstruction
+ACM Reference Format:
+Yuxiao Zhou, Menglei Chai, Daoye Wang, Sebastian Winberg, Erroll Wood,
+Kripasindhu Sarkar, Markus Gross, and Thabo Beeler. 2024. GroomCap:
+High-Fidelity Prior-Free Hair Capture. ACM Trans. Graph. 43, 6, Article 254
+(December 2024), 15 pages. https://doi.org/10.1145/3687768
+1
+INTRODUCTION
+Hairstyles are not merely aesthetic decorations; they serve as a
+profound expression of individual and cultural identity that shapes
+our perception of others. In the digital realm, realistic hair plays a
+crucial role in virtual reality, gaming, and for digital doubles, where
+visual authenticity is paramount. Despite ongoing efforts in human
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+arXiv:2409.00831v4  [cs.GR]  3 Apr 2025
+
+
+254:2
+•
+Yuxiao Zhou, Menglei Chai, Daoye Wang, Sebastian Winberg, Erroll Wood, Kripasindhu Sarkar, Markus Gross, and Thabo Beeler
+digitization, accurate reconstruction of strand-level hair geometry
+from images remains a formidable and unique challenge. This com-
+plexity arises from the detailed, layered, and intertwined structures
+of hair, alongside its natural variability in style, texture, and material,
+all of which significantly complicate the capture process.
+Over the past decades, multi-view hair reconstruction has seen
+encouraging progress. Well before the advent of neural networks,
+traditional capture pipelines typically reconstruct the visible exterior
+of hair and compute a 3D orientation field using 2D estimates from
+each view, followed by completing the 3D structure of the entire
+hair volume to generate the final strands. Despite the promising
+results, the faithfulness and fidelity of the reconstructed hair are
+largely compromised by key limitations of these pipelines: reliance
+on explicit point clouds and orientation projections may overlook
+critical details in regions of uncertainty and overlapping strands;
+simple volume completion like diffusion or ribbon conversion often
+produces overly smoothed hair and may only work effectively on
+distinct wisp structures; and the final strand extraction further
+deviates the result from the input.
+To address these challenges, recent methods have sought to
+leverage data-driven solutions, incorporating priors learned from
+synthetic data into hair capture pipelines. While prior-based recon-
+struction has seen notable success in other human components, such
+as faces, hands, and bodies, its application to hair remains challeng-
+ing for two primary factors. First, the scarcity of ground-truth hair
+data necessitates large-scale synthetic assets, which are not only
+costly to collect at scale but also suffer from an inevitable gap to real-
+world examples. Second, due to the extreme diversity and variability
+of hair, even the most extensive hair libraries cannot adequately
+cover the precise details of specific subjects. Consequently, despite
+more visually pleasing results, these prior-based approaches often
+yield highly regularized and flattened geometries that struggle to
+capture structural details outside the training set.
+Data priors are not a cure-all. Simply plugging prior models into
+capture pipelines, without addressing the underlying algorithmic
+limitations, still results in challenges that hinder us from achieving
+high-quality hair geometry capture. In this work, we take a more
+fundamental look at the problem and push the boundaries of high-
+quality hair capture without relying on any data priors.
+By examining existing capture pipelines, we identify several key
+issues: 1) Representing hair as discrete exterior surfaces or explicit
+volumes often leads to a significant loss of spatial information, such
+as rich structural details and natural variations in occupancy. 2) 3D
+hair structure is inferred from image-based orientation estimation,
+where each pixel is formed from superposing numerous strands with
+dramatically different directions. However, the common practice of
+aggregating them into a single orientation angle discards crucial
+structural information necessary for accurate recovery. 3) Even with
+initially accurate projected 3D structures, the quality of the hair
+geometry tends to degrade after volume completion and strand
+tracing, resulting in poor spatial distribution, missing local details,
+inconsistent boundaries, and unnatural curvatures.
+In this work, we introduce GroomCap, a novel multi-view hair
+capture pipeline aimed at reconstructing high-fidelity and strand-
+level accurate hair geometry without external data priors. Our
+method incorporates several major technical innovations leading to
+unprecedented performance, versatility, and robustness. Firstly, we
+propose a neural implicit representation for volumetric hair, encod-
+ing 3D orientation and occupancy from input views. Compared to
+exterior surfaces or explicit volumes, our implicit hair volume enjoys
+greater accuracy, expressiveness, and memory-efficiency. Secondly,
+we train our hair volume model to effectively capture the complete
+hair structure. To achieve this, we develop a new volumetric 3D
+orientation rendering algorithm, where orientation integration is
+performed along each ray, maintaining all overlapping hair struc-
+tures without blending. Correspondingly, we revisit 2D orientation
+estimation to estimate a per-pixel orientation distribution as the train-
+ing supervision, rather than a single orientation angle. Finally, we
+introduce Gaussian-based hair optimization, applied to initial hair
+strands traced from the volume, to improve their faithfulness and
+fidelity through direct photometric supervision from input images.
+The key ingredient is a new chained hair Gaussian representation,
+featuring carefully tailored geometry and appearance parameters,
+along with a dynamic splitting and pruning mechanism.
+Altogether, GroomCap effectively captures accurate and high-
+fidelity dense hair models for a diverse range of hairstyles, using
+the same pipeline and parameters for all of them. The resulting
+strand geometries are consistently natural and guaranteed to be
+scalp-rooted, thus supporting various editing applications, including
+re-rendering, physics-based animation, and interactive grooming.
+2
+RELATED WORK
+2.1
+Hair Capture without Data Prior
+Multi-view hair capture is of great interest to both research and
+industry communities, in attempts to digitize 3D hair without in-
+volving laborious artistic authoring. Early efforts [Paris et al. 2004;
+Wei et al. 2005] construct visual hulls to constrain the hair volume
+and estimate 3D hair orientations that are consistent across views.
+[Paris et al. 2008] proposes a system that is capable of reconstruct-
+ing exterior strand positions and growing strands within diffused
+orientation volumes. [Luo et al. 2012, 2013b] introduce multi-view
+stereo methods for reconstructing detailed hair surfaces using 2D
+orientation fields. Following that, [Luo et al. 2013a] proposes a
+structure-aware hair capture method that incorporates structural
+priors to predict ribbon connectivity for capturing hair wisp struc-
+tures. Focusing on capturing sparse outer strand segments instead
+of complete hairstyles, [Jakob et al. 2009] detects accurate hair fibers
+with shallow depth of field captures. [Nam et al. 2019] introduces
+line-based PatchMatch multi-view stereo for hair, which is further
+improved by [Sun et al. 2021] to support hair inverse rendering.
+Besides RGB images, other imaging modalities have also been
+investigated, such as RGB-D [Zhang et al. 2018] and thermal imaging
+[Herrera et al. 2012]. Recently, [Shen et al. 2023] achieves high-
+quality hair reconstructions by leveraging computed tomography
+(CT) scans to obtain inner strand structures. However, it is unsuitable
+for use on live human subjects due to the large exposure of X-rays.
+Instead of strand-based geometry, some recent methods [Rosu
+et al. 2022a; Wang et al. 2023, 2022] implicitly reconstruct hair in
+volumetric representations. Despite achieving great visual quality,
+their primary focus is on hair image synthesis for novel views or
+motions, rather than capturing precise strand geometry itself.
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+
+
+GroomCap: High-Fidelity Prior-Free Hair Capture
+•
+254:3
+2.2
+Model-Based Hair Capture
+Data priors start to gain traction in single-view [Chai et al. 2015,
+2016, 2013, 2012; Hu et al. 2015] or sparse-view hair modeling [Zhang
+et al. 2017] to address the inherent challenges of these highly ill-
+posed problems. Early works [Chai et al. 2016; Hu et al. 2015] focus
+on matching and retrieving the closest dataset items to the input
+views as the foundation for further fitting. More recently, neural-
+based approaches become dominant the field, offering improved
+accuracy and robustness. For example, [Zhou et al. 2018] trains
+a convolutional neural network to infer geometry encoding from
+input images. [Saito et al. 2018] develops a volumetric variational
+autoencoder for generating hair conditioned on the input image.
+[Yang et al. 2019] infer 3D shape and motion from monocular videos
+for dynamic hair capture. [Wu et al. 2022] trains a voxel-aligned
+implicit function to infer 3D volumetric information from the image.
+[Zheng et al. 2023] proposes inferring 2D depth and orientation
+maps before predicting 3D geometry. [Kuang et al. 2022] extends
+these techniques to handle sparse view inputs.
+In the context of dense multi-view hair capture, early efforts adopt
+data priors to enhance reconstruction robustness with physics-based
+strand priors [Hu et al. 2014a] or address the specific challenge of
+braid reconstruction with pre-defined prior models on braid patterns
+[Hu et al. 2014b]. More recently, researchers have begun to integrate
+data priors more deeply into hair capture pipelines. [Sklyarova et al.
+2023] employs a surface-based representation for the coarse shape
+of the hair volume and reconstructs hair strands as a geometry
+texture in a prior-guided manner. [Wu et al. 2024] combines data
+priors for predicting interior structure with conventional patch-
+based multi-view optimization for exterior reconstruction, achieving
+state-of-the-art results.
+2.3
+Preliminaries
+Neural implicit fields. Neural implicit fields leverage neural net-
+works to represent 3D scenes. In the groundbreaking work of NeRF
+[Mildenhall et al. 2020], a multi-layer perceptron (MLP) model is
+adopted to predict volume density and radiance for any 3D point. Us-
+ing this MLP, each pixel can be rendered through alpha-blending the
+radiance of sample points along the ray, akin to classical volume ren-
+dering techniques. This allows for the synthesis of arbitrary views
+by rendering all rays originating from a virtual camera. The model
+itself is trained on multi-view images, adhering to the synthesis-and-
+comparison paradigm. Our method builds upon the original NeRF
+model, extending its capabilities to 3D hair structure reasoning.
+3D Gaussian splatting. 3D Gaussian splatting (3DGS) [Kerbl et al.
+2023] is a recent technique that represents a scene using anisotropic
+3D Gaussians. Each Gaussian is defined by a set of parameters,
+including position, covariance matrix, opacity, and color. These
+Gaussians can be rendered differentiably using the splatting method
+and are trained with supervision from color images. While 3DGS is
+effective at reproducing visual appearance, the underlying geometry
+formed by these Guassians has been less explored. In this paper,
+we render hair strands as chained Gaussians, employing pixel-
+wise supervision. Additionally, we propose a novel fomulation that
+enforces geometric constraints during the optimization.
+Fig. 2. The input to our pipeline includes calibrated multi-view images
+(left), semantic segmentations of hair and foreground (middle), recon-
+structed inner and outer meshes with the hair bounding box (right), and
+optional hair partline annotation on one image (middle column, first row).
+3
+METHOD OVERVIEW
+3.1
+Our Pipeline
+Our method contains three stages. In the first stage (Sec. 4), we
+establish an implicit hair volume that encodes both the spatial
+occupancy and orientation of the target hairs from multi-view image
+captures (Sec. 3.2). In the second stage (Sec. 5), we grow initial hair
+strands within the hair volume based on simple heuristics. In the
+last stage (Sec. 6), starting from these initial strands, we optimize
+the final hair geometry with respect to multi-view images utilizing
+differentiable rendering, where strands are represented as chained
+hair Gaussians.
+The final output of this pipeline is a collection of approximately
+150𝐾hair strands, each explicitly represented as a polyline with
+𝑁𝑘= 100 points. While appearance parameters are also estimated
+as side-outputs, they are not the focus of this work. Being prior-free,
+our method is designed to capture subject-specific details such as
+flying strands beyond the coverage of existing datasets. Meanwhile,
+our method also strives to maintain the physical correctness of the
+hair geometry, including smoothness and scalp-connectivity. The
+estimated geometry is ready to be used in downstream pipelines
+such as physically based rendering, animation, and editing tasks.
+3.2
+Data Acquisition and Preparation
+We collect input data using our multi-camera system with 64 cam-
+eras at 4𝐾resolution under uniform illumination. All cameras are
+calibrated, synchronized, and arranged on a sphere centered around
+the subject. Depending on specific hairstyles, there are typically
+around 50 cameras that capture the hairs, where the diagonal size of
+hair bounding box ranges from 1.3𝐾to 4.6𝐾pixels. For each view,
+we compute a semantic segmentation mask that categorizes each
+pixel as either background, hair, or body (i.e. non-hair foreground).
+To ensure robust segmentation, we employ multiple off-the-shelf
+models and derive the final pseudo ground-truth labels using a
+simple aggregation strategy, elaborated in Appendix B.
+Using all views, we apply the technique in [Guo et al. 2019] to
+achieve a rough surface reconstruction of the subject. We then dilate
+the mesh by 2cm to ensure all hairs are encompassed. This mesh,
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+
+
+254:4
+•
+Yuxiao Zhou, Menglei Chai, Daoye Wang, Sebastian Winberg, Erroll Wood, Kripasindhu Sarkar, Markus Gross, and Thabo Beeler
+Fig. 3. The implicit hair volume network comprises three sub-modules:
+the feature network and appearance network are used to estimate view-
+independent volume density 𝜎and view-dependent radiance a from input
+position x and view direction z, similar to NeRF; an additional structure
+network is devised to estimate hair 𝜌ℎand body occupancy 𝜌𝑏as well as
+3D orientation (𝜃,𝜙) in polar angles.
+referred to as the outer mesh, sets a hard outer boundary for the
+subject and hairs. We also fit a parameteric head mesh model to the
+captured subject using dense facial landmarks. The resulting mesh
+of the fitted head model, referred to as the inner mesh, approximates
+the bald surface of the subject’s head and serves as the basis for
+locating the hair scalp where all strands originate. Finally, we derive
+a loose 3D bounding box of the hairs by projecting per-view hair
+segmentation onto the outer mesh,. The outer mesh, inner mesh,
+and bounding box together define the hair volume on which the
+whole pipeline operates. If the hairstyle involves a visible parting
+line, we optionally accept a 2D annotation of the line from a selected
+top-down view. This straightforward step is the only manual one
+in the pipeline and takes less than a minute to complete. Fig. 2
+illustrates the inputs required for our method.
+After all inputs are prepared, our pipeline works fully automatic
+without any further human intervention. We consistently apply
+the same pipeline with identical parameters for all results in this
+paper, from both our in-house captures and public datasets that
+cover diverse hairstyles.
+4
+NEURAL HAIR VOLUME
+In the first stage, we build neural implicit fields to reconstruct the
+spatial orientation and occupancy of the subject’s hairs, drawing
+parallels to neural radiance fields (NeRFs). Our key contribution
+in this stage is to formulate a neural orientation field within the
+framework of volume rendering.
+4.1
+Network Structure
+The implicit hair volume is formulated as an MLP network V. The
+input to V is a 3D position x ∈R3, and the output includes volume
+density 𝜎∈[0, 1], hair occupancy 𝜌ℎ∈[0, 1], body occupancy
+𝜌𝑏∈[0, 1] (refers collectively to the non-hair volume), and 3D hair
+orientation in polar angles (𝜃∈(0, 𝜋],𝜙∈(0, 𝜋]), all of which
+are view-independent. Note that the polar angles are defined on
+a hemisphere because they are undirectional, i.e. "lines" instead
+of "rays". During training, we additionally feed V with the view
+direction vector z ∈R3 and receive the view-dependent radiance
+color a ∈R3, similar to the vanilla NeRF.
+As illustrated in Fig. 3, our model architecture comprises three
+sub-networks. It begins with a shared feature network that employs
+Fig. 4. Visualization of 3D orientation rendering and projection. We
+take two exemplary samples 𝑡1 and 𝑡2, characterized by 3D orientations of
+(0.1𝜋, 0.2𝜋) and (0.7𝜋, 0.9𝜋) in polar angles. Both samples reside on the
+same ray with transmittances of 0.6 and 1.0, where 𝑡1 is closer to the camera.
+In the top row, from left to right, we show the expanded 3D orientation
+distributions of 𝑡1, 𝑡2, and their blended integration. In the bottom row, we
+illustrate the 2D orientation distribution after projecting their integrated
+3D orientations using an exemplary camera matrix, detailed in Eq. 7.
+positional encoding to map an input 3D position x into a high-
+dimensional vector. Subsequently, an appearance network estimates
+view-independent volume density 𝜎and view-dependent color a
+from the encoded position vector and additional view-direction
+input z. In parallel, the feature network branches into a structure
+network that estimates 3D hair orientation (𝜃,𝜙) and the occupancy
+values (𝜌ℎ, 𝜌𝑏) of hair and head. In the following, we focus on the
+structure network that is specifically devised for our task, while the
+feature- and appearance-networks are identical to the original NeRF.
+4.2
+Neural Orientation Field
+Volume rendering of 3D Orientations. The volumetric orientation
+plays a crucial role in defining the 3D hair structure. Existing meth-
+ods either optimize an explicit direction field with limited resolution
+[Wu et al. 2024], or employ neural networks to predict the volumetric
+orientation in its entirety, which often leads to oversmoothed results
+[Saito et al. 2018]. In contrast, our novel approach optimizes a neural
+orientation field that estimates 3D orientations without explicit
+limitation in resolution. To construct this neural orientation field,
+we introduce a new formulation that “renders” 3D orientations
+within the volume rendering paradigm.
+Volume rendering of 3D orientations is not as trivial as radiance.
+Directly applying 𝛼-blending to the polar angles is conceptually
+wrong. For example, if a ray passes through two different hair
+strands whose orientations are (𝜋, 0) and (0, 𝜋), assuming the trans-
+parency of the front hair is 0.5, then the accumulated orientation
+becomes (𝜋/2, 𝜋/2), which is different from either hair and essen-
+tially smooths the distinct hairs into the same orientation. The
+fundamental reason is that different orientations cannot be naively
+added together. To accumulate the orientations of different hairs
+along a ray, we need to keep track of all angles.
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+
+
+GroomCap: High-Fidelity Prior-Free Hair Capture
+•
+254:5
+To this end, we propose to expand a single 3D orientation, repre-
+sented as polar angles, into a distribution, and perform 𝛼-blending
+on the distributions. Formally, for a 3D position x, whose polar
+angles are (𝜃x,𝜙x), we construct its distribution of 3D orientations
+Hx by using a predefined kernel function as its probability density
+function (PDF) ℎx:
+ℎx(𝜃,𝜙) = 1
+𝐶x
+ℎ′
+x(𝜃,𝜙)
+(1)
+ℎ′
+x(𝜃,𝜙) =
+1
+𝛽(||𝜃−𝜃x||2 + ||𝜙−𝜙x||2) + 𝛿
+(2)
+𝐶x =
+∬𝜋
+0
+ℎ′
+x(𝜃,𝜙) d𝜃d𝜙.
+(3)
+Intuitively, ℎ(·) is inversely proportional to the squared distance
+from an arbitrary angle (𝜃,𝜙) to the “center” orientation (𝜃x,𝜙x),
+with a scaling factor 𝛽, a damping factor 𝛿, and a divisor 𝐶x that nor-
+malizes the integral to be 1. We empirically found that this inverse-
+proportional function performs better than Gaussian kernels. In
+practice, we furthermore consider the periodic and undirectional
+characteristics of orientations, replacing ℎ′ with the more precise
+form ℎ′′:
+ℎ′′
+x (𝜃,𝜙) =
+1
+∑︁
+𝑖=−1
+1
+∑︁
+𝑗=−1
+1
+𝛽(||𝜃−𝜃0 + 𝑖𝜋||2 + ||𝜙−𝜙0 + 𝑗𝜋||2) + 𝛿. (4)
+The expanded distributions are illustrated in the top row of Fig. 4.
+Based on the distribution formulation Hx, we can compute the
+accumulated 3D distribution G𝑟along an arbitrary ray 𝑟with the
+following PDF:
+𝑔𝑟(𝜃,𝜙) =
+∫𝑡𝑓
+𝑡𝑛
+𝑇(𝑡)𝜎 𝑟(𝑡)ℎ𝑟(𝑡) (𝜃,𝜙) d𝑡
+(5)
+𝑇(𝑡) = exp
+
+−
+∫𝑡
+𝑡𝑛
+𝜎(𝑟(𝛼)) d𝛼
+
+.
+(6)
+These equations are derived from the classical volume rendering for-
+mulation, where 𝑡is the depth value along the ray 𝑟(𝑡) = o +𝑡q that
+originates from o with direction q, 𝑇(𝑡) denotes the accumulated
+transparency along the ray, and 𝑡𝑛,𝑡𝑓are near and far planes.
+In the actual implementation, we quantize the continuous inte-
+grals into discrete bins. The range (0, 𝜋] is divided into 64 bins
+such that the orientation distributions can be approximated by
+vectors of 64 × 64 dimensions, and the accumulation is performed
+for each dimension individually. Accordingly, we set the scaling
+factor 𝛽= (64/𝜋)2 and 𝛿= 0.01.
+Supervision with 2D Orientations. Now we explain how to super-
+vise accumulated 3D orientation distributions G using multi-view
+images. In previous works, convolution with a bank of oriented
+filters was extensively used to estimate 2D orientation fields on hair
+images [Paris et al. 2004; Wu et al. 2024], where the 2D orientation of
+each pixel is simply assigned as the angle of the filter that activates
+the maximum response. However, we argue that representing a
+pixel’s 2D orientation with a single value is insufficient. First, a
+filter’s receptive field may cover multiple hair strands with different
+orientations. Second, several distinct hair strands may overlay and
+pass through the same pixel. In both cases, only retaining a single
+angle will discard the valuable structural information of all other
+Fig. 5. Visualization of orientation distributions. We start with an
+input image on the left, where we apply orientation filters and visualize the
+maximum responses in the middle. On the right, we select two exemplary
+patches (outlined by green and red rectangles on the left-hand side of the
+respective row), where the inner rectangles’ sizes equal to the kernel radius.
+On the right-hand side, we illustrate the orientational distribution for each
+patch. For the green patch in the top row, there is a single sharp peak,
+indicating that most strands share the same direction. In contrast, the red
+patch in the bottom row shows a strong peak near 135◦and a secondary,
+broader peak from 30◦to 70◦. The higher peak represents the thicker hairs
+that fill the lower-left half of the patch, while the other peak corresponds to
+the strands entering from the top-right corner. Merely keeping the maximum
+responses (middle) will omit these critical structural details.
+hairs, especially for challenging areas with high local inconsistency.
+For example, Fig. 5 inspects the responses of all filters at two patches.
+When strand orientations within a patch are locally varied (as high-
+lighted by the red rectangle in the second row), using the maximum
+response smooths distinct strands into the same orientation and
+leads to flat reconstructions.
+To better preserve the structural information, we propose to
+maintain the responses of all filters, which naturally form a distri-
+bution of 2D orientations. We use this 2D orientation distribution
+to supervise the neural orientation field, as it effectively aligns
+with our formulation that renders 3D orientations as a distribution.
+Specifically, for each view with a known camera pose, we project
+the 3D orientation distribution G of each ray into a distribution of
+2D orientations F with the following PDF:
+𝑓(𝜂) = 1
+𝐶𝜂
+max
+(𝜃,𝜙)∈𝑢ℎ(𝜃,𝜙)
+(7)
+where 𝜂∈(0, 𝜋] is the 2D orientation, 𝑢is a plane spanned by all
+(𝜃,𝜙) pairs whose projection on the image plane is angle 𝜂, and 𝐶𝜂
+normalizes the integeral to be 1. Then, we define the loss function
+for the neural orientation field as
+Lori =
+∫𝜋
+0
+||𝑓(𝜂) −¯𝑓(𝜂)||2 d𝜂
+(8)
+where ¯𝑓(𝜂) is the normalized response of the orientation filter at
+angle 𝜂.
+In our quantized implementation, 𝜂is discretized into 64 values.
+We use 64 Gabor filters to convolve over the grayscale image and
+store the responses of all filters. The correspondence between 2D
+orientation 𝜂, plane 𝑢, and 3D orientation (𝜃,𝜙) can be easily enu-
+merated. An illustration of a projected 2D orientation distribution
+can be found in the bottom row of Fig. 4.
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+
+
+254:6
+•
+Yuxiao Zhou, Menglei Chai, Daoye Wang, Sebastian Winberg, Erroll Wood, Kripasindhu Sarkar, Markus Gross, and Thabo Beeler
+4.3
+Neural Occupancy Field
+Our implicit hair volume further establishes neural occupancy fields
+by predicting hair occupancy value 𝜌ℎand body occupancy value
+𝜌𝑏at any given position. The continuous values of hair occupancy
+naturally align with the fact that hairs are semi-transparent in im-
+ages. The occupancy values 𝜌∗are accumulated using the standard
+volume rendering formula to give per-pixel labels𝜓∗and supervised
+by pseudo ground truth (GT) segmentation labels ¯𝜓∗:
+Locc = ||𝜓ℎ−¯𝜓ℎ||2 + ||𝜓𝑏−¯𝜓𝑏||2.
+(9)
+Notably, the GT masks do not need to be perfect. We find the
+segmentations estimated by our method finally outperform GT,
+since they implicitly integrate multi-view information.
+4.4
+Training Strategy
+The model undergoes a two-phase training process. Initially, only
+the feature and appearance networks are trained with the conven-
+tional L2 photometric loss. In the subsequent phase, the structure
+network is trained alone with loss 100Lori + 0.02Locc, and the
+other two modules are frozen. This two-phase training strategy
+enhances stability and convergence. In our experiments, we find
+that only supervising radiance in the first phase mitigates the risk
+of 𝜎predictions being contaminated by the relatively noisy 2D
+semantic and orientation labels. Following [Sarkar et al. 2023], we
+utilize the reconstructed outer mesh to decide the depth sampling
+range of the rays. This ensures that the model focuses exclusively
+on the hair volume.
+5
+VOLUMETRIC HAIR TRACING
+Once the hair volume is established, we extract hair strands by
+tracing within the volume using the inferred volumetric orientation
+and occupancy with forward Newton method [Chai et al. 2013;
+Kuang et al. 2022; Paris et al. 2008]. Specifically, at timestep 𝑘,
+each strand is extended by a fixed length 𝑙= 3mm to a new point
+v𝑘= v𝑘−1 + 𝑙· norm(m𝑘), where the growing direction m𝑘before
+normalization is calculated as:
+m𝑘=𝛾· m𝑘−1+
+(1 −𝛾) ·   sign(g · m𝑘−1) · g −𝜆min(n · m𝑘−1, 0) · n. (10)
+In this formula, g represents the predicted 3D orientation derived
+from polar angles. We disambiguate it to the direction most closely
+aligned with the previous strand direction m𝑘−1, determined by the
+sign function sign(·) applied to the dot product. Additionally, an
+inertia term controlled by the factor 𝛾encourages smooth growth
+transitions to avoid abrupt changes caused by potential outliers. A
+surface repulsion term controlled by factor 𝜆is used to push strands
+away from the head according to the surface normal n of the inner
+mesh. In our implementation, we set 𝛾= 0.6 and 𝜆= 𝑓/𝑓𝑑, where
+𝑓is the current penetration distance between v𝑘−1 and the inner
+mesh (0 if not penetrating), and 𝑓𝑑= 5mm is a constant penetration
+threshold.
+We initialize tracing from seed points uniformly sampled within
+the bounding box volume between the inner and the outer mesh.
+These seeds are organized into a priority queue, weighted by the
+product of volume density and hair occupancy, 𝜎· 𝜌ℎ. We also
+dynamically deprioritize seeds in close proximity to newly traced
+strands to promote volumetric uniformity.
+During tracing, we monitor a health value for each strand and
+cease tracing when this value drops to 0. At each step, the health
+is reduced if: 1) the current vertex has low volume density 𝜎or
+hair occupancy 𝜌ℎ; 2) the vertex goes outside the outer mesh or the
+bounding box. Strands traced from seeds in this step are referred to
+as volume hairs, which are not guaranteed to connect to the scalp.
+The primary challenge with volume hairs not being scalp-rooted
+is unreliable structural information near the scalp due to severe
+occlusion. To address this, we trace an additional set of scalp hairs
+to serve as a bridge between the floating volume hairs and the scalp
+surface. Scalp hairs are initiated by sampling seeds on the scalp
+region of the inner mesh, with their initial growth directions set to
+the normals of the scalp. These hairs are then grown similarly to
+volume hairs.
+Once all scalp hairs are obtained, for each volume hair, we ran-
+domly select a nearby scalp hair and grow the volume hair backward
+along this scalp hair to the scalp. This process is able to connect most
+strands (typically more than 99%) to the scalp. Any volume hairs that
+fail to connect to the scalp are eventually discarded. Additionally,
+if a parting line is annotated for the hairstyle, we remove all hairs
+crossing it as a refinement step.
+The final output of this stage is a collection of 𝑁𝑠strands S =
+{s1, s2, ..., s𝑁𝑠}. We resample each strand to 𝑁𝑘= 100 vertices,
+i.e. s𝑖∈R𝑁𝑘×3. Although our tracing algorithm can theoretically
+generate an arbitrary number of hairs, we target 25𝐾scalp hairs
+and 125𝐾volume hairs in all cases.
+6
+GAUSSIAN-BASED STRAND OPTIMIZATION
+After navigating through the aforementioned pipeline from 2D
+orientation estimation to implicit hair volume prediction and ulti-
+mately to strand tracing, we observe a gradual loss of structural
+information. In this final stage, we seek direct supervision from the
+original images to recuperate the lost fine details, ensuring a proper
+match to the captured imagery.
+To achieve this, we adopt the image-based differentiable rendering
+framework of 3D Gaussian spatting (3DGS) [Kerbl et al. 2023] to
+optimize the reconstructed hairs using photometric losses. Our
+method introduces a novel chained hair Gaussian formulation that
+constrains the relationships among Gaussians along each strand,
+aligning with the inherent geometric nature of hair. While the
+concurrent work of GaussianHair [Luo et al. 2024] also proposes
+to use cylinderal Gaussians as hair proxies, our formulation avoids
+hallucination effects with rigorously designed constraints.
+6.1
+Formulation of Chained Hair Gaussians
+In contrast to the vanilla 3DGS framework, our optimization targets
+are the parameters of hair geometry, rather than the shape and
+appearance parameters of individual Gaussians. We now describe
+the conversion from strand geometry to chained Gaussians in our
+representation, which correlates with strand parameters while re-
+maining compatible with the Gaussian splatting framework.
+We define the elementary unit of strands as line segments. For a
+strand of 𝑁𝑘vertices, we denote the segment between vertex v𝑖and
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+
+
+GroomCap: High-Fidelity Prior-Free Hair Capture
+•
+254:7
+v𝑖+1 by p𝑖, characterized by the following parameters: head vertex
+v𝑖, tail vertex v𝑖+1, diameter 𝑑, opacity 𝑜, and spherical harmonics
+(SH) coefficients r.
+In our chained Gaussian representation, each segment p𝑖is ap-
+proximated by a Gaussian centered at the midpoint (v𝑖+ v𝑖+1)/2.
+The covariance matrix 𝐶of this Gaussian is expressed as:
+𝐶= 𝐸𝐷𝐷𝑇𝐸𝑇.
+(11)
+Here, 𝐸= [e𝑖, e′
+𝑖, e′′
+𝑖]𝑇represents the principle axes of the Gaussian,
+where e𝑖is the unit direction vector of the segment v𝑖+1 −v𝑖, and
+e′
+𝑖and e′′
+𝑖are two orthogonal unit vectors to e𝑖. The matrix 𝐷=
+diag[𝜏𝑙,𝜏𝑑,𝜏𝑑] contains scales of the axes, with 𝜏𝑙= ||𝑣𝑖+1 −𝑣𝑖||/2
+and 𝜏𝑑= 𝑑/2 being the axial and radial scales, respectively.
+Following this conversion, each strand is transformed into a chain
+of thin Gaussians, suitable for rendering via Gaussian splatting. At
+the conclusion of optimization, we typically manage 50𝐾strands,
+equivalent to 5𝑀Gaussians, and render only one-third of them
+picked randomly due to limited memory capacity.
+In addition to hair Gaussians, we also incorporate auxiliary Gaus-
+sians to model the non-hair foreground, serving as proxies for occlu-
+sion. These Gaussians, referred to as body Gaussians, are anchored at
+the vertices of the inner mesh and modeled as discs with optimizable
+radii 𝑤. The orientation of each body Gaussian disc is fixed, aligned
+with the normal of the corresponding vertex. The thickness is set
+to 0.001mm. The covariance matrix of each disc is calculated as
+described in Eq. 11, treating each Gaussian as a short, thick disc
+covering the surface. Given our focus on hair, we differentiate non-
+hair pixels in each image by painting them a distinct color from hair,
+such as green. Accordingly, the body Gaussians are initialized to
+the same green color.
+6.2
+Geometry Parameters
+Instead of directly optimizing the positions of strand vertices, we
+optimize a low-dimensional latent vector for each strand. This
+improves training efficiency while also serving as an effective regu-
+larizer, preventing exaggerated strand geometry such as unnatural
+sharp turns, which occurs with per-vertex optimizations.
+To build such a strand latent space, previous efforts typically
+leverage generic prior models based on synthetic curves. However,
+we argue that building such a comprehensive space is impractical
+due to the high variability of real-world hairs and the significant
+domain gap. Instead, we construct this strand latent space in a
+self-supervised manner, relying solely on the initial strands of the
+specific subject. This approach aligns with the intuition that the
+hairs of the same individual should share statistical similarities.
+Specifically, for each subject, we train a strand variational au-
+toencoder (strand-VAE) that encodes a latent code l ∈R128 from
+root-relative vertex positions s′ ∈R(𝑁𝑘−1)×3. While the strand-
+VAE is a vanilla MLP network, it works better than more complex
+generic models, such as [Rosu et al. 2022b; Zhou et al. 2023], since
+training a subject-specific latent prior is a much easier task. A less
+complex model structure also simplfies optimization. The strand-
+VAE is initialized from scratch and trained only with the traced hair
+strands. In our experimental set-up we show that the quality and
+diversity of the data is sufficiently good to serve as a dataset.
+6.3
+Appearance Parameters
+While the high degree of freedom (DoF) associated with Gauss-
+ian parameters enables effective reproduction of appearance, it
+also introduces severe hallucination effects when precise geometry
+is desired, particularly when it comes to the intricate structure
+of hairs. As long as the volume is reasonably filled, even if the
+strand geometry is inaccurate, the high DoF of color parameters
+can fabricate the appearance to simulate shading that minimizes
+photometric errors, without the support from proper geometry.
+This necessitates additional constraints in hair parameterization
+to ensure that improvements in appearance actually result from
+enhancements in geometry.
+To limit the per-strand appearance DoF, we propose the following
+simplifications to the hair appearance parameters:
+• View variations of color: We eliminate view-dependent com-
+ponents of color by reducing the SH degree to zero, which
+is non-essential for our method that prioritizes geometry op-
+timization. This adjustment prevents the potential misuse of
+view-dependent effects.
+• Spatial variations of color: Instead of maintaining a color pa-
+rameter for each strand segment, we optimize the color for
+only 8 segments (referred to as anchors) uniformly distributed
+along the strand. The color for other segments is derived via
+piecewise linear interpolation.
+• Segment diameters: Similar to color, we also parameterize seg-
+ment diameters using these 8 anchors.
+• Opacity: We restrict each strand to 2 opacity values: 𝑜1 for the
+first 𝑁𝑘−𝑁𝑡−1 segments starting from the root, and 𝑜2 for
+the final 𝑁𝑡= 8 segments, recognizing that the tails of strands
+tend to be more transparent.
+In conclusion, for each strand, we optimize the following pa-
+rameters: strand latent vector l ∈R128, anchor diameters d ∈R8,
+anchor colors r ∈R8×3, and opacity (𝑜1,𝑜2) ∈R2. By comparison,
+the vanilla 3DGS setting would involve nearly 1400 optimizable
+parameters per strand, which is approximately 8 times more than
+the 162 parameters of our streamlined formulation.
+6.4
+Adaptive Control of Hair Gaussians
+During optimization, we adaptively control the strand distribution
+by periodically employing heuristic-based actions including splitting
+and pruning. The Gaussian optimization starts with 30𝐾initial
+strands uniformly sampled from the traced hairs, and gradually
+propogates them to 50𝐾in the end. This adaptive control leads to a
+more natual hair arrangement.
+Splitting. With the introduction of diameter parameters, individ-
+ual strands are allowed to grow thicker and split into multiple new
+strands where necessary. For each strand 𝑠𝑖with 𝑁𝑘−1 segments,
+given its per-segment diameters 𝑑𝑖,𝑗and opacities 𝑜𝑖,𝑗for the 𝑗-th
+vertex, we compute the per-strand split score 𝜔𝑖the following way:
+𝜔𝑖=
+ˆ𝜔𝑖
+1
+𝑁𝑠
+Í𝑁𝑠
+𝑖=1 ˆ𝜔𝑖
+,
+ˆ𝜔𝑖=
+𝑁𝑘−1
+∑︁
+𝑗=1
+𝑑𝑖,𝑗· 𝑜𝑖,𝑗.
+(12)
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+
+
+254:8
+•
+Yuxiao Zhou, Menglei Chai, Daoye Wang, Sebastian Winberg, Erroll Wood, Kripasindhu Sarkar, Markus Gross, and Thabo Beeler
+where 𝑁𝑠is the number of strands at the time of splitting. Each
+strand is then split into ⌈𝜔𝑖⌉new strands, whose vertices are gen-
+erated by randomly displacing the original positions within its
+diameter.
+This splitting operation serves two purposes in improving opti-
+mization quality. First, it dynamically adjusts hair density to achieve
+a more uniform distribution that aligns with the image data. Second,
+it creates flyaway strands to capture details that are missing in the
+initial hair tracing.
+Pruning. Besides splitting, we regularly perform clean-up opera-
+tions, including pruning and cutting, to preserve only meaningful
+strands and segments. Throughout the optimization, certain strands
+may migrate outside the designated hair volume, thus becoming
+transparent or blending into the color of the background. These
+strands, practically invisible and uninteresting, should be removed
+completely. Additionally, some strands can grow excessively long
+into void spaces, necessitating the cutting of their tails instead of
+the entire strands.
+In our method, we identify and prune those invisible strands based
+on their opacity and color. We periodically remove strands whose
+average vertex opacity falls below a threshold of 0.1. Furthermore,
+we calculate the average hair color ¯rh of all strands in CIELAB
+color space, pruning each strand s𝑖if its average color r𝑖is closer to
+the background color rb than to the average hair color ¯rh. Similar
+checks are conducted for strand vertices individually. We remove
+consecutive invisible vertices from strand tails until the first visible
+vertex, according to the aforementioned criteria. While the invisible
+vertices in the middle of strands are not affected, in practice they
+are very few and do not harm the reconstruction quality.
+6.5
+Training Objectives
+The primary loss during optimization is the L2 photometric distance
+between rendered images and reference images, denoted as Li. In
+addition to this, we introduce the following regularization terms.
+For the sake of simplicity, we omit per-strand subscripts. The final
+loss terms are computed as the mean over all strands.
+Volume Guidance Term. We reuse the implicit hair volume model
+from the first stage to provide additional 3D guidance:
+Ln =
+1
+𝑁𝑘−1
+𝑁𝑘−1
+∑︁
+𝑖=1
+min(||e𝑖−g𝑖||, ||e𝑖+ g𝑖||),
+(13)
+where e𝑖is the direction of the hair segment, and g𝑖is the undirec-
+tional 3D orientation prediction at (v𝑖+1 + v𝑖)/2. This term helps to
+regularize strands that do not receive adequate gradient information
+from image pixels.
+Penetration Prevention Term. We introduce a penetration loss to
+prevent hairs from growing inside the inner mesh:
+Lp = 1
+𝑁𝑘
+𝑁𝑘
+∑︁
+𝑖=1
+||v𝑖−˜v𝑖||2,
+(14)
+where ˜v𝑖is the nearest point on the inner mesh surface to v𝑖. This
+term is applied only if v𝑖is already located inside the mesh.
+Heursitic Terms. Finally, we incorporate the following heuristic-
+based terms:
+• Diameter term: L𝑑= Í𝑁𝑘−1
+𝑖=1
+|𝑑𝑖|/(𝑁𝑘−1) to encourage strands
+to be thin and sharp;
+• Latent regularization term: Ll = |l−ˆl| to regularize the strand’s
+latent vector l towards its initial value ˆl, obtained from the hair
+tracing stage;
+• Body radius term: L𝑏= Í𝑁𝑏
+𝑖=1 ||𝑤𝑖−ˆ𝑤𝑖||2/𝑁𝑏, a regularization
+on the radii 𝑤of body Gaussians, where ˆ𝑤𝑖is the initial radius.
+The overall training objective is thus:
+L = 𝜆iLi + 𝜆nLn + 𝜆pLp + 𝜆dLd + 𝜆lLl + 𝜆bLb,
+(15)
+where we set the weights as 𝜆i = 1, 𝜆n = 1.0, 𝜆p = 0.05, 𝜆l = 1.0,
+and 𝜆b = 1000. The weight for diameter regularization, 𝜆d, starts at
+1 and is doubled after each strand splitting step.
+7
+EXPERIMENTS
+In this section, we first describe implementation details and external
+datasets used for experiments. Then, we compare with previous
+works and validate the key design choices with in-depth ablation
+studies. Finally, we discuss limitations and illustrate failure cases.
+To thoroughly test the versatility and robustness of our method,
+we take 27 subjects from our in-house capture dataset, covering a
+broad spectrum of different hairstyles. All subjects are processed
+automatically using the same pipeline. For all results presented in
+this paper, unless specified otherwise, we eliminate all hallucination
+effects by rendering the reconstructed geometry with predefined
+hair materials. This ensures that all shading effects, such as high-
+lights, shadows, and transparency, faithfully reflect the quality of the
+geometry. We present all visualizations in high-resolution figures.
+Readers are encouraged to zoom in on these figures for better details.
+More illustrations and applications are available in the Appendix
+and supplementary video.
+7.1
+Implementation
+For our implicit hair volume model, the feature network comprises
+6 fully-connected (FC) layers, the appearance network consists of 2
+FC layers, and the hair structure network includes 8 FC layers, each
+having 1024 hidden units. We train both the feature and appearance
+networks for 1𝑀steps, followed by an additional 1𝑀steps for the
+hair structure network alone. On average, the training process takes
+28 hours in total, using 16 Google TPU v5.
+For example, we currently render a full orientation distribution
+in the neural hair volume, leading to significantly increased compu-
+tational overhead due to the large number of bins in the histogram.
+The volumetric hair tracing is completed in 1.5 hours using a
+single NVIDIA A100 GPU. The bottleneck lies in repeated queries
+to the implicit hair volume, which can be potentially boosted by
+precomputing an explicit volume at high resolution.
+Our Gaussian-based optimization encompasses 15𝐾steps, taking
+1.5 hours on 8 NVIDIA H100 GPUs. During the optimization, we
+execute hair splitting and pruning every 5𝐾steps, increasing the
+number of strands from 30𝐾to 50𝐾. We further apply a final splitting
+step that increase the hairs to 150𝐾by scaling the split score 𝜔in
+Eq. 12 by 3. The strand-VAE network comprises 6 encoder and 4
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+
+
+GroomCap: High-Fidelity Prior-Free Hair Capture
+•
+254:9
+Fig. 6. Reconstruction results on diverse hairstyles from short hairs to long ponytails, where personal features such as fringe, hairline, and clusters are
+faithfully captured. We use the same predefined material to better show geometric details.
+decoder layers, taking 2.5 hours to train over 1𝑀steps on a single
+NVIDIA A100 GPU.
+Prioritizing reconstruction fidelity for production use cases, the
+entire pipeline of our method requires more computation than
+NeuralHaircut [Sklyarova et al. 2023] (around 3 days on a NVIDIA
+RTX 4090 GPU) and MonoHair [Wu et al. 2024] (4 −6 hours on a
+NVIDIA RTX 3090 GPU). This is partially because that we consider a
+full orientation distribution represented by a large number of bins in
+the histogram. Therefore, our reconstruction preserve more details
+at the cost of longer processing time.
+7.2
+Results
+In Fig. 6, we demonstrate our results on various hairstyles captured
+in our studio. Being prior-free, our method can reconstruct diverse
+hairstyles that surpass the coverage of any existing dataset, cap-
+turing personal details such as hairlines, fringes, and clusters. Our
+approach not only handles common medium-length hair, but also
+deals with short hairs and long ponytails using the same pipeline,
+which are rarely addressed in previous works – short hairs pose
+challenges due to their messiness and inconsistent patterns, while
+long ponytails often exceed the capacity of explicit volumes utilized
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.
+
+
+254:10
+•
+Yuxiao Zhou, Menglei Chai, Daoye Wang, Sebastian Winberg, Erroll Wood, Kripasindhu Sarkar, Markus Gross, and Thabo Beeler
+Fig. 7. Comparions with existing hair reconstruction methods. We
+compare GroomCap with MonoHair [Wu et al. 2024] and Neural Haircut
+[Sklyarova et al. 2023] on the in-the-wild NHC dataset, rendered with the
+same renderer. The rendering camera of NeuralHaircut results are manually
+adjusted to match the input.
+in prior methods. Our method also performs well on dark and dyed
+hairs, a notable improvement over previous works that typically
+focus on brighter hair colors.
+7.3
+Comparisons
+We extend the evaluation of our method to the public NeuralHaircut
+(NHC) dataset [Sklyarova et al. 2023] and compare with previous
+works. Unlike our main dataset that is captured in a more controlled
+setup, the NHC dataset comprises only videos captured in-the-wild
+using a hand-held smartphone. This setup introduces additional
+challenges, such as unknown camera poses, non-uniform lighting,
+and slight subject movements during capture. To preprocess the
+NHC dataset automatically, we employ colmap [Schönberger and
+Frahm 2016] for each video to estimate camera poses. After this, we
+fit the inner meshes using the same parametric head model. The
+outer mesh is approximated simply by a sphere, roughly enclosing
+the head and hair. Furthermore, we do not utilize any parting-line
+annotations for this dataset.
+In Fig. 7 we compare our results with state-of-the-art multi-view
+hair reconstruction works MonoHair [Wu et al. 2024] and Neural
+Haircut [Sklyarova et al. 2023] on the in-the-wild NHC dataset.
+While our reconstructions on this dataset are inferior than our
+primary setting due to the imperfect inputs, they remain comparable
+with the concurrent work of MonoHair and outperforms the earlier
+work of NeuralHaircut. Unlike these works, which are strongly
+regularized by prior models, our prior-free reconstructions offer
+better flexibility and yield more visually realistic outcomes.
+Fig. 8. Ablation studies for implicit hair volume. We show strands
+traced from different hair volumes, including full method (second column),
+2D supervision of maximum orientations without keeping the distribution
+(third column), and directly 𝛼-blending 3D orientation angles without our
+rendering algorithm (fourth column). The results are either overly smoothed
+(third column) or contain incomplete and sparser strands (fourth column).
+Fig. 9. Visualization of 3D orientation predections. On an example
+subject, we show a reference view (top-left) and the corresponding hair
+reconstruction (top-middle). In the reference view, we highlight a sample
+patch (the white square) where two intersecting wisps are accruately
+captured in the output. In the lower part of this figure, we plot voxel densities
+along the ray path at the center of the patch using a line chart. For each
+density peak, we visualize the corresponding predicted 3D orientation by
+drawing an arrow over the patch. The first peak represents the front hair
+wisp with a 3D orientation in camera space of [−0.59, −0.77, 0.23] and a
+2D projection of 52.5◦. Beginning at depth 1.75m (the fourth peak), the
+ray intersects the back layer of hair, with 2D projections ranging from
+107◦to 130◦. At the top-right, we visualize the accumulated 2D orientation
+distribution along the same ray at the patch center, identifying two peaks.
+The first peak at 48◦correlates to the front hairs, while the second peak at
+143◦corresponds to the hair at the back.
+7.4
+Ablation Studies
+In this section we evaluate the critical design choices of our method.
+For the implicit hair volume model, our key contributions are: 1)
+ACM Trans. Graph., Vol. 43, No. 6, Article 254. Publication date: December 2024.

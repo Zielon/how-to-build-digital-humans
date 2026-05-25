@@ -1,0 +1,693 @@
+Title: Gaussian garments: Reconstructing simulation-ready clothing with photorealistic appearance from multi-view video
+
+Gaussian Garments: Reconstructing Simulation-Ready Clothing with
+Photorealistic Appearance from Multi-View Video
+Boxiang Rong∗1
+Artur Grigorev∗1,2
+Wenbo Wang1
+Michael J. Black2
+Bernhard Thomaszewski1
+Christina Tsalicoglou1
+Otmar Hilliges1
+1Department of Computer Science, ETH Zurich
+2Max Planck Institute for Intelligent Systems, T¨ubingen
+https://ribosome-rbx.github.io/Gaussian-Garments
+Figure 1. We introduce Gaussian Garments, a novel approach for reconstructing realistic simulation-ready garments from multi-view videos.
+Our natural coupling of 3D meshes and 3D Gaussian splatting allows Gaussian Garments to accurately represent both the overall geometry
+and the high-frequency details of human clothing. The reconstructed garments can then be retargeted to novel human models, resized to fit
+novel body shapes, and simulated over moving bodies with novel motions. Our approach also enables the automatic construction of complex
+multi-layer outfits from a set of separately captured Gaussian garments.
+Abstract
+We introduce Gaussian Garments, a novel approach for
+reconstructing realistic simulation-ready garment assets
+from multi-view videos. Our method represents garments
+with a combination of a 3D mesh and a Gaussian texture
+that encodes both the color and high-frequency surface de-
+tails. This representation enables accurate registration of
+garment geometries to multi-view videos and helps disen-
+tangle albedo textures from lighting effects. Furthermore,
+we demonstrate how a pre-trained graph neural network
+(GNN) can be fine-tuned to replicate the real behavior of
+∗Authors contributed equally
+each garment. The reconstructed Gaussian Garments can
+be automatically combined into multi-garment outfits and
+animated with the fine-tuned GNN.
+1. Introduction
+Reconstructing and animating human apparel is essential for
+many applications, from virtual try-on systems to movies
+and video games.
+Faithful digital representation of real garments requires
+capturing three key aspects. First, the 3D geometry of the
+garments must be reconstructed to model both their overall
+structure and fine details. Second, the appearance of the gar-
+ments must be recreated to accurately reflect their color and
+1
+arXiv:2409.08189v1  [cs.CV]  12 Sep 2024
+
+
+texture. Finally, the real behavior of the garments must be
+mimicked to produce convincing animations. Our method,
+Gaussian Garments, leverages the expressivity of 3D Gaus-
+sian splatting to reconstruct these three critical aspects from
+multi-view videos.
+In computer graphics, garments are traditionally repre-
+sented as polygonal meshes with 2D textures. While this
+representation enables efficient simulation and appealing ren-
+dering, creating detailed garment meshes is labor-intensive,
+particularly for complex textures like fur. Further, meshes
+are not well-suited for differentiable optimization of their
+structure and topology from images. To overcome these lim-
+itations, recent works have started to explore neural implicit
+representations (NIRs) as a basis for modeling photorealistic
+clothing. While NIRs provide strong flexibility in terms of
+clothing topology and appearance, using them to generate
+physically realistic motions is exceedingly difficult.
+3D Gaussian splatting has recently emerged as a highly
+efficient and flexible alternative for photorealistic scene re-
+construction. Unlike NIRs, Gaussians can be edited individu-
+ally to accommodate changes in scene geometry, appearance,
+and lighting. Recent works leverage this ability to generate
+photorealistic digital copies of clothed humans. However,
+these methods construct holistic avatars without the ability to
+extract individual garments as separate assets. Consequently,
+they cannot retarget these garments to different bodies, adjust
+their size, or combine clothing items from various avatars
+into a novel outfit—tasks crucial for many computer graphics
+applications.
+In this work, we introduce Gaussian Garments—the first
+method that uses 3D Gaussian splatting to reconstruct pho-
+torealistic, simulation-ready assets of human clothing. At
+its core, our method combines mesh-based geometry with
+Gaussian-based appearance modeling. Starting with an ini-
+tial garment mesh obtained from multi-view images we reg-
+ister it to a set of multi-view videos using a photometric
+optimization procedure based on Gaussian splatting. Then,
+we optimize a Gaussian texture to recover the garment’s
+detailed appearance, with disentangled ambient color and
+view-dependent properties. Finally, using the registered
+mesh, we fine-tune a graph neural network (GNN) for neural
+simulation to match the garment’s real-world behavior.
+In summary, our main contributions are
+• a comprehensive pipeline for reconstructing the shape,
+appearance, and behavior of real-world garments using
+Gaussian splatting,
+• an algorithm for registering garment meshes to multi-
+view videos with an optimization procedure based on
+Gaussian splatting, and
+• a Gaussian Garment representation that combines trian-
+gle meshes with Gaussian textures to capture photoreal-
+istic appearance and can be used as a fully controllable
+3D asset.
+2. Related work
+2.1. Garment reconstruction
+Reconstructing 3D representations of real-world garments is
+a long-studied task. Input data in this problem ranges from
+4D scans and multi-view videos to single images.
+ClothCap [23] and SIZER [32] segment 4D scans to ex-
+tract garment meshes, which can be retargeted to novel body
+shapes and poses. Bang et al. [1] and NeuralTailor [14] esti-
+mate sewing patterns from static 3D scans and point clouds,
+respectively. These sewing patterns can then be draped over
+body geometry to produce a 3D mesh. DiffAvatar [16] em-
+ploys static 3D representation to jointly optimize both the
+garment’s 2D pattern and material properties, resulting in
+simulation-ready meshes.
+BCNet [9] and SMPLicit [4] train neural networks to
+generate template-mesh displacements and unsigned neu-
+ral fields, respectively, from monocular images. DeepFash-
+ion3D [41] and Zhu et al. [42] use joint explicit–implicit
+representations to register garment templates to 2D images.
+However, these methods do not reconstruct the garment’s
+appearance.
+SCARF [5] uses monocular videos to optimize an artic-
+ulated neural radiance field (NeRF). While it can model
+garments’ appearance over novel body shapes and poses,
+it suffers from the choice of representation. NeRF recon-
+structions produce poor geometries and are affected by slow
+optimization and rendering speed. Additionally, SCARF
+does not allow combining different reconstructed garments.
+Closest to our approach are the works by Xiang et
+al. [35, 36]. They reconstruct textured garment meshes from
+multi-view videos, with [35] also using a physical simulator
+to generate cloth dynamics. While achieving high visual
+quality, they use simple textured meshes to represent gar-
+ments, which limits their ability to model high-frequency
+geometric details like fur. Moreover, they do not provide a
+means to reconstruct material parameters for the garments
+and select them manually instead.
+With Gaussian Garments, we demonstrate how 3D gar-
+ment meshes can be combined with 3D Gaussian splatting
+technique to achieve photorealistic garment appearance. Ad-
+ditionally, we fine-tune a garment-modeling GNN to accu-
+rately replicate the real garment behavior.
+2.2. 3D Gaussian splatting for human avatars
+The recently proposed 3D Gaussian splatting (3DGS) tech-
+nique [12] reconstructs scenes using explicitly defined 3D
+Gaussian kernels. This method combines the advantages
+of both implicit and explicit 3D representations.
+Simi-
+lar to Neural Radiance Fields (NeRFs) [2, 31] and neural
+signed distance fields [21, 33], the 3DGS representation
+can be optimized from multi-view images and is capable of
+flexibly modeling diverse topologies. Additionally, the ex-
+plicit nature of 3DGS enables it to easily represent dynamic
+2
+
+
+Figure 2. The procedure for obtaining simulation-ready photorealistic garment assets consists of four steps. In Step 1, we initialize the
+garment’s geometry and appearance from a single multi-view frame (Sec. 3.1). In Step 2, we register the garment geometry to multi-view
+videos (Sec. 3.2). In Step 3, we optimize the garment’s appearance over the training sequences. In Step 4, we fine-tune a simulation GNN
+to accurately replicate the garment’s real behavior. The resulting garment assets can be directly simulated with the GNN, combined into
+multi-garment outfits, and resized to fit different body shapes.S
+scenes [19] and model physical behavior [37].
+Despite its recent introduction, 3D Gaussian splatting has
+been adopted by numerous approaches to represent humans
+in digital environments. GaussianAvatars [24] and Splattin-
+gAvatar [30] use parametric meshes with rigidly attached
+3D Gaussians to represent human heads and clothed bodies.
+GaussianAvatar [8] and 3DGS-Avatar [25] optimize a canon-
+ical Gaussian body, a skinning model, and a neural network
+that predicts pose-dependent offsets to the Gaussian parame-
+ters. AnimatableGaussians [17] construct a person-specific
+canonical template and predict a Gaussian texture containing
+appearance and geometry parameters. The canonical tem-
+plate and diffused skinning model allow [17] to better model
+loose garments. PhysAvatar [39] uses 3D Gaussian splatting
+to register meshes of clothed humans to multi-view videos. It
+then uses inverse rendering to reconstruct the mesh textures
+and inverse physics to recover material parameters. For its
+final representation, PhysAvatar discards 3D Gaussians and
+uses flat-textured meshes instead. This enables relighting
+the meshes with standard techniques but does not allow the
+modeling of non-flat surfaces like fur. Moreover, PhysAvatar
+does not provide a means to reconstruct template meshes for
+clothed humans and uses ground-truth ones instead.
+A common drawback of these methods is their focus on
+reconstructing holistic avatars of clothed humans without
+separating garments from the bodies. This limitation reduces
+their applicability in common computer graphics tasks such
+as simulating garments over different human models, com-
+bining garments into outfits, and fitting garment sizes to
+varying body shapes. D3GA [43] addresses this issue by
+separating garments from human bodies, but it is limited
+to modeling simple, tight-fitting outfits consisting of two
+garments (e.g., a T-shirt and pants).
+In contrast, Gaussian Garments reconstruct distinct 3D
+garment assets that can be resized and combined into multi-
+layer outfits. Fine-tuning a cloth simulation GNN enables
+realistic modeling of loose garments in dynamic motions.
+3. Method
+We use a set of multi-view videos to reconstruct geome-
+try, appearance, and behavior of a real-world garment. Our
+pipeline, outlined in Fig. 2, consists of four main stages.
+First, we initialize Gaussian garment geometry and appear-
+ance from a single multi-view frame (Sec. 3.1). Second,
+we register the garment’s geometry to all available frames
+(Sec. 3.2). Third, we optimize the garment’s appearance
+by disentangling the albedo Gaussian texture from light-
+ing effects and per-frame local transformation offsets pre-
+dicted by a neural network (Sec. 3.3). Finally, we fine-tune
+the garment’s behavior by optimizing a graph neural net-
+work (GNN) [7] to replicate the registered garment motion
+(Sec. 3.5). In this section, we detail each of these steps.
+Note that apart from RGB frames, our pipeline requires
+2D semantic segmentation maps and parametric human body
+models [22] fitted to each frame. We extract these priors
+from multi-view videos automatically using existing meth-
+ods.
+3.1. Gaussian garment initialization
+3.1.1. Mesh reconstruction
+As an initial step, we reconstruct the static geometry of a
+given garment. For that, we select a “template” multi-view
+frame where the garment’s is surface fully visible. We re-
+cover the garment’s 3D mesh from this frame, using existing
+3
+
+
+algorithms for multi-view stereo [29], surface reconstruc-
+tion [11], and remeshing [15] (see Sec. A).
+Together with the Gaussian texture, described below, the
+meshes obtained in this step can represent both the overall
+garment geometry and high-frequency details like fur.
+3.1.2. Gaussian texture
+To represent the garment’s appearance, we use a so-called
+Gaussian texture. Similar to a traditional texture, it maps
+between the 3D mesh surface and a 2D texture image that
+controls the surface appearance. However, in our case, each
+point on the texture defines parameters for a 3D Gaussian:
+spherical harmonic coefficients ϕ ∈[0, 1]16×3, opacity α,
+scale s ∈R3
++, local rotation r ∈H and translational offsets
+µ ∈R3. The latter two are set in a local coordinate frame
+which we define later.
+We use the Gaussian texture and the mesh geometry to
+construct a Gaussian garment in 3D space in the following
+way. We first sample the Gaussians from the texture in a
+regular grid (e.g., once per texel). The Gaussian’s location
+on the texture controls which 3D face fi it is attached to and
+what its barycentric coordinates within fi are. These two
+elements define the initial position of the Gaussian on the
+mesh surface. We call this position the Gaussian’s “surface
+point”. This surface point serves as the origin for the Gaus-
+sian’s local coordinate frame. The basis of this coordinate
+frame consists of the normal vector for the face fi and two
+orthogonal vectors on its surface (see Fig. 3, left).
+Following Qian et al. [24], we determine the Gaussian’s
+final 3D position and shape using its scale s, rotation quater-
+nion r, and translational offsets µ. See Sec. B.1 for details.
+3.2. Tracking-based registration
+To use Gaussian Splatting for geometry registration, we first
+have to construct an initial appearance model represented
+by 3D Gaussians. To do so, we initialize the Gaussian tex-
+ture with default parameters, create Gaussians on the mesh
+surface, and optimize them to match the template-frame ob-
+servations (see Sec. B.1 for details). This initial appearance
+model is only used for mesh registration. We enhance its
+visual quality and disentangle albedo color from lighting
+effects in later steps (Sec. 3.3). After obtaining a template
+garment mesh and an initial appearance model, we register
+the template mesh to multi-view videos. The key to this
+process is propagating the gradient from the image space to
+the positions of the mesh nodes. To achieve this, we compute
+the error LRGB between the rendered Gaussian splats and the
+ground-truth images. We then pass its gradients through the
+3D Gaussians, rigidly attached to the garment’s faces, to the
+nodes of the garment mesh. LRGB is defined as
+LRGB = λRGBL1 + (1 −λRGB)LSSIM,
+(1)
+where L1 is a mean absolute error, LSSIM is a structural
+similarity loss, and λRGB is a balancing weight.
+Figure 3. To register the garment mesh we render the Gaussians
+rigidly attached to the mesh faces (top left) and optimize a com-
+bination of the RGB loss LRGB and physical energies Lphys. We
+also use a body penetration term Lbody to ensure that the garment
+conforms to the body model.
+However, na¨ıve minimization of the RGB discrepancy
+LRGB between renders and observations would result in
+severely disfigured meshes (see Fig. 10). Therefore, we
+expand the optimized loss function with a set of physical
+energies.
+First, we regularize the angle between each pair of neigh-
+boring faces with bending energy Lbending:
+Lbending =
+X
+(i,j)
+∥eij∥2
+aij
+atan2(sin(θij), cos(θij))2,
+(2)
+where (i, j) are indices of neighboring triangles, θij is the
+angle between the triangles’ normal vectors, ∥eij∥is the
+length of the edge connecting the two triangles, and aij is
+the sum of their areas.
+Second, we regularize the stretching of the triangles rel-
+ative to the template frame using the strain energy Lstrain,
+based on the St. Venant–Kirchhoff material model. This en-
+ergy uses the deformation gradient F = ∂xt
+∂X of the current
+frame geometry xt relative to the template geometry X, and
+is computed as a sum over all faces fi:
+Lstrain =
+X
+i
+Vi
+λ
+2 tr(Gi)2 + µtr(G2
+i )
+
+.
+(3)
+Here, Gi is the Green strain tensor for the face fi: Gi =
+1
+2(Fi
+T Fi −I), Vi is the face’s volume (thickness×area), and
+λ and µ are Lam´e coefficients serving as balancing weights.
+For λ and µ we use the same default values as in SNUG [28].
+We denote the full physical-regularization term as Lphys =
+Lbending + Lstrain. It helps preserve the physical realism of
+the tracked mesh but does not provide any information about
+4
+
+
+Figure 4. We model the appearance of Gaussian Garments using a combination of an albedo Gaussian texture and a neural network that
+predicts lighting effects and local translational offsets. The albedo Gaussian texture stores color information along with Gaussian parameters,
+including local rotation, translation, and scale. During rendering we regularly sample the Gaussian texture and spawn the 3D Gaussians
+rigidly attached to the garment surface.
+the underlying body. Hence, the garments tend to implode
+and not conform to the body shape. This issue can be solved
+using a parametric body mesh fitted to the multi-view se-
+quence. Following ContourCraft [7], we use cubic energy
+term to penalize negative normal distance between garment
+nodes and the body faces closest to them:
+Lbody =
+X
+i
+max(ϵbody −((vi −fi) · ⃗ni), 0)3,
+(4)
+where vi are the vertex coordinates, fi is a point on the body
+face, ⃗ni is this face’s normal vector, and ϵbody is a safety
+margin. In our experiments, we set ϵbody to 3mm.
+However, for sequences with dynamic body motions, the
+optimization process often starts far from the target body
+pose. This large difference in vertex positions causes the
+optimization to produce unrealistic geometries or diverge
+completely (see Fig. 10 for illustrations). We work around
+this issue by substituting Lbody with a simple ersatz regular-
+ization, LVE, in the first half of the optimization process. This
+regularization uses virtual edges built between the garment
+faces opposite each other in the template-frame geometry
+and penalizes these face pairs for getting too close together
+(see Sec. C.1 for details). In the second half of the optimiza-
+tion, after the RGB signal pulls the garment geometry to
+better conform to the body pose, we switch to using the body
+penetration term Lbody.
+The full energy term minimized in the registration process
+is formulated as
+Lregister = λ1LRGB + λ2Lphys + λ3Lbody,
+(5)
+with Lbody here substituted by LVE for the first half of the
+optimization process in each frame.
+3.3. Appearance reconstruction
+So far, we have used the Gaussian texture reconstructed from
+the template frame. While it provides useful gradients for
+the registration procedure, its quality is limited by the visual
+information available in a single time frame. Moreover, the
+lighting conditions are baked into this texture. Therefore, we
+further optimize the garment’s appearance using multi-view
+videos and meshes registered in the previous step.
+We disentangle the garment’s appearance into two compo-
+nents: a) a base Gaussian texture, introduced in Section 3.1.2.
+b) a texture update predicted by a neural network fθ. This
+neural network takes as input the albedo occlusion map A
+and the normal map N of the mesh. Following Li et al. [17],
+we choose the StyleUNet architecture for fθ. It predicts off-
+sets to the texture’s spherical harmonics ∆ϕ, and translations
+∆µ in each frame.
+The predicted offsets to the spherical harmonic coeffi-
+cients allow the model to separate the albedo colors stored in
+the base texture from lighting effects (see Fig. 5). The trans-
+lational offsets account for observational noise, preserving
+high-frequency detail and local geometry of the surface (see
+Fig. 12 for visual examples).
+The final Gaussian texture Ωfor a specific frame is for-
+mulated as follows:
+Ω= {ϕ + ∆ϕ, α, s, r, µ + ∆µ} ∈RH×W ×59,
+(6)
+5
+
+
+Figure 5. We disentangle the albedo color of the Gaussian Garments from the lighting effects predicted by a neural network. Here we
+show four garments rendered over the registered sequence. Note how, when rendered with albedo colors, the garments lack any shadows or
+specular effects. The lighting information comes solely from network predictions and matches the ground-truth information. The figure
+shows registered mesh sequences that were not seen by the appearance model during training.
+Figure 6. When a “fuzzy” garment is placed under another one, its
+Gaussians phase through the outer garment (A, left). We solve this
+by checking the visibility of the Gaussians’ surface points based on
+the mesh geometries (B). Only the Gaussians with visible surface
+points are rendered (A, right).
+where ∆ϕ and ∆µ are predicted by fθ:
+∆ϕ, ∆µ = fθ(A, N).
+(7)
+3.4. Mesh-based 3DGS rendering
+When modeling surfaces in close proximity using 3D Gaus-
+sian splatting, it is crucial to properly handle the visibility
+of the Gaussians. For instance, if a fuzzy surface (e.g., fur)
+is placed beneath an outer garment layer, the inner layer’s
+Gaussians would incorrectly phase through it (see Fig. 6A),
+whereas in reality, the fur would be pressed down by the
+outer layer. Properly modeling effects like this would re-
+quire simulating physical behavior on a per-Gaussian level.
+We address this issue with a simple yet effective workaround
+that leverages the coupling between the mesh and 3D Gaus-
+sian splatting representations.
+For each Gaussian, we cast a ray from the camera origin
+to its corresponding surface point, defined by a mesh face
+and the point’s barycentric coordinates. We then check if
+this point is occluded by another mesh, such as the human
+body or another garment, and only render the Gaussian if its
+corresponding surface point is visible (see Fig. 6B).
+3.5. Behavior fine-tuning
+In the final stage of our pipeline, we optimize the garment’s
+behavior. To simulate the dynamics of Gaussian garments,
+we employ a learned graph neural network introduced in
+ContourCraft [7]. This GNN, denoted as gψ, where ψ are
+the network’s parameters, takes as input the nodal positions
+xt and velocities vt of the mesh at the current frame t, along
+with each node’s material vector m and each edge’s rest-
+ing geometry ¯E. From these inputs, gψ predicts the nodal
+accelerations ˆat+1 for the next frame:
+ˆat+1 = gψ(xt, vt, m, ¯E)
+(8)
+To fit the observed behavior of the garment, we jointly opti-
+mize the model’s weights, the material vectors, and the rest
+edges to minimize the loss function Lbehavior. This loss func-
+tion combines the mean squared error between the predicted
+and registered nodal positions with a set of physical terms.
+6
+
+
+Table 1. Quantitative ablation study of our registration algorithm.
+F-score, % ↑
+CD, cm ↓
+p2m, cm ↓
+Lbody ↓
+only-RGB
+4.4
+15.5e+2
+6.19e-1
+3.47e+2
+w/o body
+88.4
+1.12
+5.24e-1
+4e-3
+w/ body
+89.1
+6.57
+5.26e-1
+4.24e-1
+Ours-full
+89.6
+1.04
+5.04e-1
+1.03e-5
+ψ∗, m∗, ¯E∗= argmin
+ψ∗,m∗, ¯
+E∗[
+X
+t
+Lbehavior(gψ(xt, vt, m, ¯E), at+1) ]
+(9)
+where at+1 are the nodal accelerations in frame t + 1 in a
+registered sequence. For more details, please refer to Sec. D.
+4. Results
+4.1. Data
+In total, we use 15 garments in our experiments, of which
+13 are part of the 4D-Dress dataset [34], and two are newly
+captured garments with fuzzy fur-like textures. The subjects
+wearing the garments are recorded by 48 cameras regularly
+placed around them. Each garment is captured in 6 to 10
+video sequences with diverse poses of roughly 150 frames
+each. We use 44 cameras to reconstruct, register, and train
+the appearance models and validate our results using the
+remaining 4 cameras. We train the appearance model and
+fine-tune the simulation GNN with all multi-view videos
+available for the given subject except one, holding it out as
+a validation set. This way, we evaluate the trained parts of
+the pipeline (appearance and behavior optimization) on the
+pose sequences unseen during training. In our qualitative
+evaluation and supplementary video, we also use sequences
+from the AMASS dataset [20] demonstrating our ability to
+generalize to completely new poses and body shapes.
+4.2. Garment registration
+We evaluate our algorithm for tracking-based mesh regis-
+tration. In this section, we compare it to several ablations.
+In Sec. F.1 we also compare our registration procedure to
+the state-of-the-art registration method by Lin et al. [18].
+We demonstrate that using multi-view videos our method
+achieves comparable, albeit slightly lower, accuracy to [18],
+while the latter optimizes template meshes using ground-
+truth scanned geometries.
+For the quantitative analysis, we use three metrics: Cham-
+fer Distance (CD), average point-to-mesh distance (p2m),
+and F-score [13], which intuitively describes the percentage
+of correctly reconstructed points on the mesh surface. We
+use a threshold value of 1cm for the F-score. These metrics
+measure how close the registration results are to the ground-
+truth garment meshes, which are reconstructed with a system
+Table 2. We quantitatively compare our full appearance model to a
+set of ablations over the unseen pose sequences and unseen camera
+views. Predicting lighting effects and per-frame translation offsets
+allows us to better match the ground-truth observations.
+LPIPS ↓
+SSIM ↑
+PSNR ↑
+template-frame
+1.09e-2
+0.988
+36.5
+only-texture
+9.52e-3
+0.990
+37.6
+w/ lighting
+8.52e-3
+0.991
+38.3
+Ours-full
+8.12e-3
+0.992
+38.8
+similar to that used in [3]. To obtain the individual garment
+parts, we perform semantic segmentation with the method
+proposed by Wang et al. [34]. We also compute the body
+penetration loss Lbody to measure how well the registered
+mesh aligns with the underlying body geometry.
+The first ablation “only-RGB” optimizes the positions of
+the mesh vertices using only the RGB signal LRGB without
+any physics-based regularization. In this case, the optimized
+mesh completely loses its structure, producing disfigured ge-
+ometry spatially distant from the ground truth (Table 1). The
+second ablation adds two physical terms to the optimization
+energy: Lbending and Lstretching. They serve as regularization
+and help to keep garment geometry physically plausible.
+However, the garments optimized without the body geome-
+tries tend to implode and do not conform to the observed
+body. In Table. 1 we call this ablation “w/o body.” “w/
+body” uses the body penetration term Lbody with respect to
+the parametric body meshes. This improves the draping in
+most cases, but in dynamic pose sequences, the optimization
+may start far away from the next frame body mesh leading
+to divergence and worse metric values on average. In our
+full registration pipeline “Ours-full,” we use a substitute loss
+LVE for the first half of the optimization and then switch
+back to Lbody (Sec. 3.2). This way, we successfully regis-
+ter the dynamic movement of loose garments like dresses
+and open jackets (see Fig. 10 for qualitative comparison of
+the ablations and the supplementary video for further result
+visuals).
+4.3. Appearance modeling
+We evaluate the photorealism of our appearance model both
+quantitatively (Table 2) and qualitatively (Fig. 12) by com-
+paring it to several ablations. The quantitative evaluation
+(Table 2) compares the models in terms of three metrics
+measuring visual realism: structural similarity (SSIM) [40],
+learned perceptual similarity (LPIPS) [38], and peak signal-
+to-noise ratio (PSNR). We perform the comparisons using
+validation videos not seen in training by any of the models
+and novel camera views.
+We first compare our model to a simple “template-frame”
+procedure, which optimizes the Gaussian scene only for the
+template frame. This bakes the lighting conditions and any
+visual artifacts present in the template frame into the gar-
+7
+
+
+Figure 7. Qualitative comparison of our method to Animatable Gaussians [17] (“AG”). Combining 3DGS with a mesh-based representation,
+Gaussian Garments are much more robust in simulating challenging poses. With learned cloth simulation, we can also more faithfully model
+dynamic motions.
+Figure 8. We can automatically untangle multiple garments to combine them into a single multi-layer outfit. We then simulate this outfit
+with the fine-tuned GNN (rightmost).
+ment’s appearance. On the other hand, na¨ıvely optimizing
+the Gaussian texture over multiple videos (“only-texture”)
+averages the lighting and high-frequency details, resulting in
+blurry textures. The ablation w/ lighting optimizes a neural
+network to predict lighting effects from local information –
+ambient occlusion and normal maps. This helps disentangle
+the garment’s albedo texture from lighting but still averages
+high-frequency details. Finally, our full model (Ours-full)
+accounts for the noise in the observations by predicting trans-
+lational offsets for the Gaussians in each frame, which helps
+preserve high-frequency information and reduce blur.
+We also evaluate our behavior-tuning procedure in
+Sec. F.3.
+4.4. Applications
+Gaussian Garments create comprehensive representations of
+real-world garments as distinct 3D assets. This opens the
+door for many applications sought by 3D designers.
+4.4.1. Simulation
+Gaussian garments can be simulated in dynamic sequences
+by the fine-tuned ContourCraft [7] GNN, which can pre-
+vent and resolve cloth self-penetrations, thus automatically
+modeling re-sized and re-posed multi-layer outfits. The sim-
+ulation speed ranges from 10 fps for single garments to 1
+fps for outfits with multiple layers as in Fig. 8.
+Compared to holistic Gaussian avatars like Animatable
+Gaussians [17], using our reconstructed garments with the
+simulation GNN allows us to robustly model challenging
+pose sequences like jumps and tumbles. In Fig. 7 and in
+the supplementary video, we demonstrate examples where
+Gaussian Garments excel in modeling the reconstructed out-
+fits compared to [17]. Since our method does not model
+the non-covered parts of the human body, we do not com-
+pare quantitatively to [17]. In Sec. F.2 we also provide a
+quantitative comparison to SCARF [5].
+8
+
+
+Figure 9. We can automatically resize the Gaussian Garments to fit the desired body shape. Here we randomly sample shape parameters for
+the parametric body model and render the same outfit for different shapes.
+4.4.2. Mix-and-match
+Multiple distinct garment assets, extracted from differ-
+ent multi-view videos, can be combined into novel multi-
+garment outfits. We first align each individual garment with
+the canonical pose and shape of the parametric body model
+SMPL-X [22]. Then, we automatically order the garments
+by running a simple procedure built around ContourCraft
+(see Sec. E). The resulting outfit can then be simulated with
+the fine-tuned ContourCraft model. In Fig. 8, we show how
+we automatically combine garments into a single simulation-
+ready outfit.
+4.4.3. Garment resizing
+The reconstructed Gaussian garments and their combina-
+tions can be automatically re-sized to match a given body
+shape, by adjusting the edge lengths in the garments’ rest
+geometry according to the shape blend-weights collected
+from the SMPL-X body. We diffuse the body model’s blend
+weights as proposed by Santesteban et al. [27] to avoid ar-
+tifacts caused by the resizing. Fig. 9 demonstrates an outfit
+automatically resized to random body shapes.
+5. Limitations and future work
+While our method can model the overall geometry and pho-
+torealistic appearance of garments, the following limitations
+are to be addressed in future work. 1) For the appearance
+model, we assume scenes with uniform lighting. Our ap-
+proach predicts lighting effects based on ambient occlusion
+and normal maps but does not accommodate dynamic re-
+lighting. 2) While our Gaussian texture can capture high-
+frequency geometric details like fur to some extent, its effec-
+tiveness is limited by the quality of the segmentation masks
+used during training. 3) We use Gaussian textures with a
+fixed resolution of 5122 pixels, which may lead to magni-
+fication and minification artifacts. An important direction
+of future work is adopting standard computer graphics tech-
+niques like mipmapping to Gaussian textures. 4) Details
+such as collars and pockets are represented using the appear-
+ance model rather than explicit geometry, as our approach is
+not aware of the geometry of creases.
+Finally, the first three stages of our pipeline can be used
+with a differentiable physical simulator instead of the learned
+GNN as long as this simulator allows for optimizing the
+material parameters of the cloth. We chose ContourCraft [7]
+for its ability to initialize and recover from self-intersecting
+geometries and its inference speed.
+6. Conclusion
+We present Gaussian Garments, a comprehensive approach
+for creating fully controllable 3D clothing assets from multi-
+view videos based on 3D Gaussian splatting (3DGS). Our
+approach seamlessly integrates 3DGS with commonly used
+9
+
+
+polygonal meshes to reconstruct the 3D geometry of gar-
+ments, register it to video observations, optimize garment
+appearance to achieve photorealistic quality, and fine-tune
+garment behavior to model dynamic garment motion. We
+demonstrate results on garment simulation, mixing-and-
+matching, and resizing as some of the applications of our
+Gaussian Garments.
+Acknowledgements. AG was supported in part by the
+Max Planck ETH Center for Learning Systems. We thank
+Juan Zarate, Wojciech Zielonka, and Peter Kulits for their
+feedback and help during the project.
+10

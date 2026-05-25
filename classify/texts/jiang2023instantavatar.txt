@@ -1,0 +1,932 @@
+Title: Instantavatar: Learning avatars from monocular video in 60 seconds
+
+InstantAvatar: Learning Avatars from Monocular Video in 60 Seconds
+Tianjian Jiang1*, Xu Chen1,2*, Jie Song1 , Otmar Hilliges1
+1 ETH Z¨urich
+2 Max Planck Institute for Intelligent Systems, T¨ubingen
+https://tijiang13.github.io/InstantAvatar/
+1 min 
+Training
+15 FPS
+Rendering
+Figure 1. InstantAvatar: we propose a system that can reconstruct animatable high-ﬁdelity human avatars from monocular video within
+60 seconds, providing poses and masks, and can animate and render the model at 15 FPS at 540 × 540 resolution. To achieve this we
+integrate accelerated neural radiance ﬁelds, originally designed for rigid scenes, with a fast correspondence search module for articulation.
+An efﬁcient empty-space skipping strategy further speeds up training and inference, enabling near-instant avatar learning.
+Abstract
+In this paper, we take a signiﬁcant step towards real-
+world applicability of monocular neural avatar reconstruc-
+tion by contributing InstantAvatar, a system that can re-
+construct human avatars from a monocular video within
+seconds, and these avatars can be animated and rendered
+at an interactive rate. To achieve this efﬁciency we pro-
+pose a carefully designed and engineered system, that lever-
+ages emerging acceleration structures for neural ﬁelds, in
+combination with an efﬁcient empty space-skipping strat-
+egy for dynamic scenes. We also contribute an efﬁcient im-
+plementation that we will make available for research pur-
+poses. Compared to existing methods, InstantAvatar con-
+verges 130× faster and can be trained in minutes instead
+of hours. It achieves comparable or even better reconstruc-
+tion quality and novel pose synthesis results. When given
+the same time budget, our method signiﬁcantly outperforms
+SoTA methods. InstantAvatar can yield acceptable visual
+quality in as little as 10 seconds training time.
+*Equal Contribution.
+1. Introduction
+Creating high-ﬁdelity digital humans is important
+for many applications including immersive tele-presence,
+AR/VR, 3D graphics, and the emerging metaverse. Cur-
+rently acquiring personalized avatars is an involved process
+that typically requires the use of calibrated multi-camera
+systems and incurs signiﬁcant computational cost. In this
+paper, we embark on the quest to build a system for the
+learning of 3D virtual humans from monocular video alone
+that is lightweight enough to be widely deployable and fast
+enough to allow for walk-up and use scenarios.
+The emergence of powerful neural ﬁelds has enabled a
+number of methods for the reconstruction of animatable
+avatars from monocular videos of moving humans [1, 2,
+5, 47, 59].
+These methods typically model human shape
+and appearance in a pose-independent canonical space. To
+reconstruct the model from images that depict humans in
+different poses, such methods must use animation (e.g.
+skinning) and rendering algorithms, to deform and ren-
+der the model into posed space in a differentiable way.
+This mapping between posed and canonical space allows
+optimization of network weights by minimizing the dif-
+ference between the generated pixel values and real im-
+ages.
+Especially methods that leverage neural radiance
+ﬁelds (NeRFs) [38] as the canonical model have demon-
+1
+arXiv:2212.10550v1  [cs.CV]  20 Dec 2022
+
+
+strated high-ﬁdelity avatar reconstruction results. However,
+due to the dual need for differentiable deformation mod-
+ules and for volume rendering, these models require hours
+of training time and cannot be rendered at interactive rates,
+prohibiting their broader application.
+In this paper, we aim to take a signiﬁcant step towards
+real-world applicability of monocular neural avatar recon-
+struction by contributing a method that takes no longer
+for reconstruction, than it takes to capture the input video.
+To this end, we propose InstantAvatar a system that re-
+constructs high-ﬁdelity avatars within 60 seconds, instead
+of hours, given a monocular video, pose parameters and
+masks. Once learned the avatar can be animated and ren-
+dered at interactive rates.
+Achieving such a speed-up is
+clearly a challenging task that requires careful method de-
+sign, requires fast differentiable algorithms for rendering
+and articulation, and requires efﬁcient implementation.
+Our simple yet highly efﬁcient pipeline combines sev-
+eral key components. First, to learn the canonical shape and
+appearance we leverage a recently proposed efﬁcient neural
+radiance ﬁeld variant [40]. Instant-NGP accelerates neu-
+ral volume rendering by replacing multi-layer perceptrons
+(MLP) with a more efﬁcient hash table as data structure.
+However, because the spatial features are represented ex-
+plicitly, Instant-NGP is limited to rigid objects. Second, to
+enable learning from posed observations and to be able to
+animate the avatar, we interface the canonical NeRF with
+an efﬁcient articulation module, Fast-SNARF [6], which ef-
+ﬁciently derives a continuous deformation ﬁeld to warp the
+canonical radiance ﬁeld into the posed space. Fast-SNARF
+is orders of magnitude faster compared to its much slower
+predecessor [8].
+Finally, simply integrating existing acceleration tech-
+niques is not sufﬁcient to yield the desired efﬁciency (see
+Tab. 3). With acceleration structures for the canonical space
+and a fast articulation module in place, rendering the actual
+volume becomes the computational bottleneck. To compute
+the color of a pixel, standard volume rendering needs to
+query and accumulate densities of hundreds of points along
+the ray. A common approach to accelerating this is to main-
+tain an occupancy grid to skip samples in the empty space.
+However, such an approach assumes rigid scenes and can-
+not be applied to dynamic scenes such as humans in motion.
+We propose an empty space skipping scheme that is de-
+signed for dynamic scenes with known articulation patterns.
+At inference time, for each input body pose, we sample
+points on a regular grid in posed space and map them back
+to the canonical model to query densities. Thresholding
+these densities yields an occupancy grid in canonical space,
+which can then be used to skip empty space during volume
+rendering. For training, we maintain a shared occupancy
+grid over all training frames, recording the union of occu-
+pied regions over individual frames. This occupancy grid is
+updated every few training iterations with the densities of
+randomly sampled points, in the posed space of randomly
+sampled frames. This scheme balances computational efﬁ-
+ciency and rendering quality.
+We evaluate our method on both synthetic and real
+monocular videos of moving humans, and compare it with
+state-of-the-art methods on monocular avatar reconstruc-
+tion. Our method achieves on-par reconstruction quality
+and better animation quality in comparison to SoTA meth-
+ods, while only requiring minutes of training time instead
+of more than 10 hours. When given the same time budget,
+our method signiﬁcantly outperforms SoTA methods. We
+also provide an ablation study to demonstrate the effect of
+our system’s components on speed and accuracy.
+2. Related Work
+3D Human Reconstruction
+Reconstructing 3D human
+appearance and shape is a long-standing problem. High-
+quality reconstruction has been achieved in [10,14,18,35]
+by fusing observations from a dense array of cameras or
+depth sensors. The expensive hardware requirement limits
+such methods to professional settings. Recent work [1,2,17,
+19,20,27,62] demonstrates 3D human reconstruction from
+a monocular video by leveraging personalized or generic
+template mesh models such as SMPL [34]. These meth-
+ods reconstruct 3D humans by deforming the template to ﬁt
+2D joints and silhouettes. However, personalized template
+mesh might not be available in many scenarios and generic
+template mesh cannot model high-ﬁdelity details and differ-
+ent clothing topologies.
+Recently, neural representations [36, 39, 43, 45] have
+emerged as a powerful tool to model 3D humans [3, 5, 7–
+9, 11–13, 15, 17, 21–26, 29, 30, 33, 37, 41, 42, 44, 46, 47, 50,
+51, 55, 57–60, 60, 61, 64, 66]. Using neural representations,
+many works [5, 25, 26, 29, 33, 41, 46, 47, 58, 59, 61] can di-
+rectly reconstruct high ﬁdelity neural human avatars from
+a sparse set of views or a monocular video without pre-
+scanning personalized template. These methods model 3D
+human shape and appearance via neural radiance ﬁeld [38]
+or signed distance and texture ﬁeld in a pose-independent
+canonical space and then deform and render the model into
+various body poses in order to learn from posed observa-
+tions.
+While achieving impressive quality and can learn
+avatars from a monocular video, these methods suffer from
+slow training and rendering speed due to the slow speed of
+the canonical representation as well as deformation algo-
+rithms. Our method addresses this issue and enables learn-
+ing avatars within minutes.
+Accelerating Neural Radiance Field
+Several methods
+have been proposed to improve the training and inference
+speed of neural representations [4, 16, 28, 31, 32, 40, 49,
+2
+
+
+52–54, 63].
+The core idea is to replace MLPs in neu-
+ral representations with more efﬁcient representations. A
+few works [32, 52, 63] propose to use voxel grids to rep-
+resent neural ﬁelds and achieve fast training and inference
+speed. Instant-NGP [40] further replaces dense voxels with
+a multi-resolution hash table, which is more memory ef-
+ﬁcient and hence can record high-frequency details. Be-
+sides improving the efﬁciency of the representation, several
+works [28,31,40] also improve the rendering efﬁciency by
+skipping empty space via an occupancy grid to further in-
+crease training and inference speed.
+While achieving impressive quality and training efﬁ-
+ciency, these methods are speciﬁcally designed for rigid ob-
+jects. Generalizing these methods to non-rigid objects is not
+straightforward. We combine Instant-NGP with a recent ar-
+ticulation algorithm to enable animation and learning from
+posed observations. In addition, we propose an empty space
+skinning scheme for dynamic articulated humans.
+3. Method
+Given a monocular video of a moving human, our pri-
+mary goal is to reconstruct a 3D human avatar within a
+tight computational budget. In this section, we ﬁrst describe
+the preliminaries that our method is based on (Sec. 3.1),
+which include an accelerated neural radiance ﬁeld that we
+use to model the appearance and shape in canonical space
+and an efﬁcient articulation module to deform the canonical
+radiance ﬁeld into posed space. We then describe our im-
+plementation of the volumetric renderer to produce images
+from the radiance ﬁelds in an efﬁcient manner (Sec. 3.2).
+To avoid inefﬁcient sampling of empty space, we leverage
+the observation that the 3D bounding box around the hu-
+man body is dominated by empty space. We then propose
+an empty space skipping scheme speciﬁcally designed for
+humans (Sec. 3.3). Finally, we discuss training objectives
+and regularization strategies (Sec. 3.4).
+3.1. Preliminaries
+Efﬁcient Canonical Neural Radiance Field
+We model
+human shape and appearance in a canonical space using a
+radiance ﬁeld fσf , which predicts the density σ and color c
+of each 3D point x in the canonical space:
+fσf : R3 →R+, R3
+(1)
+x 7→σ, c
+(2)
+where σf are the parameters of the radiance ﬁeld.
+We use Instant-NGP [40] to parameterize fσf , which
+achieves fast training and inference speed by using a hash
+table to store feature grids at different coarseness scales. To
+predict the texture and geometry properties of a query point
+in space, they read and tri-linearly interpolate the features at
+its neighboring grid points and then concatenate the interpo-
+lated features at different levels. The concatenated features
+are ﬁnally decoded with a shallow MLP.
+Articulating Radiance Fields
+To create animations and
+to learn from posed images, we need to generate deformed
+radiance ﬁelds in target poses f ′
+σf . The posed radiance ﬁeld
+is deﬁned as
+f ′
+σf : R3 →R+, R3
+(3)
+x′ 7→σ, c,
+(4)
+which outputs color and density for each point in posed
+space. We use a skinning weight ﬁeld w in canonical space
+to model articulation, with σw being its parameters:
+wσw : R3 →Rnb,
+(5)
+x 7→w1, ..., wnb.
+(6)
+where nb is the number of bones in the skeleton. To avoid
+the computational cost of [8], [6] represents this skinning
+weight ﬁeld as a low-resolution voxel grid. The value of
+each grid point is determined as the skinning weights of
+its nearest vertex on the SMPL [34] model. With this the
+canonical skinning weight ﬁeld and target bone transforma-
+tions B = {B1, ..., Bnb}, a point x in canonical space is
+transformed to deformed space x′ via linear blend skinning
+as following:
+x′ = Pnb
+i=1wiBix
+(7)
+The canonical correspondences x∗of a deformed point x′
+are deﬁned by the inverse mapping of Equation. 7. The key
+is to establish the mapping from points in posed space x′
+to their correspondences in the canonical space x∗. This
+is efﬁciently derived by root-ﬁnding in Fast-SNARF [6].
+The posed radiance ﬁeld f ′
+σf can then be determined as
+f ′
+σf (x′) = fσf (x∗).
+3.2. Rendering Radiance Fields
+The articulated radiance ﬁeld f ′
+σf can be rendered into
+novel views via volume rendering. Given a pixel, we cast a
+ray r = o + td with o being the camera center and d be-
+ing the ray direction. We sample N points {x′
+i}N along the
+ray between the near and far bound, and query the color and
+density of each point from the articulated radiance ﬁeld f ′
+σf
+by mapping {x′
+i}N back to the canonical space and query-
+ing from the canonical NeRF model fσf , as illustrate in
+Fig. 2. We then accumulate queried radiance and density
+along the ray to get the pixel color C
+C =
+N
+X
+i=1
+αi
+Y
+j<i
+(1 −αj)ci, with αi = 1 −exp(σiδi) (8)
+3
+
+
+! = {!!, "", … , "#! }
+Rotation
+Translation
+Body 
+Pose
+Rigid 
+Tansform
+Articulation
+Camera
+Posed Space
+Normalized Space
+Canonical Space
+Instant-NGP
+Empty Space Skipping
+%
+c, σ
+(′
+(
+Figure 2. Method Overview. For each frame, we sample points along the rays in posed space. We then transform these points into a
+normalized space where we remove the global orientation and translation of the person. In this normalized space, we ﬁlter points in empty
+space using our occupancy grid. The remaining points are deformed to canonical space using an articulation module and then fed into the
+canonical neural radiance ﬁeld to evaluate the color and density.
+where δi = ∥x′
+i+1 −x′
+i∥is the distance between samples.
+While the acceleration modules of Sec. 3.1 already
+achieve signiﬁcant speed-up over the vanilla variants
+(NeRF [38], SNARF [8]), the rendering itself now becomes
+the bottleneck. In this paper, we optimize the process of
+neural rendering, speciﬁcally for the use-case of dynamic
+humans.
+3.3. Empty Space Skipping for Dynamic Objects
+We note that the 3D bounding box surrounding the hu-
+man body is dominated by empty space due to the articu-
+lated structure of 3D human limbs. This results in a large
+amount of redundant sample queries during rendering and
+hence signiﬁcantly slows down rendering. For rigid objects,
+this problem is eliminated by caching a coarse occupancy
+grid and skipping samples within non-occupied grid cells.
+However, for dynamic objects, the exact location of empty
+space varies across different frames, depending on the pose.
+Inference Stage
+At inference time, for each input body
+pose, we sample points on a 64 × 64 × 64 grid in posed
+space and query their densities from the posed radiance ﬁeld
+f ′
+σf . We then threshold these densities into binary occu-
+pancy values. To remove cells that have been falsely la-
+beled as empty, due to the low spatial resolution, we dilate
+the occupied region to fully cover the subject. Due to the
+low resolution of this grid and the large amount of queries
+required to render an image, the overhead to construct such
+an occupancy grid is negligible.
+During volumetric rendering, for point samples inside
+the non-occupied cells, we directly set their density to zero
+without querying the posed radiance ﬁeld f ′
+σf .
+This re-
+duces unnecessary computation to a minimum and hence
+improves the inference speed.
+Training Stage
+During training, however, the overhead to
+construct such an occupancy grid at each training iteration
+is no longer negligible. To avoid this overhead, we con-
+struct a single occupancy grid for the entire sequence by
+recording the union of occupied regions in each of the in-
+dividual frames. Speciﬁcally, we build an occupancy grid
+at the start of training and update it every k iterations, by
+taking the moving average of the current occupancy values
+and the densities queried from the posed radiance ﬁeld f ′
+σf
+at the current iteration. Note that this occupancy grid is de-
+ﬁned in a normalized space where the global orientation and
+translation are factored out so that the union of the occupied
+space is as tight as possible and hence unnecessary queries
+are further reduced.
+3.4. Training Losses
+We train our model by minimizing the robust Huber loss
+ρ between the predicted color of the pixels C and the corre-
+sponding ground-truth color Cgt:
+Lrgb = ρ(∥C −Cgt∥)
+(9)
+In addition, we assume an estimate of the human mask
+available and apply a loss on the rendered 2D alpha values,
+in order to reduce ﬂoating artifacts in space.
+Lalpha = ∥α −αgt∥1
+(10)
+Hard Surface Regularization
+Following [48], we add
+further regularization to encourage the NeRF model to pre-
+dict solid surfaces:
+Lhard = −log(exp−|α| + exp−|α−1|) + const.
+(11)
+4
+
+
+where const. is a constant to ensure loss value to be non-
+negative. Encouraging solid surfaces helps to speed up ren-
+dering because we can terminate rays early once the accu-
+mulated opacity reaches 1.
+Occupancy-based regularization
+Previous methods for
+the learning of human avatars [5,26] often encourage mod-
+els to predict zero density for points outside of the surface
+and solid density for points inside the surface by leverag-
+ing the SMPL body model as regularizer. This is done to
+reduce artifacts near the body surface. However such regu-
+larization makes heavy assumptions about the shape of the
+body and does not generalize well for loose clothing. More-
+over, we empirically found this regularization is not effec-
+tive in removing artifacts near the body. This can be seen
+in Fig. 3. Instead of using SMPL for regularization, we use
+our occupancy grid which is a more conservative estimate
+of the shape of the subject and the clothing, and deﬁne an
+additional loss Lreg which encourages the points inside the
+empty cells of the occupancy grid to have zero density:
+Ldensity =
+(
+|σ(x)|
+if x is in the empty space
+0
+otherwise
+(12)
+4. Experiments
+We evaluate the accuracy and speed of our method on
+monocular videos and compare it with other SoTA methods.
+In addition, we provide an ablation study to investigate the
+effect of individual technical contributions.
+4.1. Evaluation Setting
+Datasets
+PeopleSnapshot
+We conduct experiments on the Peo-
+pleSnapshot [1] dataset, which contains videos of humans
+rotating in front of a camera. We follow the evaluation pro-
+tocol deﬁned in Anim-NeRF [5]. Because the pose param-
+eters provided in this dataset are not perfect and do not al-
+ways align with the image, Anim-NeRF optimizes the poses
+of training and test frames. We train our model with the
+pose parameters optimized by Anim-NeRF and keep them
+frozen throughout training for a fair comparison.
+SURREAL
+The PeopleSnapshot dataset has limited pose
+variations. To evaluate the performance on more challeng-
+ing test poses, we also generate synthetic monocular se-
+quences by rendering SMPL with texture maps from the
+SURREAL [56] dataset. For training, we drive the textured
+SMPL model with the same SMPL parameters from Peo-
+pleSnapshot, and for test, we generate challenging out-of-
+distribution poses. This allows us to evaluate the perfor-
+mance of methods on novel pose synthesis.
+Baselines
+We consider the following methods as our baselines:
+Anim-NeRF [5]
+This baseline models human shapes and
+appearance in a canonical space with an MLP-based NeRF.
+Given a pose, they ﬁrst generate a SMPL body in the tar-
+get pose. Then for each query point in deformed space, its
+corresponding skinning weights are deﬁned as the weighted
+average of skinning weights of its K nearest vertices on the
+posed SMPL mesh. Finally, with the skinning weights, the
+query point can be transformed back to the canonical space
+based on inverse LBS.
+Neural Body [47]
+This baseline learns a set of latent
+codes anchored to a deformable SMPL mesh. These latent
+codes deform with the SMPL mesh and are decoded into
+radiance ﬁelds in different poses.
+4.2. Comparison with SoTA
+Reconstruction Quality
+To measure the appearance
+quality of the reconstructed avatar, we animate and ren-
+der the reconstructed model with the poses of test frames
+in PeopleSnapshot, and measure the difference between the
+generated images and the real images. When training all
+methods to convergence, our generated images are signif-
+icantly better than Neural Body [47] and achieve on-par
+quality as SoTA method Anim-NeRF [5], as indicated by
+the image quality metrics in Tab. 1 and the qualitative re-
+sults in Fig. 3.
+Speed
+Our method requires much less training time and
+computation resources than SoTA methods. We only re-
+quire 1 minute training time on a single RTX 3090 while
+Anim-NeRF [5] requires 13 hours on 2× RTX 3090 and
+Neural Body [47] requires 14 hours on 4× RTX 2080. Our
+method also achieves superior rendering speed - we can ren-
+der images at 540 × 540 resolution on a single RTX 3090 at
+15 FPS, which is orders of magnitude faster than baselines.
+Given the same training time budget, our method
+achieves signiﬁcantly better image quality than Anim-NeRF
+as shown in Tab. 1. Comparing our training progression
+with Anim-NeRF in Fig. 4, we note that our method already
+learns meaningful appearance and moderate details within
+5s and acceptable visual quality at 10s. After only 1 minute
+of training time, our method already achieves high-ﬁdelity
+reconstruction quality. In contrast, Anim-NeRF does not
+produce meaningful results this early in training and only
+learns the rough shape after 3 minutes.
+Novel Pose Synthesis Quality
+The previous evaluation
+does not reﬂect the performance of novel pose synthesis,
+because the pose variation in the PeopleSnapshot dataset
+5
+
+
+male-3-casual
+male-4-casual
+female-3-casual
+female-4-casual
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓
+Neural Body [47] (∼14 hours)
+24.94
+0.9428
+0.0326
+24.71
+0.9469
+0.0423
+23.87
+0.9504
+0.0346
+24.37
+0.9451
+0.0382
+Anim-NeRF [5] (∼13 hours)
+29.37
+0.9703
+0.0168
+28.37
+0.9605
+0.0268
+28.91
+0.9743
+0.0215
+28.90
+0.9678
+0.0174
+Ours (1 minute)
+29.65
+0.9730
+0.0192
+27.97
+0.9649
+0.0346
+27.90
+0.9722
+0.0249
+28.92
+0.9692
+0.0180
+Anim-NeRF [5] (5 minutes)
+23.17
+0.9266
+0.0784
+22.30
+0.9235
+0.0911
+22.37
+0.9311
+0.0784
+23.18
+0.9292
+0.0687
+Ours (5 minutes)
+29.53
+0.9716
+0.0155
+27.67
+0.9626
+0.0307
+27.66
+0.9709
+0.0210
+29.11
+0.9683
+0.0167
+Anim-NeRF [5] (3 minutes)
+19.75
+0.8927
+0.1286
+20.66
+0.8986
+0.1414
+19.77
+0.9003
+0.1255
+20.20
+0.9044
+0.1109
+Ours (3 minutes)
+29.58
+0.9719
+0.0157
+27.83
+0.9640
+0.0342
+27.68
+0.9708
+0.0217
+29.05
+0.9689
+0.0263
+Anim-NeRF [5] (1 minute)
+12.39
+0.7929
+0.3393
+13.10
+0.7705
+0.3460
+11.71
+0.7797
+0.3321
+12.31
+0.8089
+0.3344
+Ours (1 minute)
+29.65
+0.9730
+0.0192
+27.97
+0.9649
+0.0346
+27.90
+0.9722
+0.0249
+28.92
+0.9692
+0.0180
+Table 1. Qualitative Comparison with SoTA on the PeopleSnapshot [1] dataset. We report PSNR, SSIM and LPIPS [65] between real
+images and the images generated by our method and two SoTA methods, Neural Body [47] and Anim-NeRF [5]. We compare all three
+methods at their convergence, and also compare ours with Anim-NeRF at 5 minutes, 3 minutes and 1 minute training time.
+Input
+View 1
+View 2
+Pose 1
+Pose 2
+Pose 3
+Anim-NeRF
+Ours
+Anim-NeRF
+Ours
+Figure 3. Qualitative Results on SURREAL [56] and PeopleSnapshot dataset [1]. We show reconstructed avatars on SURREAL (top)
+and PeopleSnapshot (bottom) from different viewpoints (column 2-3) and in various poses (column 4-6).
+is limited (self-rotating). Due to the lack of ground truth
+images in novel poses, we resort to evaluating novel pose
+synthesis qualitatively. We generate images in novel chal-
+lenging poses with our method and Anim-NeRF. As shown
+in Fig. 3, our method can faithfully generate images even
+in challenging body poses while preserving high ﬁdelity.
+In contrast, Anim-NeRF suffers from artifacts under arms
+and between legs, because their methods cannot correctly
+disambiguate body parts that are close to each other in the
+posed space. Our method outperforms our baseline espe-
+cially for loose clothing as shown in the bottom example
+in Fig. 3. This is because we don’t rely on the SMPL body
+6
+
+
+5s
+10s
+1 min
+3 min
+5 min
+Anim-NeRF
+Ours
+Figure 4. Training Progression. We show the image quality at different training iterations. Our method converges signiﬁcantly faster than
+SoTA Anim-NeRF [5].
+Anim-NeRF
+Ours
+PSNR
+SSIM
+LPIPS
+PSNR
+SSIM
+LPIPS
+S1
+21.66
+0.9450
+0.07615
+24.48
+0.9353
+0.0304
+S2
+20.00
+0.9483
+0.09693
+23.94
+0.9354
+0.0343
+S3
+20.06
+0.9326
+0.07948
+25.08
+0.9494
+0.0275
+Table 2. Qualitative Results on the SURREAL Dataset. We
+evaluate novel pose synthesis quality of our method and Anim-
+NeRF [5] on 3 synthetic subjects.
+Training
+Rendering
+w/o empty space skipping
+3m 10s
+∼1 FPS
+w/ empty space skipping
+1m 47s
+∼15 FPS
+Table 3. Empty Space Skipping. We compare the training and
+rendering speed with and without empty space skipping. For the
+training time we report the average training time of 100 epochs
+among 4 sequences in PeopleSnapshot.
+PSNR
+SSIM
+LPIPS
+w/o occupancy-based regularizer
+28.22
+0.9680
+0.0301
+w/ occupancy-based regularizer
+28.64
+0.9700
+0.0240
+Table 4. Occupancy-based Regularizer. We evaluate image qual-
+ity averaged over the 4 PeopleSnapshot sequences. For both cases
+we train our model for 100 epochs.
+model for regularization and hence can better deal with sub-
+jects and clothing that differ from SMPL. To quantitatively
+evaluate novel pose synthesis, we generate synthetic data in
+challenging poses as ground-truth. The results in Tab. 2 and
+No Reg
+Ours
+Global Sparsity
+Figure 5. Effect of Occupancy-based Regularization. With-
+out our regularization loss, the model suffers from ﬂoating arti-
+facts. Our occupancy-based regularization loss successfully re-
+moves such artifacts. While a global sparsity prior biasing all den-
+sities towards 0 can also reduce such artifacts, it leads to degener-
+ated image quality (semi-transparent).
+Fig. 3 verify the superiority of our method in terms of novel
+pose synthesis quality.
+4.3. Ablation Study
+Empty Space Skipping
+We study the effect of our pro-
+posed empty space skipping scheme for dynamic objects.
+As shown in Tab. 3, skipping empty space signiﬁcantly im-
+proves the training and rendering speed.
+Occupancy-based Regularization Lreg
+The occupancy
+grid for empty space skipping can also help regularize the
+radiance ﬁeld to reduce noise via our regularization loss
+Lreg described in Section. 3.4. As shown in Fig. 5, this loss
+effectively reduces ﬂoating artifacts and consequently helps
+to improve the overall image quality as evidenced by the
+7
+
+
+Input
+View 1
+View 2
+View 3
+Novel Pose
+Figure 6. More Qualitative Results of Our Method.
+PSNR improvement in Tab. 4. Another common approach
+to reducing ﬂoating noise is to encourage zero density for
+every point in space. We compare our solution with this
+strategy and ﬁnd that this strategy (Global Sparsity) leads
+to degenerated image quality as shown in Fig. 5.
+4.4. Additional Qualitative Samples
+We show additional qualitative samples in Fig. 6.
+5. Conclusion
+In this paper, we propose a method that can reconstruct
+animatable human avatars from monocular videos within 60
+seconds and can animate and render the model afterward
+at 15 FPS. To achieve this, we combine an efﬁcient neu-
+ral representation, Instant-NGP [40], and an efﬁcient artic-
+ulation module Fast-SNARF [6]. This naive combination
+does not yield optimal speed. We propose an empty space
+skipping scheme to improve our rendering speed, and an
+occupancy-aware regularization loss to reduce ﬂoating ar-
+tifacts in space. In comparison with SoTA methods, our
+method achieves on-par image quality while being signiﬁ-
+cantly faster during training and inference.
+Limitations and Future Work
+Our method reconstructs
+avatars purely based on image observations and therefore
+cannot infer unseen regions. For instance, if the input video
+only captures the front side of the subject, our method can-
+8
+
+
+not reconstruct the back side. This limitation could poten-
+tially be addressed by leveraging learning-based methods
+to predict the texture and geometry of unobserved regions.
+While this paper focuses on full-body human reconstruc-
+tion, the idea could be applied to other objects. An interest-
+ing next step is to extend our method to reconstruct general
+articulated objects or animals from images efﬁciently.
+Acknowledgements
+Xu Chen was supported by the Max
+Planck ETH Center for Learning Systems.
+9
+
+
+References
+[1] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Detailed human avatars
+from monocular video. In Proc. of the International Conf.
+on 3D Vision (3DV), 2018. 1, 2, 5, 6
+[2] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Video based reconstruc-
+tion of 3d people models. In Proc. IEEE Conf. on Computer
+Vision and Pattern Recognition (CVPR), 2018. 1, 2
+[3] Alexander W. Bergman, Petr Kellnhofer, Wang Yifan,
+Eric R. Chan, David B. Lindell, and Gordon Wetzstein. Gen-
+erative neural articulated radiance ﬁelds. Arxiv, 2022. 2
+[4] Anpei Chen, Zexiang Xu, Andreas Geiger, Jingyi Yu, and
+Hao Su. Tensorf: Tensorial radiance ﬁelds. In Proc. of the
+European Conf. on Computer Vision (ECCV), 2022. 2
+[5] Jianchuan Chen, Ying Zhang, Di Kang, Xuefei Zhe, Linchao
+Bao, Xu Jia, and Huchuan Lu. Animatable neural radiance
+ﬁelds from monocular rgb videos. arXiv.org, 2021. 1, 2, 5,
+6, 7
+[6] Xu Chen, Tianjian Jiang, Jie Song, Max Rietmann, An-
+dreas Geiger, Michael J. Black, and Otmar Hilliges. Fast-
+SNARF: A fast deformer for articulated neural ﬁelds. arXiv,
+abs/2211.15601, 2022. 2, 3, 8
+[7] Xu Chen, Tianjian Jiang, Jie Song, Jinlong Yang, Michael J
+Black, Andreas Geiger, and Otmar Hilliges. gdna: Towards
+generative detailed neural avatars. In Proc. IEEE Conf. on
+Computer Vision and Pattern Recognition (CVPR), 2022. 2
+[8] Xu Chen, Yufeng Zheng, Michael J Black, Otmar Hilliges,
+and Andreas Geiger. Snarf: Differentiable forward skinning
+for animating non-rigid neural implicit shapes. In Proc. of
+the IEEE International Conf. on Computer Vision (ICCV),
+2021. 2, 3, 4
+[9] Julian Chibane, Thiemo Alldieck, and Gerard Pons-Moll.
+Implicit functions in feature space for 3D shape reconstruc-
+tion and completion. In Proc. IEEE Conf. on Computer Vi-
+sion and Pattern Recognition (CVPR), 2020. 2
+[10] Alvaro Collet, Ming Chuang, Pat Sweeney, Don Gillett, Den-
+nis Evseev, David Calabrese, Hugues Hoppe, Adam Kirk,
+and Steve Sullivan. High-quality streamable free-viewpoint
+video. ACM Trans. on Graphics, 34, 2015. 2
+[11] Enric Corona, Albert Pumarola, Guillem Aleny`a, Ger-
+ard Pons-Moll, and Francesc Moreno-Noguer.
+SMPLicit:
+Topology-aware generative model for clothed people.
+In
+Proc. IEEE Conf. on Computer Vision and Pattern Recog-
+nition (CVPR), 2021. 2
+[12] Boyang Deng, JP Lewis, Timothy Jeruzalski, Gerard Pons-
+Moll, Geoffrey Hinton, Mohammad Norouzi, and Andrea
+Tagliasacchi.
+Neural articulated shape approximation.
+In
+Proc. of the European Conf. on Computer Vision (ECCV),
+2020. 2
+[13] Zijian Dong, Chen Guo, Jie Song, Xu Chen, Andreas Geiger,
+and Otmar Hilliges. PINA: Learning a personalized implicit
+neural avatar from a single RGB-D video sequence. In Proc.
+IEEE Conf. on Computer Vision and Pattern Recognition
+(CVPR), 2022. 2
+[14] Mingsong Dou, Sameh Khamis, Yury Degtyarev, Philip
+Davidson, Sean Ryan Fanello, Adarsh Kowdle, Sergio Orts
+Escolano, Christoph Rhemann, David Kim, Jonathan Taylor,
+et al. Fusion4d: Real-time performance capture of challeng-
+ing scenes. ACM Trans. on Graphics, 35, 2016. 2
+[15] Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black,
+and Timo Bolkart.
+Capturing and animation of body and
+clothing from monocular video. In SIGGRAPH, 2022. 2
+[16] Stephan J Garbin, Marek Kowalski, Matthew Johnson, Jamie
+Shotton, and Julien Valentin. Fastnerf: High-ﬁdelity neural
+rendering at 200fps. In Proc. IEEE Conf. on Computer Vision
+and Pattern Recognition (CVPR), 2021. 2
+[17] Chen Guo, Xu Chen, Jie Song, and Otmar Hilliges. Human
+performance capture from monocular video in the wild. In
+2021 International Conference on 3D Vision (3DV), 2021. 2
+[18] Kaiwen Guo, Peter Lincoln, Philip Davidson, Jay Busch,
+Xueming Yu, Matt Whalen, Geoff Harvey, Sergio Orts-
+Escolano, Rohit Pandey, Jason Dourgarian, et al. The re-
+lightables: Volumetric performance capture of humans with
+realistic relighting. ACM Trans. on Graphics, 38, 2019. 2
+[19] Marc Habermann, Weipeng Xu, Michael Zollhoefer, Ger-
+ard Pons-Moll, and Christian Theobalt. Livecap: Real-time
+human performance capture from monocular video. ACM
+Trans. on Graphics, 38, 2019. 2
+[20] Marc Habermann, Weipeng Xu, Michael Zollhoefer, Ger-
+ard Pons-Moll, and Christian Theobalt. DeepCap: Monocu-
+lar human performance capture using weak supervision. In
+Proc. IEEE Conf. on Computer Vision and Pattern Recogni-
+tion (CVPR), 2020. 2
+[21] Tong He, John Collomosse, Hailin Jin, and Stefano Soatto.
+Geo-PIFu: Geometry and pixel aligned implicit functions for
+single-view human reconstruction. In Advances in Neural
+Information Processing Systems (NeurIPS), 2020. 2
+[22] Tong He, Yuanlu Xu, Shunsuke Saito, Stefano Soatto, and
+Tony Tung. ARCH++: Animation-ready clothed human re-
+construction revisited.
+In Proc. IEEE Conf. on Computer
+Vision and Pattern Recognition (CVPR), 2021. 2
+[23] Fangzhou Hong, Mingyuan Zhang, Liang Pan, Zhongang
+Cai, Lei Yang, and Ziwei Liu. Avatarclip: Zero-shot text-
+driven generation and animation of 3d avatars. ACM Trans.
+on Graphics, 2022. 2
+[24] Zeng Huang, Yuanlu Xu, Christoph Lassner, Hao Li, and
+Tony Tung. Arch: Animatable reconstruction of clothed hu-
+mans. In Proc. IEEE Conf. on Computer Vision and Pattern
+Recognition (CVPR), 2020. 2
+[25] Boyi Jiang, Yang Hong, Hujun Bao, and Juyong Zhang. Sel-
+frecon: Self reconstruction your digital avatar from monoc-
+ular video. In Proc. IEEE Conf. on Computer Vision and
+Pattern Recognition (CVPR), 2022. 2
+[26] Wei Jiang, Kwang Moo Yi, Golnoosh Samei, Oncel Tuzel,
+and Anurag Ranjan. Neuman: Neural human radiance ﬁeld
+from a single video. In Proc. of the European Conf. on Com-
+puter Vision (ECCV), 2022. 2, 5
+[27] Yue Jiang, Marc Habermann, Vladislav Golyanik, and Chris-
+tian Theobalt. Hifecap: Monocular high-ﬁdelity and expres-
+sive capture of human performances. In Proc. of the British
+Machine Vision Conf. (BMVC), 2022. 2
+[28] Ruilong Li, Matthew Tancik, and Angjoo Kanazawa. Ner-
+facc: A general nerf accleration toolbox.
+arXiv preprint
+arXiv:2210.04847, 2022. 2, 3
+10

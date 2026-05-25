@@ -1,0 +1,886 @@
+Title: 3DGH: 3D Head Generation with Composable Hair and Face
+
+arXiv:2506.20875v1  [cs.GR]  25 Jun 2025
+3DGH: 3D Head Generation with Composable Hair and Face
+CHENGAN HE, Yale University, USA
+JUNXUAN LI, Meta Codec Avatars Lab, USA
+TOBIAS KIRSCHSTEIN, Technical University of Munich, Germany
+ARTEM SEVASTOPOLSKY, Technical University of Munich, Germany
+SHUNSUKE SAITO, Meta Codec Avatars Lab, USA
+QINGYANG TAN, Meta Codec Avatars Lab, USA
+JAVIER ROMERO, Meta Codec Avatars Lab, USA
+CHEN CAO, Meta Codec Avatars Lab, USA
+HOLLY RUSHMEIER, Yale University, USA
+GILJOO NAM, Meta Codec Avatars Lab, USA
+Fig. 1. 3DGH: Our method generates 3D head representations that can be rendered at 360◦with photorealistic rendering quality and high-fidelity geometry
+based on 3D Gaussian Splatting. The generated heads include composable hair and face components, enabling 3D hairstyle editing with multi-view consistency.
+Authors’ addresses: Chengan He, Yale University, USA, chengan.he@yale.edu; Junxuan
+Li, Meta Codec Avatars Lab, USA, junxuanli@meta.com; Tobias Kirschstein, Technical
+University of Munich, Germany, tobias.kirschstein@tum.de; Artem Sevastopolsky,
+Technical University of Munich, Germany, artem.sevastopolsky@gmail.com; Shunsuke
+Saito, Meta Codec Avatars Lab, USA, shunsukesaito@meta.com; Qingyang Tan, Meta
+Codec Avatars Lab, USA, qytan@meta.com; Javier Romero, Meta Codec Avatars Lab,
+USA, javierromero1@meta.com; Chen Cao, Meta Codec Avatars Lab, USA, chencao@
+meta.com; Holly Rushmeier, Yale University, USA, holly.rushmeier@yale.edu; Giljoo
+Nam, Meta Codec Avatars Lab, USA, giljoonam@meta.com.
+This work is licensed under a Creative Commons Attribution-NonCommercial 4.0
+International License.
+© 2025 Copyright held by the owner/author(s).
+0730-0301/2025/8-ART
+https://doi.org/10.1145/3731211
+We present 3DGH, an unconditional generative model for 3D human heads
+with composable hair and face components. Unlike previous work that
+entangles the modeling of hair and face, we propose to separate them using
+a novel data representation with template-based 3D Gaussian Splatting, in
+which deformable hair geometry is introduced to capture the geometric
+variations across different hairstyles. Based on this data representation, we
+design a 3D GAN-based architecture with dual generators and employ a cross-
+attention mechanism to model the inherent correlation between hair and
+face. The model is trained on synthetic renderings using carefully designed
+objectives to stabilize training and facilitate hair-face separation. We conduct
+extensive experiments to validate the design choice of 3DGH, and evaluate
+it both qualitatively and quantitatively by comparing with several state-of-
+the-art 3D GAN methods, demonstrating its effectiveness in unconditional
+
+
+2
+•
+C. He et al.
+full-head image synthesis and composable 3D hairstyle editing. More details
+will be available on our project page: https://c-he.github.io/projects/3dgh/.
+CCS Concepts: • Computing methodologies →Shape representations;
+Appearance and texture representations.
+Additional Key Words and Phrases: Facial Modeling, Hair Modeling, Gener-
+ative 3D Modeling
+ACM Reference Format:
+Chengan He, Junxuan Li, Tobias Kirschstein, Artem Sevastopolsky, Shunsuke
+Saito, Qingyang Tan, Javier Romero, Chen Cao, Holly Rushmeier, and Giljoo
+Nam. 2025. 3DGH: 3D Head Generation with Composable Hair and Face.
+ACM Trans. Graph. 44, 4 (August 2025), 12 pages. https://doi.org/10.1145/
+3731211
+1
+INTRODUCTION
+The generation of high-quality 3D human heads has broad applica-
+tions in digital avatars, telepresence, immersive gaming, and so on.
+Recently, many generative models have been proposed to facilitate
+3D head generation by integrating geometry-aware representations
+with well-studied 2D image generative models [An et al. 2023; Chan
+et al. 2022; Kirschstein et al. 2024; Li et al. 2024].
+Despite their advancements, existing methods often overlook the
+inherent diversity difference between hair and face, where faces of
+different identities still share a similarity in facial features while
+hairstyles are significantly more diverse. As a result, most prior
+3D head generative models, which entangle the modeling of hair
+and face, are unsuitable for finer-grained editing tasks such as hair
+transfer. Although some approaches enable editability for 2D im-
+ages [Nikolaev et al. 2024; Richardson et al. 2021] or geometry-aware
+representations like tri-plane [Gao et al. 2023; Sun et al. 2022], they
+either suffer from view inconsistency in 3D applications or are inade-
+quate for modeling 3D hair, particularly in back-of-head regions. To
+address these limitations, we introduce 3DGH, a generative model
+for 3D full-head synthesis that supports composable hair and face
+components.
+To train a generative model that supports compositionality, there
+are two key issues we need to address: (1) first, we need to en-
+sure a clear separation between hair and face to disentangle these
+components, and meanwhile, (2) we need to respect their inherent
+correlation, as observed in real-world patterns where male faces
+are predominantly associated with short hairstyles, while female
+faces typically feature medium to long hairstyles. To tackle these
+challenges, we propose a novel data representation with template-
+based 3D Gaussian Splatting (3DGS), in which two separate mesh
+templates are involved to model the overall structure of hair and
+face with 3D Gaussians spawned on their 2D 𝑢𝑣texture maps. To
+capture the geometric variations among different hairstyles, we
+make the hair geometry itself deformable through PCA-based linear
+blend shapes fitted from multi-view facial capture data. This data
+representation then drives the design of our network architecture,
+which employs dual branches of StyleGAN2 [Karras et al. 2020]
+generators to independently generate hair and face Gaussians. A
+cross-attention mechanism [Vaswani et al. 2017] is introduced to
+carefully model the inherent correlation between hair and face, en-
+suring coherent and realistic outputs. The model is trained using
+a comprehensive objective that combines adversarial loss, recon-
+struction terms, and regularization terms, all carefully designed to
+stabilize training and facilitate effective hair-face separation.
+We train our model using synthetic renderings from PanoHead [An
+et al. 2023]. After training on 25𝑚images, we obtain a 3D generative
+model capable of producing diverse 3D heads with composable hair
+and face components. We evaluate the model both qualitatively and
+quantitatively, demonstrating its effectiveness in unconditional full-
+head image synthesis and composable 3D hairstyle editing through
+comparisons with several state-of-the-art 3D GAN methods.
+In summary, our contributions are as follows:
+• We propose 3DGH, a Gaussian-based 3D GAN for human
+heads that supports composable hair and face components.
+• We introduce a novel data representation that utilizes sepa-
+rate template meshes for hair and face, with deformable hair
+geometry to capture diverse hairstyles.
+• We design network architectures and training objectives to
+model hair-face separation and correlation, demonstrating
+their effectiveness through qualitative and quantitative com-
+parisons with state-of-the-art 3D GAN methods.
+2
+RELATED WORK
+In this section, we review prior work in 3D head generative mod-
+els, conditional image editing methods, and 3D hair modeling ap-
+proaches.
+2.1
+3D Generative Adversarial Networks
+3D Generative Adversarial Networks (GANs) are able to leverage
+adversarial training to develop generative models for 3D repre-
+sentations from 2D image collections. Early approaches primarily
+employed implicit 3D representations, such as NeRF [Mildenhall
+et al. 2020], to render either raw pixels [Chan et al. 2021; Schwarz
+et al. 2020] or features subsequently decoded by a CNN-based neural
+renderer [Niemeyer and Geiger 2021; Xue et al. 2022]. However, the
+high computational cost for volume rendering posed challenges for
+training high-resolution GANs. To address these limitations, more
+recent works have adapted successful 2D GAN architectures to gen-
+erate compact intermediate representations, which can then be lifted
+to 3D [Chan et al. 2022; Gu et al. 2021; Or-El et al. 2022]. Among these
+approaches, the tri-plane representation introduced in EG3D [Chan
+et al. 2022] has proven to be the most effective for generating di-
+verse and realistic geometry-aware portrait images. Building on this
+foundation, subsequent works, such as PanoHead [An et al. 2023]
+and SphereHead [Li et al. 2024], extend the tri-plane representation
+for full-head synthesis including back-view head images.
+Despite the use of compact intermediate representations, the
+aforementioned methods typically rely on a 2D super-resolution
+network to enhance efficiency during training and inference, which
+may introduce unwanted artifacts in the form of 3D inconsistencies
+as well as low-resolution geometry. 3D Gaussian Splatting (3DGS)
+by Kerbl et al. [2023] provided an alternative direction by utilizing
+an explicit representation, where a set of 3D Gaussians is optimized
+from multi-view images using volume splatting [Zwicker et al. 2001].
+Although the original 3DGS representation is unstructured, subse-
+quent works such as Gaussian Shell Maps [Abdal et al. 2024] and
+
+
+3DGH: 3D Head Generation with Composable Hair and Face
+•
+3
+GGHead [Kirschstein et al. 2024] have demonstrated strategies to
+rig Gaussians in an organized manner relative to an underlying
+template mesh, thereby enabling the training of Gaussian-based
+3D GANs for human body and head generations. In this work, we
+aim at training a similar Gaussian-based 3D GAN for human head
+generation, while focusing on disentangling the generation of hair
+and face to enable a composable model through the introduction
+of novel data representations, network architectures, and training
+strategies.
+2.2
+Conditional Image Editing
+Beyond unconditional generation, GANs are extensively employed
+to learn mappings from a reference in a source domain to a target do-
+main. Examples include translating semantic masks [Park et al. 2019;
+Zhu et al. 2020] or hand-drawn sketches [Chen et al. 2020] into pho-
+torealistic images. A common approach involves using a pre-trained
+StyleGAN [Karras et al. 2019] generator as a decoder while train-
+ing customized encoders for different input modalities [Richardson
+et al. 2021]. Specifically for hairstyle editing, works like [Nikolaev
+et al. 2024; Wei et al. 2022, 2023; Zhu et al. 2021] take this approach
+to train customized encoders to map the input conditions to the
+latent space of StyleGAN, thereby achieving hairstyle editing with
+conditions such as reference images and text. While these methods
+achieve impressive results in 2D image editing, they often struggle
+to edit geometry-aware content due to the lack of mechanisms for
+preserving multi-view consistency in the synthesized outputs. To
+address this limitation, geometry-aware editing approaches such as
+IDE-3D [Sun et al. 2022] and SketchFaceNeRF [Gao et al. 2023] train
+3D GANs from scratch with additional intermediate 3D represen-
+tations for conditions such as semantic masks or sketches, thereby
+ensuring multi-view consistency during editing. A concurrent work
+by Bilecen et al. [2024] solves a similar 3D hairstyle editing problem
+through tri-plane editing. In this work, we adopt a similar approach
+by rendering hair-face segmentation as additional supervision. Fur-
+thermore, we carefully model the correlation between hair and face
+to enhance editing fidelity while respecting plausible conditional
+hairstyle distributions observed in the real world.
+2.3
+3D Hair Modeling
+Given the complexity and variability of hair, high-quality 3D hair
+modeling has remained a persistent challenge for decades, as sum-
+marized in the comprehensive survey by Ward et al. [2007]. To
+capture high-quality 3D hair models, existing methods typically
+require high-end capture systems [Jakob et al. 2009; Paris et al. 2004;
+Xu et al. 2014] or even CT scanners [Shen et al. 2023] to fully recover
+strand-level details, leaving them inaccessible to most users. With
+the availability of synthetic 3D hair datasets [Hu et al. 2015], deep
+learning-based methods have emerged to regress 3D hair models
+from single-view [Chai et al. 2016; Saito et al. 2018; Wu et al. 2022;
+Zheng et al. 2023; Zhou et al. 2018] or sparse-view [Zhang et al. 2017]
+image input, thereby reducing the hardware requirement for 3D
+hair reconstruction. However, the performance of these data-driven
+methods is inherently constrained by the quality of their synthetic
+training datasets, which often lack realism and fail to represent intri-
+cate hairstyles, such as afro-textured hair. Recently, more advanced
+hair capture techniques have been proposed to jointly reconstruct
+hair geometry and appearance by incorporating neural volumet-
+ric primitives [Wang et al. 2022] or strand-aligned Gaussians [Luo
+et al. 2024; Zakharov et al. 2024]. While these methods produce
+impressive results, creating a large-scale 3D hair dataset with them
+remains tedious. Consequently, current hair generative models [He
+et al. 2025; Sklyarova et al. 2024; Zhou et al. 2023] continue to rely on
+synthetic data with augmentations and primarily focus on modeling
+hair geometry without appearance. In this work, we introduce a hair
+generative model trained on 2D image collections, capable of mod-
+eling both hair geometry and appearance with our deformable hair
+geometry representation and 3DGS-based rendering framework.
+3
+METHODOLOGY
+An overview of our method is presented in Fig. 2, which integrates
+3D Gaussian Splatting with the well-studied 3D GAN formulation.
+Our approach comprises three key components: a novel data rep-
+resentation that incorporates 3DGS and deformable hair geometry
+(Section 3.1), a newly designed network architecture that simulta-
+neously models hair-face separation and correlation (Section 3.2),
+and training objectives specifically crafted to stabilize GAN training
+and enhance hair-face separation (Section 3.3).
+3.1
+Data Representation
+3.1.1
+Template-Based 3D Gaussian Splatting. Since the emergence
+of 3D Gaussian Splatting [Kerbl et al. 2023], it has shown outstand-
+ing expressivity in 3D scene representation, in which the scene is
+represented as a collection of 3D Gaussians, with each Gaussian
+denoted as g𝑖= {p𝑖, q𝑖, s𝑖, c𝑖,𝑜𝑖} ∈R14, characterized by a set of
+parameters. These parameters include its center position p𝑖∈R3,
+rotation parameterized by a unit quaternion q𝑖∈R4, scale factor
+s𝑖∈R3 along each axis, color c𝑖∈R3, and opacity value 𝑜𝑖∈R.
+This collection of 3D Gaussians can then be efficiently rendered
+through its differentiable tile-based rasterizer given the camera pose
+Π.
+Considering the highly unstructured nature of the original 3DGS,
+we follow previous works [Abdal et al. 2024; Kirschstein et al. 2024;
+Saito et al. 2024] and associate each 3D Gaussian with a template
+mesh with corresponding 𝑢𝑣layout. In this way, 3D Gaussians are
+represented as a 2D texture map T ∈R256×256×14, where each texel
+stores the parameters for a single 3D Gaussian primitive. In our
+3D head representation, we adopt two different meshes and texture
+maps for hair and face, respectively, resulting in ∼131𝐾Gaussians
+in total for the final rendering.
+3.1.2
+Deformable Hair Geometry. Even with our template-based
+3DGS representation, there is an inherent difference between hair
+and face remaining unsolved, that is, hair contains much more
+geometric variation than different faces, which always share some
+commonalities among facial features such as eyes and mouth. For
+hair, there are many different hairstyles in the real world, ranging
+from short to long, fluffy to flat, making it hard to find a single
+template mesh to cover all these variations. To solve this problem,
+we learn a hair geometry prior that allows to produce deformable
+hair geometry to fit different hairstyles.
+
+
+4
+•
+C. He et al.
+LBS
+Rasterize
+Real
+or
+Fake
+MLP
+StyleGAN2
+Latent code / 
+Camera pose
+PCA coeff.
+PanoHead
+(frozen)
+Portrait
+Image
+Generator
+𝜃⃗
+Face Branch
+Hair Branch
+cross attn.
+3D Gaussians
+I$!"#
+I!"#
+I$$%"
+Fig. 2. Overview of 3DGH, which takes a randomly sampled Gaussian noise vector z and camera pose Π as input and outputs disentangled 3D head and hair
+representations, which are modeled as 3D Gaussians spawned on the 2D 𝑢𝑣textures of the underlying 3D meshes. The generated 3D Gaussians are rasterized
+and supervised by the discriminator, with additional reconstruction supervision provided by inferring PanoHead [An et al. 2023] using the same noise z and
+camera pose Π. In 3DGH, the hair geometric variation is modeled with a separate geometry mapping network 𝑓geom that produces PCA coefficients for our
+pre-computed linear blend shapes, and the hair-face correlation is modeled using cross-attention layers to integrate the information from wface.
+To learn the prior, we first fit hair geometries from multi-view
+facial capture data that are similar to the Multiface dataset [Wuu et al.
+2022], which provides calibrated camera parameters and semantic
+segmentations for each captured image. Given a template hair mesh,
+we formulate its deformation as an optimization problem, in which
+we differentiably render the segmentation of the deformed hair
+mesh using DRTK [Pidhorskyi et al. 2024], and compute the 𝐿1 loss
+over the provided calibration. To suppress artifacts such as flipped
+and folded faces during deformation, we adopt an idea similar to
+Neural Jacobian Fields [Aigerman et al. 2022], where we optimize
+for Jacobians J ∈R𝐹×3×3 (𝐹refers to the number of faces of the
+template mesh) and centroid translation t ∈R3 of the template
+mesh, rather than vertex offsets directly. Vertex positions can be
+computed efficiently with a differentiable Poisson solver, and this
+process can thus be formally defined as:
+J∗, t∗B arg min
+J,t
+∥R PoissonSolve(J) + t; Π −Iseg∥1,
+(1)
+where R(·; Π) is the differentiable rendering operator of DRTK given
+the camera pose Π, PoissonSolve(·) is the differentiable Poisson
+solver in Neural Jacobian Fields, and Iseg is the pre-calibrated ground
+truth segmentation. Our experiments show that this optimization
+process converges within 500 iterations, and in Fig. 3 we visualize
+10 hair meshes fitted from this process.
+In total, we collect 283 different hair meshes, and then learn
+their prior using the conventional PCA-based methods in digital
+humans [Blanz and Vetter 1999; Loper et al. 2015]. Specifically, we
+solve a set of linear blend shapes by performing PCA on the nor-
+malized hair meshes, and different deformed hair meshes can thus
+Fig. 3. Examples of hair meshes fitted by our algorithm. Since all examples
+are deformed from the same template, they share a consistent topology, as
+illustrated by their wireframe visualization.
+be obtained from the linear function M( ®𝜃):
+M( ®𝜃; X) = ¯M + 𝜎
+| ®𝜃|
+∑︁
+𝑛=1
+®𝜃𝑛X𝑛,
+(2)
+where ®𝜃= [𝜃1, . . . ,𝜃| ®𝜃|]⊤is a vector of blend shape coefficients,
+and X = [X1, . . . , X| ®𝜃|]⊤∈R| ®𝜃|×3𝑉forms a matrix of orthogonal
+principal components of shape displacements, with 𝑉referring to
+the number of vertices of the template mesh, and ¯M ∈R3𝑉and
+𝜎∈R denote the mean shape and standard variation computed
+from the original fitted hair meshes. We set the number of blend
+shape coefficients | ®𝜃| = 32, which ensures that the deformed mesh
+is smooth while still covering enough variations.
+
+
+3DGH: 3D Head Generation with Composable Hair and Face
+•
+5
+3.2
+Network Architecture
+To obtain enough training data of frontal and back-of-head images
+with accurate camera poses, we adopt PanoHead [An et al. 2023] as
+our training data generator and train our generative model following
+the scheme of StyleGAN2 [Karras et al. 2020]. Formally, given a
+randomly sampled latent code z ∈R512 and camera pose Π ∈R25,
+they are first passed to PanoHead to obtain a rendered RGB image
+Irgb ∈R512×512×3, which is later segmented and parsed to obtain the
+foreground mask Imask ∈R512×512 and the hair-face segmentation
+map Iseg ∈R512×512 using [Lin et al. 2021; Zheng et al. 2022]. These
+images, i.e., Irgb, Imask, Iseg, serve as supervision signals to train our
+model.
+3.2.1
+Dual-Branch 3D GAN. As illustrated in Fig. 2, we design two
+separate branches to handle the generation of hair and face respec-
+tively. Given the same latent code z and camera pose Π, the mapping
+network 𝑓: Z ↦→W is first introduced to map them to the interme-
+diate latent space, denoted as whair and wface. For hair, an additional
+geometry mapping network 𝑓geom : W ↦→®𝜃is designed, which
+maps the latent code whair to proper blend shape coefficients that
+can represent the global shape of the hairstyle. These intermediate
+latent codes are then fed into two separate StyleGAN generators
+Ghair and Gface, yielding two textures Thair and Tface that store
+Gaussian parameters on each texel. We spawn 3D Gaussians from
+these textures and associate them with the underlying template
+mesh, combining and rendering them together to obtain the ren-
+dered RGB image ˆIrgb and mask ˆImask from the provided camera
+pose. We use a similar dual discrimination method as EG3D [Chan
+et al. 2022], where we concatenate the rendered RGB and mask
+images and feed them into the discriminator with the camera pose
+Π. Aligning with the findings of Mimic3D [Chen et al. 2023], this
+adversarial training scheme helps increase diversity and maintain
+high-frequency details in our generated outputs.
+3.2.2
+Hair-Face Correlation. In reality, the distributions of plausible
+faces and hairstyles are correlated. For instance, hairstyles often
+correlate with gender and ethnicity. To encourage our model to
+learn these correlations, which are commonly observed in the real
+world, we use cross-attention layers [Vaswani et al. 2017] to inject
+wface into each synthesis block of Ghair, thereby influencing the hair
+generation process at different scales. Specifically, the intermediate
+feature map y𝑙+1 generated at layer 𝑙+ 1 is computed as:
+x𝑙= Conv(x𝑙)
+x𝑙+1 = x𝑙+ CrossAttention(Q = x𝑙, K = V = wface)
+y𝑙+1 = Upsample(y𝑙) + ToRGB(x𝑙+1)
+(3)
+In Eq. (3), x𝑙is the input feature map for convolution from layer 𝑙,
+Conv(·) is the modulated convolution layers inside synthesis blocks,
+Upsample(·) is the spatial upsampling operator to upscale the previ-
+ous feature map y𝑙to match the spatial resolution of x𝑙+1, ToRGB(·)
+is the convolution layer that adjusts the number of channels in the
+convolved feature map x𝑙+1 to match y𝑙, and CrossAttention(·, ·)
+is the cross-attention layers we newly introduced compared to the
+original synthesis blocks in StyleGAN2. The diagram for our hair-
+face correlation module is provided in Fig. 4.
+Conv
+UpSample
+ToRGB
+Conv
+Conv
+UpSample
+ToRGB
+Conv
+V
+K
+Q
+(a) Original architecture
+(b) Ours with cross-attention
+Fig. 4. Diagram of our hair-face correlation module, which utilizes cross-
+attention layers to inject wface into each synthesis block of StyleGAN2.
+Inspired by classifier-free guidance [Ho and Salimans 2022], we
+design a similar technique by randomly dropping the condition
+wface (replacing it with all-zero vectors ∅) during training with
+a probability of 10%. Then in the inference stage, we blend the
+conditional feature map x𝑙and unconditional feature map x𝑙
+∅with
+the CFG factor 𝜔:
+˜x𝑙= 𝜔x𝑙+ (1 −𝜔)x𝑙
+∅,
+(4)
+thereby allowing for further control over the hair-face correlation
+with the CFG factor 𝜔.
+3.3
+3D GAN Training
+As PanoHead gives us direct supervision during training, our final
+training objective consists of adversarial loss, reconstruction losses
+on rendered images, and several regularization terms to stabilize
+the training and improve the generation quality.
+Adversarial Loss. Following EG3D [Chan et al. 2022], we incorpo-
+rate the standard non-saturating GAN loss Ladv [Goodfellow et al.
+2014] with 𝑅1 gradient regularization [Mescheder et al. 2018] on
+both the RGB and mask images, where the regularization strengths
+are set to 1 for both of them.
+RGB and Mask Loss. From Gaussian Splatting we can obtain the
+rendered RGB image ˆIrgb and mask ˆImask, on which we compute
+the 𝐿1 loss to measure their reconstruction quality. These loss terms
+can be expressed as:
+Lrgb = ∥ˆIrgb −Irgb∥1,
+Lmask = ∥ˆImask −Imask∥1.
+(5)
+Segmentation Loss. To encourage a clear separation between hair
+and face, we further assign different one-hot labels to Gaussians
+spawned from Thair and Tface ([0, 0, 1] for hair and [0, 1, 0] for face,
+[1, 0, 0] is left for background), which will be used to render an
+additional segmentation map ˆIseg ∈R512×512×3 with other Gauss-
+ian parameters. To ensure that the generated hair mesh faithfully
+represents the hairstyle in the image, we additionally render the
+hair mesh segmentation ˆImesh
+seg
+∈R512×512 with DRTK [Pidhorskyi
+et al. 2024] by assigning different scalar values to vertices of the
+hair and face meshes (2 for hair and 1 for face, the default value 0 is
+for background). These segmentation maps are supervised with the
+segmentation map Iseg parsed from Irgb, where the loss terms are
+defined as:
+Lseg = CrossEntropy(ˆIseg, Iseg),
+Lmesh
+seg
+= ∥ˆImesh
+seg
+−Iseg∥1.
+(6)
+
+
+6
+•
+C. He et al.
+Note that we use the cross-entropy loss rather than 𝐿1 loss for the
+segmentation map ˆIseg rendered from Gaussian Splatting, as its 𝛼-
+blending nature will inevitably change values around the boundary,
+thus causing mislabeling issues for pixels on the boundary if their
+labels are scalar.
+Regularization Terms. As our adversarial training is weakly su-
+pervised and 3D Gaussians are quite sensitive to gradient updates
+during early training stages, unconstrained training will quickly
+lead to divergence or mode collapse with overly large or extremely
+small Gaussians in the early stage. Therefore, we apply some regu-
+larization terms to stabilize the training. First, based on our hybrid
+3DGS representation, the center position p𝑖of each Gaussian is
+defined as the sum of the 3D position v𝑖on the mesh surface and
+the delta position Δp𝑖decoded from the generated texture maps.
+To ensure that all Gaussians stay within a thin layer around the
+mesh surface, we first clamp the absolute value of the decoded delta
+position Δp𝑖with a threshold 𝛾. We use 𝛾= 40 for face Gaussians,
+meaning that they can move at most 40mm away from the surface.
+As the hair mesh itself is deformable, we reduce 𝛾to 20 for hair
+Gaussians to make sure that different hairstyles are generated with
+different geometries, rather than similar geometries with largely
+deviated Gaussians. A regularization term for delta positions is
+applied:
+Lpos
+reg =
+∑︁
+𝑖
+∥Δp𝑖∥2,
+(7)
+which encourages all predicted Gaussians to stay close to the mesh
+surface. To constrain the scale of Gaussians to stay within a reason-
+able range, the most effective regularization term we experimented
+with can be defined as:
+Lscale
+reg
+=
+(
+10 × |𝑠𝑖−𝑠min|
+𝑠𝑖< 𝑠min
+(𝑠𝑖−𝑠max)2
+𝑠𝑖> 𝑠max
+(8)
+It applies different penalties to constrain the Gaussian scaling along
+all axes if they are outside of a reasonable range [𝑠min,𝑠max], where
+𝑠min = 0.2 and 𝑠max = 5. Finally, we also apply the 𝑢𝑣total variation
+loss Luv
+reg proposed in GGHead [Kirschstein et al. 2024] to prevent
+Gaussians in the back from shining through to the front.
+Combining all the terms discussed above, the final training objec-
+tive is defined as their weighted sum, expressed as:
+L = Ladv + 𝜆rgbLrgb + 𝜆maskLmask + 𝜆segLseg + 𝜆mesh
+seg Lmesh
+seg
++ 𝜆pos
+reg Lpos
+reg + 𝜆scale
+reg Lscale
+reg
++ 𝜆uv
+regLuv
+reg
+(9)
+where we set the weighting factors 𝜆rgb = 10, 𝜆mask = 10, 𝜆seg = 1,
+𝜆mesh
+seg
+= 100, 𝜆pos
+reg = 0.1, 𝜆scale
+reg
+= 1, and 𝜆uv
+reg = 1 to balance the
+influence of different terms.
+4
+EXPERIMENTS
+We use multi-view capture data [Saito et al. 2024; Wuu et al. 2022] to
+solve the linear blend shapes for our deformable hair geometry, and
+we use PanoHead [An et al. 2023] as the portrait image generator to
+train our generative model. For details about these datasets, please
+refer to Sec. A in supplemental.
+4.1
+Comparisons
+We compare against several competitive baseline methods from the
+3D GAN literature. Unless otherwise indicated, all baselines are their
+official checkpoints to maintain their original quality. We evaluate
+the quality of the generated multi-view images, both quantitatively
+and qualitatively.
+4.1.1
+Qualitative Comparisons. Fig. 5 visually compares the im-
+age quality against baselines including EG3D [Chan et al. 2022],
+PanoHead [An et al. 2023], SphereHead [Li et al. 2024], and GGHead
+[Kirschstein et al. 2024], where EG3D is the pioneering work that
+synthesizes high-quality portrait images with the tri-plane represen-
+tation and a 2D super-resolution network, PanoHead and Sphere-
+Head are two subsequent works that achieve full-head synthesis
+by improving the tri-plane representation, and GGHead utilizes a
+similar hybrid representation with 3DGS and a template mesh as
+ours. All synthesized images contain 5 different views, with yaw
+angles ranging from 0◦to 180◦. While all methods successfully
+synthesize realistic frontal-view images, the rendering quality of
+EG3D and GGHead deteriorates significantly when rendering from
+large camera poses or back-view areas, as these methods are not
+specifically designed for full-head image synthesis. Compared to
+SphereHead and PanoHead, our method achieves comparable visual
+quality while providing the additional advantage of compositional-
+ity.
+To prove the compositionality of our method, we first present
+samples generated by our model alongside the rendered hair-face
+segmentation maps and mesh normal maps in Fig. 6. Leveraging
+our deformable hair geometry, we achieve smooth deformations of
+the hair mesh, effectively capturing the overall structure of various
+hairstyles. Additionally, the 3D Gaussians associated with the hair
+mesh exhibit a clear separation from the face Gaussians and are
+capable of representing some strand-level details, thus yielding
+hair-face segmentation maps with finer-grained details that are
+difficult to obtain from common image segmentation models. More
+uncurated samples can be found in Sec. D of our supplemental.
+We then evaluate our compositionality through 3D hairstyle edit-
+ing, where the 3D hairstyle in the reference sample is transferred to
+another one. The qualitative results are provided in Fig. 7, demon-
+strating that our approach preserves the reference hairstyle with
+high fidelity while producing a natural blending around the hairline.
+Both the hair geometry and appearance are transferred through a
+simple latent code swap. Note that in 2D hairstyle editing methods,
+such as HairFastGAN [Nikolaev et al. 2024], such hairstyle editing
+typically requires multiple processing steps and network modules.
+Furthermore, our editing results inherently maintain multi-view
+consistency, attributed to the 3D nature of our representations.
+We finally investigate the impact of our hair-face correlation mod-
+eling technique by generating hair-face compositions with varying
+levels of the CFG scale factor 𝜔. As illustrated in Fig. 8, when the
+reference face is male, it favors short-length hairstyles to align with
+plausible hairstyle distributions observed for this face condition
+in real life. Consequently, as 𝜔increases, the transferred hairstyle
+gradually becomes shorter while preserving the overall style of the
+reference. This experiment provides strong evidence for the effec-
+tiveness of our hair-face correlation module, which introduces an
+
+
+3DGH: 3D Head Generation with Composable Hair and Face
+•
+7
+Yaw: 0∘
+(e)
+(f)
+(g)
+(h)
+(a)
+(b)
+(c)
+(d)
+45∘
+90∘
+135∘
+180∘
+Yaw: 0∘
+45∘
+90∘
+135∘
+180∘
+Fig. 5. Qualitative comparison with various 3D GANs. (a) EG3D [Chan et al. 2022] and (b) GGHead [Kirschstein et al. 2024] are not specifically designed for
+full-head image synthesis, resulting in significant quality degradation when rendering large-pose or back-view images. (c) SphereHead [Li et al. 2024] and (d)
+PanoHead [An et al. 2023] are two 3D GANs tailored for full-head image synthesis. Compared with these methods, our results (e-h) demonstrate comparable
+quality while offering the additional advantage of compositionality.
+RGB
+Segmentation
+Mesh Normal
+RGB
+Segmentation
+Mesh Normal
+Fig. 6. Generated samples with corresponding hair-face segmentation and deformed hair geometry. Our method enables smooth deformation of the hair
+mesh to represent various hairstyles, while assigning 3D Gaussians to capture strand-level details and appearance.
+extra dimension for editing transferred hairstyles while maintaining
+plausibility – a critical point often overlooked by previous hairstyle
+editing methods.
+
+
+8
+•
+C. He et al.
+Original Hairstyle
+Edited Hairstyle
+Reference
+Fig. 7. Our method supports 3D hairstyle editing by swapping the hair latent code whair from the reference samples. This editing process transfers both the
+hair geometry and appearance, while ensuring multi-view consistency thanks to the inherently 3D nature of our representations.
+Reference Face
+Reference Hair
+𝜔= 0
+𝜔= 0.5
+𝜔= 1
+Fig. 8. Analysis of the CFG scale factor 𝜔, where we present hair-face compositions generated using varying levels of 𝜔. When 𝜔is small, the hair-face
+correlation has weak influence on the final output, resulting in hairstyles more similar to the reference. As 𝜔increases, the composition process becomes more
+biased toward the face distribution, producing hairstyles that are more contextually appropriate for the given face.
+4.1.2
+Quantitative Comparisons. We first quantitatively evaluate
+our generation quality by measuring the Fréchet Inception Distance
+(FID) [Heusel et al. 2017] computed over 50𝑘real and fake image
+samples. Since PanoHead [An et al. 2023] serves as our training data
+generator, its renderings are treated as real image samples for the
+FID evaluation. In addition to the overall FID (FID-all) computed
+on randomly sampled poses, we evaluate generation quality at a
+finer granularity by sampling camera poses from different regions.
+
+
+3DGH: 3D Head Generation with Composable Hair and Face
+•
+9
+Table 1. Quantitative comparison on different FID metrics.
+FID ↓
+back
+front
+all
+Ours
+9.86
+5.47
+6.55
+Table 2. Quantitative comparison between our method and other 3D GANs
+on multi-view consistency.
+EG3D
+GGHead
+SphereHead
+Ours
+[Chan et al. 2022]
+[Kirschstein et al. 2024]
+[Li et al. 2024]
+ID ↑
+0.678
+0.683
+0.581
+0.690
+Specifically, FID-front evaluates facial details using images synthe-
+sized from frontal views (|𝑦𝑎𝑤| < 90◦), while FID-back assesses hair
+details using images synthesized from back views (|𝑦𝑎𝑤| ≥90◦). As
+shown in Table 1, all three metrics yield values less than 10, indicat-
+ing that the quality of our generated results is still comparable to
+that of PanoHead.
+We then conduct quantitative comparisons with EG3D [Chan
+et al. 2022], SphereHead [Li et al. 2024], and GGHead [Kirschstein
+et al. 2024] to evaluate multi-view consistency, in which we mea-
+sure the identity similarity score (ID) by calculating the average
+Adaface [Kim et al. 2022] cosine similarity between paired images
+rendered from different camera poses. As reported in Table 2, our
+method achieves the best multi-view consistency, since EG3D and
+GGHead struggle for large-pose images and SphereHead involves a
+2D super-resolution network that may introduce artifacts.
+4.2
+Ablation Study
+In Table 3, we analyze key design decisions in our method, includ-
+ing the choice of supervision on segmentation maps, the use of
+deformable hair geometry, and variations in hair-face correlation
+modules. To assess the compositionality of our approach, we gen-
+erate 50𝑘samples by randomly swapping the intermediate latent
+codes whair and wface, thereby creating novel samples with mis-
+matched hair and face combinations. We then compute FID for
+these swapped samples against the real samples, denoted as FID-
+swap, to evaluate the realism of the randomly combined hair and
+face outputs produced by our model.
+In Table 3, the first 3 rows evaluate the impact of our choice of
+segmentation supervision. Specifically, Seg. in D refers to concate-
+nate the rendered segmentation maps to the input of discriminator
+and let it determine whether the segmentation is realistic or not in
+an adversarial manner. Meanwhile, w/o Seg. loss denotes setting 𝜆seg
+to 0. In these experiments, we observed that passing segmentation
+maps to the discriminator often caused mode collapse during the
+early stages of GAN training, resulting in meaningless outputs and
+high FID scores. We hypothesize that it is mainly due to the mis-
+match in value representations: the rendered segmentation maps
+contain continuous floating-point values, whereas the ground-truth
+segmentations parsed from RGB images are discrete labels. This is a
+fundamental difference between segmentation maps and RGB/mask
+Table 3. Ablation studies on segmentation supervision, deformable hair
+geometry, and hair-face correlation module. The last row refers to our final
+architecture design.
+Seg.
+Hair Geom.
+Hair-Face Corr.
+FID ↓
+FID-swap ↓
+Seg. in D
+✗
+cross attn.
+296.97
+296.89
+w/o Seg. loss
+✗
+cross attn.
+10.56
+31.97
+w/ Seg. loss
+✗
+cross attn.
+12.15
+34.18
+w/ Seg. loss
+✓
+–
+12.11
+29.99
+w/ Seg. loss
+✓
+concat.
+10.30
+14.95
+w/ Seg. loss
+✓
+cross attn.
+7.67
+20.56
+images, since both ground truth RGB and mask images can contain
+continuous values between 0 and 1. Therefore, the discriminator
+can easily distinguish real and generated samples based on this
+quantization discrepancy, breaking the training process at an early
+stage. Surprisingly, removing the segmentation loss still produced
+reasonable generation results with acceptable segmentation qual-
+ity. Adding the segmentation loss encouraged a cleaner separation
+between hair and face Gaussians, though it slightly increased the
+FID score due to the additional constraints imposed on Gaussians.
+We provide qualitative comparisons to discuss these observations
+in Fig. 1 of our supplemental. The 3rd row further illustrates the
+importance of our deformable hair geometry. In this experiment, we
+replaced the deformable hair geometry with the average hair mesh
+fitted from studio capture data and trained our model using this
+fixed geometry. Quantitative results demonstrate that incorporating
+a deformable hair geometry improves overall generation quality.
+Visually, we observed that when the hair geometry is fixed, hair
+Gaussians need larger deviations to represent varying hairstyles, re-
+sulting in floating Gaussians appearing in random positions. Fig. 2 in
+supplemental includes a qualitative comparison of this artifact. The
+last 3 rows examine different hair-face correlation modules. In the
+4th row, we remove this module entirely, while the 5th row replaces
+it with a mechanism that concatenates whair and wface with a light-
+weight MLP to fuse them and model their correlation. The results
+indicate that our cross-attention mechanism achieves the lowest FID,
+signifying better generation quality. Although the concatenation
+mechanism achieves a lower FID-swap, qualitative analysis reveals
+that it introduces a strong dependency on wface, which reduces the
+diversity when wface is fixed and whair is swapped. Fig. 3 in supple-
+mental shows this artifact. Overall, these experiments demonstrate
+that our final architecture design (as shown in the last row) achieves
+the best balance of generation quality and diversity, enabling 3D
+hairstyle editing in the generated results with a certain guarantee
+of realism.
+4.3
+Latent Space Interpolation
+Fig. 9 illustrates how variations in the generated 3D head corre-
+spond to interpolations in the latent space of 3DGH. We begin
+by randomly sampling two pairs of latent codes, which are lin-
+early interpolated to produce intermediate representations. The
+resulting renderings, arranged from left to right, show a smooth
+
+
+10
+•
+C. He et al.
+Hair Interpolation
+Face Interpolation
+Fig. 9. Linear interpolation in the latent space of 3DGH. Top: Interpolation of whair with the facial identity fixed, demonstrating smooth transitions between
+hairstyles. Bottom: Interpolation of wface while keeping the hairstyle constant, illustrating gradual changes in facial features.
+semantic transition between two identities. Leveraging our com-
+posable design, we independently interpolate between whair and
+wface, enabling disentangled control over hair and facial features.
+The seamless transitions and consistent semantic structure across
+interpolations highlight the continuity and expressiveness of the
+latent space learned by our model.
+5
+DISCUSSION
+Limitations and Future Work. While our method demonstrates
+strong performance, it still faces several limitations. First, the ex-
+pressiveness of our model is constrained by the quality and diversity
+of the training data, which in our case are the images generated by
+PanoHead [An et al. 2023]. A clear domain gap exists between these
+synthetic images and in-the-wild images, making certain hairstyles,
+such as buns and braids, difficult to generate. Addressing this is-
+sue necessitates a large-scale dataset of in-the-wild images with
+comprehensive coverage of frontal and back views, accurate cam-
+era calibration, and reliable image alignment. Although works like
+PanoHead [An et al. 2023] and SphereHead [Li et al. 2024] have
+made progress in this direction, their in-house training data are
+not publicly available at this time, and specific processing steps
+are still needed to calibrate and align back views in the absence
+of facial landmarks. Therefore, combining real-world multi-view
+datasets such as RenderMe-360 [Pan et al. 2023] with synthetic data
+would be an interesting future work to explore that may alleviate
+these training data issues. Second, our model occasionally produces
+back-view artifacts for long hairstyles that occupy a large portion
+of the frontal view, as illustrated in Fig. 10. We attribute this to
+our generator’s conditioning on both the latent code and camera
+pose, following the design choice of EG3D [Chan et al. 2022] and
+PanoHead [An et al. 2023]. Despite using an 80% pose-swapping
+probability during training, rendering quality degrades when ren-
+dering poses differ significantly from the conditioning poses. This
+limitation is also observed in PanoHead [An et al. 2023] and Sphere-
+Head [Li et al. 2024] because full-head image synthesis requires
+360-degree rendering. Better conditioning on camera pose may re-
+quire an advanced architecture as a future work. Third, our method
+can produce hollow artifacts, particularly in hair regions, due to
+the stretching and scaling of Gaussian primitives to represent thin
+strand structures. While increasing the number of Gaussians may
+alleviate this problem by providing denser coverage, it would also
+lead to higher computational cost in terms of model size and training
+time. Fourth, while our design choice of the cross-attention layer

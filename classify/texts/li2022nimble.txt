@@ -1,0 +1,1055 @@
+Title: Nimble: a non-rigid hand model with bones and muscles
+
+NIMBLE: A Non-rigid Hand Model with Bones and Muscles
+YUWEI LI∗, School of Information Science and Technology, ShanghaiTech University, China
+LONGWEN ZHANG, ShanghaiTech University, China and Deemos Technology, China
+ZESONG QIU, ShanghaiTech University, China
+YINGWENQI JIANG, ShanghaiTech University, China
+NIANYI LI, Clemson University, United States of America
+YUEXIN MA, ShanghaiTech University, China
+YUYAO ZHANG, ShanghaiTech University, China
+LAN XU, ShanghaiTech University, China
+JINGYI YU†, ShanghaiTech University, China and DGene Digital Technology, China
+Fig. 1. We present NIMBLE, a non-rigid parametric hand model that includes bones and muscles, bringing 3D hand model to a new level of realism. By
+enforcing the inner bones and muscles to match anatomic and kinematic rules, NIMBLE can animate 3D hands to new poses at unprecedented realism.
+Emerging Metaverse applications demand reliable, accurate, and photore-
+alistic reproductions of human hands to perform sophisticated operations
+as if in the physical world. While real human hand represents one of the
+most intricate coordination between bones, muscle, tendon, and skin, state-
+of-the-art techniques unanimously focus on modeling only the skeleton of
+the hand. In this paper, we present NIMBLE, a novel parametric hand model
+that includes the missing key components, bringing 3D hand model to a new
+level of realism. We first annotate muscles, bones and skins on the recent
+Magnetic Resonance Imaging hand (MRI-Hand) dataset [Li et al. 2021] and
+then register a volumetric template hand onto individual poses and subjects
+∗Also with Shanghai Institute of Microsystem and Information Technology, Chinese
+Academy of Sciences; University of Chinese Academy of Sciences.
+†corresponding author
+Authors’ addresses: Yuwei Li, School of Information Science and Technology, Shang-
+haiTech University, Shanghai, China, liyw@shanghaitech.edu.cn; Longwen Zhang,
+ShanghaiTech University, China and Deemos Technology, Shanghai, China, zhanglw2@
+shanghaitech.edu.cn, zhanglw@deemos.com; Zesong Qiu, ShanghaiTech University,
+Shanghai, China, qiuzs@shanghaitech.edu.cn; Yingwenqi Jiang, ShanghaiTech Uni-
+versity, Shanghai, China, jiangywq@shanghaitech.edu.cn; Nianyi Li, Clemson Uni-
+versity, Clemson, United States of America, nianyil@clemson.edu; Yuexin Ma, Shang-
+haiTech University, Shanghai, China, mayuexin@shanghaitech.edu.cn; Yuyao Zhang,
+ShanghaiTech University, Shanghai, China, zhangyy8@shanghaitech.edu.cn; Lan Xu,
+ShanghaiTech University, Shanghai, China, xulan1@shanghaitech.edu.cn; Jingyi Yu,
+ShanghaiTech University, China and DGene Digital Technology, Shanghai, China,
+yujingyi@shanghaitech.edu.cn.
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+© 2022 Copyright held by the owner/author(s).
+0730-0301/2022/7-ART120
+https://doi.org/10.1145/3528223.3530079
+within the dataset. NIMBLE consists of 20 bones as triangular meshes, 7
+muscle groups as tetrahedral meshes, and a skin mesh. Via iterative shape
+registration and parameter learning, it further produces shape blend shapes,
+pose blend shapes, and a joint regressor. We demonstrate applying NIMBLE
+to modeling, rendering, and visual inference tasks. By enforcing the inner
+bones and muscles to match anatomic and kinematic rules, NIMBLE can
+animate 3D hands to new poses at unprecedented realism. To model the
+appearance of skin, we further construct a photometric HandStage to acquire
+high-quality textures and normal maps to model wrinkles and palm print.
+Finally, NIMBLE also benefits learning-based hand pose and shape estima-
+tion by either synthesizing rich data or acting directly as a differentiable
+layer in the inference network.
+CCS Concepts: • Computing methodologies →Mesh models; Volumet-
+ric models.
+Additional Key Words and Phrases: hand model, mesh registration, texture,
+blend skinning, parametric learning
+ACM Reference Format:
+Yuwei Li, Longwen Zhang, Zesong Qiu, Yingwenqi Jiang, Nianyi Li, Yuexin
+Ma, Yuyao Zhang, Lan Xu, and Jingyi Yu. 2022. NIMBLE: A Non-rigid
+Hand Model with Bones and Muscles. ACM Trans. Graph. 41, 4, Article 120
+(July 2022), 17 pages. https://doi.org/10.1145/3528223.3530079
+1
+INTRODUCTION
+In the production of animated feature films, VFX juggernauts spend
+most of their time and resources on rendering face, hair and skin
+complexion, as a shortcut or trick for creating realistic human and
+feelings. In contrast, renderings of other parts of human body, par-
+ticularly human hands, are often glossed over. The reason is simple:
+VFX producers can easily direct the focus of audience attention away
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+arXiv:2202.04533v5  [cs.CV]  18 Jul 2022
+
+
+120:2
+•
+Li, et al.
+from hands and onto hair and skin, where they can generate the
+most life-like and thereby attention-grabbing visual effects. Indeed,
+we rarely see scenes featuring complex and dexterous hand move-
+ments. At the dawn of the Metaverse, however, emerging virtual
+reality consumer products will be decidedly more intimate, immer-
+sive and interactive and therefore demand life-like renderings on all
+body parts, especially hands. When users put on the head-mounted
+displays, their virtual hands should replace the physical ones to
+perform as many operations in the Metaverse as in real life. The
+dexterousness of human hands - the complex geometrical structures,
+the marvelous things and the subtle messages that fingers can con-
+struct, create and pass on when they move - define us humans as
+intelligent beings in both physical and digital worlds.
+Hands, however, are difficult to model. Through evolution, hand
+movements have become an intricate orchestration of bones, mus-
+cles, ligaments, nerves, and skins. Performing a specific gesture,
+for example, stems from the dragging and pulling of the hand mus-
+cles, which then drives the movements of the bones and eventually
+changes the shape and appearance caused by muscle deformation
+and skin wrinkling. To faithfully reproduce 3D hand movements, it
+is critical to not only model each individual component but more
+importantly to model their delicate coordination. In contrast to
+tremendous efforts on 3D human body modeling [Anguelov et al.
+2005; Hirshberg et al. 2012; Loper et al. 2015; Pons-Moll et al. 2015],
+research on photo-realistic 3D human hands is rather limited. By far,
+the majority of prior art has focused on modeling the skeleton of the
+hand. In fact, the most adopted hand model, MANO [Romero et al.
+2017], defines skeleton in terms of empirical joint locations without
+taking into account anatomical bone structure. The recent PIANO
+[Li et al. 2021] model extends MANO by employing anatomically
+correct bone structures and shapes, as well as joints to connect the
+bones. PIANO manages to produce more convincing movements
+but the resulting appearance still lacks realism as it ignores muscles
+and skins that deform along with the bones. In reality, even a rou-
+tine posture such as grabbing or holding a fist requires 24 muscle
+groups surrounding the hand and the wrist [Panchal-Kildare and
+Malone 2013] working together to execute extension and flexion.
+Shape deformations of these muscle groups subsequently affect the
+appearance of their covering skins and the overall realism in virtual
+hand rendering. By far, the graphics community still lacks a reliable
+and practical musculoskeletal parametric hand model.
+In this paper, we present NIMBLE, a Non-rIgid hand Model with
+skins, Bones, and muscLEs, to bring 3D modeling of dynamic hands
+to a new level of realism. Our work is enabled by the recent Mag-
+netic Resonance Imaging hand (MRI-Hand) dataset [Li et al. 2021]
+that captures 35 subjects (19 male 16 female), with 50 different hand
+poses, along with annotated segmentation labels of bones. We first
+conduct comprehensive segmentation annotations to further iden-
+tify muscles and skins on the MRI-Hand dataset. Similar to how
+SMPL [Loper et al. 2015] starts with an T-pose for modeling compre-
+hensive movements, NIMBLE utilizes a general rest hand pose as the
+template that includes 20 bones, 7 muscle groups and a skin mesh.
+In particular, for the sake of computation and rendering efficiency,
+we cluster 24 anatomic muscles groups to 7 while preserving as
+much physical meaning as possible.
+To derive a new parametric hand model, NIMBLE uses trian-
+gle meshes to model bones and tetrahedral meshes for deformable
+muscles and skins. The formulation manages to model shape de-
+formations while maintaining structural rigidity. To register the
+internal structures under the rest pose to the ones in MRI-Hand, we
+present a multi-stage registration technique that leverages the ben-
+efits of pose initialization, the interdependence of hand structures,
+and physical-based simulations. Our technique accurately models
+the elasticity of deformations without sacrificing pose accuracy. The
+registered results lead to a new parametric model containing bones,
+muscles, skin template meshes, kinematic tree, shape blend shapes,
+pose blend shapes, and a joint regressor. In addition to parameter
+learning, we further impose penalty terms to avoid collision and
+enforce physically correct muscle deforms.
+Applications of NIMBLE span from geometric modeling and ren-
+dering to visual inference. We first demonstrate applying NIMBLE
+to animate 3D hands of different shapes and under arbitrary poses.
+NIMBLE provides an unprecedented level of realism by enforcing
+inner bones and muscles to match anatomic and kinematic rules.
+To further enhance visual realism, we construct a photometric ap-
+pearance capture system called HandStage, analogous to the USC
+LightStage [Debevec 2012], to acquire high-quality textures with
+appearance details (e.g., normal maps), including wrinkles and palm
+print. These appearance details further improve visual fidelity and
+adapt to new lighting conditions. NIMBLE, as a parametric model,
+can be further integrated into state-of-the-art animation systems
+and rendering engines such as Blender and Unity for VR and AR
+applications. Furthermore, parameter-represented NIMBLE benefits
+learning-based hand pose and shape estimation on both MRI and
+RGB imagery, by either synthesizing rich data with varying shapes
+and poses or acting directly as a differentiable layer in the inference
+network.
+To summarize, our main contributions include:
+• We exploit the recent MRI-Hand dataset to conduct the com-
+plete segmentation annotations for bones, muscles, and skins,
+as well as auto-registered meshes by optimization with phys-
+ical constraints.
+• We derive a parametric NIMBLE model by iterating between
+shape registration and parameter learning, using new penalty
+terms to guarantee physically correct bone movements and
+muscle deformations.
+• We demonstrate using NIMBLE for anatomically correct digi-
+tal hand synthesis, motion animation and photorealistic ren-
+dering. The results benefit many downstream tasks including
+pose and shape inference, visual tracking, etc.
+• We make available our NIMBLE model and annotation data
+at https://reyuwei.github.io/proj/nimble.
+2
+RELATED WORK
+In this section, we survey closely related works and discuss the
+relationship with the proposed work.
+Parametric Models. With parametric modeling, low-dimensional
+parametric space is estimated to approach human body geometry.
+Many existing methods incorporate linear blend skinning, which
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+
+
+NIMBLE: A Non-rigid Hand Model with Bones and Muscles
+•
+120:3
+deforms a mesh based non-linear combination of rigid transforma-
+tions of associated bones, on top of various skeletal representations.
+With skinning weights carefully designed, these presentations can
+produce reasonable deformations for articulated body tissues. A pi-
+oneer work on 3D morphable face is proposed by [Blanz and Vetter
+1999]. Since then numerous methods have learned 3D face shape
+and expression from scanning data [Allen et al. 2006; Zollhöfer et al.
+2018]. The advantage of such geometric models is their ability to rep-
+resent variety of face shapes and wide range of expressions. Unlike
+most face models that focus only on the facial region, recent pop-
+ular models FLAME [Li et al. 2017] and its extension DECA [Feng
+et al. 2021] consider the whole head and neck regions instead. With
+the entire head, the authors were able to assume a simulated jaw
+joint to achieve large deformed facial pose and expressions. The
+availability of 3D body scanners enabled learning of body shape
+from scans. Since the CAESAR dataset opened up the learning of
+body shape [Allen et al. 2003], most early works focus on modelling
+only body shape (varying with identity) using subjects scanned
+in roughly the same pose. Combining body shapes from a group
+of population and different poses of a single subject, [Anguelov
+et al. 2005] learned a factored model of both body shape and pose
+based on triangle deformations. Following this work, many human
+body parametric models were built using either triangle deforma-
+tions [Hirshberg et al. 2012; Pons-Moll et al. 2015] or vertex-based
+displacements [Hasler et al. 2010; Loper et al. 2015], however all
+these works focus on modeling body shape and pose without the
+hands or face. Comparing with face and body, human hands are
+more complex for parametric modelling due to the extreme flexibil-
+ity of hand motion. Early 3D hand models are typically not learned
+but based on shape primitives [Melax et al. 2013; Oikonomidis et al.
+2011; Schmidt et al. 2014], reconstructed with multiview stereo with
+fixed shape [Ballan et al. 2012; Tzionas et al. 2016], and use non-
+learned per-part scaling parameters [de la gorce et al. 2011], or use
+simple shape spaces [Tkach et al. 2016]. Only recently [Khamis
+et al. 2015; Li et al. 2021; Romero et al. 2017] proposed learned hand
+models. [Khamis et al. 2015] collect partial depth maps of 50 people
+to learn a model of shape variation, however they do not capture a
+pose space. [Romero et al. 2017] on the other side learn a parametric
+hand model (MANO) with both a rich shape and pose space using
+3D scans of 31 subjects in up to 51 poses, following the SMPL [Loper
+et al. 2015] formulation. [Li et al. 2021] built up a parametric hand
+bone model from MRI data, which drove the hand shape and pose
+using real bone and joint structures.
+Hand Models. Hand modeling is an essential topic in computer
+graphics. Many hand models have been proposed and are summa-
+rized in Table 1 categorizing according to their intuitive emphasis
+of the hand inner biomechanical structures [Albrecht et al. 2003; Li
+et al. 2021; Wang et al. 2019, 2021] or the hand outer shape, color
+and texture [Moon et al. 2020a; Qian et al. 2020; Romero et al. 2017].
+Hand Inner Biomechanical Model. Hand structure and functions
+are biomechanically complex. Therefore, physical-based kinetic sim-
+ulation is essential to model hand pose and shapes. For example, in
+early works, using simulated underlying hand skeleton to generate
+a solid hand surface mesh constrain [Capell et al. 2005; Kim and
+Pollard 2011; Liu et al. 2013]. Not just bones, hand skin and tendons
+are also widely considered to refine the visual appearance or control
+of hand articulation [Li et al. 2013; Sachdeva et al. 2015; Sueda et al.
+2008]. Musculotendon modeling and simulation [Abdrashitov et al.
+2021; Kadleček et al. 2016; Lee et al. 2018] have also been studied on
+human body. More recently, for achieving real-human-like hand ani-
+mation performance, researchers paid more attention on anatomical
+structures instead of simulated models. [Mirakhorlo et al. 2018] com-
+prehensively modeled biomechanical hand model based on detailed
+measurements from a hand specimen, yet it is not differentiable
+and can not be embedded in deep learning frameworks. [Anas et al.
+2016] proposed a statistical wrist shape and bone model for au-
+tomatic carpal bone segmentation. [Wang et al. 2019] acquired a
+single-subject complete hand bone and muscle [Wang et al. 2021]
+anatomy in multiple poses using magnetic resonance imaging (MRI),
+to build an anatomy-correct hand bone rig of a target performer.
+However, it suffers from time-consuming and user-specified bone
+segmentation operations, which is impractical to apply to various
+individuals for building a parametric model. [Li et al. 2021] construct
+a parametric hand bone model named PIANO from multiple-subject
+and multiple-pose MRI acquisitions, which is physically precise
+and differentiable. It can be applied in deep neural networks for
+computer vision tasks. However, it still lacks more comprehensive
+anatomical structures such as muscle to support more realistic hand
+outer surface generation.
+Hand Outer Appearance Model. Fully driven by the underlying
+biomechanical hand structures, skinning technique still acts as
+indispensable procedure in generating high-fidelity hand anima-
+tion. [Lewis et al. 2000] proposed Pose-Space Deformation (PSD)
+that combines skeleton subspace deformation [Magnenat-Thalmann
+et al. 1989] with artist-corrected pose shapes. It is widely used in
+industry due to its speed, simplicity and the ability to incorporate
+real-world scans and arbitrary artist corrections. Kry and his col-
+laborators [2002] further proposed to use Principal Component
+Analysis (PCA) to represent the large set of pose corrections. Re-
+cently, [Romero et al. 2017] augmented an LBS-based hand sur-
+face model with statistical individual- and pose-dependent paramet-
+ric correctives, constructing a system referred as MANO [Romero
+et al. 2017]. MANO has been widely used in variety of hand fitting
+and tracking scenarios including hand interactions [Hasson et al.
+2019; Mueller et al. 2019] and single RGB image hand pose estima-
+tion [Baek et al. 2019]. These approaches are fully constrained by the
+underlying MANO model, which lacks real biomechanically correct
+constrains from the underlying hand tissue, and thus may fail to
+replicate subtle details of hand geometry like creases and bulging.
+Inspired by the interesting works, we construct the first complete
+parametric hand model with bone, muscle, and skin. By involving
+inherent kinematic structures and considering physically precise
+constraints, NIMBLE enables authentic hand shape and appearance
+generation and differentiable training for many down stream tasks.
+3
+OVERVIEW
+We present a novel method for Non-rIgid hand paraMetric modeling
+on Bone and MuscLE (NIMBLE). To our best knowledge, this is the
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+
+
+120:4
+•
+Li, et al.
+Table 1. NIMBLE vs. existing hand models.
+Model
+Parametric Model
+Skin
+Bone
+Muscle
+Shape
+Pose
+Appearance
+[Albrecht et al. 2003]
+×
+✓
+✓
+✓
+×
+✓
+×
+[Wang et al. 2019]
+×
+✓
+✓
+×
+✓
+✓
+✓
+[Wang et al. 2021]
+×
+×
+×
+✓
+✓
+×
+×
+MANO [Romero et al. 2017]
+✓
+✓
+×
+×
+✓
+✓
+×
+HTML [Qian et al. 2020]
+✓
+✓
+×
+×
+✓
+✓
+✓
+PIANO [Li et al. 2021]
+✓
+×
+✓
+×
+✓
+✓
+×
+NIMBLE (Ours)
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+(a) Segmentation
+(b) Original MRI slices
+(c) Reconstructed Mesh
+Fig. 2. (a) MRI annotation of bone and muscle mask. (b) Original slices. (c)
+Reconstructed bone, muscle and skin mesh, joints are visualized in red.
+first parametric hand anatomy-based algorithm that can simultane-
+ously model the interior hand kinematic structure and the exterior
+hand shape with the high-fidelity appearance of individuals.
+NIMBLE is developed on a large amount of hand data with an-
+notated inner and outer structural features. Specifically, we use the
+MRI hand dataset from [Li et al. 2021] and further annotate the MRI
+data to segment out the muscle and skins from the original annota-
+tions, as shown in Figure 2. The hand appearances are represented
+as textures with diffuse, normal, and specular maps, collected by a
+photometric appearance capture system called HandStage. We then
+build a parametric hand model by registering the hand template to
+all the interior and exterior hand features and photometric appear-
+ances in the dataset. After registration, we extend the general hand
+modeling pipeline followed by [Li et al. 2021; Romero et al. 2017], so
+that NIMBLE can learn a complete anatomy-based hand model with
+bone, muscles and textures by iteratively fitting the hand template
+to the multi-modal data and regenerating the parametric model from
+the registered multi-model features. The pipeline of our method is
+shown in Figure 3. The rest of the paper is organized as follows:
+we firstly introduce our data collection and annotation in Section
+3.1. Next, we show our model formulation in Section 4.1, followed
+by a physically based registration in Section 4.2 and multi-stage
+parameter learning on shape and pose in Section 4.3. After having
+the hand template, we attach hand appearance to get photo-realistic
+rendering effect, as discussed in Section 5. In Section 6, we evaluate
+the effectiveness of NIMBLE by numerous 3D hands of different
+poses, shapes, appearances, and photorealistic rendering conditions.
+We also show that our method can be easily fitted into the hand
+inference pipeline from various input.
+Table 2. NIMBLE template mesh details. Number of semantic parts, vertices,
+mesh faces and tetrahedrons.
+Tissue
+# parts
+# vertices
+# faces
+# tetrahedron
+Bone
+20
+3345
+6610
+-
+Muscle
+7
+5635
+10512
+15986
+Skin
+1
+5990
+9984
+19562
+3.1
+MRI Data Collection and Preparation
+The dataset from [Li et al. 2021] contains 200 hand MRI volumes
+spanning 50 different hand postures of 35 individual subjects. How-
+ever, it only provides annotation on the bone mask and 25 joint
+positions per hand. In this paper, we regenerate a fine-grained bone
+segmentation mask on each MRI volume using radial basis func-
+tions and joint annotation. Additionally, we handcraft binary muscle
+masks on each volume slice using Amira[Amira 2022]. For time effi-
+ciency, we only annotate large and notable muscle areas on each
+MRI scan, and our model registration algorithm, as discussed in
+Section 4.2, can automatically fill in the missing parts. As for skin
+annotation, we use an automatic thresholding method [Otsu 1979]
+to extract skin mask. Next, we extract the iso-surface of bone, mus-
+cle and skin by applying the Marching Cubes algorithm [Lorensen
+and Cline 1987] to get rough hand meshes, as shown in Fig 2(c).
+4
+NIMBLE
+Modeling photo-realistic hand is challenging as the interior structure
+of the hand, including muscles and bones, are unknown, whereas
+the non-rigid and elastic property of muscles and the biomedical
+connection between muscles and bones can largely determine the
+exterior shape of hands. State-of-the-art solutions have neglected
+this connection and thus failed at capturing realistic movement like
+muscle and skin bulging. We address this issue by jointly modelling
+the internal hand structure with outer appearances while consider-
+ing the physical constraints of the relative motion between muscles,
+bones and skins.
+4.1
+Model Formulation
+The general formulation of NIMBLE is defined as follows:
+N (𝜃, 𝛽, 𝛼) = {G(𝜃, 𝛽), A(𝛼)},
+(1)
+where G denotes the hand geometry, and A models the hand ap-
+pearance. 𝜃, 𝛽, 𝛼are parameters controlling hand pose, shape and
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+
+
+NIMBLE: A Non-rigid Hand Model with Bones and Muscles
+•
+120:5
+MRI Dataset
+MANO Dataset
+Textured Hand 
+Dataset
+Inner Registration
+Outer Registration
+Texture Maps
+Pose Model
+Learning
+Shape Model
+Learning
+Appearance 
+Model
+NIMBLE
+,
+,
+Generation
+Fig. 3. Overview of building NIMBLE, which includes inner and outer registration and parametric model learning. As well as NIMBLE application for synthetic
+hand generation and photorealistic rendering. 𝜃, 𝛽, 𝛼are parameters that control model pose, shape and appearance.
+Fig. 4. Three cutaway views of the tetrahedral mesh of our template hand.
+appearance, respectively. In this section, we will focus on the model
+of hand geometry.
+To generate an accurate hand template, we extend the PIANO
+[Li et al. 2021] pipeline, which only considers the bone structures,
+shapes and joints, and add the muscle and skin features in the
+template formulation G:
+G(𝜃, 𝛽) = 𝐿𝐵𝑆(W, 𝐽𝑝(𝛽),𝜃, T𝑝(𝜃, 𝛽)).
+(2)
+where 𝐿𝐵𝑆(·) demotes the Linear Blend Skinning (LBS) function; W
+is the learned skinning weight of 𝐿𝐵𝑆(·); 𝐽𝑝represent the joint loca-
+tions; 𝜃is an array of joints rotation axes and angles; 𝛽is the PCA
+coefficient vector of the shape space; and T𝑝is a person-specific
+hand template mesh. In another word, we can formulate G of ar-
+bitrary individuals by Eqn. 2, as long as we know (W, 𝐽𝑝, 𝛽,𝜃, T𝑝).
+Specifically, 𝐽𝑝is defined by a joint regressor J that maps the bone
+mesh vertices T𝑏to joint locations by taking into account the shape
+parameters 𝛽, we refer readers to [Li et al. 2021; Loper et al. 2015] for
+details. Note that we use bone mesh because joints are the essential
+rotation center of bone segments, which is invariant to skin and
+muscle shape.
+The personalized template T𝑝is a linear combination of general
+hand template T, pose blend shape 𝐵𝑃and shape blend shape 𝐵𝑆
+(Eqn. 2,3,and 4 of [Romero et al. 2017]), where 𝐵𝑃is the multipli-
+cation of pose blend shapes P and pose rotation matrix, and 𝐵𝑆is
+the multiplication of orthonormal PCA of shape blend shape S and
+𝛽. 𝐵𝑃and 𝐵𝑆can correct artifacts introduced by 𝐿𝐵𝑆(·) by adding
+vertex offsets to the general template T. We use the same number of
+rotation joint 𝐾= 19 as in PIANO [Li et al. 2021]. In the following
+paper, we use {W, J, 𝛽,𝜃, T, P, S} to parameterize G.
+Unlike the popular surface modeling methods i.e., SMPL [Loper
+et al. 2015] and MANO [Romero et al. 2017], we define the general
+hand template T by jointly considering the bones, muscles and
+skin mesh as a whole set T = {T𝑏, T𝑚, T𝑠}. As for bones, we adopt
+the triangular mesh settings in PIANO [Li et al. 2021] due to the
+rigid deformation property of bones. We use tetrahedral mesh to
+model muscle and skin so that NIMBLE can capture the non-rigid
+motion effects such as muscle bulging and wrinkled skin. Given
+that each hand has about 24 major muscles, which will significantly
+increase the computation and rendering cost if NIMBLE models all
+the muscles, we follow [Erolin et al. 2016; Schwarz and Taylor 1955]
+and anatomically integrate the muscle groups into 7 ones based on
+their functional and physical properties. As for skin template T𝑠,
+we use MANO topology as an initialization. We manually register
+bone, muscle and skin mesh to the same rest pose in the MRI dataset
+using [R3DS 2022], so that the three components are into the same
+physical space. The process takes less than 10 minutes and is only
+performed once. We then remesh the registered triangular mesh of
+seven muscles and skin using isotropic explicit remeshing algorithm
+[Alliez et al. 2003] with a target edge length of 3mm, and create
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+
+
+120:6
+•
+Li, et al.
+tetrahedral meshes using Tetgen [Si 2015]. The model details are
+listed in Table 2, and Figure 4 shows three cutaway views of our
+template mesh with tetrahedrons. Our complete hand template mesh
+consists of T with 14970 vertices and 27106 faces.
+4.2
+Muscle Registration
+Before training the parametric hand model, we need to first register
+the general template mesh T to scale the dataset within the same
+topology. However, mesh registration is an open question of long-
+standing, let alone our goal is to register meshes of low resolution
+from a large MRI dataset. In this paper, we bypass the manual land-
+mark labelling method [Wang et al. 2021], and propose a physically
+based multi-stage registration algorithm that can model accurate
+poses with high-quality elastic non-rigid deformation. We adopt
+similar registration pipelines for muscle, bone, and skin. Here, we
+present muscle registration in detail, and briefly discuss its differ-
+ence compared with bone and skin registrations.
+Generally, our registration pipeline consists of two steps: pose
+initialization and iterative refinement. Pose initialization is to pro-
+vide a good initial alignment to account for the highly nonlinear
+deformation of muscle. After initialization, we iteratively update
+the mesh vertex offset so that the deformed template ˆT best matches
+the target one from MRI scans.
+Pose Initialization. We use a simplified parametric model to ini-
+tialize pose parameter ˜𝜃:
+G( ˜𝜃) = 𝐿𝐵𝑆( ˜
+W, ˜𝐽, ˜𝜃, ˜T).
+(3)
+where we removed all the shape relevant parameters in Equation (2),
+including the shape parameter 𝛽, the shape blend shape S, and the
+pose blend shape P. We use { ˜𝐽, ˜T} to indicate the trimmed {𝐽𝑝, T𝑝}.
+˜
+W is the skinning weight of this LBS function, which has been
+initialized by radial basis functions (RBF) according to template
+joint positions [Rhee et al. 2007]. We minimize the L2 joint error
+between the posed template and target joint annotation and solve
+for the inverse kinematics to obtain the initial pose ˜𝜃.
+Iterative Refinement. Then, we perform non-rigid registration to
+align the hand model at a finer scale. We formulate this as an energy
+minimization problem to match deformed template muscle mesh
+ˆT to target muscle mesh 𝑀. The objective function for non-rigid
+registration is defined as:
+𝐸( ˆT; 𝑀) = 𝐸𝑔𝑒𝑜+ 𝐸𝑟𝑒𝑔+ 𝐸𝑛𝑒+ 𝐸𝑎𝑡𝑡+ 𝐸𝑖𝑐𝑜𝑙+ 𝐸𝑒𝑐𝑜𝑙.
+(4)
+where 𝐸𝑔𝑒𝑜is geometry term, 𝐸𝑟𝑒𝑔is regularization term, 𝐸𝑛𝑒is non-
+rigid elasticity term, 𝐸𝑎𝑡𝑡is the attachment constraints and 𝐸𝑖𝑐𝑜𝑙,
+𝐸𝑒𝑐𝑜𝑙are the internal/external collision penalties. We will discuss
+each term and their benefit in details.
+Geometry Term 𝐸𝑔𝑒𝑜Inspired by the surface tracking algorithms
+[Newcombe et al. 2015; Smith et al. 2020; Xu et al. 2019], we use
+vertex distance and normal angle error to measure the distance
+between template mesh ˆT and target mesh 𝑀:
+𝐸𝑔𝑒𝑜= 𝜆𝑑𝛿𝑑( ˆT, 𝑀) + 𝜆𝑑𝑛𝛿𝑑𝑛( ˆT, 𝑀),
+(5)
+where 𝛿𝑑(·) measures the Chamfer Distance [Borgefors 1983] be-
+tween two meshes and 𝛿𝑑𝑛(·) computes the angle between the cor-
+responding vertex normal. The first term pulls the template vertex
+to match with the nearest target vertex, while the second term adds
+a normal penalty to prevent the template from fitted to the opposite
+vertex normal.
+Regularization Term 𝐸𝑟𝑒𝑔The regularization term consists of
+three components, i.e., rigidity regularizer 𝐸𝑟𝑖𝑔, face normal consis-
+tency regularizer 𝐸𝑓𝑛, and edge length regularizer 𝐸𝑒𝑑𝑔𝑒:
+𝐸𝑟𝑒𝑔= 𝜆𝑎𝐸𝑟𝑖𝑔+ 𝜆𝑓𝑛𝐸𝑓𝑛+ 𝜆𝑒𝐸𝑒𝑑𝑔𝑒.
+(6)
+𝐸𝑟𝑖𝑔regularizes the deformation of vertices in ˆT by comparing
+the deformation degree of adjacent vertices to avoid implausible
+shapes in unobserved regions. Instead of directly regulating the
+mesh node’s rotation, we add constraints on vertices:
+𝐸𝑟𝑖𝑔=
+∑︁
+𝑣𝑖∈ˆT
+∑︁
+𝑣𝑗∈ˆT
+𝑤𝑖𝑗(D𝑖𝑣𝑗−D𝑗𝑣𝑗),
+(7)
+where D𝑖represents the deformation of vertex 𝑣𝑖, and 𝑤𝑖𝑗is the
+weight between vertex 𝑣𝑖and 𝑣𝑗: 𝑤𝑖𝑗= 𝑒−∥𝑣𝑖−𝑣𝑗∥2
+2/2𝜎2. Higher 𝑤𝑖𝑗
+corresponds to closer distance, and thus higher impact.
+To regularize the moving direction of vertices, we adopt the face
+normal consistency term 𝐸𝑓𝑛and edge length term 𝐸𝑒𝑑𝑔𝑒from
+[Wang et al. 2018] to further ensure mesh surface smoothness and
+avoid flying vertices. Specifically, the 𝐸𝑓𝑛computes the angle be-
+tween the normal of each pair of neighbouring faces to ensure ˆT
+of consistent face normal and smooth surface. 𝐸𝑒𝑑𝑔𝑒penalizes fly-
+ing vertices that cause long edges by minimizing the average edge
+length.
+Non-rigid Elasticity Term 𝐸𝑛𝑒To capture non-rigid deformation
+of hands, we define 𝐸𝑛𝑒using the Neo-Hookean elastic function,
+which has been proven effective for muscle and flesh simulation in
+[Smith et al. 2018, 2020]:
+𝐸𝑛𝑒= 𝜆𝑛𝑒
+∑︁
+𝑖
+𝑉𝑖𝜓(𝐹)
+(8)
+where 𝑉𝑖denotes the 𝑖𝑡ℎtetrahedron’s volume and 𝜓(𝐹) can be
+viewed as energy density. 𝜓(·) ensures the deformation gradient 𝐹
+to be identical and thus can effectively prevent large changes and
+heavy self-collisions of muscles. Please refer to [Smith et al. 2020]
+for the complete formulation of 𝜓(𝐹).
+Attachment Constraints 𝐸𝑎𝑡𝑡To ensure that muscles are attached
+to their corresponding bones properly, we use 𝐸𝑎𝑡𝑡to guarantee
+corresponding attachment points on the mesh surface:
+𝐸𝑎𝑡𝑡= 𝜆𝑎𝑡𝑡||A𝑚−A𝑏||2
+2,
+(9)
+where A𝑚and A𝑏are hand-crafted attachment points matching on
+muscle and bone mesh.
+Internal Collision 𝐸𝑖𝑐𝑜𝑙To avoid hand mesh self-penetration, sim-
+ilar to [Hirota et al. 2001], we penalize the internal collision by:
+𝐸𝑖𝑐𝑜𝑙= 𝜆𝑐𝑜𝑙
+∑︁
+𝑣𝑖𝑛
+||𝑛𝑇
+𝑡𝑎𝑟· (𝑣𝑖𝑛−𝑣𝑡𝑎𝑟)||2
+2.
+(10)
+where 𝑣𝑖𝑛refers to the interior penetration vertex, 𝑣𝑡𝑎𝑟is the target
+surface position, and 𝑛𝑡𝑎𝑟is the corresponding surface normal 𝑛𝑡𝑎𝑟.
+Due to the large search space of 𝑣𝑖𝑛and 𝑣𝑡𝑎𝑟, 𝐸𝑖𝑐𝑜𝑙can only handle
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+
+
+NIMBLE: A Non-rigid Hand Model with Bones and Muscles
+•
+120:7
+Fig. 5. Registered hand muscles from MRI segmentation. Observe that the muscle around the arrows become thicker and tighter after registration.
+small collisions. We therefore add an additional normal and distance
+filter to shrink the search space. Specifically, we discard collisions
+with normal angle larger than 90◦in 𝐸𝑖𝑐𝑜𝑙to remove large self-
+collision and finger penetrating the palm in ˆT.
+External Collision 𝐸𝑒𝑐𝑜𝑙External collision happens between mus-
+cle to muscle and muscle to bone. To eliminate this, we use the
+contact loss proposed in [Hasson et al. 2019]:
+𝐸𝑒𝑐𝑜𝑙= 𝜆𝑟𝑒𝑝𝐸𝑟𝑒𝑝+ (1 −𝜆𝑟𝑒𝑝)𝐸𝑎𝑡𝑡𝑟,
+(11)
+where 𝐸𝑟𝑒𝑝is a repulsion term, that measures the point-to-plane
+distance, and 𝐸𝑎𝑡𝑡𝑟is a attraction term computing the point-to-point
+distance of correspondence vertices. 𝐸𝑟𝑒𝑝detects interpenetration
+points and pushes them towards the target mesh surface, the attrac-
+tion term finds close vertices and force them to come into contact.
+By doing so, 𝐸𝑒𝑐𝑜𝑙forces the muscle groups and bones to be adjacent
+without colliding each other.
+Bone and Skin Registration. The pipeline of bone and skin regis-
+tration are similar to muscle’s, except that we use different term
+combination and balancing weights. For bone registration, we omit
+the non-rigid elasticity term 𝐸𝑛𝑒in Equation (4), considering the
+rigid deformation property of bones. For skin registration, which
+also requires non-rigid deformation constrains, we use all the terms
+in Equation (4). The core difference is that we use larger weights
+on geometry term 𝐸𝑔𝑒𝑜to align skins, as the skin annotations are
+more reliable than muscles in the MRI dataset.
+4.3
+Parameter Learning
+After registration, we have an initialized model { ˜
+W, ˜J, ˜𝜃, ˜T}. The
+general template mesh 𝑇and hand scans in the MRI dataset have
+been aligned to the same topology. Consequently, for each subject
+𝑆𝑖of hand pose 𝑃𝑗, we can generate a aligned mesh 𝑔𝑖𝑗. We then
+set out to train G = {W, J, 𝛽,𝜃, T, P, S}. Note that bones, muscles,
+and skins follow different anatomical and physical properties during
+shape and pose change. Therefore, given MRI scans, we train G by a
+multi-stage strategy to disentangle deformations by pose and shape.
+Nevertheless, the public MRI datasets only contain limited numbers
+of hand poses due to the high cost and time-intensity of MRI data ac-
+quisition. Thus, we further optimize G using additional hand scans
+from large image-based dataset to extend our pose variance.
+Learning on MRI dataset. Given MRI scans, we train G through
+three stages, i.e., the pose stage, the shape stage, and the parameter
+stage. For each stage, we only update certain parameters while
+keeping the rest fixed. The objective function is defined as follows:
+𝐸1 = 𝐸𝑝𝑜(𝜃|G) + 𝐸𝑠ℎ(J, 𝛽, T, S|G) + 𝐸𝑝𝑎(W, P|G),
+(12)
+where 𝐸𝑝𝑜is energy term for pose stage updating the pose param-
+eter 𝜃; 𝐸𝑠ℎconstrains the shape related parameters {𝛽, T, S}, and
+𝐸𝑝𝑎is for parameter stage, which update W and P. To avoid col-
+lision between muscles, bones and skins, we introduce a coupling
+penalty term 𝐸𝑐𝑝(Equation (11) with 𝜆𝑟𝑒𝑝= 1) to 𝐸𝑝𝑜, 𝐸𝑠ℎ, and
+𝐸𝑝𝑎throughout the training procedure, while assigning different
+weights to balance the impact on different stage. We minimize 𝐸1
+by interactively going through the three stages until convergence.
+Pose stage. Given each 𝑔𝑖𝑗, ˜T, ˜J, and
+˜
+W, we solve for the specific
+pose parameter 𝜃𝑖𝑗:
+𝐸𝑝𝑜(𝜃|G) =
+∑︁
+𝑖∈𝑆
+∑︁
+𝑗∈𝑃
+𝑤𝑗𝑡𝐸𝑖𝑗
+𝑗𝑡+ 𝐸𝑖𝑗
+𝑒𝑑𝑔𝑒+ 𝐸𝑖𝑗
+𝑝𝑟𝑒𝑔+ 𝑤𝑐𝑝𝐸𝑖𝑗
+𝑐𝑝.
+(13)
+Joint term 𝐸𝑗𝑡forces the posed template to match 𝑔𝑖𝑗by measuring
+the L2 distance between posed template joint and the target joint
+annotation. 𝐸𝑒𝑑𝑔𝑒measures the edge length difference between
+posed template and 𝑔𝑖𝑗. Such term provides a good estimation of
+pose without knowing the subject specific shape. Since metacarpals
+have a limited range of motion according to [Panchal-Kildare and
+Malone 2013; Wang et al. 2019], we add a regularization term to
+prevent the metacarpal joints from having unrealistic rotations:
+𝐸𝑖𝑗
+𝑝𝑟𝑒𝑔=
+∑︁
+𝑖𝑗
+||B(𝜃𝑖𝑗)||2,
+(14)
+where B(·) is a binary mask selecting only metacarpal joints.
+Shape stage. We then update the shape related parameters (𝛽, S),
+the joint regressor J, and the general template T in this stage.
+Firstly, we optimize the subject specific template T𝑝and 𝐽𝑝, which
+is directly relevant to T and J:
+𝐸𝑠ℎ(T𝑝, 𝐽𝑝|G) =
+∑︁
+𝑖∈𝑆
+∑︁
+𝑗∈𝑃
+𝐸𝑖𝑗
+𝑔𝑒𝑜+𝐸𝑖𝑗
+𝑟𝑒𝑔+𝑤𝑗𝑡𝐸𝑖𝑗
+𝑗𝑡+𝑤𝑗𝑟𝑒𝑔𝐸𝑖
+𝑗𝑟𝑒𝑔+𝑤𝑐𝑝𝐸𝑖𝑗
+𝑐𝑝,
+(15)
+where 𝐸𝑔𝑒𝑜is a geometry term (Equation (5)); 𝐸𝑟𝑒𝑔the regularization
+terms (Equation (6)); 𝐸𝑗𝑡is a joint term; 𝐸𝑗𝑟𝑒𝑔is a joint regularization
+term. For the geometry term, We use a lower weight at the inte-
+rior boundary of the muscle groups, namely the contacting vertices
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+
+
+120:8
+•
+Li, et al.
+between each muscle, to ensure a consistent muscle boundary. Addi-
+tionally, we use 𝐸𝑟𝑒𝑔on muscle vertices to ensure smoothness. 𝐸𝑗𝑟𝑒𝑔
+is a joint regularization to confine the joint locations of the subject
+𝑖consistent with joints prediction from the initial joint regressor:
+𝐸𝑖
+𝑗𝑟𝑒𝑔= || ˜JT𝑖
+𝑝−𝐽𝑖
+𝑝||2
+2.
+(16)
+After learned the T𝑝and 𝐽𝑝by optimizing 𝐸𝑠ℎ(T𝑝, 𝐽𝑝|G), we can get
+J by enforcing 𝐽𝑝and JT𝑝to be equivalent. We then run principal
+component analysis (PCA) on T𝑝to obtain shape space parameters
+{T, S, 𝛽}, where T is the mean shape of MRI dataset T𝑝. S is the
+principal component matrix, and 𝛽is the PCA coefficient vector of
+the shape space.
+Parameter stage. We optimize skinning weight W and pose blend
+shape P by:
+𝐸𝑝𝑎(W, P|G) = 𝐸𝑔𝑒𝑜+𝐸𝑟𝑒𝑔+𝑤𝑗𝑟𝑒𝑔𝐸𝑗𝑟𝑒𝑔+𝑤𝑐𝑝𝐸𝑐𝑝+𝐸𝑤𝑟𝑒𝑔+𝐸𝑝𝑏𝑟𝑒𝑔
+(17)
+Similar to [Loper et al. 2015], 𝐸𝑝𝑏𝑟𝑒𝑔regularize the Frobenius norm
+of P to be zero, which prevents overfitting of the pose-dependent
+blend shapes. 𝐸𝑤𝑟𝑒𝑔regulate the skinning weight by minimizing
+the distance between W and
+˜
+W.
+Pose Augmentation. After 𝐸1 optimization, NIMBLE can poten-
+tially be directly used to better estimate hand pose because of more
+reliable bone and muscle modeling. As shown in Figure 15, we are
+able to provide anatomically correct and physically plausible defor-
+mation compared with state-of-the-arts. However, due to limited
+hand poses provided by the MRI datasets [Li et al. 2021; Wang et al.
+2019], NIMBLE may suffer from degraded performance in applica-
+tions requiring large hand pose variances. To address this issue, we
+additionally optimize NIMBLE on hand scans from MANO dataset
+[Romero et al. 2017]. MANO provides 1554 raw scans and hand
+registrations align with the topology of MANO hand model. We
+perform a topology transfer with a simplified physically based non-
+rigid registration (Section 4.2) to inline our model to MANO dataset.
+To achieve this, we compute a dense correspondence from MANO
+topology to ours by manually fitting MANO to our template using
+Wrap3D [R3DS 2022]. Then we run the non-rigid optimization with
+geometry term, non-rigid elasticity term and dense correspondence
+to match with raw scan. By doing so, we obtain another 1554 hand
+registrations with large pose variance.
+We follow the same parameter learning strategy as in the MRI
+dataset and further optimize G learnt from MRI scans. Note that the
+canonicalized MANO data only contains skin geometry, resulting
+in weak supervision on bone and muscle. To prevent unexpected
+deformations, we leverage an additional shape regularizer to con-
+strain the deformation of inner geometry. Essentially, we want to
+use the skin to guide the deformation of bone and muscle so that the
+inner and outer mesh will not downgrade to the average template
+in our previously registered MRI shape space. We define the shape
+regularizer as follows:
+𝐸𝑠𝑟𝑒𝑔=
+∑︁
+𝑖
+||T𝑖
+𝑝S𝑇||2,
+(18)
+where T𝑖𝑝S𝑇denotes the projected shape coefficients 𝛽𝑖on to the
+MRI shape space, which corresponds to 𝛽𝑖= 0.
+More parameter setting, registration and learning details can be
+found in Section. 6.1.
+5
+PHOTOREALISTIC RENDERING
+Modeling the high-quality and realistic appearance is important for
+a realistic rendering pipeline. Physically-based textures, including
+diffuse albedo, normal maps, specular maps, play an important role
+in rendering photo-realistic hand appearance. Here, we introduce
+how to model the appearance for NIMBLE, i.e., A(𝛼).
+Appearance Capture. We utilize a photometric appearance capture
+system that we call HandStage analogous to the USC LightStage [De-
+bevec et al. 2000] to capture the detailed physically-based textures.
+We are able to attain diffuse albedo, normal maps and specular maps
+of hands by applying several patterns of polarized gradient illumi-
+nation on them. We captured 20 hands of different identities with
+our HandStage capture system to reconstruct 8192x8192 pore-level
+detailed physically-based hand textures. To increase diversity, we
+include extra 18 online hand texture assets from [3DSCANSTORE
+2022]. Our final appearance dataset consists of 38 photo-realistic
+hand texture assets from different ages, genders and races.
+For rich and authentic hand appearance generation, we create a
+parametric appearance model from our appearance dataset. Every
+asset in our dataset have physically-based textures as well as uniform
+texture UV mapping, which allows us to apply linear interpolation
+between existing textures. For every appearance A𝑖in our dataset,
+we compute ¯A =
+1
+𝑛
+Í𝑛
+𝑖=1 A𝑖,𝑛= 38 as the average appearance,
+including average diffuse albedo, normal maps and specular maps.
+Then, we run principal component analysis (PCA) using singular
+value decomposition to obtain the principal components Φ from
+every existing appearance in our total appearance dataset. After
+that we obtain the parametric appearance model for appearance
+parameter vector 𝛼∈R𝑘as
+A(𝛼) = ¯A + Φ𝛼,
+(19)
+where 𝑘is the number of principal components, here we choose
+𝑘= 10. With parametric appearance model created from PCA, we
+could also generate realistic physically-based textures out of our
+dataset. Since our textures have uniform texture UV mapping as our
+template skin mesh, we could directly apply generated physically-
+based textures NIMBLE with different shapes and produce a photo-
+realistic appearance.
+Rendering Process. We show our procedural rendering process
+in Figure 6, we start with NIMBLE template model, and generate
+shape, pose and appearance parameters randomly. NIMBLE takes
+the parameters as input and generates a realistic 3D hand with bone,
+muscle and skin geometry, as well as photo-realistic appearance
+with diffuse map, normal map and specular map. Then we render
+the 3D hand with Cycles, a photo-realistic ray-tracing renderer
+[Blender 2021]. We employ image-based lighting with high dynamic
+range images (HDRI) as background texture to illuminate the hand,
+as shown in Figure 6. We also show a variety of different hand
+poses, shapes and appearances under a uniform lighting in Figure
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+
+
+NIMBLE: A Non-rigid Hand Model with Bones and Muscles
+•
+120:9
+Fig. 6. Our rendering pipeline for creating photorealistic hand. Starting with our full template, we randomly generate shape, pose and appearance and render
+the 3D hand with environment maps. We also show difference rending effects with only diffuse map and with normal map.
+Fig. 7. Simulation of skin wrinkle due to thumb adduction. Note the wrinkle
+gradually appear and skin bulges as the fingers become closer.
+8. To generate a dynamic motion sequence, we map pose parame-
+ters to full pose quaternion representation, and linearly interpolate
+between different pose to keep a smooth pose morphing. Please
+see the supplementary video for examples. To further enhance our
+rendering quality, we generate skin wrinkles with cloth simulation
+in rendering engines. Here we only use the surface triangles of our
+volumetric mesh so that cloth simulation schemes can be applied.
+See Figure 7 for an example. During the adduction of the thumb to
+the index finger, the first dorsal interossei between thumb and index
+finger contract and pull the bones closer, the contracted muscle
+makes the skin bulge, and the purlicue skin is then squeezed to
+create a fold. As can be seen in the close-up of Figure 7, the wrinkle
+near purlicue gradually appears as the fingers become closer. NIM-
+BLE recovers muscle and skin bulging under such pose, while cloth
+simulation produces wrinkles caused by the squeezing between the
+geometry of thumb and index finger.
+6
+EXPERIMENTAL RESULTS
+We first show our implementation details, then evaluate the perfor-
+mance of our registration process and the NIMBLE models learned
+from these registrations. We test NIMBLE on public hand datasets
+and compare with state-of-the-arts, e.g., MANO [Romero et al. 2017]
+and HTML [Qian et al. 2020]. Extensive experiments demonstrate
+NIMBLE’s outperforming performance and capability of photo-
+realistic rendering among diverse datasets. Additionally, we show
+that NIMBLE can be easily fitted into the hand inference pipeline
+from various input.
+6.1
+Implementation Details
+In our experiments, we set the term weights in Equation (4) ac-
+cording to template type during registration. For muscle, since the
+target is not separated, we use larger regularization term weights
+to guide the registration. We set 𝜆𝑑= 1, 𝜆𝑑𝑛= 1, 𝜆𝑎= 0.1, 𝜆𝑒= 0.5,
+𝜆𝑓𝑛= 0.01, 𝜆𝑛𝑒= 0.02, 𝜆𝑟𝑒𝑝= 0.5, 𝜆𝑐𝑜𝑙= 0.1 and 𝜆𝑎𝑡𝑡= 10. For skin,
+we set larger geometry term weights and non-rigid elasticity term
+weights: 𝜆𝑑= 2, 𝜆𝑑𝑛= 2, 𝜆𝑛𝑒= 1, 𝜆𝑐𝑜𝑙= 1, 𝜆𝑎= 0.01. Specifically,
+for bone, we omit the non-rigid elasticity term with 𝜆𝑛𝑒= 0. The
+whole registration takes approximately 20 minutes for the muscle
+group, 8 minutes for skin, and 2 minutes for bone. For parameter
+learning, we also use weights to balance each term. During the first
+iteration, we set the weight 𝑤𝑗𝑡and 𝑤𝑗𝑟𝑒𝑔in Equation (12) to 100 to
+enforce a strong pose constraint, and decrease to them to 0.01 and 10
+respectively after the first stage. We set the weight 𝑤𝑐𝑝for coupling
+penalty gradually increase from 0.1 to 1 to ensure that our final
+model is collision-free. We also adopt an additional optimization
+process with Equation (10) and (11) to handle skin collisions with
+bone and muscles during model usage. We iterate the whole process
+of registration and parameter learning several times to get a stable
+result. All of our experiments are performed with PyTorch auto
+differentiation on an NVIDIA GeForce RTX 3090.
+6.2
+Registration Evaluation
+Quantitative Result. In Figure 9, we plot histograms for the median
+of per-vertex distance from registration to the MRI mesh and MANO
+scan mesh. The distance is measured across all registered MRI data
+and MANO scans. Note that we discard the inner vertices in this
+evaluation. It is indicated that our method produces registrations
+that generally match the target mesh within a 2 mm distance error.
+For bone registration, almost all vertices have a distance error below
+1.4 mm, while 87% of the vertices achieve a median distance less than
+1 mm. For muscle registration, 65% of the vertices make a median
+distance less than 1 mm and only 9% vertices are above 5 mm. These
+are caused mainly by the missing data at the attachment part where
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.
+
+
+120:10
+•
+Li, et al.
+Fig. 8. Gallery of generated 3D Hand. Our model is able to synthesize realistic digital hand with large variance on pose, shape and appearance.
+Fig. 9. The histogram of median per-vertex distance between registration
+and the target surface.
+muscle gets thinner and attaches to bone, as described in Section
+4. We thus perform higher regularization weights and attachment
+terms to increase robustness at these parts. For skin registration in
+the MRI dataset, 70% of the vertices make a median distance less
+than 1.5 mm, while the max distance error is 3.69 mm. While for
+the MANO scan skin dataset, with our topology transfer method,
+we achieve a mean error of 1.09 mm. There are 4% of vertices error
+above 3 mm. This is mostly caused by incomplete scan in the dataset,
+especially with object occlusion, as shown in Figure 10 (last two
+rows). Meanwhile, we report the mean squared distance from scan
+to registration for MANO skin is 1.76 mm.
+Qualitative Result. Figure 10 shows representative registrations
+sample of the MRI dataset and MANO scan dataset. For all inner
+and outer data, our method provides an accurate and smooth regis-
+tration. We are able to capture the muscle stretching and bulging
+effects. It is notable that our registration is able to maintain a robust
+performance towards noisy MRI target while capturing detail skin
+wrinkles from detailed MANO scan [Romero et al. 2017].
+Ablation Study. Our registration process contains two steps: LBS
+pose initialization and iterative non-rigid refinement. Figure 11
+visualized the registration results of each optimization step. The
+LBS step serves only as a pose initialization, it is unable to capture
+the details of muscle and skin bulging, especially around the thumb
+muscle and hand palm. After the iterative non-rigid refinement, the
+registration tightly fits the surface of the MRI mesh. Note on the top
+right of Figure 11, the geometry error remains large in the middle
+of the MRI muscle mesh. This is due to segmentation error, some
+tendons are mislabeled as muscle because it is hard to distinguish
+them on MRI slices. While using the strong regularization term in
+Section 4.2, we successfully match the template to the target without
+fitting it to mislabeled tendons.
+To assess the impact of each of our energy terms on iterative re-
+finement, we register an MRI hand mesh with multiple energy term
+variants. As illustrated in Figure 12, we begin with the geometry
+term and then add the regularization, non-rigid elasticity, and colli-
+sion terms individually to obtain the total energy defined in Section
+4.2. While the geometry term forces the vertex to align with the tar-
+get, the fingers collide with one another, resulting in severe artifacts.
+While adding a regularization term eliminates some artifacts, finger
+collision and unnatural knuckle deformation remain. With the ad-
+dition of non-rigid elasticity term, the deformations of each finger
+become more realistic, but the thumb and middle finger continue
+to self-penetrate. By including a collision term, the self-penetration
+problem is resolved and the final collision-free registration result is
+obtained.
+6.3
+Model Evaluation
+The general method to evaluate a statistical model is to measure
+its compactness and generalization [Loper et al. 2015; Romero et al.
+2017]. Compactness measures the amount of variability in the train-
+ing data captured by the model, while generalization measures the
+model ability to represent unseen shape, pose and appearance.
+Compactness. Figure 13 (a), (b) (red curve) plot the compactness of
+the NIMBLE shape and pose space, respectively. These curves depict
+the variance in the training data captured by a varying number of
+principal components. The pose space plot shows that 15, 25, 30
+components can express 83%, 92%, 95% of the full space. The result is
+consistent with the anatomy of the human hand, which is generally
+considered to have 27 degrees of freedom [Panchal-Kildare and
+Malone 2013]. As for the shape space, as shown in Figure 13 (b),
+we can note that the first principal component covers 50% of the
+shape space. Meanwhile, 10 and 20 components manage to cover
+83% and 93% of the complete shape space. We also plot the per-tissue
+compactness curve in Figure 14(a). It indicates that the variance of
+different tissues is mostly consistent.
+ACM Trans. Graph., Vol. 41, No. 4, Article 120. Publication date: July 2022.

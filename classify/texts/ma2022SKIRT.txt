@@ -1,0 +1,1184 @@
+Title: Neural point-based shape modeling of humans in challenging clothing
+
+Neural Point-based Shape Modeling of Humans in Challenging Clothing
+Qianli Ma1,2
+Jinlong Yang2
+Michael J. Black2
+Siyu Tang1
+1ETH Z¨urich
+2Max Planck Institute for Intelligent Systems, T¨ubingen, Germany
+{qianli.ma, siyu.tang}@inf.ethz.ch,
+{qma,jyang,black}@tuebingen.mpg.de
+(a) SCANimate [43]
+(b) POP [27]
+(c) Ours
+(d) Predicted LBS Weights
+(e) Ours, animated
+Figure 1: Learning clothed avatars with SkiRT (Ours). When applied to challenging clothing types such as skirts and dresses, existing
+methods for learning clothed human shape often (a) erroneously generate pant-like structures [43], or (b) suffer from inhomogeneous point
+density and split-like artifacts in the predicted shape [27]. Our point-based approach (c) addresses these issues by predicting the LBS
+weights relating the clothed surface to the body (d) and using a novel coarse shape representation in the posed space. SkiRT achieves state-
+of-the-art modeling accuracy for pose-dependent shapes of humans in diverse types of clothing. Results from the point-based methods here
+are rendered using a plain point renderer to highlight the difference between each method’s “raw” outputs.
+Abstract
+Parametric 3D body models like SMPL only represent
+minimally-clothed people and are hard to extend to cloth-
+ing because they have a ﬁxed mesh topology and resolution.
+To address these limitations, recent work uses implicit sur-
+faces or point clouds to model clothed bodies. While not
+limited by topology, such methods still struggle to model
+clothing that deviates signiﬁcantly from the body, such as
+skirts and dresses. This is because they rely on the body
+to canonicalize the clothed surface by reposing it to a ref-
+erence shape. Unfortunately, this process is poorly deﬁned
+when clothing is far from the body. Additionally, they use
+linear blend skinning to pose the body and the skinning
+weights are tied to the underlying body parts. In contrast,
+we model the clothing deformation in a local coordinate
+space without canonicalization.
+We also relax the skin-
+ning weights to let multiple body parts inﬂuence the surface.
+Speciﬁcally, we extend point-based methods with a coarse
+stage, that replaces canonicalization with a learned pose-
+independent “coarse shape” that can capture the rough
+surface geometry of clothing like skirts.
+We then reﬁne
+this using a network that infers the linear blend skinning
+weights and pose dependent displacements from the coarse
+representation. The approach works well for garments that
+both conform to, and deviate from, the body. We demon-
+strate the usefulness of our approach by learning person-
+speciﬁc avatars from examples and then show how they can
+be animated in new poses and motions. We also show that
+the method can learn directly from raw scans with miss-
+ing data, greatly simplifying the process of creating real-
+istic avatars. Code is available for research purposes at
+https://qianlim.github.io/SkiRT.
+1. Introduction
+A wide range of applications are driving recent interest
+in creating animatable 3D human avatars from data. Given
+a set of 3D scans or meshes of a person performing vari-
+ous poses, the goal is to create a model of the clothed body
+that can be controlled by the body pose, with the clothing
+deforming naturally as the body moves. Such technology
+will greatly simplify the creation of avatars for immersive
+experiences in teleconferences, gaming, and virtual try-on,
+to name a few. Traditional solutions to this task typically
+require an artist-designed clothing template, a step that reg-
+isters the template to data, and a process to associate the
+arXiv:2209.06814v1  [cs.CV]  14 Sep 2022
+
+
+registered data to a controllable bone structure. These all
+involve expert knowledge and manual effort.
+While registering a mesh template to a clothed body scan
+is challenging and error-prone, there are tractable solutions
+to estimate the minimally-clothed body pose and shape that
+lies under clothing [4, 5, 35, 51, 59], i.e., to ﬁt a paramet-
+ric human body model [18, 23, 36, 56] to clothed scans.
+This gives rise to a promising alternative to the complex
+traditional pipeline. Recent methods build shape models of
+clothed humans using clothed scans and the corresponding
+minimally-clothed bodies, thereby side-stepping the need
+for per-garment mesh templates [3, 34, 44].
+To go beyond minimally-clothed body models such as
+SMPL [23] to capture the complex shape of clothed bod-
+ies, recent attempts either displace the vertices of the
+body template mesh [6, 26, 29, 46] or learn a neural im-
+plicit ﬁeld (without relying on templates) that captures the
+clothing shape conditioned on the body pose parameters
+[8, 43, 47, 52]. While these methods show promising re-
+sults on T-shirts, pants, or even closed jackets, they exhibit
+limitations for clothing types that are topologically different
+from the body, like dresses and skirts. To date, these remain
+a major challenge for both tempate-based and template-free
+models of clothed humans.
+One of the key problems of these existing formulations is
+that they require explicit canonicalization. Some work as-
+sumes the canonicalized data is given [26, 30], whereas the
+recent trend is to learn a backward transformation ﬁeld to
+“unpose” the data to a consistent canonical pose [8, 43, 52].
+On a high-level, canonicalization is a process that trans-
+forms all points on the posed, clothed body surface to a
+pre-deﬁned pose, using the bone transformations derived
+from the underlying body. Here, a hidden assumption is
+that the unposing of clothing can be driven simply by the
+unposing of the minimally-clothed body. While this is true
+for many clothing types that lie close to the body (such as
+T-shirts and pants), the assumption often fails for garments
+that differ greatly from the body shape and topology, such
+as skirts and dresses. The canonicalization step for a skirt
+is ill-deﬁned, and canonicalizing such surfaces with exist-
+ing body-based approaches often leads to artifacts, as we
+demonstrate in Sec. 3; see Fig. 2.
+In contrast to canonicalization methods, shape deforma-
+tion can be modeled in local, posed, coordinates; e.g., re-
+cent point-based clothed human models [25, 27] directly
+model shape in the posed space. For a query point on the
+body surface, a clothing displacement vector is predicted
+in a pre-deﬁned local coordinate system anchored to that
+point. These methods represent the pose-dependent shapes
+of skirts by simple offsets from the unclothed body model.
+However, as the deﬁnition of the local coordinate frame re-
+lies on the linear blend skinning (LBS) weights of SMPL
+(Sec. 3), these methods are tied to body part transforma-
+tions, resulting in clear surface discontinuities on the skirts
+and dresses; see Fig. 1.
+Here, we follow the point-based approach but further
+equip it with a few key innovations that combine the tra-
+ditional pipeline with implicit surface-based body modeling
+techniques. Speciﬁcally, we extend the point-based method,
+POP [27], with a learned, pose-independent “coarse shape”
+that captures the rough surface geometry of clothing. The
+coarse shape serves a similar role as the clothing template in
+the traditional pipeline. Instead of using a manually crafted
+mesh, however, our point-based coarse geometry is learned
+from data, is not tied to speciﬁc mesh topology, and is
+hence ﬂexible in representing various clothing types. We
+reﬁne this coarse shape using a neural network that predicts
+pose-dependent displacements from the coarse representa-
+tion, in their respective local coordinates. Differing from
+prior work [27], the transformations from the local to the
+world coordinates are not taken from the underlying body
+model, but predicted by a neural network. Additionally, we
+introduce an adaptive regularization technique to train the
+pipeline, which encourages a more uniform spatial distribu-
+tion of the generated point clouds. As we show in the exper-
+iments, these innovations lead to improved modeling accu-
+racy and, more importantly, are essential to solving the typ-
+ical surface discontinuity problems found in previous work.
+These key components enable our new method, SkiRT
+(Skinned Reﬁned Template-free),
+which creates pose-
+dependent shape models of clothed humans from 3D scans.
+We evaluate SkiRT on diverse clothing types, with a spe-
+cial focus on skirts and dresses of different lengths, tight-
+ness and styles; of course, SkiRT also models simpler
+clothing types. SkiRT tackles the long-standing difﬁculty
+of modeling challenging clothing types such as skirts and
+dresses, outperforming state-of-the-art methods from both
+the point-based and implicit surface-based families on the
+pose-dependent clothing modeling task. Furthermore, with
+an extensive ablation study, we carefully analyze the key
+components in our pipeline, providing insights for future
+point-based models of clothed human body geometry.
+2. Related Work
+In this section we review previous work that captures and
+models 3D clothing with data-driven learning approaches.
+Template-based clothed human modeling.
+Existing
+graphics software and, in particular, 3D clothing simula-
+tion, uses 3D meshes to represent human bodies and cloth-
+ing. Physics-based cloth simulation has been widely used to
+train data-driven clothing models [3, 12, 17, 34, 44, 45, 49,
+57], and mesh-based models of minimally-clothed humans
+are common [2, 23, 36, 56]. Mesh-based body models have
+been a foundation for capturing and representing clothing
+deviation from the the body [15, 20, 26, 29, 37, 50, 58, 60].
+2
+
+
+While deep learning methods can be used to model cloth-
+ing deviation on meshes [14, 39, 48], these methods re-
+main limited when it comes to skirts and dresses. Unlike
+many pants and tops, skirts and dresses differ greatly from
+the body surface, making it infeasible to deform a com-
+mon body template mesh to ﬁt the data. To capture skirts
+and dresses, some methods exploit customized template
+meshes [15, 16, 37, 50, 60, 61]. With such an approach,
+one must manually design templates for a wide variety of
+clothing styles, making this approach impractical. In con-
+trast, our method is “template-free” in that it replaces the
+per-garment mesh templates with data-driven coarse shapes
+that serve a similar role. This obviates the expensive manual
+labor and can, in principle, model arbitrary skirt styles.
+Template-free clothed human modeling. To deal with the
+problems of template-based approaches, recent work goes
+beyond meshes and exploits new representations that do
+not require a per-garment template. A popular and promis-
+ing approach uses deep implicit shapes [9, 11, 28, 33] to
+capture [4, 13, 41, 42, 53–55] and model clothed humans
+[7, 8, 10, 30, 31, 43, 47, 52]. Although such representa-
+tions adapt to varied topology, these methods [8, 30, 43, 52]
+do not perform well when modeling skirts, especially wide
+and long skirts. The problem originates from the need to
+canonicalize the training data as detailed in Sec. 3. In con-
+trast, point clouds provide an alternative representation. Ma
+et al. [25] successfully model clothing or clothed humans
+with point clouds, and further demonstrate in [27] that their
+approach can be extended to train a single model of various
+clothing styles. While promising, dense point clouds can
+have trouble with skirts, producing a discontinuous repre-
+sentation between the legs. The reason is that these meth-
+ods are still tied to the topology of the unclothed body, as
+we analyze in Sec. 3. Our work uses a “coarse stage” with a
+local coordinate space to avoid the issues in previous work.
+It also uses a network to predict more reasonable skinning
+weights for the skirt points, minimizing the discontinuities
+seen with previous work.
+In a similar spirit, concurrent
+work [21] also enhances the point-based clothing represen-
+tation with a coarse template; but [21] uses diffusion to ac-
+quire clothing skinning weights, whereas our method learns
+the skinning weights from data.
+3. Analyzing the Challenges of Skirts
+Given a clothed scan with known body pose, many meth-
+ods transform the clothed scan to a common canonical pose.
+This helps factor out the articulation-related deformations
+in the clothed body shape, reducing data variation and fa-
+cilitating model learning. A premise for canonicalization to
+work is that the clothing, when dressed on the body, behaves
+similarly to the unclothed body under different poses. Many
+tops and pants mostly satisfy this assumption, as evidenced
+(a)
+(b)
+(c)
+Figure 2: Typical failure case due to canonicalization of skirts
+using the learned inverse-LBS methods. Result produced by [43]
+on a training example. Given a raw scan (a), canonicalization often
+tears or creases the skirt (b), leading to areas in canonical space
+without good supervision. A neural implicit function trained with
+such canonicalized shapes yields visible artifacts (c).
+by the success of recent canonicalization-based models on
+these garment types [8, 26, 37, 43, 52]. However, the sur-
+face deformation of skirts and dresses does not directly fol-
+low the body articulation. Consequently, extra care needs
+to be taken to canonicalize and animate such clothing [37],
+e.g., by introducing extra/virtual bones [22, 32].
+Figure 2 shows a typical failure mode of a state-of-the-
+art canonicalization method, SCANimate [43], on a dress.
+Here, the clothing-body association is predicted by a neu-
+ral network, which is learned from data. Theoretically, the
+network should be able to learn an optimal canonical skirt
+shape such that it matches the data when transformed back
+to the posed space. However, in practice, it is difﬁcult to
+avoid over-stretching and splitting the raw scans. When the
+neural network is trained to ﬁll the gap without supervision,
+reposing the canonical representation produces creases. As
+a result, even on training data (as in Fig. 2), the learned re-
+constructed skirt shape typically has a clear crease, with the
+resulting garment looking more like wide pants.
+The recent point-based clothed human model, POP [27],
+side-steps explicit canonicalization and models the clothed
+body shapes in the posed space using local coordinates.
+While showing the potential of capturing clothing that dif-
+fers from the body topology, POP typically exhibits a fail-
+ure mode when representing skirts: the skirt surface is often
+torn apart in the region between the legs, as shown in Figs. 1
+and 3. One of the key reasons is that the local coordinates
+are deﬁned based on the unclothed body shape and topol-
+ogy, as we analyze below.
+In a nutshell, the POP model densely queries locations
+on the body surface and generates a clothing displacement
+vector at each query. For a query point bi ∈R3 on the posed
+body, the clothing displacement ˆri ∈R3 is predicted in its
+associated local coordinate system. The local coordinate
+frame is a Cartesian coordinate system with bi being the
+origin. The clothing point’s location in world coordinates is
+3
+
+
+(a)
+(b)
+(c)
+Figure 3: Failure mode of the SoTA point-based method on a
+skirt. (a) Points P1, P2 denote two neighboring points on the skirt
+surface, displaced from the left and right leg respectively. When
+the pose changes, (b), previous work [27] skins these according to
+the body point skinning weights, resulting in a “hard” association
+to only the respective body part (the solid colored lines). This
+leads to a discontinuous skirt surface in the new pose. (c) Our
+approach predicts blended skinning weights for each point (the
+dashed colored lines) leading to a more even distribution of points.
+then given by:
+xi = ˆTi · ˆri + bi.
+(1)
+In POP, the transformations ˆTi between the local and world
+coordinate systems are pre-computed using the joint trans-
+formations of the SMPL model:
+ˆTi =
+J
+X
+j=1
+w(i)
+j,SMPLTj,
+(2)
+where each Tj is the 4 × 4 rotation-translation transforma-
+tion matrix of the body’s j-th joint from the canonical-pose
+space to the posed space, J is the number of joints, and
+w(i)
+j,SMPL is SMPL’s linear blend skinning (LBS) weight that
+associates bi to the j-th joint, s.t. PJ
+j=1 w(i)
+j,SMPL = 1.
+Notice that ˆTi in fact also yields bi (on the posed body)
+from its corresponding location ˆbi in the canonical pose1:
+bi = ˆTi · ˆbi. It then becomes clear that the POP pipeline is
+equivalent to building the model in the canonical space:
+xi = ˆTi · ˆxi,
+(3)
+with ˆxi = ˆri + ˆbi being the clothed body in the canonical
+pose. While the predictions are made in the canonical space,
+POP does not explicitly canonicalize the scan data, and uses
+the original posed data as supervision during training. This
+bypasses the drawbacks of the explicit canonicalization as
+earlier discussed.
+However, the pre-computed local coordinate transforma-
+tions are problematic for skirts. The points on the skirt sur-
+face are displaced from either the left or right leg. Consider
+1With a slight abuse of notation, bi can represent the homogeneous
+coordinates when necessary.
+d
+LBS
+LBS
+Figure 4: Method Overview. Given a point ˆbi on the body sur-
+face in canonical pose, we use it to query the three MLP networks
+that predict the pose-independent coarse clothing shape ˆrcoarse, the
+pose-dependent detailed clothing offsets ˆrﬁne (Sec. 4.1), and the
+LBS weights on the clothing w(i)
+pred (Sec. 4.2), respectively. The
+learned LBS weights are used to transform the canonical-space
+prediction ˆxﬁne
+i
+to the posed space xﬁne
+i .
+two neighboring points, P1 and P2, from the between-leg
+region on the skirt surface in Fig. 3. P1 and P2 are dis-
+placed from the right and left leg, respectively. With POP,
+the LBS weights for P1, P2 are effectively drawn from one
+leg or the other; i.e.
+wP1
+right leg ≈1 and wP2
+left leg ≈1, while
+other LBS weights from other bones are approximately 0.
+When the leg pose changes, P1 and P2 thus follow the rigid
+transformation of only their respective leg. When the legs
+move apart, so do the points on the skirt, Fig. 3(b). Al-
+though POP’s predicted non-rigid pose-dependent displace-
+ments can, in theory, compensate for the discrepancy of
+the rigid transforms, in our experiments, we ﬁnd this in-
+sufﬁcient. Speciﬁcally, the proximity of points on the skirt
+varies with pose. This results in a gap in the 3D represen-
+tation that splits the skirt into two parts. In fact, the local
+transformations, as deﬁned in Eq. (2), result in a discon-
+tinuity of the displacement ﬁeld on the skirt surface. We
+show this with an experiment in Sec. 5.1.
+4. Method
+Overview.
+To cope with the challenging clothing types
+such as skirts and dresses, we push the limit of the local
+coordinate-based point representation by introducing a se-
+ries of new components. The training of our method takes
+a set of scans (point clouds) that capture the shape of a
+person wearing the same outﬁt in varying poses. For each
+scan, we ﬁt a SMPL body that captures the body shape and
+pose under clothing. We ﬁrst train a coarse-stage neural
+network that takes in the SMPL bodies and predicts a pose-
+independent shape of the clothed body (Sec. 4.1). We then
+reﬁne this coarse shape with another neural network that
+predicts a pose-dependent, detailed clothing displacement
+ﬁeld in the local coordinates. The ﬁne stage also predicts
+a ﬁeld of transformations of these local coordinates in the
+form of LBS weights (Sec. 4.2). The displacements are
+4
+
+
+then added to the coarse shape and posed using the pre-
+dicted transformations, yielding the ﬁnal clothed body pre-
+diction. We additionally introduce an adaptive regulariza-
+tion algorithm in Sec. 4.3 to facilitate training the pipeline.
+An overview of our method is illustrated in Fig. 4.
+4.1. Coarse-to-ﬁne Prediction
+Based on the analysis in Sec. 3, an immediate remedy
+is to associate the points on a skirt to multiple body parts,
+instead of a “hard” association to only one part. Taking
+Fig. 3 again as an intuitive example: if both points P1, P2
+are associated with both legs, they will undergo similar rigid
+transformations as the legs move, hence maintaining their
+proximity, Fig. 3(c). This amounts to “spreading” the LBS
+weights to all the leg joints instead of tightly associating
+them with one, such that the LBS weights on the skirt sur-
+face vary smoothly in space. The remaining question is,
+how to get such smoothly transitioning LBS weights on the
+clothed body surface? Our answer is to ﬁrst learn a pose-
+independent coarse shape and then use it to query a pre-
+diffused smooth LBS weight ﬁeld derived from SMPL.
+Pose-independent coarse shape. We ﬁrst introduce a neu-
+ral network that predicts the coarse shape of clothing, rep-
+resented as residual vectors ˆrcoarse
+i
+from the body:
+ˆrcoarse
+i
+= fcoarse(ˆbi, zcoarse) : R3 × RZcoarse →R3,
+(4)
+where fcoarse(·) is a multi-layer-preceptron (MLP), ˆbi is a
+query point on the neutrally-posed body, and zcoarse is a
+global geometry code. For the coarse stage, we use the LBS
+from the SMPL model to bring the predictions back to the
+posed space, Eq. (1). By querying over the entire body sur-
+face, a coarse shape of the clothed body can be constructed.
+Since the coarse MLP does not take in any body pose in-
+formation, the output is pose-independent. Training it on all
+data with varied poses results in a coarse clothed body shape
+that minimizes the discrepancy to all examples. Intuitively
+this facilitates the subsequent ﬁne stage, where the network
+then only needs to predict a small pose-dependent residual
+on the coarse base shape. The learned coarse shape takes the
+place of an artist-designed garment template in a traditional
+graphics pipeline, but the ﬂexible point-based representa-
+tion enables our method to be applied to different clothing
+types without manually deﬁning garment templates.
+Pose-dependent ﬁne shape. For the ﬁne stage, we follow
+the design of POP [27] and train another MLP, fﬁne(·), that
+takes in a local geometry descriptor zﬁne
+i
+, a local pose de-
+scriptor zpose
+i
+, and outputs a clothing residual in the local
+coordinates:
+ˆrﬁne
+i
+= fﬁne(ˆbi, zﬁne
+i
+, zpose
+i
+) : R3×RZﬁne ×RZpose →R3, (5)
+where the subscript i of the descriptors denotes that they
+are local to each query point. Following POP, the geome-
+try features zcoarse
+i
+and zﬁne
+i
+are learned in an auto-decoding
+fashion. But, unlike POP, the predicted residuals are now
+added to the coarse clothed body shape, instead of the un-
+clothed body model. The fﬁne(·) MLP branches out another
+head at the ﬁnal layer to predict the normal vector in the
+local coordindates. More details of the local descriptors are
+provided in Appendix A.1.
+Pre-diffused LBS weight ﬁeld. With the learned clothed
+coarse body shape, we are now able to deﬁne smoothly-
+varying LBS weights for the coarse shape. To do so, we
+ﬁrst diffuse SMPL’s LBS weights to R3 using nearest neigh-
+bor assignment as in LoopReg [5].
+Such a pre-diffused
+LBS weight ﬁeld has many undesirable discontinuities in
+space (see Appendix B.1.). We then run an optimization
+to smooth the ﬁeld. To do so, we sample a regular grid in
+the diffused space, and minimize the discrepancy between
+each grid point’s LBS weight and the average weight of its
+1-ring neighbors; this is analogous to applying Laplacian
+smoothing to the LBS weights. The optimization results
+in a LBS weight ﬁeld that has a smoother spatial varia-
+tion. Finally, we use the points from the coarse shape to
+query this ﬁeld, obtaining smoothly-varing LBS weights on
+the clothed body “template”. More details about our LBS
+smoothing algorithm can be found in the Appendix B.1.
+4.2. Predicting Local Transformations
+Although the optimized LBS weight ﬁeld in theory ad-
+dresses the single association problem, the optimization is
+based on heuristics and it is unclear if these pre-processed
+LBS weights are the optimal choice for every clothing type.
+Therefore, we train another neural network, gLBS(·), to pre-
+dict the LBS weights, and use the pre-diffused ﬁeld for reg-
+ularization:
+w(i)
+pred = gLBS(ˆbi, zﬁne
+i
+) : R3 × RZﬁne →RJ,
+(6)
+with w(i)
+pred = {w(i)
+j,pred}J
+j=1 being the set of predicted LBS
+weights at the query location ˆbi. Note that the LBS predic-
+tion network is conditioned on the clothing geometry fea-
+tures but not the pose features, following the common de-
+sign principle that the LBS weights are outﬁt-speciﬁc but
+pose-independent.
+Using the predicted LBS weights, we modify Eq. (2) as:
+ˆT ′
+i =
+J
+X
+j=1
+w(i)
+j,predTj.
+(7)
+The clothing residuals and surface normals predicted from
+the ﬁne stage, ˆrﬁne
+i
+, are now transformed with the predicted
+local transformations ˆT ′
+i.
+4.3. Point-adaptive Upsampling and Regularization
+In POP, when the skirt “splits”, the points becomes ex-
+ceptionally sparse on the region between the legs, Fig. 3(b).
+5
+
+
+We propose an algorithm to increase the point density for
+such regions, aiming to eliminate such artifacts in a sim-
+ple post-processing step. To identify the points in the low-
+density region, we compute the average distance of each
+point to its k-nearest neighbors (kNN, we use k=5). This
+measures how isolated each point is from its neighbors, giv-
+ing a measure of local point density. We then again query
+the underlying body surface using the kNN radius as guid-
+ance, and assign a higher sampling probability to the re-
+gions with low point density.
+As we show in the experiments, this simple post-process
+can make the point distribution more uniform and visually
+reduce the “split” artifact, but unfortunately does not elim-
+inate it entirely. This indicates that the learned neural ﬁeld
+for the skirt surface is still discontinuous.
+To address this, we introduce the point-adaptive idea in
+training. For points that have a large kNN radius, we set
+a smaller weight λadapt
+i
+for the regularization on the norm
+of their displacements (see Eq. (8)). Intuitively, with a uni-
+form sampling on the body surface, the displaced clothing
+points with a large kNN radius are more likely to be far from
+the body. Consequently, the clothing deformations there re-
+ceive less inﬂuence from the body articulations, hence the
+non-rigid deformations (displacements) can have more free-
+dom. As we show in the experiments, the point-adaptive
+regularization effectively improves the uniformity of the
+generated point clouds. Further details of the point-adaptive
+sampling are provided in the Appendix B.2.
+4.4. Training and Inference
+Our pipeline is trained with a two-stage regime. The
+coarse shape network is trained ﬁrst such that it provides
+a base shape for the ﬁne stage training.
+It also serves
+as a medium to acquire the pre-diffused LBS weights for
+regularizing the LBS prediction. The pose-dependent ﬁne
+shape network and the LBS weight prediction networks are
+trained together end-to-end.
+Since the coarse base shape does not vary with pose,
+when dealing with unseen poses at test-time, we only need
+to run the ﬁne-stage inference given the query pose.
+Loss Functions. Both the coarse and ﬁne stages are trained
+with a weighted sum of the Chamfer Distance LCD, a nor-
+mal consistency loss Ln, and a regularization term Lrgl on
+the norm of the predicted displacements.
+The standard
+Chamfer and normal losses follow the formulation in [27]
+and we defer their description in the Appendix A.1.
+The predicted displacements ˆrcoarse and ˆrﬁne are regular-
+ized by their L2-norm, weighted by the point-adaptive reg-
+ularization strength λadapt
+i
+as discussed in Sec. 4.3:
+Lrgl =
+1
+|X|
+|X|
+X
+i=1
+λadapt
+i
+ˆri
+2
+2.
+(8)
+For the ﬁne stage speciﬁcally, we use two regularization
+terms to facilitate the learning of the LBS weight prediction.
+The ﬁrst one is a direct L1 regularization using the ground
+truth LBS weights from the underlying body:
+LLBS =
+1
+|X|
+|X|
+X
+i=1
+w(i)
+pred −w(i)′
+SMPL
+
+1,
+(9)
+where w(i)′
+SMPL is the pre-diffused and smoothed SMPL LBS
+weights as discribed in Sec. 4.1.
+Additionally we introduce a reprojection loss as follows:
+Lreproj =
+1
+|X|
+|X|
+X
+i=1
+T ′
+iˆbi −b(gt)
+i
+
+2,
+(10)
+where ˆbi is a sampled point on the body in canonical pose,
+T ′
+i is the local transform derived from the predicted LBS
+weights (Eq. (7)), and b(gt)
+i
+is the corresponding point on
+the ground truth body surface. That is, we use the learned
+transformations to reproject the canonical-posed body to
+the pose space, such that it matches the ground truth posed
+body. Similar to LLBS, this term also penalizes the learned
+LBS weights for deviating too far from those of the body.
+Further details on the model architecture and training hy-
+perparameters are provided in the Appendix A.1.
+5. Experimental Evaluation
+Baselines.
+We compare SkiRT with two state-of-the-art
+clothed human modeling methods: SCANimate [43] and
+POP [27]. SCANimate uses a neural implicit shape repre-
+sentaiton and performs explicit data canonicalization. POP,
+like our method, represents clothed bodies using dense
+point clouds predicted in local coordinates.
+We also compare with various ablated versions to our
+method: (a) we train POP with our adaptive regularization
+technique as described in Sec. 4.3; (b) we replace SMPL
+LBS weights in POP with our pre-diffused and smoothed
+LBS weights as discussed in Sec. 4.1; and (c) we enhance
+POP with predicted LBS weights as described in Sec. 4.2,
+but without the coarse-to-ﬁne strategy.
+Datasets and Metrics.
+We primarily evaluate on the
+ReSynth dataset [27], a synthetic dataset of clothed humans
+featuring rich geometric details and salient pose-dependent
+clothing deformations.
+We pay special attention to sub-
+jects wearing skirts and dresses of varied styles, lengths and
+tightness, but also evaluate on several non-skirt outﬁts, to
+holistically characterize each method. Following [27], we
+evaluate all the methods using the Chamfer Distance (m2)
+and the L1 normal discrepancy, averaged over all sampled
+points from each method’s prediction. See Appendix for
+more details on the evaluation setup.
+6
+
+
+Table 1:
+Quantitative comparison with baselines and the ablated versions of our method on the ReSynth [27] dataset. CD: Chamfer
+Distance (×10−4m2); NML: L1 discrepancy between the predicted and ground truth unit normals (×10−1). Both the lower the better. The
+best results are shown in bold. The upper section contains subjects wearing skirt/dress outﬁts; the lower section contains subjects wearing
+non-skirt loose clothing such as jackets (carla-004, eric-035) and wide T-shirts with pants (alexandra-006).
+Subject ID
+SCANimate [43]
+POP [27]
+Ablation (a)
+Ablation (b)
+Ablation (c)
+Ours, Full
+CD
+NML
+CD
+NML
+CD
+NML
+CD
+NML
+CD
+NML
+CD
+NML
+anna-001
+1.34
+1.35
+0.62
+0.82
+0.59
+0.82
+0.59
+0.82
+0.60
+0.81
+0.58
+0.81
+beatrice-025
+0.74
+1.33
+0.34
+0.75
+0.32
+0.75
+0.33
+0.75
+0.33
+0.75
+0.31
+0.77
+christine-027
+3.21
+1.66
+1.72
+0.97
+1.74
+1.00
+1.68
+0.97
+1.68
+0.97
+1.54
+0.99
+janett-025
+2.81
+1.59
+1.24
+0.89
+1.23
+0.85
+1.24
+0.82
+1.19
+0.81
+1.10
+0.82
+felice-004
+20.79
+2.94
+7.34
+1.24
+7.43
+1.25
+6.96
+1.22
+6.95
+1.22
+6.45
+1.25
+debra-014
+20.38
+2.61
+7.40
+1.26
+7.59
+1.30
+7.05
+1.28
+7.13
+1.26
+6.29
+1.26
+carla-004
+0.90
+1.52
+0.51
+1.02
+0.51
+1.07
+0.53
+1.06
+0.52
+1.05
+0.48
+1.06
+alexandra-006
+2.28
+1.84
+1.71
+1.29
+1.68
+1.28
+1.67
+1.28
+1.74
+1.28
+1.51
+1.29
+eric-035
+2.54
+1.94
+1.34
+1.16
+1.33
+1.16
+1.33
+1.16
+1.33
+1.13
+1.30
+1.17
+SCANimate [43]
+POP [27]
+POP + Adpt. up.
+Ablation (a)
+Ablation (b)
+Ablation (c)
+Full Model
+Figure 5: Qualitative comparison with baselines and ablated versions of our model. “Adpt. up.” means using adaptive upsampling as a
+post-process. Subject IDs from top to bottom: “felice-004”, “anna-001”, “eric-035”. Best viewed zoomed-in on a color screen.
+5.1. Comparison to Prior Methods
+Table 1 summarizes the quantitative errors on the 9
+subject-outﬁt types from the ReSynth dataset.
+On most
+clothing types, our method shows a clear performance ad-
+vantage over the baselines. As analyzed in Sec. 3, SCANi-
+mate often suffers from the pant-like artifacts for skirts, er-
+roneously generating extra surfaces under the skirt and lead-
+ing to high Chamfer errors especially for skirts and dresses.
+This shows the limitation of explicit canonicalization on
+these challenging clothing types. In contrast, POP performs
+reasonably well on most subjects, showing the advantage
+of modeling using local coordinates. However, the results
+from POP often suffer from an uneven distribution of points,
+especially for the long skirts and dresses, as shown in Fig. 5
+(also see the teaser ﬁgure). Using our adaptive upsampling
+as post-process, the “split” artifact in the skirts can be par-
+tially reduced, as shown in the third column in Fig. 5. In
+contrast, our full model achieves a more uniform point dis-
+tribution for both skirts and “plain” clothing as shown in
+Fig. 5: for skirts, it effectively eliminates the “split” artifact
+present in prior methods; for the blazer jacket it achieves
+the highest sharpness representing the collar and the lapel.
+5.2. Ablation Study
+Comparing our full model with its ablated versions (a)-
+(c), we see the effectiveness of our introduced compo-
+7
+
+
+Figure 6: Examples of using SkiRT to complete raw scans on two
+challenging clothing types. See Appendix for animated results.
+Figure 7: Avatar creation from raw scans. Left: raw training scan
+data with missing information (holes). Right: animation of learned
+avatar with pose-dependent clothing deformation.
+nents. Ablation (a) adds the point-adaptive regularization
+to POP in training, resulting in a more uniform distribu-
+tion of points. However, this mechanism alone does not en-
+sure consistently lower errors compared to the original POP
+model. In ablation (b), the pre-diffused LBS weight ﬁeld
+indeed improves the numerical accuracy for all dress/skirt
+outﬁts, which, to an extent, veriﬁes our analysis in Sec. 3.
+However, as shown in Fig. 5, the point density still remains
+highly uneven for skirts. This motivates us to learn the LBS
+weights instead of using the ﬁxed, pre-diffused version.
+Ablation (c) differs from POP in that it predicts the LBS
+weights. But without the coarse stage, here the predicted
+displacements are added directly to the body surface. De-
+spite a higher accuracy than POP for all skirt outﬁts, qualita-
+tively this version still suffers from an inhomogeneous point
+distribution especially for the long skirt. This illustrates the
+value of the coarse stage. Finally, with the coarse stage, the
+full model achieves the lowest Chamfer error on all clothing
+types (both skirts and non-skirts), with an especially clear
+improvement on the two long skirt subjects, “felice-004”
+and “debra-014”, as can also be seen in the visual results.
+In the Appendix C.2 we further discuss the inﬂuence of the
+point cloud quality on the mesh reconstruction.
+5.3. Raw Scan Completion and Avatar Creation
+SkiRT learns a continuous clothing displacement ﬁeld
+from the body, and is able to deal with raw scans too. Here
+we demonstrate two applications of SkiRT on raw scans.
+Details of these experiments are provided in the Appendix.
+Scan completion. The raw scans from real world scanners
+typically contain holes, and our pipeline can serve as a so-
+lution to hole-ﬁlling and scan completion. Consider a se-
+quence (typically 200-300 frames) of raw, incomplete scans
+of a subject. We ﬁrst ﬁt the SMPL body to each frame, and
+then train our pipeline with the scan-body pairs. Our model
+can leverage the shared information between different data
+frames (i.e. the subject wears the same garment), and pre-
+dict a completed shape for each frame, as shown in Fig. 6.
+Avatar creation from raw scans. As shown above, SkiRT
+is robust to missing regions in raw scans. With sufﬁcient
+data, it is possible to create a clothed human avatar with
+pose-dependent clothing deformation directly from raw
+scans. Here we show such an application in Fig. 7. Trained
+directly on raw scans of the subject “03375-blazerlong” in
+the CAPE dataset [26], SkiRT is capable of animating the
+subject in novel poses with natural pose-dependent clothing
+deformation. This automated process signiﬁcantly reduces
+the manual effort required for realistic avatar creation.
+6. Conclusion
+We have introduced a novel point-based representation
+for modeling clothed humans that, without loss of gener-
+ality, addresses challenging clothing types such as skirts
+and dresses. It consists of three key innovations: a coarse-
+to-ﬁne scheme, predicted local transformations, and point-
+adaptive up-sampling and regularization. We have system-
+atically analyzed and evaluated our model on diverse cloth-
+ing types with different skirt lengths, tightness and styles,
+outperforming the state-of-the-art methods and providing
+insights for future work on point-based representations for
+modeling clothed humans.
+Limitations and future work. Learning effective skinning
+weights for clothed body surfaces requires diverse training
+poses. When training data has very limited pose variations,
+our learned LBS weights (hence the local-to-world transfor-
+mations) may fail to generalize to unseen poses. The gener-
+alization in pose space with limited training data remains
+a challenging topic for future research. The point-based
+coarse stage can sometimes lead to slightly noisier point
+sets than POP; see Appendix for detailed discussions. In
+this paper, we have demonstrated subject-speciﬁc modeling,
+but our formulation is also compatible with multi-subject
+training by, for example, auto-decoding a clothing geome-
+try code for each subject as in POP [27]. Given sufﬁcient
+subject and clothing type variation, it should be possible to
+learn a shape space of clothed bodies using our approach.
+Acknowledgements and disclosure: We thank Shaofei Wang for
+helpful discussions. Qianli Ma is partially supported by the Max
+Planck ETH Center for Learning Systems. MJB’s conﬂicts of in-
+terest can be found at https://files.is.tue.mpg.de/
+black/CoI_3DV_2022.txt.
+8
+
+
+Appendix
+In this appendix we provide more details on the model de-
+signs and experimental setups (Sec. A), further elaborations
+on our method (Sec. B), and further discussions on experi-
+mental results, limitations and failure cases (Sec. C). Please
+also refer to the video for animated results.
+A. Implementation Details
+A.1. SkiRT
+Architecture.
+The coarse and the ﬁne shape prediction
+have the same architectural design, but majorly differ in
+their inputs. Both networks are a 8-layer multi-layer percep-
+tron (MLP) comprising 256 neurons per layer, and with the
+SoftPlus as the nonlinear activation. Following [33], a skip
+connection is added from the input layer to the fourth layer
+of the network. From the ﬁfth layer the network branches
+out two heads with the same architecture that predicts the
+point locations and normals respectively.
+The coarse shape MLP takes as input the Cartesian co-
+ordinates of a query point from the surface of the SMPL-X
+body in the canonical pose ˆbi ∈R3, as well as a global
+shape code zcoarse ∈R256. The global shape code is shared
+by all query locations for the coarse stage.
+The ﬁne detail MLP takes a query coordinates ˆbi ∈R3, a
+local shape descriptor zﬁne
+i
+∈R64, and a local pose descrip-
+tor zpose
+i
+∈R64. Each query location on the body surface
+is associated with a unique local shape descriptor zﬁne
+i
+that
+is an optimizable latent vector learned in an auto-decoding
+fashion [33]. To get the pose descriptor zpose
+i
+, we follow [27]
+and ﬁrst encode the UV-positional map (with a resolution of
+128×128) of the unclothed posed body by a U-Net [40], re-
+sulting in a 128×128×64-dimensional pose feature tensor.
+For each query location ˆbi, we ﬁnd its corresponding UV-
+coordinate ˆui ∈R2, and obtain the local pose feature zpose
+i
+by querying the spatial dimensions (i.e. the ﬁrst two dimen-
+sions) of the pose feature tensor using ˆui with bilinear in-
+terpolation. We empirically ﬁnd that this U-Net-based pose
+feature encoder provides the sharpest geometric details. Re-
+placing it with e.g. the ﬁltered local pose parameters (as in
+SCANimate [43]) yields a signiﬁcant performance drop.
+The skinning weights prediction network is a 5-layer
+MLP that comprises 256 neurons per intermediate layer.
+The ﬁnal layer outputs a 22-dimentional vector that corre-
+sponds to the 22 clothing-related body joints in the SMPL-
+X model (we merged all ﬁnger-related joints into a “hand”
+joint for each hand). LeakyReLU is used as the nonlinear
+activation except for the last layer where a SoftMax is used
+to obtain normalized skinning weights.
+Loss functions. In addition to the loss functions introduced
+in the main paper Eqs. (8)-(10), we follow [27] and use
+Chamfer Distance and the normal loss to train our model.
+The bi-directional Chamfer Distance penalizes the L2
+discrepancy between the generated point cloud X = {xi}
+and the ground truth Y = {yj}: LCD =
+1
+|X|
+|X|
+X
+i=1
+min
+j
+xi −yj
+2
+2 +
+1
+|Y|
+|Y|
+X
+j=1
+min
+i
+xi −yj
+2
+2. (11)
+The normal loss Ln is the L1 discrepancy between each
+point’s predicted unit normal n(xi) and the normal of its
+nearest neighbor in the ground truth point cloud:
+Ln =
+1
+|X|
+|X|
+X
+i=1
+n(xi) −n(argmin
+yj∈Y
+d(xi, yj))
+
+1.
+(12)
+Note that the normal loss is computed based on the near-
+est points found by the Chamfer Distance, intuitively it is
+more effective when the point locations of the predicted
+point cloud roughly matches the ground truth. Therefore we
+introduce the normal loss in our training after 100 epochs
+when the Chamfer loss plateaus.
+The total loss is a weighted sum of all these terms:
+L = λCDLCD+λnLn+Lrgl+λLBSLLBS+λreprojLreproj. (13)
+The weights are set as λCD = 1e4, λn = 1.0, λLBS =
+1.0, λreproj = 5e2. Note that, as discussed in the main
+paper, the displacement regularization term Lrgl contains a
+per-point adaptive weight λadapt
+i
+which has an initial value
+of 2e3 but decays at each point adaptively according to its
+kNN radius. See Sec. B.2 for more details.
+Training and Inference. We use query points from the
+low-resolution (128×128) UV map to train the coarse stage
+MLP, and evaluate it at test-time with denser query locations
+(e.g. those from a 256 × 256 UV map) that match the num-
+ber of points on the ﬁne stage. Although it is also possible
+to train the coarse stage with denser points too, we ﬁnd that
+the resulting coarse shape tends to be noisy. Using fewer
+points for training prevents the model from being overﬁt
+to local details of certain training examples, and yields a
+smoother learned coarse shape. The coarse stage is trained
+using the Adam optimizer with a learning rate of 3e −4
+for 150 epochs, which takes approximately 0.9 hour on a
+NVIDIA RTX 6000 GPU.
+For the ﬁne stage, we train the displacement network and
+the LBS MLP together using Adam with a learning rate of
+3e−4 for 250 epochs, which takes approximately 2.5 hours
+on a NVIDIA RTX 6000 GPU.
+A.2. Baselines
+SCANimate.
+For the pose-dependent shape prediction
+task (main paper Sec. 5.1), we use the ofﬁcial implemen-
+tation and hyperparameter settings from SCANimate [43]
+9
+
+
+and train a separate model for each outﬁt in the ReSynth
+dataset [27]. Since SCANimate requires watertight meshes
+for training the implicit surfaces, we process the dense
+point clouds provided in the ReSynth dataset into watertight
+meshes using Poisson Surface Reconstruction [19] and then
+use this processed data as ground truth to train the model.
+During training, we sample 8000 points from the clothed
+body meshes dynamically at each iteration.
+At test-time, for a fair comparison with the point-based
+methods, we ﬁrst extract a surface from the SCANimate’s
+implicit predictions using Marching Cubes [24], and then
+sample the same number (47,911) of points from the surface
+for evaluating the quantitative errors.
+POP. We train and evaluate POP also in a subject-speciﬁc
+manner to fairly compare with all other methods. Follow-
+ing the ofﬁcial implementation, we train and evaluate model
+using a ﬁxed set of 47911 query points on the body that cor-
+respond to the valid pixels from the 256 × 256 UV-map of
+SMPL-X. The reported quantitative errors are averaged over
+all the query points.
+A.3. Further Details on Experimental Setups
+Here we provide more details on scan completion exper-
+iment as described in the main paper Sec. 5.3. We scan
+subjects wearing challenging clothing (e.g. skirts and very
+loose and wrinkly shirts) using a body scanner. The sub-
+jects are asked to improvise on several motion sequences,
+resulting in few hundreds of frames (typically 200-300) of
+raw scan data. We then ﬁt the SMPL-X body model to the
+scan data, and train a subject-speciﬁc SkiRT model with the
+scan-body pairs using the same procedure and hyperparam-
+eters as described in Sec. A. The subjects’ hands and feet
+are often largely incomplete throughout the sequence in the
+captured raw scans due to the hardware limitations. There-
+fore we zero out the displacement predictions for these
+parts. At test time, we feed the model with the training bod-
+ies. The trained model is expected to reproduce the train-
+ing data and outputs the hole-ﬁlled complete scans of point
+clouds.
+B. Extended Illustrations
+B.1. Smoothing the LBS Weight Field
+As described in the main paper Sec. 4.1, we ﬁrst fol-
+low LoopReg [5] and diffuse LBS weights of the SMPL-
+X model to R3 the using nearest neighbor assignment: for
+each query point in R3, we ﬁnd its nearest point on the
+SMPL-X body surface and assign its LBS weight to the
+query point. In practice, the diffused LBS weights are pre-
+computed on a regular grid (can also be seen as voxel cen-
+ters) with a resolution of 128 × 128 × 128. For an arbi-
+trary query point, its LBS weights are acquired via trilinear
+interpolation on its neighboring grid points. As shown in
+(a)
+(b)
+(c)
+Figure B.1:
+Visualizing a slice from the pre-diffused
+SMPL-X LBS weight ﬁeld.
+(a) Diffusion using nearest
+neighbor assignment.
+(b) Overlay of the SMPL-X body
+(color-coded with the body LBS weights) in the nearest-
+neighbor-diffused ﬁeld. (c) The smoothed ﬁeld after opti-
+mization convergence. The colors in the ﬁelds indicate the
+skinning weights to body part with the corresponding color
+in (b).
+Fig. B.1(a), the nearest neighbor assignment results in clear
+discontinuities of the LBS weight distribution in space. A
+similar illustration can also be found in Fig. 3 in [5].
+To smooth the spatial distributions of the LBS weights,
+we use an optimization-based approach. On a high level, for
+each grid point, we minimize the discrepancy between its
+LBS weights and the average of its 1-ring neighbors. For-
+mally, we optimize the LBS weights on all the grid points
+with respect to the following energy function:
+Esmooth =
+M
+X
+i=1
+wpi −
+1
+|N(pi)|
+X
+∀qj∈N(pi)
+wqj
+
+1,
+(14)
+where pi denotes a grid point, N(pi) denotes the set of its 1-
+ring neighbors, qj is a point in the neighborhood, and M is
+the total number of grid points. The optimization effectively
+smoothes the boundary discontinuities of the LBS weights
+in space, as shown in Fig. B.1(c).
+B.2. Point-adaptive Regularization/Upsampling
+As described in the main paper Sec. 4.3, both regulariza-
+tion (for training) and the point-adaptive upsampling (for
+post-processing) are based on the kNN radius li , i.e. the
+averaged k-nearest neighbor (we used k=5) distance, per
+point. Let µl and σl be the mean and standard deviation
+of points’ kNN radius calculated over the entire point set.
+During training, if a point’s kNN radius is above a thresh-
+old of mean plus two standard deviations, we disable the
+regularization on the normal of the displacement for that
+point:
+λadapt
+i
+=
+(
+0
+if li > µl + 2σl,
+2e3
+otherwise.
+(15)
+We also experimented with more sophisticated policy such
+as decaying the per-point weight using an exponential decay
+with respect to the kNN radius, but do not observe notice-
+able improvements.
+10

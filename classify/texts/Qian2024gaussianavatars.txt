@@ -1,0 +1,938 @@
+Title: Gaussianavatars: Photorealistic head avatars with rigged 3d gaussians
+
+GaussianAvatars: Photorealistic Head Avatars with Rigged 3D Gaussians
+Shenhan Qian1
+Tobias Kirschstein1
+Liam Schoneveld2
+Davide Davoli3
+Simon Giebenhain1
+Matthias Nießner1
+1Technical University of Munich
+2Woven by Toyota
+3Toyota Motor Europe NV/SA
+associated partner by contracted service
+Figure 1. We introduce GaussianAvatars, a new method to create photorealistic head avatars from multi-view videos. Our avatar is
+represented by 3D Gaussian splats rigged to a parametric face model. We can fully control and animate our avatars in terms of pose,
+expression, and view point as shown in the example renderings above.
+Abstract
+We introduce GaussianAvatars1, a new method to cre-
+ate photorealistic head avatars that are fully controllable in
+terms of expression, pose, and viewpoint. The core idea is
+a dynamic 3D representation based on 3D Gaussian splats
+that are rigged to a parametric morphable face model. This
+combination facilitates photorealistic rendering while al-
+lowing for precise animation control via the underlying
+parametric model, e.g., through expression transfer from a
+driving sequence or by manually changing the morphable
+model parameters. We parameterize each splat by a local
+coordinate frame of a triangle and optimize for explicit dis-
+placement offset to obtain a more accurate geometric rep-
+resentation. During avatar reconstruction, we jointly op-
+timize for the morphable model parameters and Gaussian
+splat parameters in an end-to-end fashion. We demonstrate
+the animation capabilities of our photorealistic avatar in
+several challenging scenarios. For instance, we show reen-
+actments from a driving video, where our method outper-
+forms existing works by a significant margin.
+1. Introduction
+Creating animatable avatars of human heads has been a
+longstanding problem in computer vision and graphics.
+1Project page: https://shenhanqian.github.io/gaussian-avatars
+In particular, the ability to render photorealistic dynamic
+avatars from arbitrary viewpoints enables numerous appli-
+cations in gaming, movie production, immersive telepres-
+ence, and augmented or virtual reality. For such applica-
+tions, it is also crucial to be able to control the avatar, and
+for it to generalize well to novel poses and expressions.
+Reconstructing a 3D representation able to jointly cap-
+ture the appearance, geometry and dynamics of human
+heads represents a major challenge for high-fidelity avatar
+generation.
+The under-constrained nature of this recon-
+struction problem significantly complicates the task of
+achieving a representation that combines novel-view ren-
+dering photorealism with expression controllability. More-
+over, extreme expressions and facial details, like wrinkles,
+the mouth interior, and hair, are difficult to capture, and can
+produce visual artifacts easily noticed by humans.
+Neural Radiance Fields (NeRF [30]) and its variants
+[2, 6, 31] have shown impressive results in reconstruct-
+ing static scenes from multi-view observations.
+Follow-
+up works have extended NeRF to model dynamic scenes
+for both arbitrary [23, 32, 33] and human-tailored scenarios
+[13, 18]. These works achieve impressive results for novel
+view rendering; however, they lack controllability and as
+such do not generalize well to novel poses and expressions.
+The recent 3D Gaussian Splatting method [15] achieves
+even higher rendering quality than NeRF for novel-view
+synthesis with real-time performance, optimizing for dis-
+crete geometric primitives (3D Gaussians) throughout 3D
+1
+arXiv:2312.02069v2  [cs.CV]  28 Mar 2024
+
+
+space. This method has been extended to capture dynamic
+scenes by building explicit correspondences across time
+steps [29]; however, they do not allow for animations of
+the reconstructed outputs.
+To this end, we propose GaussianAvatars, a method for
+dynamic 3D representation of human head based on 3D
+Gaussian splats that are rigged to a parametric morphable
+face model. Given a FLAME [22] mesh, we initialize a 3D
+Gaussian at the center of each triangle. When the FLAME
+mesh is animated, each Gaussian then translates, rotates,
+and scales according to its parent triangle. The 3D Gaus-
+sians then form a radiance field on top of the mesh, com-
+pensating for regions where the mesh is either not accu-
+rately aligned, or is incapable of reproducing certain vi-
+sual elements. To achieve high fidelity of the reconstructed
+avatar, we introduce a binding inheritance strategy to sup-
+port Gaussian splats without losing controllability. We also
+explore balancing fidelity and robustness to animate the
+avatars with novel expressions and poses. Our method out-
+performs existing works by a significant margin on both
+novel-view rendering and reenactment from a driving video.
+Our contributions are as follows:
+• We propose GaussianAvatars, a method to create animat-
+able head avatars by rigging 3D Gaussians to parametric
+mesh models.
+• We design a binding inheritance strategy to support
+adding and removing 3D Gaussians without losing con-
+trollability.
+2. Related Work
+2.1. Radiance Field Reconstruction
+NeRF [30] stores the radiance field of a scene in a neu-
+ral network and provides photorealistic renderings of novel
+views with volumetric rendering. Later work [40, 50] rep-
+resents the scene as voxel grids, achieving comparable ren-
+dering quality in a shorter time.
+Efficiency can be fur-
+ther improved by employing compression methods such as
+voxel hashing [31] or tensor decomposition [6]. PointNeRF
+[46] uses point clouds as a scene representation, whereas
+3D Gaussian Splatting [15] uses anisotropic 3D Gaussians
+that are rendered by sorting and rasterization, achieving su-
+perior visual quality with real-time rendering. Mixture of
+Volumetric Primitives [27] uses surface-aligned volumes to
+achieve fast rendering with high visual fidelity. It also ap-
+plies residual transformations to primitives. Our method
+follows 3D Gaussian Splatting [15], benefiting from the ex-
+pressiveness of anisotropic Gaussians.
+A common paradigm to model a dynamic scene is di-
+rectly storing it in an MLP with 4D coordinates as the in-
+put [9, 45] or a 4D tensor with the time dimension or spa-
+tial dimensions compressed [1, 4, 7, 39]. These methods
+can faithfully replay a dynamic scene and produce realistic
+novel-view rendering but lack an explicit handle to manip-
+ulate the content. Another paradigm learns a static canon-
+ical space and the maps time steps back to the canonical
+space via separate MLPs [32, 33, 36]. Instead of using a
+deformation MLP, a proxy geometry provides more direct
+controllability. Liu et al. [26] warp points from an observed
+space to the canonical space based on the movement of the
+nearest triangle on an SMPL [28] mesh. Peng et al. [35] de-
+form points with the skeleton of SMPL and neural blending
+weights. Concurrent works create human body avatars with
+forward deformation [14, 19, 21, 24, 49] and cage-based
+deformation [55]. Unlike these methods, we directly attach
+3D Gaussians to triangles and explicitly move them, obvi-
+ating the need for a canonical space and enabling effective
+mesh finetuning.
+2.2. Human Head Reconstruction and Animation
+Head avatar creation advanced through the uptake of differ-
+entiable rendering and scene representations. Thies et al.
+[42] instigated a shift toward digital avatars with real-time
+face tracking and authentic face reenactment.
+Advance-
+ments in image synthesis with neural networks [5, 43]
+boosted the controllability of head avatars from lip-syncing
+to expression transfer and head motions [16, 41, 48]. Gafni
+et al. [8] learn a NeRF conditioned on an expression vector
+from monocular videos. Grassal et al. [11] subdivide and
+add offsets to FLAME [22] to enhance its geometry and en-
+able a dynamic texture via an expression-dependent texture
+field. IMavatar [52] learns a 3D morphable head avatar with
+neural implicit functions, solving for a map from observed
+to canonical space via iterative root-finding.
+HeadNeRF
+[12] learns a NeRF-based parametric head model with 2D
+neural rendering for efficiency.
+INSTA [56] deforms query points to a canonical space
+by finding the nearest triangle on a FLAME [22] mesh, and
+combines this with InstantNGP [31] to achieve fast render-
+ing. Like INSTA, we also use triangles to warp the scene,
+but we build a consistent correspondence between a 3D
+Gaussian and a triangle instead of querying the nearest one
+for each timestep. Zheng et al. [53] explore point-based rep-
+resentations with differential point splatting. They define a
+point set in canonical space and learn a deformation field
+conditioned on FLAME’s expression vectors to animate the
+head avatar. While the scale of a point has to be manually
+set for their method, it is an optimizable parameter for 3D
+Gaussians. NeRFBlendShape [10] models a dynamic scene
+by blending hash tables with 3DMM parameters [3, 34].
+AvatarMAV [47] decouples motion and appearance, blend-
+ing voxel grids only for the motion field.
+3. Method
+As shown in Fig. 2, the input to our method is a multi-view
+video recording of a human head. For each time step, we
+2
+
+
+FLAME 
+tracking
+input video
+setup local coordinate system 
+for each triangle
+𝑻𝑻
+triangle 
+position
+𝑹𝑹
+triangle 
+rotation
+𝑘𝑘
+triangle 
+scaling
+①
+assign a 3D Gaussian at the 
+center of each triangle
+𝑖𝑖
+3D Gaussian 
+parent triangle
+𝛼𝛼
+3D Gaussian
+opacity
+𝒉𝒉
+3D Gaussian
+SH coefficients
+②
+shift and scale 3D Gaussians 
+during optimization
+𝒔𝒔
+3D Gaussian 
+local scaling
+3D Gaussian 
+local position 𝝁𝝁
+𝒓𝒓
+3D Gaussian
+local rotation
+③
+apply adaptive density control 
+with binding inheritance
+④
+𝒔𝒔′ = 𝑘𝑘𝒔𝒔
+𝝁𝝁′ = 𝑘𝑘𝑹𝑹𝑹𝑹+ 𝑻𝑻
+𝒓𝒓′ = 𝑹𝑹𝑹𝑹
+𝑖𝑖
+𝒉𝒉
+𝛼𝛼
+3D Gaussian parameters
+global scaling
+global position
+global rotation
+parent triangle
+SH coefficient
+opacity
+shape
+vertex offset
+translation
+joint poses
+expression
+𝜷𝜷
+𝚫𝚫𝒗𝒗
+𝒕𝒕
+𝜽𝜽
+𝝍𝝍
+FLAME parameters
+ℒrgb = 1 −𝜆𝜆ℒ1 + 𝜆𝜆ℒD−SSIM
+ℒscaling =
+max 𝒔𝒔, 𝜖𝜖scaling
+2
+ℒposition =
+max 𝝁𝝁, 𝜖𝜖position
+2
+loss terms
+rendering equation
+𝑪𝑪= ෍
+𝑖𝑖=1
+𝒄𝒄𝑖𝑖𝛼𝛼𝑖𝑖
+′ ෑ
+𝑗𝑗=1
+𝑖𝑖−1
+1 −𝛼𝛼𝑗𝑗
+′
+Figure 2. Overview. Our method binds 3D Gaussian splats to a FLAME [22] mesh locally. We take the tracked mesh for each frame and
+transform the splats from local to global space before rendering them with 3D Gaussian Splatting [15]. We optimize the splats in the local
+space by minimizing color loss on the rendering. We add and remove splats adaptively with their binding relation to triangles inherited so
+that all splats remain rigged throughout the optimization procedure. Further, we regularize the position and scaling of 3D Gaussian splats
+to suppress artifacts during animation.
+use a photometric head tracker based on [42] to fit FLAME
+[22] parameters with multi-view observations and known
+camera parameters. The FLAME meshes have vertices at
+varied positions but share the same topology. Therefore,
+we can build a consistent connection between triangles of
+the mesh and 3D Gaussian splats (Sec. 3.2). The splats
+are rendered into images via a differentiable tile rasterizer
+[15].
+These images are then supervised by the ground-
+truth images towards learning a photorealistic human head
+avatar. As per static scenes, it is also necessary to den-
+sify and prune Gaussian splats for optimal quality, with a
+set of adaptive density control operations [15]. To achieve
+this without breaking the connection between triangles and
+splats, we design a binding inheritance strategy (Sec. 3.3)
+so that new Gaussian points remain rigged to the FLAME
+mesh. In addition to the color loss, we also find it crucial to
+regularize the local position and scaling of Gaussian splats
+to avoid quality degradation under novel expressions and
+poses (Sec. 3.4).
+3.1. Preliminary
+3D Gaussian Splatting [15] provides a solution to recon-
+struct a static scene with anisotropic 3D Gaussians given
+images and camera parameters. A scene is represented by a
+set of Gaussian splats, each defined by a covariance matrix
+Σ centered at point (mean) µ:
+  G( \ bm  
+{ x}) = e^{-\frac {1}{2}(\bm {x} - \bm {\mu })^T \Sigma ^{-1}(\bm {x} - \bm {\mu })} 
+(1)
+Note that covariance matrices have physical meaning only
+when they are semi-definite, which cannot be guaranteed
+for an optimization process with gradient descent. There-
+fore, Kerbl et al. [15] first define a parametric ellipse with a
+scaling matrix S and a rotation matrix R, then construct the
+covariance matrix by:
+  \Sig ma  = R S S^T R^T. 
+(2)
+Practically, an ellipse is stored as a position vector µ ∈R3,
+a scaling vector s ∈R3, and a quaternion q ∈R4. In
+our paper, we use r ∈R3×3 to notate the corresponding
+rotation matrix to q.
+For rendering, the color C of a pixel is computed by
+blending all 3D Gaussians overlapping the pixel:
+  
+\
+bm 
+{C} 
+=
+ \s
+u
+m _
+{i = 1}
+{\bm {c}_i \alpha _i' \prod _{j=1}^{i-1}}(1-\alpha _j'), 
+(3)
+where ci is the color of each point modeled by 3-degree
+spherical harmonics. The blending weight α′ is given by
+3
+
+
+evaluating the 2D projection of the 3D Gaussian multiplied
+by a per-point opacity α. The Gaussian splats are sorted by
+depth before blending to respect visibility order.
+3.2. 3D Gaussian Rigging
+The key component of our method is how we build con-
+nections between the FLAME [22] mesh and 3D Gaussian
+splats. Initially, we pair each triangle of the mesh with a
+3D Gaussian and let the 3D Gaussian move with the trian-
+gle across time steps. In other words, the 3D Gaussian is
+static in the local space of its parent triangle but dynamic
+in the global (metric) space as the triangle moves. Given
+the vertices and edges of a triangle, we take the mean posi-
+tion T of the vertices as the origin of the local space. Then,
+we concatenate the direction vector of one of the edges, the
+normal vector of the triangle, and their cross product as col-
+umn vectors to form a rotation matrix R, which describes
+the orientation of the triangle in the global space. We also
+compute a scalar k by the mean length of one of the edges
+and its perpendicular to describe the triangle scaling.
+For the paired 3D Gaussian of a triangle, we define its
+location µ, rotation r, and anisotropic scaling s all in the
+local space. We initialize the location µ at the local origin,
+the rotation r as an identity rotation matrix, and the scal-
+ing s as a unit vector. At rendering time, we convert these
+properties into the global space by:
+  \ bm 
+{r}
+' & = \ b m  
+{R}
+ \ b m {r}, \\ \bm {\mu }' &= k \bm {R} \bm {\mu } + \bm {T}, \label {eq:global_position} \\ \bm {s}' &= k \bm {s} \label {eq:global_scaling}.
+(6)
+We incorporate triangle scaling in Eqs. (5) and (6) so that
+the local position and scaling of a 3D Gaussian are defined
+relative to the absolute scale of a triangle. This enables an
+adaptive step size in the metric space with a constant learn-
+ing rate for parameters defined in the local space. For exam-
+ple, a 3D Gaussian paired with a smaller triangle will move
+slower in an iteration step than those paired with large trian-
+gles. This also makes interpreting the parameters regarding
+the distance from the triangle center easier.
+3.3. Binding Inheritance
+Only having the same numbers of Gaussian splats as the tri-
+angles is insufficient to capture details. For instance, repre-
+senting a curved hair strand requires multiple splats, while
+a triangle on the scalp may intersect with several strands.
+Therefore, we also need the adaptive density control strat-
+egy [15], which adds and removes splats based on the view-
+space positional gradient and the opacity of each Gaussian.
+For each 3D Gaussian with a large view-space positional
+gradient, we split it into two smaller ones if it is large or
+clone it if it is small. We conduct this in the local space and
+ensure a newly created Gaussian is close to the old one that
+triggers this densification operation. Then, it is reasonable
+to bind a new 3D Gaussian to the same triangle as the old
+one because it was created to enhance the fidelity of the
+local region. Therefore, each 3D Gaussian must carry one
+more parameter, the index of its parent triangle, to enable
+binding inheritance during densification.
+Besides densification, we also use the pruning operation
+as a part of the adaptive density control strategy [15]. It pe-
+riodically resets the opacity of all splats close to zero and
+removes points with opacity below a threshold. This tech-
+nique is effective in suppressing floating artifacts, however,
+such pruning can also cause problems in a dynamic scene.
+For instance, regions of the face that are often occluded
+(such as eyeball triangles), can be overly sensitive to this
+pruning strategy, and often end up with few or no attached
+Gaussians. To prevent this, we keep track of the number of
+splats attached to each triangle, and ensure that every trian-
+gle always has at least one splat attached.
+3.4. Optimization and Regularization
+We supervise the rendered images with a combination of L1
+term and a D-SSIM term following [15]:
+  \m a th c al { L }_{\text {rgb}} = (1-\lambda ) \mathcal {L}_1 + \lambda \mathcal {L}_{\text {D-SSIM}}, 
+(7)
+with λ = 0.2. This already results in good re-rendering
+quality without additional supervision, such as depth or sil-
+houette supervision, thanks to the powerful tile rasterizer
+[15]. We found however, that if we try to animate these
+splats via FLAME [22] to novel expressions and poses,
+large spike- and blob-like artifacts appear wildly through-
+out the scene. This is due to a poor alignment between the
+Gaussian splats and the triangles.
+Position loss with threshold. A basic hypothesis be-
+hind 3D Gaussian rigging is that the Gaussian splats should
+roughly match the underlying mesh.
+They should also
+match their locations; for instance a Gaussian representing
+a spot on the nose should not be rigged to a triangle on the
+cheek. Although our splats are initialized at triangle cen-
+ters, and new splats are added nearby these existing ones,
+it is not guaranteed that the primitives remain close to their
+parent triangle after the optimization. To address this, we
+regularize the local position of each Gaussian by:
+  \mathca l  {L} _{\ text {posi tion}} = \| \max \left ( \bm {\mu }, \epsilon _{\text {position}} \right ) \|_2, 
+(8)
+where ϵposition = 1 is a threshold that tolerates small errors
+within the scaling of its parent triangle.
+Scaling loss with threshold. Aside from position, the
+scaling of 3D Gaussians is even more essential for the visual
+quality during animation. Specifically, if a 3D Gaussian is
+large in comparison to its parent triangle, small rotations of
+the triangle – barely noticeable at the scale of the triangle –
+will be magnified by the scale of the 3D Gaussian, resulting
+4
+
+
+in unpleasant jittering artifacts. To mitigate this, we also
+regularize the local scale of each 3D Gaussian by:
+  \mathc a l  {L }_{ \text {sc aling}} = \| \max \left ( \bm {s}, \epsilon _{\text {scaling}} \right ) \|_2, \label {eq:scaling_loss} 
+(9)
+where ϵscaling = 0.6 is a threshold that disables this loss term
+when the scale of a Gaussian less than 0.6× the scale of
+its parent triangle. This ϵscaling-tolerance is indispensable;
+without it, the Gaussian splats shrink excessively, causing
+rendering speeds to deteriorate, as camera rays need to hit
+more splats before zero transmittance is reached.
+Our final loss function is thus:
+  \mat h cal {L} = \mathcal  {L}_{\text {rgb}} + \lambda _{\text {position}} \mathcal {L}_{\text {position}} + \lambda _{\text {scaling}} \mathcal {L}_{\text {scaling}}, 
+(10)
+where λposition = 0.01 and λscaling = 1. Note that we only
+apply Lposition and Lscaling to visible splats. Thereby, we only
+regularize points when the color loss Lrgb is present. This
+helps to maintain the learned structure of often-occluded re-
+gions such as teeth and eyeballs.
+Implementation details.
+We use Adam [17] for pa-
+rameter optimization (the same hyperparameter values are
+used across all subjects). We set the learning rate to 5e-3
+for the position and 1.7e-2 for the scaling of 3D Gaussians
+and keep the same learning rates as 3D Gaussian Splatting
+[15] for the rest of the parameters. Alongside the Gaussian
+splat parameters, we also finetune the translation, joint ro-
+tation, and expression parameters of FLAME [22] for each
+timestep, using learning rates 1e-6, 1e-5, and 1e-3, respec-
+tively. We train for 600,000 iterations, and exponentially
+decay the learning rate for the splat positions until the final
+iteration, where it reaches 0.01× the initial value. We en-
+able adaptive density control with binding inheritance every
+2,000 iterations, from iteration 10,000 until the end. Every
+60,000 iterations, we reset the Gaussians’ opacities. We use
+a photo-metric head tracker to obtain the FLAME parame-
+ters, including shape β, translation t, pose θ, expression ψ,
+and vertex offset ∆v in the canonical space.
+4. Experiments
+4.1. Setup
+Settings. We evaluate the quality of head avatars with three
+settings: 1) novel-view synthesis: driving an avatar with
+head poses and expressions from training sequences and
+rendering from a held-out viewpoint. 2) self-reenactment:
+driving an avatar with unseen poses and expressions from a
+held-out sequence of the same subject and rendering all 16
+camera views. 3) cross-identity reenactment: animating an
+avatar with poses and expressions from another subject.
+Dataset. We conduct experiments on video recordings of 9
+subjects from the NeRSemble [18] dataset. All recordings
+contain 16 views covering the front and sides of a subject.
+For each subject, we take 11 video sequences and down-
+sample images to a resolution of 802 × 550. Participants
+Novel-View Synthesis
+Self-Reenactment
+PSNR↑SSIM↑LPIPS↓PSNR↑SSIM↑LPIPS↓
+AvatarMAV [47]
+29.5
+0.913
+0.152
+24.3
+0.887
+0.168
+PointAvatar [53]
+25.8
+0.893
+0.097
+23.4
+0.884
+0.102
+INSTA [56]
+26.7
+0.899
+0.122
+26.3
+0.906
+0.110
+Ours
+31.6
+0.938
+0.065
+26.0
+0.910
+0.076
+Table 1. Quantitative comparison with state-of-the-art methods.
+Green indicates the best and yellow indicates the second.
+were instructed to perform specific expressions or emotions
+in 10 sequences and freely perform in the last one. To con-
+duct quantitative evaluation for each subject, we train our
+method and three baselines (INSTA [56], PointAvatar [53],
+and AvatarMAV [47]) using 9 out of the 10 prescribed se-
+quences and 15 out of 16 available cameras. We use the
+11th (free-performance) sequence to visually assess cross-
+identity reenactment capabilities. Please refer to the sup-
+plementary material for details of the dataset and baselines.
+4.2. Head Avatar Reconstruction and Animation
+We evaluate the reconstruction quality of avatars by novel-
+view synthesis and animation fidelity by self-reenactment.
+Fig. 3 shows qualitative comparisons. For novel-view syn-
+thesis, all methods produce plausible rendering results. A
+close inspection of PointAvatar’s [53] results show dot-
+ted artifacts, owing its fixed point size. In our case, the
+anisotropic scaling of 3D Gaussians alleviates this issue.
+INSTA [56] shows clean results for the face, however
+regions around the neck and shoulder can be noisy, as the
+tracked FLAME meshes are often misaligned in those re-
+gions. This causes issues for INSTA, as its warping process
+is based on the nearest triangle. In the case of our method,
+each Gaussian splat is rigged to a consistent triangle, re-
+gardless of the pose or expression. When the tracked mesh
+is inaccurate, the positional gradient to a Gaussian splat can
+consistently back-propagate to the same triangle. This en-
+ables misalignments due to incorrect FLAME tracking to be
+corrected while the 3D Gaussians are being optimized.
+AvatarMAV [47] shows comparable quality to other
+methods in novel-view synthesis but struggles with novel-
+expression synthesis. This is because it only uses the ex-
+pression vector of a 3DMM as conditioning. Since the con-
+trol from the expression vectors to the deformation bases
+must be learned, it struggles to reproduce expressions that
+are far from the training distribution. Similar conclusions
+can be drawn from the quantitative comparison shown in
+Tab. 1. Our approach outperforms others by a large mar-
+gin regarding metrics for novel-view synthesis. Our method
+also stands out in self-reenactment, with significantly lower
+perceptual differences in terms of LPIPS [51]. Note that
+self-reenactment is based on tracked FLAME meshes that
+5
+
+
+Ground Truth
+Ours
+INSTA
+PointAvatar
+AvatarMAV
+novel-view synthesis
+self-reenactment
+Figure 3. Qualitative comparison on novel-view synthesis and self-reenactment of head avatars. Our method outperforms state-of-the-art
+methods by producing significantly sharper rendering outputs. We obtain precise reconstruction of details such as reflective light on eyes,
+hair strands, teeth, etc. Our results for self-reenactment show more accurate expressions compare to baselines.
+6
+
+
+Source Actor
+AvatarMAV
+PointAvatar
+INSTA
+Ours
+Figure 4. Cross-identity reenactment of head avatars. We use the tracked FLAME expression and pose parameters of source actors to drive
+the reconstructed avatars. Our method produces high-quality rendering and transfers expressions vividly, while baseline methods suffer
+from artifacts and generalize poorly to novel expressions.
+may not perfectly align with the target images, thus bring-
+ing disadvantages to our results with more visual details re-
+garding pixel-wise metrics such as PSNR.
+For a real-world test of avatar animation, we conduct
+experiments on cross-identity reenactment in Fig. 4. Our
+avatars accurately reproduce eye blinks and mouth move-
+ments from source actors showing lively, complex dynam-
+ics such as wrinkles. INSTA [56] suffers from aliasing arti-
+facts when the avatars move beyond the occupancy grid of
+I-NGP [31] optimized for training sequences. The move-
+ment of results from PointAvatar [53] is not precise because
+its deformation space is not guaranteed to be consistent with
+FLAME. AvatarMAV [47] exhibits large degradations in
+reenactment due to a lack of deformation priors.
+4.3. Ablation Study
+To validate the effectiveness of our method components, we
+deactivate each of them and report results in Tab. 2.
+Input
+FLAME
+(original)
+FLAME
+(finetuned)
+Figure 5. Fine-tuning FLAME parameters leads to better align-
+ment of the mesh to the input image. In the example above, the
+movements of cheeks and lips are better captured after fine-tuning.
+Adaptive density control with binding inheritance.
+Without binding inheritance, we lose the ability to add and
+remove Gaussian splats besides the initial ones. With a lim-
+7
+
+
+Novel-View
+Self-Reenactment
+PSNR↑SSIM↑LPIPS↓PSNR↑SSIM↑LPIPS↓
+Ours
+28.8
+0.883
+0.098
+25.1
+0.853
+0.101
+w/o ADC
+26.8
+0.854
+0.206
+25.1
+0.860
+0.183
+w/o Lscaling
+28.0
+0.877
+0.114
+24.9
+0.852
+0.109
+w/o ϵscaling
+25.0
+0.833
+0.195
+24.1
+0.843
+0.176
+w/o Lposition
+29.7
+0.894
+0.091
+24.9
+0.851
+0.096
+w/o ϵposition
+28.7
+0.882
+0.105
+25.0
+0.855
+0.106
+w/o FLAME ft.
+26.1
+0.855
+0.131
+25.5
+0.862
+0.124
+Table 2. Ablation study on subject #304.
+Green indicates the
+best and yellow indicates the second. “ADC” refers to Adaptive
+Density Control with binding inheritance. ‘FLAME ft.’ refers to
+FLAME parameter fine-tuning.
+ited number of splats, the scaling of each splat increases to
+occupy the same space, causing blurry renderings, leading
+to huge fidelity loss, as shown in the second row of Tab. 2.
+Regularization on the scaling of Gaussian splats.
+Without the scaling loss, artifacts show up as spikes (the
+middle column in Fig. 6), and slightly worsen the image
+quality (the third row in Tab. 2). But when we use the scal-
+ing loss without an error tolerance, all metrics drastically
+deteriorate (the fourth row in Tab. 2) because all the splats
+are regularized to be infinitely small, making it hard to con-
+struct opaque surfaces.
+Regularization on the position of Gaussian splats.
+When disabling the threshold for the position loss, we get
+slightly worse metrics (the sixth row in Tab. 2). But when
+turning off the position loss, the metrics on novel-view syn-
+thesis become the best in the table (the fifth row in Tab. 2).
+This is reasonable because without constraints to the mesh
+Gaussian splats can freely move in the space to achieve min-
+imal re-rendering error. However, since the distribution of
+Gaussian splats are overfitted to training frames, the avatar
+shows artifacts such as cracks and fly-around blobs (the left
+column in Fig. 6) in novel expressions and poses. There-
+fore, the position loss is necessary to enforce a conservative
+deviation of splats from the mesh surface so that we can
+animate the reconstructed avatar with unseen facial motion.
+FLAME fine-tuning. Thanks to our consistent bind-
+ing between Gaussian splats and triangles, we can effec-
+tively fine-tune FLAME parameters while optimizing Gaus-
+sian splats (Fig. 5). As shown in the last row in Tab. 2,
+turning off the fine-tuning negatively affects image quality
+for novel-view synthesis. For self-reenactment, fine-tuning
+FLAME parameters also leads to lower perceptual error.
+5. Limitations and Potential Negative Impacts
+Our approach, based on 3D Gaussian splats, directly cap-
+tures the radiance field without decoupling material and
+lighting. Hence, relighting the avatar is not feasible within
+w/o scaling loss
+w/o position loss
+Ours
+Figure 6. The position loss and the scaling loss helps prevent arti-
+facts during animation with novel expressions and poses.
+our current approach. Additionally, we lack control over ar-
+eas that are not modeled by FLAME such as hair and other
+accessories. Here, we believe that modeling these parts di-
+rectly would provide an interesting future research avenue;
+for instance, recent methods show promising result in re-
+constructing hair [37, 44].
+The creation of photorealistic avatars may introduce a
+wide spectrum of malevolent uses. Privacy violations are
+a significant concern, with potential for unauthorized ma-
+nipulation of people’s likeness. Moreover the creation of
+deceptive content, like deepfake videos, can lead to mis-
+information, defamation and harm to reputations. Identity
+theft is an additional risk, as avatars may be exploited for
+impersonation and fraudulent activities. We strongly con-
+demn unauthorized and malevolent uses of this technology,
+emphasizing the need for ethical considerations in all appli-
+cations utilizing our method.
+6. Conclusion
+GaussianAvatars is a novel approach that creates photoreal-
+istic avatars from video sequences. It features a dynamic 3D
+representation based on 3D Gaussian splats that are rigged
+to a parametric morphable face model. This enables flexible
+control and precise attribute transfer of a dynamic, photore-
+alistic avatar. The set of Gaussian splats can deviate from
+the mesh surface to compensate the absence or inaccuracy
+of the morphable model, exhibiting astonishing ability to
+model fine details on human heads. Our approach outper-
+forms state-of-the-art methods on image quality and expres-
+sion accuracy for a large margin, indicating a large potential
+for more applications in related domains.
+Acknowledgements
+This work was supported by Toyota Motor Europe and
+Woven by Toyota. This work was also supported by the
+ERC Starting Grant Scan2CAD (804724). We thank Justus
+Thies, Andrei Burov, and Lei Li for constructive discussions
+and Angela Dai for the video voice-over.
+8
+
+
+A. FLAME Tracking
+For FLAME [22] tracking, we optimize for per-frame pa-
+rameters (translation ti, joint poses θi, expression ψi) and
+shared parameters (shape β, vertex offset ∆v, and an
+albedo map A).
+Our optimization combines a landmark
+loss, a color loss, and regularization terms.
+We use a state-of-the-art facial landmark detector [54] to
+obtain 68 facial landmarks in 300-W [38] format. Among
+them, we exclude 17 facial contour landmarks to avoid in-
+consistency caused by occlusion. We use NVDiffRast [20]
+to render FLAME meshes and obtain gradients of vertex po-
+sitions regarding the color loss by texel interpolation for the
+interior and anti-aliasing on the boundary. For regulariza-
+tion, we apply a Laplacian smoothness term on the vertex
+offset and temporal smoothness terms on the per-frame pa-
+rameters.
+We optimize all the parameters on the first time step of
+the video sequence until convergence, then optimize per-
+frame parameters for 50 iterations for each following time
+step with the previous one as initialization. Afterward, we
+conduct global optimization for 30 epochs by randomly
+sampling time steps to fine-tune all parameters.
+We use the 2023 version of FLAME [22] for the revised
+eye regions. Furthermore, we manually add 168 triangles
+for teeth to the template mesh of FLAME and make the
+upper and lower teeth triangles rigid to the neck and jaw
+joints, respectively. This improves the fidelity of our avatar
+as shown in Fig. 7.
+w/o teeth geometry
+w/ teeth geometry
+Figure 7. Adding triangles that move rigidly with the head and the
+jaw helps Gaussian splats to capture teeth details.
+B. Dataset Division
+We use 11 sequences for each subject from the NeRSem-
+ble [18] dataset. Tab. 3 lists concrete sequence types and
+IDs for different settings. Among the emotion (EMO) and
+expression (EXP) sequences, we randomly hold out one for
+self-reenactment evaluation (Tab. 4) and use the rest nine
+for training.
+Setting
+Novel View Synthesis
+& Self-reenactment
+Cross-identity
+Reenactment
+Sequence Type
+EMO
+EXP
+FREE
+Sequence ID
+1
+2
+3
+4
+2
+3
+4
+5
+8
+9
+-
+Table 3. The types and IDs of sequences for different settings.
+Subject ID
+074
+104
+218
+253
+264
+302
+304
+306
+460
+Test Sequence EMO-4 EXP-2 EXP-9 EMO-4 EXP-9 EMO-2 EXP-2 EXP-2 EMO-3
+Table 4.
+The held-out sequence of each subject for self-
+reenactment evaluation.
+raw images
+pre-processed images
+Figure 8. We remove the background and pixels below the shoul-
+der to focus on the head region.
+To simplify the pipeline for Gaussian splat optimization,
+we remove the background of raw images with Background
+Matting V2 [25]. Additionally, we fit a line across the bot-
+tom vertices of each tracked FLAME mesh and project the
+line to each viewpoint to remove the pixels below. We show
+an example of pre-processing results in Fig. 8.
+C. Computation Efficiency
+Our method binds 3D Gaussians to triangles in an efficient
+way, maintaining high rendering and optimization speed.
+Given that 3D Gaussians are actively added and pruned dur-
+ing optimization, the running speed of the program also
+changes.
+Efficiency during optimization. We show the evolution
+of the number of Gaussians and the run-time of an iteration
+in Fig. 9. According to Fig. 9a, the number of Gaussians
+grows from 10,144 (that is, the number of triangles in our
+modified FLAME mesh) to around 100,000 (on average).
+After this point is reached however, the number of Gaus-
+sians no longer increases. Thanks to this, longer training
+times do not mean ever-increasing memory requirements.
+In fact, our model can fit and be trained on an NVIDIA RTX
+2080 Ti Graphics card with 12 gigabytes of VRAM. More-
+over, while the number of Gaussians grows by as much as
+1000% during training, the run-time of each optimization
+iteration increases by less than 100% (Fig. 9b) at this peak.
+This validates the efficiency of the differentiable tile ras-
+terizer [15], which sorts splats before blending and termi-
+9
+
+
+(a) The number of 3D Gaussians throughout the optimization process.
+(b) The run-time of an optimization iteration.
+Figure 9. The number of 3D Gaussians increases by a factor of around 10 from its starting point for all subjects. After this, the number of
+3D Gaussians stops growing. Despite this growth in Gaussians, the run time of each training iteration at most only doubles. Each curve
+corresponds to a different subject.
+nates ray marching once zero transmittance is reached. The
+threshold of our scaling loss (see Section 3 of the main pa-
+per) is crucial to this efficiency. Without it, rendering time
+would increase substantially, as the rasterizer would need to
+blend many more Gaussians before reaching zero transmit-
+tance.
+Efficiency during inference. Although our data are pro-
+cessed into a fixed resolution, the optimized model can be
+rendered in arbitrary resolutions. We show the average ren-
+dering FPS in variant resolutions to validate the efficiency
+of our method to suffice real-time applications.
+Resolution
+401×225
+802×550
+1604×1100
+3208×2200
+6416×4400
+FPS
+187
+187
+156
+95
+36
+Table 5. Rendering speed tested on subject #306.
+D. Baselines
+We compare our method with three state-of-the-art methods
+for head avatar creation.
+INSTA [56] directly warps points according the nearest
+FLAME [22] mesh triangle. It adds triangles to the mouth,
+and conditions radiance field queries in the mouth region
+on the expression code of FLAME to improve the quality of
+the mouth interior. The loss weight for the mouth region is
+40× higher than other regions. It also applies a depth loss
+on the facial region.
+PointAvatar [53] uses a point-based representation,
+which is closely related to 3D Gaussians. It does not di-
+rectly rely on the FLAME surface but uses its pose and ex-
+pression parameters to condition a deformation field. Dur-
+ing optimization, it applies a coarse-to-fine strategy to pro-
+gressively increase the size of the point cloud and decrease
+the radius of each point. It also uses a post-processing op-
+eration to fill holes by applying erosion and dilation to ren-
+dered images.
+AvatarMAV [47] uses voxel grids for both a canonical
+radiance field and a set of bases of a motion field. It models
+deformation by blending the motion bases with the tracked
+expression vectors of a 3D morphable model [34]. We adapt
+this method to use our tracked FLAME poses and expres-
+sions to ensure fairness.
+References
+[1] Benjamin Attal, Jia-Bin Huang, Christian Richardt, Michael
+Zollhoefer, Johannes Kopf, Matthew O’Toole, and Changil
+Kim.
+Hyperreel:
+High-fidelity 6-dof video with ray-
+conditioned sampling.
+In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 16610–16620, 2023. 2
+[2] Jonathan T Barron, Ben Mildenhall, Matthew Tancik, Peter
+Hedman, Ricardo Martin-Brualla, and Pratul P Srinivasan.
+Mip-nerf: A multiscale representation for anti-aliasing neu-
+ral radiance fields. In Proceedings of the IEEE/CVF Inter-
+national Conference on Computer Vision, pages 5855–5864,
+2021. 1
+[3] Volker Blanz and Thomas Vetter. Face recognition based on
+fitting a 3d morphable model. IEEE Transactions on pattern
+analysis and machine intelligence, 25(9):1063–1074, 2003.
+2
+10

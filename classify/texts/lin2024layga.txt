@@ -1,0 +1,1145 @@
+Title: Layga: Layered gaussian avatars for animatable clothing transfer
+
+LayGA: Layered Gaussian Avatars for Animatable Clothing
+Transfer
+Siyou Lin
+Zhe Li
+Zhaoqi Su
+linsy21@mails.tsinghua.edu.cn
+liz19@mails.tsinghua.edu.cn
+suzq13@tsinghua.org.cn
+Tsinghua University
+Haidian, Beijing, China
+Zerong Zheng
+NNKosmos Technology
+Hangzhou, Zhejiang, China
+zrzheng1995@foxmail.com
+Hongwen Zhang
+Beijing Normal University
+Haidian, Beijing, China
+zhanghongwen@bnu.edu.cn
+Yebin Liu∗
+Tsinghua University
+Haidian, Beijing, China
+Figure 1: Our method can create layered animatable avatars for clothing transfer with realistic garment details. The left shows
+four characters wearing the same upper garment, while the right shows four different garments are dressed on the same
+character.
+ABSTRACT
+Animatable clothing transfer, aiming at dressing and animating
+garments across characters, is a challenging problem. Most hu-
+man avatar works entangle the representations of the human body
+and clothing together, which leads to difficulties for virtual try-
+on across identities. What’s worse, the entangled representations
+usually fail to exactly track the sliding motion of garments. To
+overcome these limitations, we present Layered Gaussian Avatars
+(LayGA), a new representation that formulates body and clothing
+as two separate layers for photorealistic animatable clothing trans-
+fer from multi-view videos. Our representation is built upon the
+Gaussian map-based avatar for its excellent representation power
+of garment details. However, the Gaussian map produces unstruc-
+tured 3D Gaussians distributed around the actual surface. The ab-
+sence of a smooth explicit surface raises challenges in accurate gar-
+ment tracking and collision handling between body and garments.
+Therefore, we propose two-stage training involving single-layer
+reconstruction and multi-layer fitting. In the single-layer recon-
+struction stage, we propose a series of geometric constraints to
+∗Corresponding author
+reconstruct smooth surfaces and simultaneously obtain the seg-
+mentation between body and clothing. Next, in the multi-layer
+fitting stage, we train two separate models to represent body and
+clothing and utilize the reconstructed clothing geometries as 3D
+supervision for more accurate garment tracking. Furthermore, we
+propose geometry and rendering layers for both high-quality geo-
+metric reconstruction and high-fidelity rendering. Overall, the pro-
+posed LayGA realizes photorealistic animations and virtual try-
+on, and outperforms other baseline methods. Our project page is
+https://jsnln.github.io/layga/index.html.
+CCS CONCEPTS
+• Computing methodologies →Shape modeling.
+KEYWORDS
+Animatable avatar, clothing transfer, human reconstruction
+arXiv:2405.07319v1  [cs.CV]  12 May 2024
+
+
+Lin, S. et al
+1
+INTRODUCTION
+Photorealistic human avatars have drawn considerable attention
+with recent advances in rendering techniques, which aim to cre-
+ate a photo-realistic virtual digital embodiment of a clothed hu-
+man. While Neural Radiance Fields (NeRFs) [Mildenhall et al. 2020]
+have previously dominated the area of photo-realistic avatar cre-
+ation [Feng et al. 2022; Guo et al. 2023; Jiang et al. 2023, 2022; Li
+et al. 2022, 2023; Peng et al. 2022, 2024; Su et al. 2021; Te et al.
+2022; Wang et al. 2022; Weng et al. 2022; Zheng et al. 2022, 2023],
+the NeRF-based avatar methods still face a challenge in accurately
+representing high-frequency human dynamics. Additionally, the
+rendering speed for NeRF is relatively slow. There is an ongoing
+trend to replace NeRFs with the recently proposed 3D Gaussian
+Splatting (3DGS) [Kerbl et al. 2023] in human avatars [Hu and Liu
+2024; Kocabas et al. 2024; Li et al. 2024b; Pang et al. 2024; Zielonka
+et al. 2023]. 3DGS, being both differentiable and highly efficient,
+has become the new go-to representation for photorealistic novel-
+view synthesis. However, most existing works that apply NeRF or
+3DGS to clothed humans consider body and clothing as a unified
+single layer. Albeit adequate for most cases, this formulation en-
+counters challenges in modeling sliding motions between different
+garment layers, and cannot accommodate certain applications such
+as clothing transfer.
+Compared with single-layer representations, multi-layer mod-
+eling allows more accurate tracking of the sliding movement of
+clothing boundaries [Xiang et al. 2021; Yu et al. 2019]. Furthermore,
+layered modeling also enables new applications such as virtual
+try-on by transferring the clothing of one character to the body
+of another [Pons-Moll et al. 2017]. However, there are few NeRF
+or 3DGS works that support the modeling of multi-layer human
+avatars. SCARF [Feng et al. 2022] and DELTA [Feng et al. 2023]
+propose to combine NeRF-based clothing and mesh-based body,
+which are capable of representing different geometric properties of
+clothing and body layers and support clothing transfer. However,
+the rendering quality and garment dynamics do not fully meet the
+desired level, which may be attributed to NeRF’s limited capability
+for thin-layered clothing.
+In this work, we propose Layered Gaussian Avatars (LayGA),
+which model animatable multi-layered clothed humans using Gauss-
+ian splats, seamlessly integrating state-of-the-art 3DGS-based hu-
+man avatars with the ability for clothing transfer. 3DGS is chosen for
+its advantages in high-fidelity and efficient rendering. The explicit
+representation provides a clearer depiction of geometric details
+in thin-layered clothing compared to NeRF. Our layered avatar
+representation is built upon the Gaussian map-based avatar [Li
+et al. 2024b], which learns pose-dependent 3D Gaussians on the 2D
+domain, because of its ability of modeling high-frequency clothing
+dynamics. However, naively learning two sets of Gaussians to sepa-
+rately represent body and clothing is infeasible. First, 3D Gaussians
+optimized through differentiable rendering without any constraints
+are typically unevenly distributed around the actual human surface.
+Consequently, they fail to provide an explicit and smooth geometric
+surface for modeling the body-cloth relations, which is essential
+for adapting clothing to different body shapes and collision han-
+dling. Secondly, while parametric body models like SMPL [Loper
+et al. 2015]/SMPL-X [Pavlakos et al. 2019] can be employed for the
+body part as a prior, the appearance of the clothing template is not
+predetermined in advance. Concurrent work D3GA [Zielonka et al.
+2023] proposes a multi-layer human avatar representation using 3D
+Gaussian Splatting. However, the synthesized avatar is blurry due
+to the limited capability of their MLP-based representation, and it
+currently lacks support for clothing transfer.
+To overcome the above challenges, we propose two-stage train-
+ing involving single-layer reconstruction and multi-layer fitting.
+In the single-layer reconstruction stage (Sec. 3.2), we introduce a
+series of geometrical constraints to force the 3D Gaussians to lie on
+a smooth surface, thus providing explicit geometries for collision
+handling in the following layered modeling. Besides, we learn a
+segmentation label channel to separate the clothing from the uni-
+fied 3D Gaussians. In the next multi-layer fitting stage (Sec. 3.3),
+we train two separate models to represent the body and clothing.
+The previously reconstructed clothing geometry serves as a 3D
+proxy for more accurate tracking of clothing motion. Moreover, we
+propose an additional rendering layer to guarantee both smooth
+reconstruction and high-fidelity rendering, since smooth surfaces
+obtained by the proposed geometric constraints may degenerate
+the rendering quality. Overall, once the training stages finish, our
+layered model is able to not only generate realistic animation under
+novel poses, but also transfer the clothing across identities.
+To summarize, our contributions include:
+• We propose layered Gaussian Avatars (LayGA), the first
+3DGS-based layered human avatar representation for ani-
+matable clothing transfer.
+• We introduce geometric constraints on 3D Gaussians for
+smooth surface reconstruction, supporting collision han-
+dling between the body and clothing in the layered repre-
+sentation.
+• In the multi-layer learning, we introduce previously seg-
+mented reconstruction as supervisions for more accurate
+tracking of clothing boundaries. We additionally introduce
+a rendering layer to alleviate the deterioration of rendering
+quality brought by geometric constraints.
+2
+RELATED WORK
+2.1
+Integrated Modeling of Clothed Human
+Avatars
+Human avatar aims to formulate realistic pose-dependent human
+and clothing motions under novel poses. Most human avatars model
+clothing and the body as a whole. Traditional mesh-based human
+avatars [Burov et al. 2021; Habermann et al. 2023, 2021; Ma et al.
+2020; Palafox et al. 2021; Saito et al. 2021] formulate human avatar
+with a single fixed-topology human mesh, aims to explicitly repre-
+sent the pose-dependent human geometry as a deformation field
+over the mesh vertices. However, these methods rely on a pre-
+defined human mesh, which can hardly represent complicated
+clothing topologies or detailed pose-dependent geometry and tex-
+ture. Recently, to represent more flexible geometry and garment
+movements, controllable human avatars mainly rely on point-based
+or Neural Radiance Field [Mildenhall et al. 2020] (NeRF)-based
+methods. For point-based methods, POP [Ma et al. 2021] maps
+the semantic human point cloud onto the SMPL UV space and
+
+
+LayGA: Layered Gaussian Avatars for Animatable Clothing Transfer
+Figure 2: Overview of our pipeline. Our pipeline consists of two training stages: 1) single-layer reconstruction and segmentation;
+2) Multi-layer fitting.
+learns the pose-dependent UV features for human avatar anima-
+tion. Furthermore, FITE [Lin et al. 2022] and CloSET [Zhang et al.
+2023] are proposed to flexibly learn the point-cloud template for
+humans under loose garments. DPF [Prokudin et al. 2023] solves an
+as-isometric-as-possible deformation field for better representing
+complicated garment motions. Although these methods can be ap-
+plied to various garment types and motions, point-based methods
+face limitations when applied to RGB-based inputs due to their lack
+of textual information.
+As an implicit neural rendering technique with dense geometry
+and texture field, NeRF-based human avatars [Hu et al. 2023; Jiang
+et al. 2023; Li et al. 2022, 2023; Liu et al. 2021; Peng et al. 2022,
+2021a,b; Su et al. 2021; Weng et al. 2022; Xu et al. 2021; Zheng
+et al. 2022, 2023] are capable of learning view-dependent textual
+details from multi-view or monocular RGB inputs. To model better
+dynamics, AnimatableNeRF [Peng et al. 2021a] defines a NeRF
+deformation field over the canonical SMPL [Loper et al. 2015];
+SLRF [Zheng et al. 2022] defines local NeRF fields on the sampled
+human nodes; PoseVocab [Li et al. 2023] employs a pose vocabulary
+for encoding high-frequency local dynamic details. Efficiency-wise,
+InstantAvatar [Jiang et al. 2023] achieves one-minute training for
+an avatar from a monocular human video. Although these methods
+achieve plausible quality, NeRF-based methods still lead to over-
+smooth results especially on high-frequency textual regions, due
+to the low-frequency bias of MLPs. Besides, their rendering speed
+is relatively slow due to dense sampling.
+Gaussians are another popular choice for representing humans.
+Early works have adopted Gaussians associated to skeletons for
+human/hand pose tracking [Rhodin et al. 2016, 2015; Sridhar et al.
+2015, 2014; Stoll et al. 2011], but do not attempt to modeling photo-
+realistic appearance. Recently, with the emergence of 3D Gaussian
+Splatting (3DGS) [Kerbl et al. 2023], which achieves SOTA rendering
+speed and quality, Gaussian-based representations become the new
+go-to choice for high-quality rendering of human avatars [Kocabas
+et al. 2024; Li et al. 2024b; Moreau et al. 2024; Pang et al. 2024; Ye et al.
+2023]. 3D Gaussian Splatting combines the advantages of explicit
+point-based modeling for efficiently representing flexible geometry,
+and the neural rendering technique for learning pose-dependent
+textual information from RGB inputs like NeRF. With the StyleUNet-
+encoded Gaussian parameter learning technique and self-adaptive
+template learning, AnimatableGaussians [Li et al. 2024b] achieves
+highly dynamic, realistic and generalized details for human avatar
+animation. However, the above methods all model the human and
+clothing as a whole, which hinders their applicability to specific
+use cases, including but not limited to clothing transfer.
+2.2
+Layered Modeling of Clothed Human
+Avatars
+To better represent garment properties on top of the human bodies
+and apply to garment transfer or editing, some researchers propose
+disentangled human avatars, which model garments as separate
+layers. Traditional layered-based clothed human avatars are mesh-
+based methods. Some methods leverage a dense multi-view capture
+system to reconstruct high-quality human and garment meshes
+with temporal consistency, and learn pose-dependent human and
+garment texture maps for clothed avatar animation [Bagautdinov
+et al. 2021; Xiang et al. 2022, 2021]. CaPhy [Su et al. 2023] learns
+garment dynamics from clothed human scans and unsupervised
+physical energies. DiffAvatar [Li et al. 2024a] constructs a human
+avatar from a single scan, which jointly solves the 2D clothing pat-
+tern, clothing material properties and human shape, and performs
+physical-based human avatar driving. These methods either rely
+on expensive capture systems [Bagautdinov et al. 2021; Xiang et al.
+2022, 2021] or can hardly learn pose-dependent garment texture
+and geometry from RGB inputs [Li et al. 2024a; Su et al. 2023].
+Recently, a few works focus on layered modeling of clothed hu-
+man avatars with NeRF [Mildenhall et al. 2020] or mesh surfaces
+to learn garment properties from RGB inputs. SCARF [Feng et al.
+2022] and DELTA [Feng et al. 2023] combine implicit NeRF-based
+garment and explicit mesh-based body modeling to better represent
+each individual part. GALA [Kim et al. 2024] adopts DMTet [Shen
+et al. 2021] to represent different layers of clothed humans but
+focuses on generation conditioned on a single scan. While these
+methods enables clothing transfer to different bodies, the recon-
+structed garment texture still lacks high-frequency and dynamic
+details. Concurrent work D3GA [Zielonka et al. 2023] uses Gaussian
+Splatting for modeling layered humans but do not focus on garment
+transfer.
+3
+METHOD
+Our model is a pose-conditioned generator of layered 3D Gaus-
+sians that produces photorealistic animations of human avatars and
+enables clothing transfer across identities. Fig. 2 shows our main
+pipeline. Given a body pose, we first convert it into a position map
+as the pose condition, and then use a StyleUNet-based [Wang et al.
+2023] model to predict pose-dependent 3D Gaussians. These 3D
+
+
+Lin, S. et al
+Figure 3: Illustration of the clothing-aware avatar represen-
+tation.
+Gaussians are non-rigidly deformed from a SMPL-X [Pavlakos et al.
+2019] template in the canonical space, posed using linear blend
+skinning (LBS), and subsequently rendered to the given view by
+3DGS [Kerbl et al. 2023]. We empirically find that pure photometric
+cues are insufficient for tracking garments motions, so we propose
+to divide the training procedure into two stages: (i) single-layer
+reconstruction and segmentation; (ii) multi-layer fitting.
+In the single-layer reconstruction stage, we obtain segmented re-
+construction by employing our proposed geometric constraints and
+using garment mask supervision [Li et al. 2020]. In the multi-layer
+fitting stage, we train two layers of Gaussians (body and clothing)1
+using previously obtained segmented geometries. Once trained, our
+model not only generates photorealistic avatar animations, but also
+enables clothing transfer across different characters.
+3.1
+Clothing-aware Avatar Representation
+As illustrated in Fig. 3, our model is built upon a recent state-of-
+the-art 3DGS avatar representation, Animatable Gaussians [Li et al.
+2024b], which predicts pose-dependent Gaussian maps in the 2D
+domain for modeling higher-fidelity human dynamics. Our clothing-
+aware model adopts a similar architecture with Li et al. [2024b] but
+introduces modifications tailored to our layered modeling.
+Given a body pose 𝜃represented as the SMPL-X joint angles,
+we first convert it to a position map 𝑀pos ∈R𝐻×𝑊×6 as a condi-
+tioning signal (front and back maps concatenated channel-wise,
+with 𝐻= 𝑊= 512). The position map is obtained by rendering
+the canonical SMPL-X model to the front and back views, with
+vertices colored using the posed coordinates. As demonstrated
+in [Li et al. 2024b], such a 2D parameterization allows us to uti-
+lize powerful 2D convolutional networks (CNN), e.g., StyleUNet
+[Wang et al. 2023], to predict Gaussian parameters for modeling
+higher-fidelity appearances. The position map 𝑀pos is then fed to a
+StyleUNet-based model to generate front and back Gaussian maps
+𝑀fg, 𝑀bg ∈R𝐻×𝑊×𝐶, where 𝐶= 16. Different from the method of
+Li et al. [2024b] that only predicts Gaussian parameters including
+color (3-dim), offset/position (3-dim), opacity (1-dim) and covari-
+ance (7-dim), our clothing-aware model additionally learns a label,
+1In our current setting, we only consider upper clothes as the clothing part. However,
+the formulation can be extended to any outmost-layer garment(s).
+represented as the probability that each 3D Gaussian belongs to
+body or clothing.
+Given the predicted Gaussian maps 𝑀fg and 𝑀bg, we can extract
+3D Gaussians inside the template mask. Let us denote the Gaussian
+parameters of each 3D Gaussian as: color 𝑐𝑖∈R3, position offset
+from SMPL Δ¯𝑥𝑖∈R3, opacity 𝑜𝑖∈R, scales ¯𝑠𝑖∈R3, rotations
+¯𝑞𝑖∈R4 and probabilities 𝑝cloth
+𝑖
+and 𝑝body
+𝑖
+(normalized by softmax).
+Here, the superscript bar in Δ¯𝑥𝑖¯𝑠𝑖and ¯𝑞𝑖means these predictions
+are defined in the canonical space. Let ¯𝑥smpl
+𝑖
+denote the point on
+SMPL corresponding to pixel 𝑖. Then the mean and covariance of
+the 3D Gaussian are formulated as
+¯𝑥𝑖
+=
+¯𝑥smpl
+𝑖
++ Δ¯𝑥𝑖,
+(1)
+𝑥𝑖
+=
+𝑅𝑖(𝜃) ¯𝑥𝑖+ 𝑡𝑖(𝜃),
+(2)
+Σ𝑖
+=
+𝑅𝑖(𝜃) ¯Σ𝑖𝑅𝑖(𝜃)𝑇.
+(3)
+Here, 𝑅(𝜃) and 𝑡(𝜃) represent the LBS transformation given the
+driving pose 𝜃, and ¯Σ𝑖is the covariance matrix in the canonical
+space derived from ¯𝑠𝑖and ¯𝑞𝑖. The posed 3D Gaussians are eventually
+rendered to an image using the 3DGS renderer [Kerbl et al. 2023].
+3.2
+Single-Layer Modeling with Geometric
+Constraints
+In the single-layer reconstruction stage, our goal is to train a model
+that produces 3D Gaussians smoothly distributed on the actual geo-
+metric surface of the captured human, and simultaneously obtain
+the segmentation between body and clothing.
+3.2.1
+Geometric Constraints for Reconstruction. As the vanilla 3DGS
+does not involve any geometric constraints in the training proce-
+dure, the resulting 3D Gaussians will not converge to a smooth
+surface but are disorderly scattered around the actual surface. The
+reconstructed surfaces of clothed humans are desired to be continu-
+ous and smooth, with garment details and clear clothing boundaries.
+Our key observation is that in our representation the 3D Gaussians
+correspond to evenly space pixels on a 2D map, so we can conve-
+niently constrain the underlying geometry using the neighborhood
+of each pixel. Specifically, we additionally introduce the following
+geometric constraints for regularization and detail enhancement.
+Image-based Normal Loss. A main difficulty for multi-view re-
+construction using differentiable rendering is the shape-radiance
+ambiguity, i.e., a wrongly reconstructed geometry may produce
+correct rendering for training views. To solve the ambiguity, we
+propose to use normals estimated from images as an additional
+supervision signal. Fortunately, recent works allow normals to be
+relatively accurately estimated for clothed humans [Saito et al. 2020;
+Xiu et al. 2023]. We derive normals from our model by utilizing
+image pixel neighbors. As shown in Fig. 4, for each pixel 𝑖, we use
+the triangles formed by 𝑖and its neighbors to compute its normals.
+As an example, suppose the neighbors of 𝑖are 𝑗,𝑘,𝑙,𝑚(arranged
+counter-clockwise). Then the normal 𝑛𝑖on this pixel is:
+𝑛𝑖
+=
+𝑅𝑖(𝜃) ¯𝑛𝑖/∥𝑅𝑖(𝜃) ¯𝑛𝑖∥2,
+¯𝑛𝑖= ˆ𝑛𝑖/∥ˆ𝑛𝑖∥2,
+(4)
+ˆ𝑛𝑖
+=
+( ¯𝑥𝑗−¯𝑥𝑖) × ( ¯𝑥𝑘−¯𝑥𝑖) + ( ¯𝑥𝑘−¯𝑥𝑖) × ( ¯𝑥𝑙−¯𝑥𝑖)
++( ¯𝑥𝑙−¯𝑥𝑖) × ( ¯𝑥𝑚−¯𝑥𝑖) + ( ¯𝑥𝑚−¯𝑥𝑖) × ( ¯𝑥𝑗−¯𝑥𝑖).
+(5)
+
+
+LayGA: Layered Gaussian Avatars for Animatable Clothing Transfer
+Figure 4: Illustration of normal computation on the Gaussian
+map.
+When computing the normals, we only take account of pixels whose
+neighbors are all inside the template mask. The normals are ren-
+dered as additional channels by rasterization, and compared with
+the predicted ones from color images. The normal loss Lnormal is
+the 𝐿1 loss between the estimated normal image and the rendered
+normal image (averaged over all pixels).
+Stitching Loss. Since the 3D Gaussians are parameterized on two
+separate maps (front and back), we introduce Lstitch, an 𝐿2 loss be-
+tween the boundary pixels in the front map with their counterparts
+in the back map to prevent discontinuity.
+Regularization. In addition to normal supervision, we also uti-
+lize the following geometric regularization losses to penalize large
+distortions and make the model favor small-deformation solutions.
+Following [Li et al. 2024b], we penalize large offsets by adding an
+offset regularization loss Loff =
+1
+𝑁
+Í
+𝑖∥Δ¯𝑥𝑖∥2
+2. We also use a to-
+tal variational (TV) loss LTV, which is defined as the averaged 𝐿2
+loss on the positional differences of all neighboring pixels. This
+constrains the positions of two neighboring pixels to remain close,
+penalizing a scattered distribution of the 3D Gaussians. Following
+Pons-Moll et al. [2017], we regularize the edge lengths between the
+base SMPL-X model and the deformed one using an edge regulariza-
+tion loss Ledge. Here, an edge is defined between two neighboring
+valid pixels. Ledge is the averaged 𝐿2 loss on the differences be-
+tween the lengths of an edge before and after adding the offset.
+These losses are summed up as the regularization term:
+Lreg = 𝜆offLoff + 𝜆TVLTV + 𝜆edgeLedge.
+Eventually, the geometric loss functions are formulated as
+Lgeom = 𝜆normalLnormal + 𝜆stitchLstitch + Lreg.
+(6)
+3.2.2
+Clothing Segmentation. During the single-layer reconstruc-
+tion stage, we also aim to obtain segmentation between body and
+clothing. Recall that we predict probabilities 𝑝body
+𝑖
+and 𝑝cloth
+𝑖
+(nor-
+malized by softmax) whether a given Gaussian is body or clothing.
+We also render these two values as additional channels using the
+3DGS renderer. This gives a rendered segmentation image 𝑆(2 chan-
+nels, 𝑆body and 𝑆cloth). The label loss Llabel is the cross entropy loss
+between the rendered segmentation image 𝑆and the ground truth
+segmentation 𝑆gt:
+Llabel
+=
+−
+1
+𝑁body
+∑︁
+𝑖
+log(𝑆body
+𝑖
+) −
+1
+𝑁cloth
+∑︁
+𝑖′
+log(𝑆cloth
+𝑖′
+)
+−1
+𝑁bg
+∑︁
+𝑖′′
+log(1 −𝑆body
+𝑖′′
+−𝑆cloth
+𝑖′′
+).
+(7)
+Figure 5: Illustration of geometric and rendering layers. 𝜖is
+the threshold for handling collisions.
+Here, 𝑖ranges over all pixels in 𝑆gt that are segmented as body, 𝑖′
+ranges over pixels segmented as clothing, and 𝑖′′ ranges over all
+background pixels. 𝑁body, 𝑁cloth and 𝑁bg denote the number of
+pixels of the corresponding type. 𝑆gt is obtained by considering
+both SCHP [Li et al. 2020] masks and the matting masks that come
+with the dataset. The details can be found in the supplementary
+document. Furthermore, similar to geometric constraints, we also
+apply an 𝐿1 TV loss Llabel
+TV
+on the predicted Gaussian label map,
+and a stitching loss Llabel
+stitch on the labels of boundary pixels. The
+segmentation loss functional is:
+Lseg = 𝜆labelLlabel + 𝜆label
+TV Llabel
+TV
++ 𝜆label
+stitchLlabel
+stitch.
+(8)
+The rendering loss function includes an 𝐿1 loss, an SSIM [Wang
+et al. 2004] loss and a perceptual [Zhang et al. 2018] loss on the
+rendered RGB images:
+Lrender = 𝜆L1LL1 + 𝜆ssimLssim + 𝜆lpipsLlpips.
+(9)
+The final loss function is the sum of all three parts:
+L = Lrender + Lgeom + Lseg.
+(10)
+After training, we can obtain high-quality reconstruction and seg-
+mentation of body and clothing as shown in Fig. 2.
+3.3
+Avatar Fitting with Multi-Layer Gaussian
+The goal of the multi-layer modeling stage is to use the segmented
+geometry from the single-layer stage to build a two-layer avatar.
+Recall that the single-layer stage assigns a body-or-clothing label
+to each Gaussian. We use the labels from the first frame of each
+sequence (assumed to be an A-pose) to specify a subset of Gaussians
+that is labeled as clothing. The criterion for classifying a Gaussian
+as clothing is 𝑝cloth > 0.5, and all other Gaussians are classified as
+body. This subset will be used as a template for the clothing part,
+while the body part is still defined with SMPL-X.
+In this stage, we train two separate models, one for body and
+the other for clothing. The two models use the same network ar-
+chitectures but different network weights, and the clothing model
+will only output the clothing subset specified above. The model
+architecture remains mostly the same as the single-layer stage, but
+we propose the following modifications for both reconstruction
+and rendering quality.
+
+
+Lin, S. et al
+3.3.1
+Separating Geometry and Rendering Layers. As described in
+Sec. 3.2, geometric constraints force the 3D Gaussians to converge
+to a smooth surface. However, we empirically found that these
+geometric constraints negatively impacted the rendering quality
+of 3DGS, possibly because these geometric constraints lower the
+flexibility of Gaussians to model high-fidelity appearance. To pre-
+vent the adverse impact brought by geometric constraints, while
+still preserving a smooth geometry for collision handling in cloth-
+ing transfer, we propose to separate the geometry layer and the
+rendering layer. As shown in Fig. 5, in addition to Δ¯𝑥𝑖, we add a
+second offset Δ¯𝑦𝑖. The Gaussian positions with only the first off-
+set computed as in Eq. (2) are referred to as the geometric layer,
+which is smoothly distributed on the actual surface and normals
+are available. While the Gaussian positions with additional offset
+𝑦𝑖= 𝑅𝑖(𝜃)( ¯𝑥smpl
+𝑖
++ Δ¯𝑥𝑖+ Δ¯𝑦𝑖) + 𝑡𝑖(𝜃)
+(11)
+are referred to as the rendering layer, which will be used for final
+rendering in this stage. To constrain the body layer lies beneath
+the clothing one, we employ a collision loss between the body
+geometric layer and the clothing geometric layer:
+Lcoll =
+1
+𝑁cloth
+∑︁
+𝑖
+max(𝜖−𝑑𝑖, 0)2,
+(12)
+where 𝑑𝑖= ( ¯𝑥cloth
+𝑖
+−¯𝑥body
+𝑖
+) · ¯𝑛body
+𝑖
+, 𝜖is a distance threshold and
+𝑖ranges over all valid pixels in the clothing Gaussian map. Note
+that simply handling collision between the body geometric layer
+and the clothing geometric layer does not ensure their correspond-
+ing rendering layers are separate. We therefore also constrain the
+rendering layer to stay close to the geometric layer:
+Llayer
+=
+1
+𝑁body
+∑︁
+𝑖
+max(∥Δ¯𝑦body
+𝑖
+∥2 −𝜖/2, 0)2
++
+1
+𝑁cloth
+∑︁
+𝑖′
+max(∥Δ¯𝑦cloth
+𝑖′
+∥2 −𝜖/2, 0)2.
+(13)
+Intuitively, Lcoll encourages the clothing geometric layer and the
+body geometric layers to be at least 𝜖apart while Lcloth encourages
+the rendering layers to be at most 𝜖/2 apart from their correspond-
+ing geometric layers. Consequently, the two losses together pull
+both rendering layers apart to avoid collisions.
+3.3.2
+Geometric Supervision from Reconstructions. Recall that in
+the single-layer stage, we can already obtain segmented point clouds
+of clothing for each frame. Since using only image supervision to
+track the clothing boundaries is difficult, we directly supervise
+the clothing movement in this stage by enforcing a Chamfer dis-
+tance loss between the clothing geometric layer and the segmented
+clothing reconstruction:
+Lcd = ChamferDist({𝑥cloth
+𝑖
+}𝑖, {𝑥recon
+𝑖
+}𝑖),
+(14)
+where {𝑥cloth
+𝑖
+}𝑖denotes the point cloud of the clothing geometric
+layer, and {𝑥recon
+𝑖
+}𝑖is the point cloud reconstructed from the first
+single-layer stage.
+3.3.3
+Segmentation Loss. Since we use a fixed point set to represent
+clothing in this stage, we do not predict Gaussian labels 𝑝body
+𝑖
+and 𝑝cloth
+𝑖
+. Instead, they are fixed as (𝑝body
+𝑖
+, 𝑝cloth
+𝑖
+) = (1, 0) and
+(𝑝body
+𝑖
+, 𝑝cloth
+𝑖
+) = (0, 1) for each Gaussian associated to the body
+and the clothing, respectively. Only Llabel in Lseg is preserved in
+this stage. We maintain the segmentation loss to avoid ambiguity,
+otherwise, if the clothing is optimized to be transparent, the body
+will take the colors of the clothing.
+Finally, the total training loss in this stage is:
+L = Lrender+Lgeom+𝜆labelLlabel+𝜆collLcoll+𝜆layerLlayer+𝜆cdLcd.
+(15)
+3.4
+Animatable Clothing Transfer and Collision
+Handling
+Once the training of both stages finishes, we obtain two models
+(body and clothing) for each captured subject. At test time, we can
+animate the subject using a novel pose sequence. Unfortunately,
+despite the effort during training to avoid collision, results are not
+guaranteed to be collision-free for novel poses, especially if we
+want to dress a garment on a new body shape. To resolve collision,
+we propose an additional Laplacian-based post-processing step.
+Given a novel pose 𝜃and two trained layered models2 F𝐴=
+(F cloth
+𝐴
+, F body
+𝐴
+) and F𝐵= (F cloth
+𝐵
+, F body
+𝐵
+), suppose we want to
+transfer the clothing of 𝐴to 𝐵. Let us denote the posed positions
+of garment Gaussians (the geometric layer) outputted by F cloth
+𝐴
+by
+𝑥cloth
+𝐴
+∈R𝑁cloth
+𝐴
+×3, and respectively, the posed body Gaussian posi-
+tions and normals of F body
+𝐵
+by 𝑥𝐵, 𝑛body
+𝐵
+∈R𝑁body
+𝐵
+×3. We attempt
+to resolve the collisions that happens between 𝑥cloth
+𝐴
+and 𝑥body
+𝐵
+.
+The basic idea is to pull 𝑥cloth
+𝐴
+away from 𝑥body
+𝐵
+along 𝑛𝐵but
+keeping its graph Laplacian invariant. Let 𝐿cloth
+𝐴
+denotes the graph
+Laplacian of 𝑥cloth
+𝐴
+and 𝑏= 𝐿cloth
+𝐴
+𝑥cloth
+𝐴
+their Laplacian coordinates.
+Here, we consider two points in 𝑥cloth
+𝐴
+as neighbors if they are
+neighbors in the Gaussian maps, or if they are a pair of pixels in
+the front and back Gaussian maps that should be stitched together.
+Note that since 𝐴and 𝐵may correspond to different body shapes,
+𝑥cloth
+𝐴
+, 𝑥body
+𝐵
+may severely collide with each other. To provide a
+collision-free initial guess of new positions of 𝑥cloth
+𝐴
+, we compute:
+¯𝜉= ( ¯𝑥cloth
+𝐴
+−𝑈cloth
+𝐴
+¯𝑥body
+𝐴
+) + 𝑈cloth
+𝐴
+¯𝑥body
+𝐵
+.
+(16)
+Here, 𝑈cloth
+𝐴
+is a mask matrix that selects the subset of garment
+Gaussians as described in the beginning of Sec. 3.3. In other words,
+¯𝜉is the canonical-space point cloud deformed from body B, with
+the relative displacements of 𝑥cloth
+𝐴
+w.r.t. 𝑥body
+𝐴
+. We then apply LBS
+with the joint transformations of 𝐵to pose ¯𝜉as 𝜉. We then solve
+(in the least squares sense)
+
+𝐿cloth
+𝐴
+𝛼𝐼
+𝛼𝐼
+
+𝜂=
+
+𝑏
+𝛼𝑥cloth
+𝐴
+𝛼𝜉
+
+.
+(17)
+In plain words, the solution𝜂tries to keep the Laplacian coordinates
+invariant, while remaining close to the original points 𝑥cloth
+𝐴
+and
+the collision-free initial guess 𝜉.
+We now update the current value of 𝑥cloth
+𝐴
+to 𝜂. Note that 𝑥cloth
+𝐴
+is still not yet collision-free with 𝑥body
+𝐵
+. To further refine the results,
+2 Fcloth
+𝐴
+denotes the submodel of F𝐴that outputs the clothing related Gaussians. Other
+notations are defined similarly.
+
+
+LayGA: Layered Gaussian Avatars for Animatable Clothing Transfer
+Figure 6: Our method enables animatable clothing transfer, and each row illustrates animation results with the same upper
+garment but different identities.
+Figure 7: Geometric reconstruction results of the baseline
+method (a) and our method (b). Each Gaussian is shaded by its
+normal and rendered as a point. Our method exhibits better
+reconstruction quality, validating the effectiveness of our
+proposed geometric constraints.
+for each point in 𝑥cloth
+𝐴
+, we find its nearest neighbor in ¯𝑥body
+𝐵
+. Let
+these nearest neighbors and their normals be denoted by 𝑥body,nn
+𝐵
+and 𝑛body,nn
+𝐵
+. We compute the distance from 𝑥cloth
+𝐴
+to 𝑥body,nn
+𝐵
+as
+𝑑cloth2body = (𝑥cloth
+𝐴
+−𝑥body,nn
+𝐵
+) · 𝑛body,nn
+𝐵
+∈R𝑁cloth
+𝐴
+.
+(18)
+The dot denotes point-wise inner product. We then set
+𝜉= 𝑥cloth
+𝐴
++ clip(𝜖−𝑑cloth2body)|max=𝛿
+min=0 ⊙¯𝑛body
+𝑖
+.
+(19)
+Here, ⊙means point-wise scalar-vector multiplication. Another
+Laplacian system is solved (in the least squares sense) to obtain
+update 𝑥cloth
+𝐴
+:
+
+𝐿cloth
+𝐴
+𝛼𝐼
+
+𝜂=
+ 𝑏
+𝛼𝜉
+
+.
+(20)
+In plain words, we first find a new guess 𝜉by moving 𝑥cloth
+𝐴
+away
+from 𝑥body,nn
+𝐵
+along the normals, but during each update, the mov-
+ing distance is limited by 𝛿and 𝜖−𝑑cloth2body. The updated 𝑥cloth
+𝐴
+is then obtained by solving a Laplacian system involving 𝜉. This
+process is repeated five times.
+After 𝑥cloth
+𝐴
+has been optimized as above, its corresponding ren-
+dering layer is obtained by adding the posed offsets of Δ¯𝑦cloth
+𝐴
+.
+This will be used for the final rendering. We remark that collision
+handling is only used at test time.
+Table 1: Quantitative evluation of rendering quality.
+Subject
+Method
+PSNR↑
+SSIM↑
+LPIPS↓
+FID↓
+A02
+Li et al. [2024b]
+28.2567
+0.9603
+0.0396
+25.3897
+Ours
+28.5727
+0.9630
+0.0380
+26.1757
+A05
+Li et al. [2024b]
+28.8049
+0.9595
+0.0430
+33.4961
+Ours
+27.3584
+0.9478
+0.0503
+39.3849
+A08
+Li et al. [2024b]
+29.0913
+0.9565
+0.0377
+22.0500
+Ours
+29.2883
+0.9583
+0.0367
+21.4906
+4
+EXPERIMENTS
+In this section we present our main results on geometric reconstruc-
+tion and animated clothing transfer. Due to page limits, please refer
+to our supplementary document and video for extended evaluations
+and discussions.
+4.1
+Dataset and Training
+We train our model on sequences from two datasets: one sequence
+from the AvatarRex dataset and three sequences (A02, A05, A08)
+from the ActorsHQ dataset [Işık et al. 2023]. Additionally, we also
+capture a new multi-view sequence of a person in a white shirt
+dancing to train our model. Our training/evaluation setup and
+model architectures are mostly the same as Li et al. [2024b]. The
+differences are detailed in the supplementary material.
+4.2
+Rendering and Reconstruction Quality
+Since there is currently no open-source work that models layered
+animatable avatars from multi-view videos, we mainly compare
+with our baseline: Animatable Gaussians [Li et al. 2024b], which
+models body and clothing as a whole and do not attempt geometric
+reconstruction. We quantitatively evaluate the rendering quality
+using PSNR, SSIM [Wang et al. 2004], perceptual loss (LPIPS) [Zhang
+et al. 2018] and FID [Heusel et al. 2017].
+To evaluate the effectiveness of our geometric constraints, we
+compare the geometry of the Gaussians reconstructed by the base-
+line method [Li et al. 2024b] (single-layer without geometric con-
+straints) and ours. Note that the baseline method does not provide
+normals. Thus, we compute normals using the method illustrated
+in Fig. 4. Fig. 7 shows geometric results of both methods, where
+Gaussians are rendered as ordinary point clouds with normals. For
+the baseline method, the messy shading near the leg area indicates
+incorrect normal orientation. This suggests their reconstructed
+
+
+Lin, S. et al
+Gaussians do not lie on the actual geometric surface. On the other
+hand, our method produces clean point cloud reconstructions using
+Gaussians.
+4.3
+Animating Layered Avatars and Clothing
+Transfer
+Given trained LayGA models of different subjects, we can animate
+one subject or use the garment model of 𝐴and the body model of
+𝐵to generate a mixed avatar. Fig. 8 shows novel pose animation
+results. Note that our layered representation can model tangential
+motions of clothing. Fig. 6 (Fig. 9 shows an enlarged version) ex-
+hibits clothing transfer results, where the leftmost subject in each
+row provides the clothing model while others are the target shapes.
+Thanks to our multi-layer design and collision resolving strategies
+in Sec. 3.4, our method is capable of dressing a given garment to
+different body shapes and generating photorealistic renderings.
+5
+DISCUSSION
+In this paper, we present Layered Gaussian Avatars (LayGA) for
+animatable clothing transfer. We propose two-stage training in-
+volving single-layer reconstruction and multi-layer fitting. In the
+single-layer reconstruction stage, we propose a series of geometric
+constraints for surface reconstruction and segmentation. In the
+multi-layer fitting stage, we train two separate models to repre-
+sent the body and clothing, thus enabling clothing transfer across
+different identities. Overall, our method outperforms the state-of-
+the-art baseline [Li et al. 2024b] and realizes photorealistic virtual
+try-on. Moreover, our geometrically constrained Gaussian render-
+ing scheme, if considered as a stand-alone method, can also be used
+for multi-view geometry reconstruction of humans.
+Despite its good performance, our method still suffers from limi-
+tations: (a) If the source garment is tight and the target body shape
+is large, then our collision handling method may still fail (Fig. 10
+left). (b) If a short-sleeve T-shirt is transferred to a body model wear-
+ing long sleeves, the arm part would not produce correct rendering
+results (Fig. 10 right). This is because the arm part of the target
+shape is occluded during training, with no supervision forcing it to
+take on skin colors. (c) The approach is not designed to simulate
+the actual physics during clothing transfer, and the results may not
+be physically realistic when transferring between very different
+body sizes. We leave these as future work.
+ACKNOWLEDGMENTS
+The work is supported by National Key R&D Program of China
+(2022YFF0902200), the National Science Foundation of China (NSFC)
+under Grant Number 62125107 and the Postdoctoral Fellowship
+Program of China Postdoctoral Science Foundation under Grant
+Number GZC20231304.
+REFERENCES
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabian Prada, Takaaki Shiratori,
+Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih. 2021. Driving-signal
+aware full-body avatars. TOG 40, 4 (2021), 1–17.
+Andrei Burov, Matthias Nießner, and Justus Thies. 2021. Dynamic surface function
+networks for clothed human bodies. In ICCV. 10754–10764.
+Yao Feng, Weiyang Liu, Timo Bolkart, Jinlong Yang, Marc Pollefeys, and Michael J
+Black. 2023. Learning Disentangled Avatars with Hybrid 3D Representations. arXiv
+preprint arXiv:2309.06441 (2023).
+Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black, and Timo Bolkart. 2022. Cap-
+turing and Animation of Body and Clothing from Monocular Video. In SIGGRAPH
+Asia 2022 Conference Proceedings (SA ’22). Article 45, 9 pages.
+Chen Guo, Tianjian Jiang, Xu Chen, Jie Song, and Otmar Hilliges. 2023. Vid2avatar:
+3d avatar reconstruction from videos in the wild via self-supervised scene decom-
+position. In CVPR. 12858–12868.
+Marc Habermann, Lingjie Liu, Weipeng Xu, Gerard Pons-Moll, Michael Zollhoefer,
+and Christian Theobalt. 2023. HDHumans: A hybrid approach for high-fidelity
+digital humans. ACM SCA 6, 3 (2023), 1–23.
+Marc Habermann, Lingjie Liu, Weipeng Xu, Michael Zollhoefer, Gerard Pons-Moll,
+and Christian Theobalt. 2021. Real-time deep dynamic characters. TOG 40, 4 (2021),
+1–16.
+Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp
+Hochreiter. 2017. Gans trained by a two time-scale update rule converge to a local
+nash equilibrium. NeurIPS 30 (2017).
+Shoukang Hu, Fangzhou Hong, Liang Pan, Haiyi Mei, Lei Yang, and Ziwei Liu. 2023.
+SHERF: Generalizable Human NeRF from a Single Image. In ICCV.
+Shoukang Hu and Ziwei Liu. 2024. GauHuman: Articulated Gaussian Splatting from
+Monocular Human Videos. In CVPR.
+Mustafa Işık, Martin Rünz, Markos Georgopoulos, Taras Khakhulin, Jonathan Starck,
+Lourdes Agapito, and Matthias Nießner. 2023. HumanRF: High-Fidelity Neural
+Radiance Fields for Humans in Motion. TOG 42, 4 (2023), 1–12.
+Tianjian Jiang, Xu Chen, Jie Song, and Otmar Hilliges. 2023. Instantavatar: Learning
+avatars from monocular video in 60 seconds. In CVPR. 16922–16932.
+Wei Jiang, Kwang Moo Yi, Golnoosh Samei, Oncel Tuzel, and Anurag Ranjan. 2022.
+Neuman: Neural human radiance field from a single video. In ECCV. Springer,
+402–418.
+Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George Drettakis. 2023.
+3d gaussian splatting for real-time radiance field rendering. TOG 42, 4 (2023), 1–14.
+Taeksoo Kim, Byungjun Kim, Shunsuke Saito, and Hanbyul Joo. 2024. GALA: Generat-
+ing Animatable Layered Assets from a Single Scan. In CVPR.
+Muhammed Kocabas, Jen-Hao Rick Chang, James Gabriel, Oncel Tuzel, and Anurag
+Ranjan. 2024. HUGS: Human Gaussian Splats. In CVPR.
+Peike Li, Yunqiu Xu, Yunchao Wei, and Yi Yang. 2020. Self-correction for human
+parsing. IEEE Transactions on Pattern Analysis and Machine Intelligence 44, 6 (2020),
+3260–3271.
+Ruilong Li, Julian Tanke, Minh Vo, Michael Zollhöfer, Jürgen Gall, Angjoo Kanazawa,
+and Christoph Lassner. 2022. Tava: Template-free animatable volumetric actors. In
+ECCV. Springer, 419–436.
+Yifei Li, Hsiao yu Chen, Egor Larionov, Nikolaos Sarafianos, Wojciech Matusik, and
+Tuur Stuyck. 2024a. DiffAvatar: Simulation-Ready Garment Optimization with
+Differentiable Simulation. In CVPR.
+Zhe Li, Zerong Zheng, Yuxiao Liu, Boyao Zhou, and Yebin Liu. 2023. PoseVocab:
+Learning Joint-structured Pose Embeddings for Human Avatar Modeling. In ACM
+SIGGRAPH Conference Proceedings.
+Zhe Li, Zerong Zheng, Lizhen Wang, and Yebin Liu. 2024b. Animatable Gaussians:
+Learning Pose-dependent Gaussian Maps for High-fidelity Human Avatar Modeling.
+In CVPR.
+Siyou Lin, Hongwen Zhang, Zerong Zheng, Ruizhi Shao, and Yebin Liu. 2022. Learning
+implicit templates for point-based clothed human modeling. In ECCV. Springer,
+210–228.
+Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu Sarkar, Jiatao Gu, and
+Christian Theobalt. 2021. Neural actor: Neural free-view synthesis of human actors
+with pose control. TOG 40, 6 (2021), 1–16.
+Matthew Loper, Naureen Mahmood, Javier Romero, Gerard Pons-Moll, and Michael J
+Black. 2015. SMPL: A skinned multi-person linear model. TOG 34, 6 (2015), 1–16.
+Qianli Ma, Jinlong Yang, Anurag Ranjan, Sergi Pujades, Gerard Pons-Moll, Siyu Tang,
+and Michael J Black. 2020. Learning to dress 3d people in generative clothing. In
+CVPR. 6469–6478.
+Qianli Ma, Jinlong Yang, Siyu Tang, and Michael J Black. 2021. The power of points
+for modeling humans in clothing. In ICCV. 10974–10984.
+Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ra-
+mamoorthi, and Ren Ng. 2020. Nerf: Representing scenes as neural radiance fields
+for view synthesis. In ECCV. Springer, 405–421.
+Arthur Moreau, Jifei Song, Helisa Dhamo, Richard Shaw, Yiren Zhou, and Eduardo
+Pérez-Pellitero. 2024. Human Gaussian Splatting: Real-time Rendering of Animat-
+able Avatars. In CVPR.
+Pablo Palafox, Aljaž Božič, Justus Thies, Matthias Nießner, and Angela Dai. 2021. NPMS:
+Neural parametric models for 3D deformable shapes. In IEEE/CVF International
+Conference on Computer Vision (ICCV). 12695–12705.
+Haokai Pang, Heming Zhu, Adam Kortylewski, Christian Theobalt, and Marc Haber-
+mann. 2024. ASH: Animatable Gaussian Splats for Efficient and Photoreal Human
+Rendering. In CVPR.
+Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani, Timo Bolkart, Ahmed A. A.
+Osman, Dimitrios Tzionas, and Michael J. Black. 2019. Expressive Body Capture:
+3D Hands, Face, and Body from a Single Image. In CVPR.
+Bo Peng, Jun Hu, Jingtao Zhou, and Juyong Zhang. 2022. SelfNeRF: Fast Training
+NeRF for Human from Monocular Self-rotating Video. arXiv:2210.01651 (2022).
+
+
+LayGA: Layered Gaussian Avatars for Animatable Clothing Transfer
+Sida Peng, Junting Dong, Qianqian Wang, Shangzhan Zhang, Qing Shuai, Xiaowei
+Zhou, and Hujun Bao. 2021a. Animatable neural radiance fields for modeling
+dynamic human bodies. In ICCV. 14314–14323.
+Sida Peng, Zhen Xu, Junting Dong, Qianqian Wang, Shangzhan Zhang, Qing Shuai,
+Hujun Bao, and Xiaowei Zhou. 2024. Animatable Implicit Neural Representations
+for Creating Realistic Avatars from Videos. TPAMI (2024).
+Sida Peng, Yuanqing Zhang, Yinghao Xu, Qianqian Wang, Qing Shuai, Hujun Bao, and
+Xiaowei Zhou. 2021b. Neural body: Implicit neural representations with structured
+latent codes for novel view synthesis of dynamic humans. In CVPR. 9054–9063.
+Gerard Pons-Moll, Sergi Pujades, Sonny Hu, and Michael J Black. 2017. ClothCap:
+Seamless 4D clothing capture and retargeting. TOG 36, 4 (2017), 1–15.
+Sergey Prokudin, Qianli Ma, Maxime Raafat, Julien Valentin, and Siyu Tang. 2023.
+Dynamic Point Fields. In ICCV. 7964–7976.
+Helge Rhodin, Nadia Robertini, Dan Casas, Christian Richardt, Hans-Peter Seidel, and
+Christian Theobalt. 2016. General Automatic Human Shape and Motion Capture
+Using Volumetric Contour Cues. In Computer Vision – ECCV 2016, Bastian Leibe,
+Jiri Matas, Nicu Sebe, and Max Welling (Eds.). Springer International Publishing,
+Cham, 509–526.
+Helge Rhodin, Nadia Robertini, Christian Richardt, Hans-Peter Seidel, and Christian
+Theobalt. 2015. A Versatile Scene Model With Differentiable Visibility Applied to
+Generative Pose Estimation. In Proceedings of the IEEE International Conference on
+Computer Vision (ICCV).
+Shunsuke Saito, Tomas Simon, Jason Saragih, and Hanbyul Joo. 2020. PIFuHD: Multi-
+Level Pixel-Aligned Implicit Function for High-Resolution 3D Human Digitization.
+In CVPR.
+Shunsuke Saito, Jinlong Yang, Qianli Ma, and Michael J Black. 2021. SCANimate:
+Weakly supervised learning of skinned clothed avatar networks. In CVPR. 2886–
+2897.
+Tianchang Shen, Jun Gao, Kangxue Yin, Ming-Yu Liu, and Sanja Fidler. 2021. Deep
+Marching Tetrahedra: a Hybrid Representation for High-Resolution 3D Shape
+Synthesis. In Advances in Neural Information Processing Systems (NeurIPS).
+Srinath Sridhar, Franziska Mueller, Antti Oulasvirta, and Christian Theobalt. 2015. Fast
+and robust hand tracking using detection-guided optimization. In CVPR. 3213–3221.
+https://doi.org/10.1109/CVPR.2015.7298941
+Srinath Sridhar, Helge Rhodin, Hans-Peter Seidel, Antti Oulasvirta, and Christian
+Theobalt. 2014. Real-Time Hand Tracking Using a Sum of Anisotropic Gaussians
+Model. In 2014 2nd International Conference on 3D Vision, Vol. 1. 319–326. https:
+//doi.org/10.1109/3DV.2014.37
+Carsten Stoll, Nils Hasler, Juergen Gall, Hans-Peter Seidel, and Christian Theobalt.
+2011. Fast articulated motion tracking using a sums of Gaussians body model. In
+2011 International Conference on Computer Vision. 951–958. https://doi.org/10.1109/
+ICCV.2011.6126338
+Shih-Yang Su, Frank Yu, Michael Zollhöfer, and Helge Rhodin. 2021. A-nerf: Articulated
+neural radiance fields for learning human shape, appearance, and pose. NeurIPS 34
+(2021), 12278–12291.
+Zhaoqi Su, Liangxiao Hu, Siyou Lin, Hongwen Zhang, Shengping Zhang, Justus Thies,
+and Yebin Liu. 2023. CaPhy: Capturing Physical Properties for Animatable Human
+Avatars. In IEEE/CVF International Conference on Computer Vision (ICCV).
+Gusi Te, Xiu Li, Xiao Li, Jinglu Wang, Wei Hu, and Yan Lu. 2022. Neural Capture of
+Animatable 3D Human from Monocular Video. In ECCV. Springer, 275–291.
+Lizhen Wang, Xiaochen Zhao, Jingxiang Sun, Yuxiang Zhang, Hongwen Zhang, Tao
+Yu, and Yebin Liu. 2023. StyleAvatar: Real-time Photo-realistic Portrait Avatar from
+a Single Video. In SIGGRAPH Conference Proceedings.
+Shaofei Wang, Katja Schwarz, Andreas Geiger, and Siyu Tang. 2022. Arah: Animatable
+volume rendering of articulated human sdfs. In ECCV. Springer, 1–19.
+Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. 2004. Image quality
+assessment: from error visibility to structural similarity. IEEE T-IP 13, 4 (2004),
+600–612.
+Chung-Yi Weng, Brian Curless, Pratul P Srinivasan, Jonathan T Barron, and Ira
+Kemelmacher-Shlizerman. 2022. Humannerf: Free-viewpoint rendering of moving
+people from monocular video. In CVPR. 16210–16220.
+Donglai Xiang, Timur Bagautdinov, Tuur Stuyck, Fabian Prada, Javier Romero, Weipeng
+Xu, Shunsuke Saito, Jingfan Guo, Breannan Smith, Takaaki Shiratori, et al. 2022.
+Dressing Avatars: Deep Photorealistic Appearance for Physically Simulated Cloth-
+ing. TOG 41, 6 (2022), 1–15.
+Donglai Xiang, Fabian Prada, Timur Bagautdinov, Weipeng Xu, Yuan Dong, He Wen,
+Jessica Hodgins, and Chenglei Wu. 2021. Modeling clothing as a separate layer for
+an animatable human avatar. TOG 40, 6 (2021), 1–15.
+Yuliang Xiu, Jinlong Yang, Xu Cao, Dimitrios Tzionas, and Michael J. Black. 2023.
+ECON: Explicit Clothed humans Optimized via Normal integration. In CVPR.
+Hongyi Xu, Thiemo Alldieck, and Cristian Sminchisescu. 2021. H-NeRF: Neural
+radiance fields for rendering and temporal reconstruction of humans in motion.
+Advances in Neural Information Processing Systems (NeurIPS) 34 (2021), 14955–14966.
+Keyang Ye, Tianjia Shao, and Kun Zhou. 2023. Animatable 3D Gaussians for High-
+fidelity Synthesis of Human Motions. arXiv:2311.13404 [cs.CV]
+Tao Yu, Zerong Zheng, Yuan Zhong, Jianhui Zhao, Qionghai Dai, Gerard Pons-Moll,
+and Yebin Liu. 2019. Simulcap: Single-view human performance capture with cloth
+simulation. In CVPR. IEEE, 5499–5509.
+Hongwen Zhang, Siyou Lin, Ruizhi Shao, Yuxiang Zhang, Zerong Zheng, Han Huang,
+Yandong Guo, and Yebin Liu. 2023. CloSET: Modeling Clothed Humans on Contin-
+uous Surface with Explicit Template Decomposition. In CVPR.
+Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. 2018.
+The unreasonable effectiveness of deep features as a perceptual metric. In CVPR.
+586–595.
+Zerong Zheng, Han Huang, Tao Yu, Hongwen Zhang, Yandong Guo, and Yebin Liu.
+2022. Structured local radiance fields for human avatar modeling. In CVPR. 15893–
+15903.
+Zerong Zheng, Xiaochen Zhao, Hongwen Zhang, Boning Liu, and Yebin Liu. 2023.
+AvatarReX: Real-time Expressive Full-body Avatars. TOG 42, 4 (2023).
+Wojciech Zielonka, Timur Bagautdinov, Shunsuke Saito, Michael Zollhöfer, Jus-
+tus Thies, and Javier Romero. 2023.
+Drivable 3D Gaussian Avatars.
+(2023).
+arXiv:2311.08581 [cs.CV]
+
+
+Lin, S. et al
+Figure 8: Qualitatively results of novel pose animation. Our layered representation can model tangential motions between body
+and clothing, e.g., when the T-shirt is lifted and the belt is revealed.
+Figure 9: Our method enables animatable clothing transfer, and each row illustrates animation results with the same upper
+garment but different identities.

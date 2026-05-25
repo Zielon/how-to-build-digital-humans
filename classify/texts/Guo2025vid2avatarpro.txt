@@ -1,0 +1,986 @@
+Title: Vid2Avatar-Pro: Authentic Avatar from Videos in the Wild via Universal Prior
+
+Vid2Avatar-Pro: Authentic Avatar from Videos in the Wild via Universal Prior
+Chen Guo∗1,2
+Junxuan Li∗1
+Yash Kant1,3
+Yaser Sheikh1
+Shunsuke Saito†1
+Chen Cao†1
+1Codec Avatars Lab, Meta
+2ETH Z¨urich
+3University of Toronto
+Driving Signal
+Animations
+Vid2Avatar-Pro
+In-the-Wild Video
+Animatable Avatar
+Figure 1. We present Vid2Avatar-Pro, a method to create photorealistic 3D human avatars from monocular in-the-wild videos via pre-trained
+universal prior. Our method can faithfully create high-fidelity human avatars from a single video and generate realistic animations.
+Abstract
+We present Vid2Avatar-Pro, a method to create photore-
+alistic and animatable 3D human avatars from monocular
+in-the-wild videos. Building a high-quality avatar that sup-
+ports animation with diverse poses from a monocular video
+is challenging because the observation of pose diversity and
+view points is inherently limited. The lack of pose varia-
+tions typically leads to poor generalization to novel poses,
+and avatars can easily overfit to limited input view points,
+producing artifacts and distortions from other views. In
+this work, we address these limitations by leveraging a uni-
+versal prior model (UPM) learned from a large corpus of
+multi-view clothed human performance capture data. We
+build our representation on top of expressive 3D Gaussians
+with canonical front and back maps shared across identities.
+Once the UPM is learned to accurately reproduce the large-
+scale multi-view human images, we fine-tune the model with
+an in-the-wild video via inverse rendering to obtain a per-
+sonalized photorealistic human avatar that can be faithfully
+animated to novel human motions and rendered from novel
+views. The experiments show that our approach based on the
+learned universal prior sets a new state-of-the-art in monoc-
+ular avatar reconstruction by substantially outperforming
+existing approaches relying only on heuristic regularization
+or a shape prior of minimally clothed bodies (e.g., SMPL)
+on publicly available datasets.
+*Equal contribution
+†Equal advisory
+1. Introduction
+Authentic digital humans are widely used for the synthesis
+of novel animations of real persons in games and movies.
+They are also expected to be an indispensable component
+for virtual communications with immersive display devices
+(AR/VR). However, creating such an authentic avatar typ-
+ically requires expensive multi-view capture systems [2],
+limiting its availability to professional studios. If we can ef-
+fortlessly build a high-quality avatar just from an in-the-wild
+monocular video, it unlocks myriads of applications not only
+for professionals but also for everybody.
+Despite its promise, it remains non-trivial to create a high-
+quality avatar from in-the-wild videos that can be faithfully
+animated with diverse poses and efficiently rendered from
+arbitrary views. Monocular videos often do not cover the
+entire space of pose and view points required for test-time
+animation and rendering. The scarcity of pose variations
+leads to poor generalization to novel poses. Specifically, the
+avatar may exhibit artifacts and unnatural deformations when
+animated using out-of-distribution poses. Moreover, inverse
+rendering with limited view coverage is prone to overfitting,
+resulting in distortions and artifacts when rendered from
+unseen camera views.
+Existing approaches [15, 22, 29, 52, 61, 78, 88] aim to
+overcome its limitations by incorporating statistical prior
+from a minimally-clothed human body model [50, 57] or
+geometric prior based on heuristics (e.g., Laplacian regular-
+ization [52]). While these priors improve robustness under
+this ill-posed problem setting, there remains a clear quality
+arXiv:2503.01610v1  [cs.CV]  3 Mar 2025
+
+
+gap from 3D human avatars reconstructed from high-quality
+studio data especially when animated with novel poses.
+In this work, we argue that the core problem lies in
+the fact that the aforementioned priors are not built for
+clothed human avatar modeling. Parametric models such
+as SMPL [50] focus on minimally clothed bodies without
+appearance. Laplacian regularization uniformly penalizes
+deformations regardless of the underlying materials. To ad-
+dress this, we introduce Vid2Avatar-Pro, a method to create
+photorealistic 3D human avatars from monocular in-the-wild
+videos by leveraging universal prior directly learned from
+high-quality clothed human performance capture data.
+Our universal prior model is based on 3D Gaussians [34]
+due to its efficiency and expressiveness in representing
+details.
+While existing universal models for face and
+hands [5, 10, 41] rely on shared UV parameterization, it
+is not suitable for clothed humans due to the diverse topolo-
+gies of clothing. Inspired by [46], we propose, for the first
+time, front and back maps as a universal parametrization
+for clothed humans. More specifically, we warp static SDF-
+based reconstructions [15, 86] of all subjects to a canonical
+space by normalizing both poses and bone lengths, and ob-
+tain color and position maps from front and back views with
+orthogonal projection. This allows us to maximize the spa-
+tial alignment of identity conditioning data across identities
+while supporting diverse topologies of clothing. We feed the
+front and back maps to a U-Net [5, 41, 64] to predict pose-
+dependent Gaussian attributes in a pixel-aligned manner with
+the input maps. We train this universal prior model via in-
+verse rendering with multi-view performance capture of a
+thousand of clothed humans. Once trained, we personalize
+the universal prior model to monocular in-the-wild videos.
+We first reconstruct the canonical textured template from the
+monocular observations using neural SDF [15, 86]. Given
+the conditioning data obtained from the canonical textured
+template, we inpaint the unseen texture regions using a diffu-
+sion model [12] adapted for inpainting. We then fine-tune the
+model via inverse rendering and update the network weights
+of the prior model to faithfully reconstruct person-specific
+details from the monocular observations.
+The experiments show that our approach produces photo-
+realistic avatars that can be animated beyond training pose
+distributions with faithful pose-dependent deformations and
+appearance changes (cf. Fig. 1). We also carefully vali-
+date our design choices via ablation studies. Furthermore,
+we compare our method with state-of-the-art approaches in
+novel view/pose synthesis using publicly available datasets,
+and demonstrate that Vid2Avatar-Pro outperforms them by a
+substantial margin both quantitatively and qualitatively.
+In summary, our contributions are:
+• A universal prior model of clothed humans directly
+learned from a thousand of high-quality dynamic per-
+formance capture data.
+• The first universal prior model architecture designed to
+use spatially normalized front and back identity condi-
+tioning data, enabling efficient and scalable training of
+multi-identity clothed human avatars.
+• A robust personalization pipeline to create photorealis-
+tic and animatable clothed human avatars from monoc-
+ular in-the-wild videos, achieving new state-of-the-art
+performance.
+2. Related Work
+Avatar Reconstruction from Multi-View Videos.
+High-
+fidelity 3D avatar reconstruction has required calibrated
+multi-view systems [2, 9, 18, 23, 26, 44, 45, 48, 55, 59,
+60, 62, 67, 69, 75, 79, 83, 87, 94, 95]. These approaches
+utilize neural rendering techniques (e.g., [51, 86]) to learn an
+implicit canonical representation of clothed humans. More
+recently, researchers retain the human skeletal structure and
+substituting implicit neural rendering with 3DGS [34] to
+learn person-specific animatable avatars [32, 46, 54, 56,
+92, 96]. Our front and back map representation is inspired
+by [21, 46, 56], specifically Li et al. [46]. Unlike UV param-
+eterization which necessitates manual efforts [56] or only
+covers minimally-clothed bodies [21], our front and back
+parameterization can be obtained automatically and accom-
+modates various topologies of clothed humans. Different
+from Li et al. [46], who use front and back position maps as
+pose features for single identity modeling, we propose, for
+the first time, to extend such parameterization to be univer-
+sal across multiple identities. Compared to aforementioned
+methods that require a specialized capturing setup, our ap-
+proach creates photorealistic and animatable avatars from
+just monocular RGB videos via learned universal prior.
+Avatar Reconstruction from Monocular Video.
+Tradi-
+tional mesh-based methods [14, 17, 50, 57, 63, 84] are lim-
+ited to a fixed topology and resolution, and cannot repre-
+sent fine-grained details like the human faces. Regression-
+based methods that learn to regress 3D human shape and
+texture from images have demonstrated compelling re-
+sults [1, 13, 19, 20, 24, 25, 65, 66, 80–82, 93]. A major lim-
+itation of these methods is that the reconstructed avatars can
+only be driven using rigid skeleton movement without pose-
+dependent deformations, leading to unrealistic animation
+results. Fitting articulated implicit neural fields to monoc-
+ular videos via inverse neural rendering has been demon-
+strated [15, 16, 27–30, 70, 71, 78, 85, 88]. Following this
+line of work, emerging methods fit articulated 3D Gaussians
+to the monocular videos by either directly optimizing the 3D
+Gaussian attributes [40, 43, 68, 74] or training neural net-
+works to predict the attributes [21, 22, 37, 42, 49, 52, 61, 77].
+GaussianAvatar [21] leverages a UV positional map of
+SMPL to generate pose-dependent effects. ExAvatar [52]
+combines with SMPL-X to achieve a whole-body avatar with
+
+
+face and hand control. These methods achieve improved ren-
+dering speed and quality. However, the reconstructed avatars
+still show blurriness and lack appearance details. Especially,
+they tend to generate uncanny animation results for poses
+that are out of the training distribution from the short video.
+In contrast, our method leverages a high-quality and large-
+scale corpus of dynamic human captures to train a universal
+prior model, which can be personalized to short video data
+and ensure superior generalization ability to novel poses.
+Human-Centric Prior Model.
+Statistical body mod-
+els [31, 50, 57] can hardly model human surface details
+such as clothing and facial features. Regression-based meth-
+ods [6, 19, 20, 25, 65, 66, 80, 81] train networks to learn
+pixel-aligned human features. These models are trained on
+small-scale static 3D human scans, thus the reconstructed
+humans are often not animatable or can only show rigid and
+unrealistic animations. Generalizable human rendering meth-
+ods are trained on small-scale multi-view images to synthe-
+size human novel views from sparse camera inputs without
+supporting human controllability [7, 8, 38, 39, 72, 90, 91].
+There are some promising prior models that recover detailed
+appearance and generate plausible animations for human
+hands [10, 11, 53] and faces [3–5, 41]. In this work, we
+propose a universal prior model for photorealistic and ani-
+matable clothed humans, learned from thousands of dynamic
+human performance captures with diverse identities, garment
+styles, view points and poses.
+3. Method
+We introduce Vid2Avatar-Pro, a method to create photoreal-
+istic 3D human avatars from monocular in-the-wild videos.
+Our method is illustrated in Fig. 2 and consists of two main
+steps: building universal prior model for clothed humans
+(Sec. 3.1) and in-the-wild personalization (Sec. 3.2).
+3.1. Universal Prior Model for Clothed Humans
+Geometry/Texture Representations.
+We represent the
+geometry and texture of clothed humans as a set of 3D Gaus-
+sians defined in a canonical space shared across identities.
+Each Gaussian is denoted as:
+g = {x, q, s, o, c}.
+(1)
+The parameters include a position x ∈R3, a unit quater-
+nion q ∈R4, a scale factor s ∈R3
++ along three orthog-
+onal axis, an opacity value o ∈R+ and a color c ∈R3
++.
+The associated covariance matrix can be calculated as Σ =
+R diag(s) diag(s)⊤R⊤, where the rotation matrix R can be
+easily converted from q.
+We deform the canonical 3D Gaussians to the posed space
+via forward linear blend skinning (LBS). Given the human
+pose θ and shape β (consolidated as Θ), defined analogously
+to SMPL-X [57], we compute the forward transformation
+matrix T as follows:
+T =
+nb
+X
+i=1
+wi
+cBi,
+(2)
+where nb denotes the number of bones in the transfor-
+mation and Bi are the bone transformation matrices for
+joints i ∈{1, ..., nb}, derived from the parameters Θ.
+wc = {w1
+c, ..., wnb
+c } represents the skinning weights which
+are queried from a diffused skinning map Sc based on the
+canonical SMPL-X vertices [47, 57]. The position xc and co-
+variance Σc of canonical Gaussians can then be transformed
+to the deformed space accordingly as follows:
+xd = Txc, Σd = T1:3ΣcT⊤
+1:3.
+(3)
+Universal Identity Conditioning.
+We propose front and
+back maps as a universal parameterization for clothed hu-
+mans. Such parameterization is obtained by orthogonally
+projecting the normalized canonical textured template into
+front and back views. Thus, we can obtain the front and back
+position maps Pf
+c and Pb
+c, and texture maps T f
+c and T b
+c in
+canonical space. Pf
+c and Pb
+c are stored with the 3D positions
+of the canonical template. We abbreviate the concatenation
+of the canonical front and back position and texture maps
+as Pc and Tc. For the sake of simplicity and clarity, we
+also adopt such abbreviation for other front and back maps.
+We use Tc as the identity conditioning data, enabling the
+feasibility of training a universal prior model F in a cross-
+identity setting. To accompany this, we define the output of
+our universal prior model F as a Gaussian map (front/back)
+G(Θ), in which every pixel within the projected template
+mask Mc represents a 3D Gaussian with its attributes g.
+To obtain our conditioning data, we reconstruct the canon-
+ical template with vertices V via SDF-based volume render-
+ing and LBS-based inverse mapping [15, 86] from multi-
+view images. The reconstruction is based on a single auto-
+matically selected keyframe in which the human pose θ has
+the highest similarity to our pre-defined canonical human
+pose θcano. The texture is then obtained by unwrapping the
+RGB colors from the multi-view images onto the canonical
+template mesh.
+To facilitate better learning of pose-dependent surface
+deformations and appearance changes across large-scale hu-
+man identities, irrespective of bone lengths or human scales,
+we normalize the canonical templates based on an average
+human skeleton scale. Specifically, we set the shape param-
+eters β = 0 and pose parameters θ = θcano for all subjects
+and compute the normalization transformation matrix Tnorm
+similar to Eq. (2). We then apply the normalization to the
+canonical templates as follows:
+vnorm = Tnormv, ∀v ∈V.
+(4)
+
+
+1000 Identities
+Universal Human Corpus
+5k Frames
+200 Views
+Identity Data (Normalized)
+Pose/Shape 𝚯
+a) Universal Prior Model for Clothed Humans (Sec. 3.1)
+b) In-the-Wild Personalization (Sec. 3.2)
+Forward LBS
+Rendered Avatar
+Canonical Gaussians
+Canonical Template
++
++
++
+Canonical Texture 𝒯!
+Posed Position Map 𝒫"(𝚯)
+Gaussian Map 𝒢(𝚯)
+In-the-Wild Video
+Loss Function ℒ
++
+Loss Function ℒ
+Rasterization
+View Direction
+A 3D Gaussian 
+(∆x, q, s, 𝑜, ∆c)
+Canonical Template
++
+Canonical Texture 𝒯!
+Pose/Shape 𝚯Posed Position Map 𝒫"(𝚯)
++
+Canonical Gaussians
+Forward LBS
+Rasterization
+Rendered Avatar
+View Direction
+A 3D Gaussian 
+(∆x, q, s, 𝑜, ∆c)
+UPM
+UPM
+Tracking/Template Reconstruction
+Identity Data (Normalized)
+Texture Inpainting
+Gaussian Map 𝒢(𝚯)
+Canonical Position Map 𝒫!
+Canonical Position Map 𝒫!
+Figure 2. Method Overview. a) We employ a large corpus of multi-view dynamic clothed human performances to train a cross-identity
+universal prior model (UPM). During training, UPM is conditioned on the normalized identity-specific texture map Tc and takes the posed
+position map Pd(Θ) as input to predict Gaussian attributes. We extract the canonical 3D Gaussians and synthesize human rendering for
+training pose/shape parameters Θ by applying forward LBS and rasterization. We minimize the loss L over the entire universal human
+corpus. b) Given a monocular in-the-wild video of an unseen identity, we track the human pose/shape parameters Θ and reconstruct the
+canonical textured template. We further deploy a diffusion-based model tailored for canonical texture inpainting to complete the canonical
+texture map. We then fine-tune our pre-trained UPM on the monocular observations via inverse rendering to recover person-specific details.
+Given the normalized canonical textured template, we gener-
+ate spatially aligned identity conditioning data for all training
+subjects by orthogonally projecting the templates into front
+and back views, yielding the canonical template masks Mc,
+position maps Pc, and texture maps Tc.
+Universal Prior Model Training.
+Inspired by prior
+work [5, 41], we employ a U-Net as the universal model
+backbone [64]. In particular, our universal model F takes
+the person-specific canonical texture maps Tc as identity
+conditioning input. To model pose-dependent effects such
+as dynamically changing wrinkles on clothes, we further
+concatenate the posed position maps Pd(Θ) as additional
+input for each training iteration to predict pose-dependent
+Gaussian maps G(Θ). Similar to deforming the canonical
+3D Gaussians to the posed space (cf. Eq. (3)), we obtain
+the posed position maps Pd(Θ) by applying forward LBS
+to the 3D positions stored in each valid pixel of the canoni-
+cal position maps Pc, excluding the global orientation and
+translation which do not affect the human dynamic details.
+Thus, our universal model works as follows:
+F(Tc, Pd(Θ)) →G(Θ).
+(5)
+We extract the Gaussian attributes g for all valid pixels
+within Mc from the pose-dependent Gaussian maps G(Θ).
+In practice, we opt to predict the position and color offsets
+∆x(Θ), ∆c(Θ) relative to the canonical maps instead of
+absolute position/color maps. This encourages our model
+to focus on learning finer-grained details within a given
+model capacity. Thus, we attain canonical 3D Gaussians
+with positions x = ˆx + ∆x(Θ) and colors c = ˆc + ∆c(Θ),
+where ˆx and ˆc are queried from Pc and Tc.
+After applying Eq. (3), we obtain all 3D Gaussians in the
+posed space. Following splatting-based rasterization [34],
+the pixel color C is obtained by the α-blending of N over-
+lapping Gaussians that are depth-ordered in posed space:
+C =
+N
+X
+i=1
+ciαi
+i−1
+Y
+j=1
+ 1 −αj
+,
+(6)
+where the transparency α is evaluated using the 2D covari-
+ance projected from Σ and multiplied with the per-Gaussian
+opacity o. Please refer to [34] for more details.
+Training Objectives.
+The training objectives for our uni-
+versal prior model include L1 and perceptual losses [89]
+between the rendered and ground-truth images, along with
+an offset regularization loss:
+L = L1 + λlpipsLlpips + λoffsetLoffset,
+(7)
+where λ{·} denote loss weights, and the regularization
+loss Loffset penalizes excessively large per-Gaussian offsets
+∆x(Θ). We minimize the loss function L across all multi-
+view clothed human performance capture data.
+3.2. In-the-Wild Personalization
+Preprocessing.
+Given the monocular in-the-wild video,
+we first track the human shape and poses Θ using an off-the-
+shelf SMPL-X estimator [73]. We then employ Sapiens [35]
+to predict the 2D keypoints which are used to further re-
+fine the initial pose/shape estimates by minimizing the 2D
+keypoint projection error. These 2D keypoints are served
+as point prompts for SAM [33, 36] to acquire the human
+masks. Given the pose/shape estimation and segmentation
+
+
+masks, we employ a method akin to that used for studio data
+to reconstruct the 3D canonical textured template. Similarly,
+we follow the skeleton-based normalization strategy to at-
+tain the spatially aligned identity conditioning data. These
+steps serve to mitigate the domain gap in conditioning data
+between in-the-wild video sequences and the multi-view
+training data of our universal prior model. More details can
+be found in the Supp. Mat.
+Diffusion-based Texture Inpainting.
+Unlike the multi-
+view capture data, human performance in in-the-wild videos
+exhibits varying levels of visibility, rather than consistent
+full-body visibility. Hence, we develop a latent diffusion
+model to inpaint the textures of canonical templates.
+Instead of inpainting the textured template in 3D, we
+formulate this problem as a 2D inpainting task applied to
+the unwrapped canonical texture maps. We begin by gen-
+erating various visibility masks through rasterization of the
+pre-acquired studio canonical templates using randomly po-
+sitioned sparse cameras. We then fine-tune a pre-trained
+latent diffusion model with a DiT-based [58] architecture
+similar to that of [12] using the generated visibility masks
+and canonical texture maps derived from the studio data.
+Specifically, we train our diffusion model to denoise the
+canonical texture maps given partially masked inputs and
+their corresponding visibility masks. During inference, we
+obtain the visibility mask by rasterizing the template using
+the monocular input views and use it to generate a complete
+canonical texture map. Note that our diffusion model jointly
+operates on the front and back texture maps and can inpaint
+missing regions with plausible textures by utilizing context
+from both sides. We refer to the Supp. Mat for more details.
+Fine-Tuning.
+To
+create
+3D
+avatars
+with
+identity-
+preserving details while maintaining the generalization
+power to novel human poses, we further fine-tune our uni-
+versal prior model on the monocular video observations via
+inverse rendering with a small number of iterations. Due to
+the potentially inaccurate pose initialization, we fine-tune
+all network parameters, and optimize the estimated human
+shape and per-frame pose parameters Θ jointly. The loss
+function employed during the fine-tuning stage mirrors that
+utilized in the universal model training stage (cf. Eq. (7)).
+4. Experiments
+We first introduce the training corpus and the test datasets.
+Then we compare Vid2Avatar-Pro with state-of-the-art ap-
+proaches in two tasks: interpolation and extrapolation syn-
+thesis. Ablation studies are then conducted to show the
+effectiveness of our core components and design choices.
+Finally, we demonstrate more animation results of avatars
+created from in-the-wild monocular videos qualitatively.
+Table 1. Quantitative interpolation synthesis comparisons on
+NeuMan dataset. Our method consistently outperforms all base-
+lines on all evaluation metrics (cf. Fig. 3).
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+HumanNeRF [78]
+27.06
+0.967
+1.92
+InstantAvatar [28]
+28.47
+0.972
+2.77
+NeuMan [29]
+25.48
+0.966
+2.87
+Vid2Avatar [15]
+26.87
+0.969
+2.41
+3DGS-Avatar [61]
+29.75
+0.975
+1.75
+GaussianAvatar [21]
+29.94
+0.980
+1.24
+ExAvatar [52]
+31.39
+0.981
+1.64
+Ours
+32.71
+0.983
+1.19
+4.1. Training Dataset
+We use a multi-view system similar to [2] to capture dynamic
+human performance, where we obtain calibrated and syn-
+chronized multi-view images at a resolution of 4096×2668
+pixels through the use of 200 cameras. Participants are in-
+structed to perform casual human motions for an average
+of approximately 5,000 frames per person. In total, 1,000
+participants are recorded for model training.
+4.2. Test Datasets
+NeuMan Dataset [29]:
+This dataset comprises a collection
+of videos captured by a mobile phone, featuring a single
+person performing a walking motion. Following previous
+works [21, 52], we use bike, citron, jogging, and seattle
+sequences for comparisons that exhibit most body regions
+and contain minimally blurry images. Since the official
+training and testing splits have interwoven frames, we regard
+the evaluation on NeuMan dataset as an interpolation view
+synthesis task.
+MonoPerfCap Dataset [84]:
+This dataset contains in-the-
+wild videos of people with different garment types and
+various daily actions. Compared to NeuMan dataset [29],
+MonoPerfCap dataset includes more clothing deformations
+and pose diversity. We use the first 80% of each captured
+video for training and the remaining 20% frames for testing.
+Thus, we define the evaluation on MonoPerfCap dataset as a
+more challenging extrapolation view synthesis task.
+Evaluation Protocol:
+We report PSNR, SSIM [76], and
+LPIPS (×100) [89] for all synthesis comparisons. In all
+evaluation tables, the top three techniques are highlighted in
+red, orange, and yellow, respectively.
+4.3. Interpolation Synthesis Comparisons
+We conduct interpolation synthesis comparisons on NeuMan
+dataset [29]. For methods that jointly model the human
+and the background, we only compare the foreground (hu-
+man) rendering quality. The quantitative results are partially
+
+
+GT
+Ours
+3DGS-Avatar
+ExAvatar
+NeuMan
+Vid2Avatar
+Figure 3. Qualitative interpolation synthesis comparisons on NeuMan dataset. Baseline methods tend to render with artifacts (e.g.,
+corrupted faces and feet) and less details (e.g., the clothing wrinkles and the clothes zipper). In contrast, our method generates clean and
+realistic human renderings while recovering more appearance details (e.g., facial features).
+Table 2. Quantitative extrapolation synthesis comparisons on
+MonoPerfCap dataset. Our method consistently outperforms all
+baselines on all evaluation metrics (cf. Fig. 4).
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+Vid2Avatar [15]
+28.49
+0.976
+2.46
+ExAvatar [52]
+30.29
+0.979
+2.19
+Ours w/o Fine-Tuning
+29.24
+0.977
+2.29
+Ours w/o Avg. Scale
+31.03
+0.979
+1.51
+Ours
+31.97
+0.981
+1.37
+sourced from [21, 52]. Overall, our method outperforms all
+baseline methods in the interpolation setting by a substantial
+margin on all metrics (cf. Tab. 1). The difference is more
+visible in the qualitative comparison shown in Fig. 3, where
+baseline methods cannot produce sharp details such as the
+wrinkles on the clothing and zippers, and tend to generate
+artifacts on the face or feet. In contrast, Vid2Avatar-Pro
+recovers more surface details (e.g., clothing wrinkles and
+facial features). We attribute this to our expressive universal
+prior model that is trained on high-quality data.
+4.4. Extrapolation Synthesis Comparisons
+We further conduct a more challenging experiment: extrapo-
+lation synthesis comparisons on MonoPerfCap dataset [84].
+Despite a more challenging setting, Tab. 2 indicates that
+our method still outperforms baselines across all metrics.
+This disparity becomes more evident in qualitative compar-
+isons presented in Fig. 4. ExAvatar [52] struggles to recover
+the accurate facial features, and both ExAvatar [52] and
+Vid2Avatar [15] produce blurry renderings (cf. the shoes
+in the first row of Fig. 4). Thanks to our pre-trained uni-
+versal prior model, Vid2Avatar-Pro can generalize better to
+Table 3. Number of training IDs. Rendering quality consistently
+increases when the prior model is trained on more identities.
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+Ours #ID 4
+31.28
+0.979
+1.53
+Ours #ID 16
+31.28
+0.980
+1.51
+Ours #ID 128
+31.34
+0.980
+1.45
+Ours #ID 1000 (Full)
+31.97
+0.981
+1.37
+out-of-distribution poses with plausible pose-dependent sur-
+face/appearance deformations (cf. the hem in the second row
+of Fig. 4). Our method also consistently preserves superior
+photorealism compared to the baselines.
+4.5. Ablation Studies
+Training Data.
+A key factor that affects the performance
+of our universal prior model is the number of training iden-
+tities. We quantitatively analyze the effects by training the
+universal prior model with different numbers of training sub-
+jects, i.e. np ∈{4, 16, 128, 1000}. The training subjects are
+chosen at random. We use MonoPerfCap dataset to evaluate
+the extrapolation synthesis performance. The quantitative
+results are reported in Tab. 3. We observe that the final
+rendering quality consistently improves as the amount of
+training data/identities increases.
+Conditioning Data Normalization.
+To investigate the im-
+portance of skeleton-based conditioning data normalization,
+we compare our full model to a version without normalizing
+using an average scale (w/o Avg. Scale). We demonstrate in
+Tab. 2 that skeleton-based normalization helps to improve
+the generalization ability of our model to unseen identities
+and challenging poses (cf. Fig. 5).
+
+
+GT
+Ours
+ExAvatar
+Vid2Avatar
+Figure 4. Qualitative extrapolation synthesis comparisons on MonoPerfCap dataset. In this more challenging setting, our method
+produces more identity-preserving human renderings with finer-grained appearance details, e.g., the facial features and shoes. Powered by
+our universal prior model, Vid2Avatar-Pro generates more plausible pose-dependent surface deformations (cf. the hem of the T-shirt).
+GT
+Ours Full
+w/o Avg. Scale
+Figure 5. Importance of skeleton-based normalization. Without
+skeleton-based conditioning data normalization, the created avatar
+tends to produce artifacts when driven with out-of-distribution
+poses (e.g., the holes close to the armpit).
+Diffusion-based Texture Inpainting.
+We introduce a
+diffusion-based canonical inpainting module to complete
+the missing textures that are not visible in the monocular
+in-the-wild videos. As illustrated in Fig. 6, our inpainting
+module effectively eliminates artifacts caused by missing ob-
+servations and inpaint the 3D avatar with plausible textures.
+More examples can be found in the Supp. Mat.
+Fine-Tuning.
+Due to the inherent domain gap between in-
+the-wild videos and studio data, fine-tuning the prior model
+based on monocular observations is crucial to recovering
+person-specific details. To demonstrate the effectiveness,
+we conduct an ablation experiment without fine-tuning on
+Reference
+Ours Full
+w/o Inpainting
+Figure 6. Importance of inpainting. Our diffusion-based inpaint-
+ing module can effectively complete the textures that are missing
+from the monocular observations.
+MonoPerfCap dataset (w/o Fine-Tuning). Results in Tab. 2
+indicate that without fine-tuning, the final renderings are
+blurrier and lack detailed appearance features, as shown in
+Fig. 8 (e.g., the T-shirt pattern and the belt).
+4.6. Qualitative Results
+In Fig. 7, we showcase the animation results of avatars cre-
+ated from in-the-wild monocular videos. Vid2Avatar-Pro
+can generalize to different identities and garment styles, and
+produce highly realistic renderings for novel human poses
+and arbitrary view points. More qualitative results animated
+by various poses are available in the Supp. Mat.
+
+
+Figure 7. Visual animation results of avatars created from monocular in-the-wild videos. The created 3D avatars can be animated using
+novel human poses and demonstrate highly detailed appearance from arbitrary view points.
+GT
+Ours Full
+w/o Fine-Tuning 
+Figure 8. Importance of fine-tuning. Without fine-tuning, the
+human avatar cannot preserve the fine-grained human appearance
+details such as the T-shirt pattern and the belt.
+5. Conclusion
+In this work, we present Vid2Avatar-Pro to create photoreal-
+istic and animatable 3D avatars from monocular in-the-wild
+videos via universal prior. We first propose a universal pa-
+rameterization for clothed humans that enables cross-identity
+training schema. We then build a photorealistic and animat-
+able universal prior model for clothed humans learned from
+a thousand of high-quality dynamic performance capture
+data. Finally, we construct a robust pipeline that supports
+personalization of the universal prior model to monocular
+in-the-wild videos and create personalized photorealistic hu-
+man avatars that can be faithfully animated to novel human
+motions and rendered from novel view points.
+Limitations and Future Works: The current training
+dataset for our universal prior model lacks diverse facial
+expressions and dynamic capture data of human subjects
+dressed in loose garments. Therefore, our method currently
+does not support animatable faces or loose clothing. Addi-
+tionally, our method assumes standard lighting conditions
+and may not perform optimally in environments with ex-
+treme lighting variations. We refer to Supp. Mat for a more
+detailed discussion of limitations and societal impact.
+
+
+References
+[1] Thiemo Alldieck, Mihai Zanfir, and Cristian Sminchisescu.
+Photorealistic monocular 3d reconstruction of humans wear-
+ing clothing. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), 2022. 2
+[2] Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabi´an
+Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser
+Sheikh, and Jason Saragih. Driving-signal aware full-body
+avatars. ACM Transactions on Graphics (TOG), 40(4):1–17,
+2021. 1, 2, 5
+[3] Marcel C. Buehler, Gengyan Li, Erroll Wood, Leonhard
+Helminger, Xu Chen, Tanmay Shah, Daoye Wang, Stephan
+Garbin, Sergio Orts-Escolano, Otmar Hilliges, Dmitry Lagun,
+J´er´emy Riviere, Paulo Gotardo, Thabo Beeler, Abhimitra
+Meka, and Kripasindhu Sarkar. Cafca: High-quality novel
+view synthesis of expressive faces from casual few-shot cap-
+tures. In ACM SIGGRAPH Asia 2024 Conference Paper,
+2024. 3
+[4] Marcel C B¨uhler, Kripasindhu Sarkar, Tanmay Shah,
+Gengyan Li, Daoye Wang, Leonhard Helminger, Sergio
+Orts-Escolano, Dmitry Lagun, Otmar Hilliges, Thabo Beeler,
+et al. Preface: A data-driven volumetric prior for few-shot
+ultra high-resolution face synthesis. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 3402–3413, 2023.
+[5] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz,
+Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi,
+Shih-En Wei, Danielle Belko, Shoou-I Yu, Yaser Sheikh, and
+Jason Saragih. Authentic volumetric avatars from a phone
+scan. ACM Trans. Graph., 41(4), 2022. 2, 3, 4
+[6] Aggelina Chatziagapi, Grigorios G. Chrysos, and Dimitris
+Samaras. Migs: Multi-identity gaussian splatting via tensor
+decomposition. In ECCV, 2024. 3
+[7] Jianchuan Chen, Wentao Yi, Liqian Ma, Xu Jia, and Huchuan
+Lu. Gm-nerf: Learning generalizable model-based neural
+radiance fields from multi-view images. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 20648–20658, 2023. 3
+[8] Mingfei Chen, Jianfeng Zhang, Xiangyu Xu, Lijuan Liu,
+Yujun Cai, Jiashi Feng, and Shuicheng Yan. Geometry-guided
+progressive nerf for generalizable and efficient neural human
+rendering. In ECCV, 2022. 3
+[9] Yushuo Chen, Zerong Zheng, Zhe Li, Chao Xu, and Yebin
+Liu. Meshavatar: Learning high-quality triangular human
+avatars from multi-view videos. In ECCV, 2024. 2
+[10] Zhaoxi Chen, Gyeongsik Moon, Kaiwen Guo, Chen Cao,
+Stanislav Pidhorskyi, Tomas Simon, Rohan Joshi, Yuan Dong,
+Yichen Xu, Bernardo Pires, He Wen, Lucas Evans, Bo Peng,
+Julia Buffalini, Autumn Trimble, Kevyn McPhail, Melissa
+Schoeller, Shoou-I Yu, Javier Romero, Michael Zollh¨ofer,
+Yaser Sheikh, Ziwei Liu, and Shunsuke Saito. URhand: Uni-
+versal relightable hands. In CVPR, 2024. 2, 3
+[11] Enric Corona, Tomas Hodan, Minh Vo, Francesc Moreno-
+Noguer, Chris Sweeney, Richard Newcombe, and Lingni
+Ma. Lisa: Learning implicit shape and appearance of hands.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), pages 20533–20543,
+2022. 3
+[12] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim En-
+tezari, Jonas M¨uller, Harry Saini, Yam Levi, Dominik Lorenz,
+Axel Sauer, Frederic Boesel, et al. Scaling rectified flow trans-
+formers for high-resolution image synthesis. In Forty-first
+International Conference on Machine Learning, 2024. 2, 5
+[13] Qiao Feng, Yebin Liu, Yu-Kun Lai, Jingyu Yang, and Kun Li.
+Fof: Learning fourier occupancy field for monocular real-time
+human reconstruction, 2023. 2
+[14] Chen Guo, Xu Chen, Jie Song, and Otmar Hilliges. Human
+performance capture from monocular video in the wild. In
+2021 International Conference on 3D Vision (3DV), pages
+889–898. IEEE, 2021. 2
+[15] Chen Guo, Tianjian Jiang, Xu Chen, Jie Song, and Otmar
+Hilliges. Vid2avatar: 3d avatar reconstruction from videos
+in the wild via self-supervised scene decomposition. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR), 2023. 1, 2, 3, 5, 6
+[16] Chen Guo, Tianjian Jiang, Manuel Kaufmann, Chengwei
+Zheng, Julien Valentin, Jie Song, and Otmar Hilliges. Reloo:
+Reconstructing humans dressed in loose garments from
+monocular video in the wild. In European conference on
+computer vision (ECCV), 2024. 2
+[17] Marc Habermann, Weipeng Xu, Michael Zollhoefer, Ger-
+ard Pons-Moll, and Christian Theobalt. Deepcap: Monocu-
+lar human performance capture using weak supervision. In
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion (CVPR). IEEE, 2020. 2
+[18] Marc Habermann, Lingjie Liu, Weipeng Xu, Michael Zoll-
+hoefer, Gerard Pons-Moll, and Christian Theobalt. Real-time
+deep dynamic characters. ACM Transactions on Graphics, 40
+(4), 2021. 2
+[19] Tong He, Yuanlu Xu, Shunsuke Saito, Stefano Soatto, and
+Tony Tung. Arch++: Animation-ready clothed human re-
+construction revisited. In Proceedings of the IEEE/CVF In-
+ternational Conference on Computer Vision (ICCV), pages
+11046–11056, 2021. 2, 3
+[20] Hsuan-I Ho, Jie Song, and Otmar Hilliges. Sith: Single-view
+textured human reconstruction with image-conditioned diffu-
+sion. In Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR), 2024. 2, 3
+[21] Liangxiao Hu, Hongwen Zhang, Yuxiang Zhang, Boyao Zhou,
+Boning Liu, Shengping Zhang, and Liqiang Nie. Gaussiana-
+vatar: Towards realistic human avatar modeling from a single
+video via animatable 3d gaussians. In IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), 2024.
+2, 5, 6
+[22] Shoukang Hu, Tao Hu, and Ziwei Liu. Gauhuman: Articu-
+lated gaussian splatting from monocular human videos. In
+Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition (CVPR), pages 20418–20431,
+2024. 1, 2
+[23] Tao Hu, Tao Yu, Zerong Zheng, He Zhang, Yebin Liu, and
+Matthias Zwicker. Hvtr: Hybrid volumetric-textural rendering
+for human avatars. In 2022 International Conference on 3D
+Vision (3DV), 2022. 2
+
+
+[24] Yangyi Huang, Hongwei Yi, Yuliang Xiu, Tingting Liao, Ji-
+axiang Tang, Deng Cai, and Justus Thies. TeCH: Text-guided
+Reconstruction of Lifelike Clothed Humans. In International
+Conference on 3D Vision (3DV), 2024. 2
+[25] Zeng Huang, Yuanlu Xu, Christoph Lassner, Hao Li, and Tony
+Tung. Arch: Animatable reconstruction of clothed humans.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 3093–3102, 2020. 2, 3
+[26] Zhang Jiakai, Liu Xinhang, Ye Xinyi, Zhao Fuqiang, Zhang
+Yanshun, Wu Minye, Zhang Yingliang, Xu Lan, and Yu Jingyi.
+Editable free-viewpoint video using a layered neural repre-
+sentation. In ACM SIGGRAPH, 2021. 2
+[27] Boyi Jiang, Yang Hong, Hujun Bao, and Juyong Zhang. Self-
+recon: Self reconstruction your digital avatar from monocular
+video. In IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), 2022. 2
+[28] Tianjian Jiang, Xu Chen, Jie Song, and Otmar Hilliges. In-
+stantavatar: Learning avatars from monocular video in 60
+seconds. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), 2023. 5
+[29] Wei Jiang, Kwang Moo Yi, Golnoosh Samei, Oncel Tuzel,
+and Anurag Ranjan. Neuman: Neural human radiance field
+from a single video. In Proceedings of the European confer-
+ence on computer vision (ECCV), 2022. 1, 5
+[30] Zeren Jiang, Chen Guo, Manuel Kaufmann, Tianjian Jiang,
+Julien Valentin, Otmar Hilliges, and Jie Song.
+Multiply:
+Reconstruction of multiple people from monocular video in
+the wild. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), 2024. 2
+[31] Hanbyul Joo, Tomas Simon, and Yaser Sheikh. Total capture:
+A 3d deformation model for tracking faces, hands, and bodies.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), 2018. 3
+[32] HyunJun Jung, Nikolas Brasch, Jifei Song, Eduardo Perez-
+Pellitero, Yiren Zhou, Zhihao Li, Nassir Navab, and Benjamin
+Busam. Deformable 3d gaussian splatting for animatable
+human avatars, 2023. 2
+[33] Lei Ke, Mingqiao Ye, Martin Danelljan, Yifan Liu, Yu-Wing
+Tai, Chi-Keung Tang, and Fisher Yu. Segment anything in
+high quality. In NeurIPS, 2023. 4
+[34] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler, and
+George Drettakis. 3d gaussian splatting for real-time radiance
+field rendering. ACM Transactions on Graphics, 42(4), 2023.
+2, 4
+[35] Rawal Khirodkar, Timur Bagautdinov, Julieta Martinez, Su
+Zhaoen, Austin James, Peter Selednik, Stuart Anderson, and
+Shunsuke Saito. Sapiens: Foundation for human vision mod-
+els. In Computer Vision – ECCV 2024, pages 206–228, Cham,
+2025. Springer Nature Switzerland. 4
+[36] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao,
+Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer White-
+head, Alexander C. Berg, Wan-Yen Lo, Piotr Dollar, and Ross
+Girshick. Segment anything. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision (ICCV), pages
+4015–4026, 2023. 4
+[37] Muhammed Kocabas, Jen-Hao Rick Chang, James Gabriel,
+Oncel Tuzel, and Anurag Ranjan. HUGS: Human gaussian
+splatting. In 2024 IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR), 2024. 2
+[38] Youngjoong Kwon, Dahun Kim, Duygu Ceylan, and Henry
+Fuchs. Neural human performer: Learning generalizable ra-
+diance fields for human performance rendering. In Advances
+in Neural Information Processing Systems, 2021. 3
+[39] Youngjoong Kwon, Baole Fang, Yixing Lu, Haoye Dong,
+Cheng Zhang, Francisco Vicente Carrasco, Albert Mosella-
+Montoro, Jianjin Xu, Shingo Takagi, Daeil Kim, Aayush
+Prakash, and Fernando De la Torre. Generalizable human
+gaussians for sparse view synthesis. In European Conference
+on Computer Vision, 2024. 3
+[40] Jiahui Lei, Yufu Wang, Georgios Pavlakos, Lingjie Liu, and
+Kostas Daniilidis. Gart: Gaussian articulated template models.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), pages 19876–19887,
+2024. 2
+[41] Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar,
+Christian Richardt, Tomas Simon, Yaser Sheikh, and Shun-
+suke Saito. Uravatar: Universal relightable gaussian codec
+avatars. In ACM SIGGRAPH 2024 Conference Papers, 2024.
+2, 3, 4
+[42] Mingwei Li, Jiachen Tao, Zongxin Yang, and Yi Yang. Hu-
+man101: Training 100+fps human gaussians in 100s from 1
+view, 2023. 2
+[43] Mengtian Li, Shengxiang Yao, Zhifeng Xie, and Keyu Chen.
+Gaussianbody: Clothed human reconstruction via 3d gaussian
+splatting, 2024. 2
+[44] Ruilong Li, Julian Tanke, Minh Vo, Michael Zollhofer, Jur-
+gen Gall, Angjoo Kanazawa, and Christoph Lassner. Tava:
+Template-free animatable volumetric actors. In European
+Conference on Computer Vision (ECCV), 2022. 2
+[45] Zhe Li, Zerong Zheng, Yuxiao Liu, Boyao Zhou, and Yebin
+Liu. Posevocab: Learning joint-structured pose embeddings
+for human avatar modeling. ACM SIGGRAPH Conference
+Proceedings, 2023. 2
+[46] Zhe Li, Zerong Zheng, Lizhen Wang, and Yebin Liu. Ani-
+matable gaussians: Learning pose-dependent gaussian maps
+for high-fidelity human avatar modeling. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), 2024. 2
+[47] Siyou Lin, Hongwen Zhang, Zerong Zheng, Ruizhi Shao,
+and Yebin Liu. Learning implicit templates for point-based
+clothed human modeling. In ECCV, 2022. 3
+[48] Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu
+Sarkar, Jiatao Gu, and Christian Theobalt.
+Neural actor:
+Neural free-view synthesis of human actors with pose control.
+ACM Trans. Graph.(ACM SIGGRAPH Asia), 2021. 2
+[49] Xinqi Liu, Chenming Wu, Jialun Liu, Xing Liu, Jinbo Wu,
+Chen Zhao, Haocheng Feng, Errui Ding, and Jingdong Wang.
+Gva: Reconstructing vivid 3d gaussian avatars from monocu-
+lar videos, 2024. 2
+[50] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J Black. Smpl: A skinned multi-
+person linear model. ACM transactions on graphics (TOG),
+34(6):1–16, 2015. 1, 2, 3
+[51] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:

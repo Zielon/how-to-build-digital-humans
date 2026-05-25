@@ -1,0 +1,975 @@
+Title: SimAvatar: Simulation-Ready Avatars with Layered Hair and Clothing
+
+SimAvatar: Simulation-Ready Avatars with Layered Hair and Clothing
+Xueting Li, Ye Yuan, Shalini De Mello, Gilles Daviet, Jonathan Leaf, Miles Macklin,
+Jan Kautz, Umar Iqbal
+NVIDIA
+https://nvlabs.github.io/SimAvatar
+Adele with long layered waved hairstyle wearing a sleeveless dress of tea-length, the garment has a delicate butterfly print, 
+with small, colorful butterflies.
+(a) simulation-ready avatar with layered hair, garment 
+and body
+(b) simulated avatar in different poses
+(c) example simulation-ready avatars.
+Figure 1. (a) SimAvatar synthesizes simulation-ready 3D avatars with layered hair, body and clothing. (b) By leveraging physics-based
+simulators, SimAvatar produces realistic pose-dependent motion effects such as flowing hair strands and garment wrinkles. (c) SimAvatar
+produces simulation-ready 3D avatars with diverse identities, garments, and hairstyles.
+Abstract
+We introduce SimAvatar, a framework designed to gener-
+ate simulation-ready clothed 3D human avatars from a text
+prompt. Current text-driven human avatar generation meth-
+ods either model hair, clothing, and the human body using
+a unified geometry or produce hair and garments that are
+not easily adaptable for simulation within existing simu-
+lation pipelines. The primary challenge lies in represent-
+ing the hair and garment geometry in a way that allows
+leveraging established prior knowledge from foundational
+image diffusion models (e.g., Stable Diffusion) while being
+simulation-ready using either physics or neural simulators.
+To address this task, we propose a two-stage framework that
+combines the flexibility of 3D Gaussians with simulation-
+ready hair strands and garment meshes. Specifically, we
+first employ three text-conditioned 3D generative models to
+generate garment mesh, body shape and hair strands from
+the given text prompt. To leverage prior knowledge from
+foundational diffusion models, we attach 3D Gaussians to
+the body mesh, garment mesh, as well as hair strands and
+learn the avatar appearance through optimization. To drive
+the avatar given a pose sequence, we first apply physics sim-
+ulators onto the garment meshes and hair strands. We then
+transfer the motion onto 3D Gaussians through carefully
+designed mechanisms for each body part. As a result, our
+arXiv:2412.09545v2  [cs.CV]  19 Dec 2024
+
+
+synthesized avatars have vivid texture and realistic dynamic
+motion. To the best of our knowledge, our method is the
+first to produce highly realistic, fully simulation-ready 3D
+avatars, surpassing the capabilities of current approaches.
+1. Introduction
+The creation of photo-realistic and dynamic human avatars
+has a wide range of applications, including virtual try-on,
+film and gaming production, virtual assistants, AR/VR, and
+telepresence. Traditionally, this process has required spe-
+cialized training, making it inaccessible to general users.
+Recently, advancements in foundational diffusion models
+have accelerated research efforts aimed at democratizing 3D
+human avatar creation, enabling easy user control through
+text [16, 46, 52, 90] or images [39].
+Earlier approaches for 3D human avatar creation repre-
+sent the hair, body, and clothing as a single layer, making it
+difficult to independently simulate or edit each region due
+to their entangled geometry. To address this limitation, re-
+cent works have used layered structures to separately rep-
+resent the body, garments, or hair [27, 36, 84, 97]. How-
+ever, many of these approaches rely on implicit representa-
+tions, such as NeRF [59], to define garment or hair geom-
+etry. Although implicit representations facilitate leveraging
+prior knowledge from foundational diffusion models, they
+are challenging to animate within existing simulators, lim-
+iting the realistic motion of hair and garments due to body
+movements. As a result, these methods struggle to produce
+avatars that look realistic when animated.
+Thus, a natural question arises: can we design a 3D
+avatar generation pipeline that can leverage rich prior
+knowledge from image diffusion models, while being read-
+ily compatible with existing simulation pipelines? The key
+challenge in addressing this question lies in connecting the
+different representations used in current simulators and text-
+driven avatar generation pipelines. The former typically re-
+quires a smooth and clean non-watertight mesh or specif-
+ically designed hair strands, whose topologies are inflexi-
+ble for optimization and hard to constrain. The latter of-
+ten adopt implicit representations (such as NeRF [59] or
+SDF [85]) which, while optimizable by noisy supervision
+signals from diffusion models, cannot be easily converted
+to an open mesh or hair strands suitable for simulation.
+To address these issues, we present a novel framework,
+SimAvatar, which generates a 3D human avatar from a text
+prompt that can be readily animated by existing hair and
+garment simulators. The key idea is to adopt suitable rep-
+resentations for different human parts (e.g., hair, body, and
+garments) and leverage the prior knowledge of both image
+diffusion models and simulators. To this end, we propose
+representing the geometry of human hair, body, and gar-
+ment using hair strands, parametric body model SMPL [56],
+and meshes, respectively. While these representations are
+simulation-ready, they pose challenges to learning realistic
+texture details. To resolve this issue, we further attach 3D
+Gaussians to these coarse geometric representations. 3D
+Gaussians are not only flexible and can be easily driven by
+the mesh or hair strands, but they also show impressive ca-
+pacity to model realistic appearance when combined with
+image diffusion models [55, 90].
+Given a text prompt, we first generate hair strands,
+body mesh, and garment mesh using three separate text-
+conditioned 3D generative models trained specifically for
+each body region. We then attach and learn 3D Gaussians
+through Score Distillation Sampling (SDS) based optimiza-
+tion using a powerful diffusion model trained on human im-
+ages [1]. To drive the avatar using a given pose sequence,
+we animate the body using linear blend skinning while the
+hair strands and garment mesh are simulated using their re-
+spective simulators [23, 30]. Next, we transfer the motion
+from the strands or meshes onto 3D Gaussians through a
+carefully designed mechanism to ensure they conform to the
+mesh or strand motion. During inference, the avatar can be
+easily animated by novel pose sequences. Our novel design
+yields avatars with both realistic appearance and dynamic
+motion with pose-dependent deformations of the hairs and
+garment as shown in Fig. 1. Our contributions are summa-
+rized as follows:
+• To the best of our knowledge, this is the first work that
+generates fully simulation-ready 3D avatars with sepa-
+rate layers for the body, garment, and hair.
+• We propose a text-conditioned diffusion model to gen-
+erate plausible garment geometry given text inputs and
+show how existing text-conditioned hair strands and
+body shape generators can be efficiently leveraged.
+• We use 3D Gaussians on top of the body mesh, hair
+strands, and garment mesh to synthesize high-fidelity
+appearance details. We optimize the properties of Gaus-
+sians using carefully designed SDS-based optimiza-
+tion [89] and ensure plausible texture disentanglement
+using additional regularization and prompt engineering.
+• Our approach produces avatars with detailed geometry,
+realistic texture, as well as dynamic garment and hair
+motion, resulting in significantly better quality than ex-
+isting methods.
+2. Related Work
+2.1. Text to 3D Avatar Generation
+The domain of text-to-3D generation has witnessed signif-
+icant advancements [18, 53, 64, 67, 80, 87] driven by the
+advent of large text-to-image models [21, 68, 69, 99]. Fol-
+lowing the success in generating static 3D objects, vari-
+ous methods have also been developed to create animatable
+human avatars [16, 37–40, 42, 46, 52, 98, 101]. ClipMa-
+trix [40] was among the first to create animatable avatars
+
+
+based on textual descriptions, using a CLIP-embedding loss
+to optimize a mesh-based representation. AvatarClip [34]
+followed a similar approach but with a NeRF-based rep-
+resentation [85]. DreamAvatar [16] and AvatarCraft [42]
+used SDS loss instead of CLIP and learned the NeRF rep-
+resentation in canonical space by integrating human body
+priors from SMPL [56].
+DreamHumans [46] introduced
+a pose-conditioned NeRF representation to also model
+pose-dependent deformations. DreamWaltz [38], Avatar-
+Verse [98] and HumanNorm [99] leverage ControlNets [99]
+and demonstrate improved avatar quality with conditional
+SDS. AvatarBooth [94] fine-tunes region-specific diffusion
+models, highlighting that using dedicated models for dis-
+tinct body regions improves avatar quality.
+Other meth-
+ods explore different representations to model the avatars.
+TADA [52] demonstrates that a mesh-based approach with
+adaptive mesh subdivision can create high-quality avatars.
+More recently, GAvatar [90] adopted a primitive-based 3D
+Gaussian representation, allowing faster rendering in higher
+resolution and showing higher quality. All of the afore-
+mentioned methods, however, represent the human body,
+hairs, and garment geometry using a single layer and an-
+imate the avatar using linear blend skinning. Hence, they
+cannot model physically plausible and pose-dependent geo-
+metric deformations of the avatar’s clothing and hair result-
+ing in avatars that do not appear realistic when animated.
+There are only a few works that generate avatars with
+separate body and garment or hair layers. SO-SMPL [84]
+uses SMPL+D [63] to separately represent the cloth layers,
+but cannot capture loose clothing due to the inherent lim-
+itations of SMPL+D representation. HumanLiff [36], Hu-
+manCoser [86], and TELA [27] use NeRF-based represen-
+tations and progressively generate minimal-clothed human
+body and layer-wise clothes. GALA [45] takes an existing
+single-layer avatar and disentangles it into separate layers
+using DMTet representation [29] and SDS [64] optimiza-
+tion. TECA [97] aims to model hairs in a separate layer but
+adopts a NeRF-based representation. However, the meshes
+extracted from NeRF or DMTet tend to be very noisy and
+cannot be simulated easily using cloth or hair simulators.
+Our approach, on the other hand, generates avatars with
+simulation-ready garments and hair.
+It can model loose
+clothing, realistic hair with varied lengths and hairstyles,
+realistic texture, and dynamic motion.
+2.2. Garment Modeling and Simulation
+One of the most common methods for modeling garments
+is SMPL+D [3–5, 14, 15, 58, 63, 96], which adds vertex
+displacements to the SMPL body mesh to capture the ge-
+ometry of clothed human bodies. However, this approach
+struggles to represent loose clothing and dresses due to
+its fixed topology. To address this limitation, many meth-
+ods propose modeling clothing separately. DiffAvatar [50]
+presents a method for reconstructing untextured garment
+meshes from scan images using a differentiable simulator.
+Garment3DGen [75] reconstructs textured garment meshes
+from a single input image by optimizing and deforming a
+base garment template to align with the target pose. BC-
+Net [41] directly predicts garment type and shape parame-
+ters using a learned regressor, while DeepCloth [79] repre-
+sents garments through a canonical UV-representation, en-
+coding them in a shared latent space. More recent methods
+utilize implicit unsigned distance fields for their flexibil-
+ity in modeling arbitrary topologies and handling open sur-
+faces, which are crucial for cloth simulators [17, 20, 25, 32,
+66]. However, these methods typically focus solely on mod-
+eling clothing geometry, neglecting the underlying human
+body, hair, and texture details. In this work, we build on
+these methods and propose a novel text-conditioned diffu-
+sion model to generate garment meshes using text prompts,
+while also generating avatars with complete texture and ap-
+pearance details for garment, hair, and body layers.
+For body motion-driven garment simulation, traditional
+methods use physics simulators to drape garments on
+the human body while modeling their material proper-
+ties [13, 19, 82, 83], and avoiding collisions with the un-
+derlying body [7, 81].
+Differentiable physics simulators
+have also been proposed to integrate physics into learn-
+ing and optimization-based frameworks [49, 51].
+While
+these methods produce highly realistic garment animations,
+physics simulation is generally computationally expensive
+and can become unstable in cases of severe interpenetra-
+tion between the garment and body layers. To overcome
+these limitations, more recent works propose neural simu-
+lators, which are neural networks trained to generate gar-
+ment deformations based on body pose and shape infor-
+mation [30, 31, 58, 61, 70, 72, 73]. Earlier methods were
+trained in a garment-specific manner and could not general-
+ize across different garment types [60, 71]. However, more
+recent methods can handle various garment topologies, in-
+cluding loose clothing and dresses [10–12, 30, 73, 74, 92].
+While our method can utilize both physics-based and neural
+simulators, here we use HOOD [30] as the neural simulator.
+2.3. Hair Modeling and Simulation
+For hair modeling, strand-based representations are widely
+favored due to their compatibility with physics simulators
+and ease of geometric manipulation [23, 28, 35, 62, 76, 91].
+The main challenge in image- or text-guided generation of
+hair strands lies in capturing the hair’s complex appearance,
+especially the inner strands that are often occluded. For ge-
+ometry, recent approaches use data-driven priors based on
+diffusion models to estimate plausible inner strands despite
+their occlusion in observed data [77, 78]. For appearance,
+existing methods employ a strand-aligned 3D Gaussian rep-
+resentation to effectively model intricate hair textures and
+
+
+varied strand thickness [57, 93]. In this work, we build upon
+these methods for full-body avatar generation. Specifically,
+we use a diffusion-based text-to-hair generation model [78]
+to create hair strands from text prompts. We then attach
+3D Gaussians [93] to the generated strands to model hair
+appearance and refine hairstyle according to the given text
+prompt. Finally, we incorporate a hair simulator [23] during
+avatar creation to simulate hairs for varied poses which al-
+lows for optimizing the appearance of the inner strands and
+ensures proper disentanglement of face and hair textures.
+3. Method
+Given a text prompt T , we introduce a novel framework,
+SimAvatar, for synthesizing simulation-ready 3D avatars
+with layered representations of the body, hair, and gar-
+ment. Unlike traditional text-to-avatar methods that use a
+single geometry for the entire avatar [18, 52, 90], our ap-
+proach decomposes the avatar geometry into distinct lay-
+ers, each leverages a representation tailored to its simula-
+tion and geometry modeling.
+This layered structure not
+only enhances realism but also enables robust simulation
+of each component, dramatically improving flexibility in
+animation and customization. Specifically, our avatar ge-
+ometry is represented by three distinct layers: (1) Body
+mesh, defined by the SMPL parametric model [56], pro-
+viding a robust foundation for realistic body shapes and
+movements; (2) Garment mesh, generated using a text-
+conditioned diffusion model, which produces smooth cloth-
+ing meshes that are ready for simulation (see Sec. 3.2); (3)
+Hair strands, modeled using a text-conditioned diffusion
+model, allowing for the generation of complex hairstyles
+with strand-level detail (see Sec. 3.1). This approach allows
+our method to readily handle dynamic scenarios. Given a
+target body pose sequence P = {p1, ..., pn}, the body mesh
+is deformed through linear blend skinning [56] while both
+the garment mesh and hair strands are simulated using ad-
+vanced physics-based simulators (Sec. 3.1), ensuring realis-
+tic motion under various conditions.
+To further enable our layered representation to model de-
+tailed avatar appearance, including body, hair, and garment,
+we propose a 3D Gaussian Splatting (3DGS)-based appear-
+ance model that builds on top of the layered representation.
+In particular, we attach 3D Gaussians to the layered geome-
+try of body, garment, and hair, while customizing the Gaus-
+sians for each body part to capture the unique structural and
+dynamic properties of the part. These 3D Gaussians are op-
+timized using Score Distillation Sampling (SDS) [64, 90],
+allowing us to refine appearance details in a way that lever-
+ages powerful diffusion priors (Sec. 3.3). As a result, the
+generated avatars not only look more realistic but also main-
+tain high fidelity during animation. An overview of our
+framework is shown in Fig. 2.
+3.1. Preliminaries
+Garment simulation.
+In this work, we utilize a neural
+simulator (i.e., HOOD [30]) to produce a simulated gar-
+ment mesh sequence. Given a garment mesh g0 and the
+target body pose sequence P, HOOD first computes the
+SMPL body mesh corresponding to the SMPL parameters.
+By treating the body meshes as obstacles, HOOD utilizes
+a GNN to predict the physical status (e.g., position, veloc-
+ity, etc.) of each vertex on the garment mesh and produce
+a simulated garment sequence denoted as G = {g1, ..., gn}.
+More details are discussed in [30].
+Strand-based hair representation.
+In this work, we
+choose strand-based hair representation to capture the thin
+and layer-wise structure of hairs. We represent hair as a
+point cloud h0 ∈RNs×Nl×3 that is composed of Ns hair
+strands, with each strand includes Nl line segments.
+Hair simulation.
+Given hair strands h0, a target body
+mesh sequence P and the simulated garment sequence G,
+we treat both the body and garment in each time step as
+obstacles and leverage a hair simulator [8, 9, 22, 24] to pro-
+duce the animated hair strand sequence denoted as H =
+{h1, ..., hn}.
+This sequence provides a strong prior that
+drives the 3D Gaussians attached to the strands to produce
+high-fidelity hair motion, as will be discussed in Sec. 3.3.
+3.2. Text-based garment diffusion model
+To ensure compatibility with existing simulators, in this
+work, we choose to use meshes as the coarse garment geom-
+etry representation. A straightforward approach to modify
+the garment mesh to match the given text prompt is through
+SDS-based optimization [52, 84]. However, optimizing the
+non-watertight garment mesh in a zero-shot manner is a
+non-trivial task.
+On one hand, the topology of garment
+mesh is hard to change with noisy supervision from foun-
+dational diffusion models. On the other hand, the garment
+simulators all require a clean, compact, and smooth garment
+mesh as input. To resolve this issue, inspired by recent suc-
+cesses in 3D generative models [88, 95, 100], we utilize
+large-scale garment datasets [10, 47] and learn a text-based
+diffusion model for garment mesh generation. Specifically,
+we first train a Variational Auto-encoder (VAE) to learn a
+compact latent space capturing garment geometry distribu-
+tion. We then learn a conditional latent diffusion model
+within the latent space to generate garment meshes from
+text prompts.
+VAE for garment mesh reconstruction.
+We adopt the
+vectorized latent space representation [88, 95, 100] for its
+simplicity and efficiency. As shown in Fig. 3 (a), given
+an input garment mesh, we first uniformly sample a set of
+points (denoted as X ∈R10000×3). Next, we encode the
+
+
+Nicole Kidman with long 
+beach waves hairstyle wearing 
+a short sleeve dress of knee-
+length, close-fitting, tight 
+cuffs, the garment has a cozy 
+autumn leaf pattern, 
+featuring colorful leaves in 
+shades of red, orange, and 
+yellow scattered over dark 
+green fabric.
+!*+* + !,&-%
+Initial Gaussians
+Simulation-ready Avatar
+Text-conditioned 
+Generative Models
+Generated Hair, Body 
+and Garment Geometry
+Animated Avatar
+SDS 
+Optimization
+hair
+body
+garment
+Figure 2. Overview. Given a text prompt, SimAvatar first generates hair strands, body mesh, and garment using their respective text-
+conditioned generative models. We then bring them together using physics simulation, and attach 3D Gaussians to learn their appearances
+and to adapt them according to the text prompts. We assign one 3D Gaussian to each line segment in the hair strands with their length
+significantly larger than their diameter (green circle), whereas the Gaussians for meshes are defined within a local coordinate system of each
+face (orange circle). We optimize the properties of all 3D Gaussians through the Score Distillation Sampling (SDS) loss using image-based
+diffusion models, and a novel regularization Lhair for hairs to ensure plausible hair structure. The generated 3D avatar can be simulated
+by any pose sequence showing realistic and dynamic motion effects such as flowing hairs and garment wrinkles.
+embedding
+down-sample
+embedding 
+cross-attention 
+{!!"#}
+embedding 
+cross-attention 
+MeshUDF
+geometry encoder
+geometry decoder
+KL
+(a) garment variational auto-encoder
+(b) text-to-garment diffusion model
+“A short sleeves 
+dress of knee-
+length, close-
+fitting, tight cuffs”
+BERT
+…
+transformer blocks $
++noise
+UDF
+%
+&
+'
+%
+!!"# + !$%&'
+!()
+Figure 3. Text-based garment diffusion model. See Sec. 3.2 for details.
+sampled points to a set of vectors (denoted as Z ∈R512×16)
+by applying cross-attention layers to X and its downsam-
+pled version.
+To effectively reconstruct garment meshes
+from latent vectors, we adopt the Unsigned Distance Field
+(UDF) representation [32]. The UDF is designed for non-
+watertight meshes and uses the gradient at each point to de-
+termine the presence of mesh surface. Specifically, we feed
+query points ({qxyz}) uniformly sampled from a 3D grid
+and the latent code Z to few cross-attention layers to pre-
+dict the Unsigned Distance for all {qxyz}, which forms the
+UDF for the garment. The garment mesh can then be ex-
+tracted from the predicted UDF using MeshUDF [32]. To
+train the VAE model, we follow prior works [17, 25, 32] and
+apply: a) a binary cross-entropy loss (Lbce) to the predicted
+Unsigned Distance, b) the L2 loss (Lgrad) to the gradient
+at each query point and c) the KL divergence loss (LKL)
+to the latent code Z. The full loss for the VAE training is
+L = Lbce +λgradLgrad +λKLLKL, where λgrad, λKL are
+empirically set to 0.0001, 0.1 in our experiments.
+Text-based garment diffusion model.
+Given the learned
+vectorized latent space, we train a text-conditioned latent
+diffusion model for garment mesh generation. As shown
+in Fig. 3(b), for a latent vector Z, we add random noise
+ϵ sampled from a Normal Distribution to Z and adopt a
+transformer-based network (denoted as D) to recover the
+added noise. To inject text prompts as conditions, we use
+the BERT model [26] to extract a text embedding e ∈R768
+and fuse it with latent features through cross-attention lay-
+ers. The objective to train the diffusion model follows the
+EDM [43, 95] and can be formulated as:
+L(θD) = Eϵ∈N(0,σ2I)∥D(Z + ϵ, σ, e)) −Z∥2
+2
+(1)
+where θD denotes the trainable parameters of the denoiser
+network D and σ is a randomly chosen noise level. During
+inference, a randomly sampled noise vector is gradually de-
+noised to a latent code Z matching the given text prompt,
+which is then decoded to a garment mesh using the decoder
+in the VAE model introduced earlier.
+
+
+3.3. Gaussian Avatar Optimization
+To further obtain reasonable geometry of hair strands
+and body shape, we utilize HAAR [78] which is a text-
+conditioned diffusion model, and the BodyShapeGPT [6]
+which is a GPT based LLM model to predict hair strands
+and SMPL shape parameters from the given text. Given
+the garment mesh, hair strands, and SMPL body mesh, we
+attach 3D Gaussians to each component and optimize the
+attributes of these Gaussians using foundational diffusion
+models. We choose 3D Gaussians for texture modeling for
+two reasons.
+First, compared to implicit representations
+such as SDF, 3D Gaussians are more flexible for anima-
+tion and can be easily driven by meshes [65, 90]. Second,
+3D Gaussians have shown impressive capacity to capture
+high-fidelity appearance, especially when combined with
+diffusion models priors [55, 90]. Next, we discuss how to
+customize 3D Gaussians for each body part to ensure they
+maximally conform to the structure and motion of that part.
+3D Gaussians on body and garment meshes.
+We use a
+similar strategy to combine 3D Gaussians with the body and
+garment part since their coarse geometry is both represented
+as 3D meshes. For the body mesh, we utilize a SMPL [56]
+mesh Ω= LBS(θ, β), where θ and β are the SMPL pose
+and shape parameters, and LBS is the linear blend skinning
+function. The garment mesh is generated and simulated as
+discussed in Sec. 3.2 and Sec. 3.1. Below we discuss how to
+attach and deform a 3D Gaussian to a mesh M, which could
+be a body or garment mesh. Specifically, we associate each
+Gaussian Gi={µi, ri, si, fi, oi} with a face of the mesh M
+and define its position µi ∈R3, rotation ri ∈R3, and scal-
+ing si ∈R3 in the face’s local coordinate, as well as its color
+features fi ∈Rdc and opacity oi, where dc is the dimension
+of the Spherical Harmonic coefficients. The face’s coor-
+dinate {P(θ), R(θ), k} is defined similarly to [65], where
+the origin P(θ) ∈R3 is computed as the mean position of
+the face vertices, and the rotation matrix R(θ) ∈R3×3 is
+formed by concatenating one edge vector of the face, the
+normal vector, and their cross product. We also compute a
+scalar k by the mean length of the edges. The global Gaus-
+sian position, rotation, and scale {ˆµi, ˆri, ˆsi} can be com-
+puted by applying the local-to-global transform:
+ˆµi(θ) = kR(θ) · pi + P(θ)
+ˆri(θ) = R(θ) · ri
+ˆsi(θ) = ksi
+(2)
+We initialize the 3D Gaussians by uniformly sampling
+points on the mesh surface, the face correspondences
+are maintained throughout the Gaussian densification pro-
+cess [44]. As observed in [90], directly optimizing Gaussian
+attributes with high-variance diffusion prior-based objective
+leads to noisy avatars. Thus, we adopt an implicit field Fϕ
+with parameters ϕ to model the Gaussian attributes. Specif-
+ically, we query the color features fi, opacity oi of each
+Gaussian using its global position ˆpi(˜θ) under a canonical
+pose ˜θ by (fi, oi) = Fϕ(ˆµi(˜θ)) . Note that we learn two
+separate implicit fields for the body Fb
+ϕ and garment Fg
+ϕ to
+prevent texture entanglement. The canonical garment mesh
+is a garment draped on the SMPL body in T-pose. As a re-
+sult, the 3D Gaussians attached to the body or garment mesh
+can be smoothly driven by the avatar’s motion by Eq. 2.
+3D Gaussians on hair strands.
+Different from the body
+and garment meshes, hair strands have a more delicate
+and complex structure. As a result, the Gaussians associ-
+ated with the strands are expected to have a long and thin
+shape. Inspired by existing works that adopt 3D Gaussians
+for hair reconstruction [57, 93], we assign one 3D Gaus-
+sian to each line segment in each hair strand. As shown
+in the green circle in Fig. 2, for a line segment defined by
+two endpoints li and li+1, we assign a Gaussian denoted as
+Gi = {µi, ri, si, fi, oi} to model the segment. To enforce
+the Gaussians to be consistent with the hair strands, we ex-
+plicitly compute the position, rotation, and scale of Gi by:
+µi = (li + li+1)/2
+si = [∥li+1 −li∥/2, γ, γ]
+ri = [1 + µi · di, u × di],
+(3)
+where di is the direction of a hair strand, and u are unit vec-
+tors along the x-axis. We set γ = 0.001 to keep the hair
+Gaussians thin. To learn opacity {oi} and color {fi} for the
+hair Gaussians, we similarly train an implicit field Fh
+ϕ as
+discussed in the garment and body part above. During in-
+ference, the hair Gaussians can be driven by the hair strands
+smoothly and consistently using Eq. 3.
+Shading Model.
+Lighting plays an important role in mod-
+eling appearance details in motion such as garment wrin-
+kles.
+To encourage the 3D Gaussians to capture pose-
+independent albedo without baked-in shading, we incorpo-
+rate a Phong shading model [84] into our pipeline. Since the
+normal for each Gaussian is noisy, we instead use the nor-
+mal of its corresponding face (denoted as np) in the light-
+ing model. To mimic random lighting, we sample the point
+light position lp ∈R3, color lc ∈R3, as well as an ambient
+light color la ∈R3. The shaded color of each 3D Gaus-
+sian can then be computed by fi
+′ = fi · (max(0, np · (lp −
+ˆµi)/ ∥lp −ˆµi∥) · lc + la), where ˆµi is the global coordinate
+of the Gaussian computed by Eq. 2.
+Gaussian avatar optimization.
+To learn the implicit
+fields for the hair, body, and garment parts, we utilize
+the Score Distillation Sampling (SDS) [64] objective with
+a pre-trained text-to-image diffusion model [1] to super-
+vise the Gaussian splatting-based rendering I(η) of our
+
+
+Ours
+Fantasia3D
+TADA
+GAvtar
+David Beckham with Pompadour hairstyle wearing a long sleeve sweater, round neckline and Shorts, midthigh length, the sweater features a classic 
+holiday pattern with snowflakes, reindeer, and evergreen trees in traditional colors like red, green, and white.
+Black Teenager girl with afro hairstyle short hair wearing a short sleeve shirt of cropped length, buttonup front, relaxed fit, and midi length skirt with 
+high-waisted, the garment has a vintage floral wallpaper pattern, featuring roses and vines in soft, muted tones.
+Figure 4. Qualitative comparison with the state-of-the-art methods. See the supplementary video for more comparisons.
+model, where η denotes all learnable parameters i.e., η =
+{Fb
+ϕ, Fg
+ϕ, Fh
+ϕ}. Given a text prompt T and the noise predic-
+tion ˆϵ(It; T , t) of the diffusion model, SDS optimizes pa-
+rameters η by minimizing the difference between the noise
+ϵ added to the rendered image I(η) and the predicted noise
+ˆϵ by the diffusion model:
+∇ηLSDS = Et,ϵ
+
+w(t)(ˆϵ(It; T , t) −ϵ)∂I
+∂η
+
+,
+(4)
+where t is the noise level, It is the noised image, and w(t)
+is a weighting function. Additionally, to prevent broken
+hairs caused by transparent Gaussians in the middle of a
+hair strand, we propose a regularization on the opacity of
+hair Gaussians. Our key intuition is that along a hair strand,
+the Gaussians closer to the scalp (e.g., hair roots) should
+have larger opacity values than the Gaussians further away
+from the scalp (e.g., hair ends). This way the optimization
+process is able to trim the extra hair to match the prompt
+while avoiding the broken hair artifacts. Specifically, given
+a hair point cloud h0 ∈RNs×Nl×3 as discussed in Sec. 3.1,
+we sample the opacity (o ∈RNs×Nl) of its associated Gaus-
+sians from the learned implicit fields (i.e., Fh
+ϕ discussed in
+Sec. 3.3) and add the following regularization:
+Lhair =
+1
+NsNl
+Ns
+X
+i=1
+Nl
+X
+j=2
+(oi,j−1 −oi,j)
+(5)
+Our final objective is L = LSDS +λhairLhair, where λhair
+is empirically set to 1.0 in our experiments.
+4. Experiments
+4.1. Datasets.
+To learn the text-based garment diffusion model discussed
+in Sec. 3.2, we use the Garment Pattern Generator (GPG)
+dataset [48] and the CLOTH3D [10] dataset processed
+by [25]. For text prompts, we leverage the prompt anno-
+tations for the GPG dataset from [33]. Since the CLOTH3D
+dataset does not include paired prompt annotation, we ren-
+der each garment on top of the SMPL body mesh and
+query the GPT4v [2] with predefined questions to generate
+a prompt for each garment mesh, describing its type, shape,
+length, and width. Together we build a dataset containing
+around 20000 meshes with paired prompt annotations. The
+dataset covers common garment types such as t-shirts, tank
+tops, jackets, shorts, pants, skirts, dresses, etc.
+
+
+Ours
+TADA
+GAvtar
+Emma Watson with shoulder-length wavy hair wearing a sleeveless dress of cocktail-length, the garment has a bold leopard print, with classic black 
+and brown spots on a beige background.
+Sandra Bullock with long shag hairstyle wearing a sleeveless tunic dress of normal length, the garment has a painterly floral watercolor pattern, 
+featuring soft washes of pink, yellow, and lavender flowers.
+Figure 5. Qualitative comparison of animated avatars. See the supplementary video for more animation comparisons.
+4.2. Qualitative Evaluations.
+We compare our synthesized avatars with start-of-the-art
+text-driven 3D avatar generation methods, including Fanta-
+sia3D [18], TADA [52] and GAvatar [90]. First, we present
+qualitative comparisons of synthesized avatars in a canoni-
+cal pose in Fig. 4. Our method not only captures diverse gar-
+ment geometry (e.g., skirts, tops, and bottoms) but also pro-
+duces superior texture compared to baseline models. Next,
+we demonstrate animated avatars in Fig. 5. Note that since
+Fantasia3D utilizes implicit representations, it cannot be
+readily animated. GAvatar and TADA model the human
+body and garment by a single geometry representation. For
+animation, they attach garments to the human body and use
+linear blending skinning for deformation. As a result, they
+fail to produce realistic motion for loose garments such as
+dresses. As shown by the first row of Fig. 5, when the avatar
+raises her legs, only our model produces physically plausi-
+ble motion for the dresses, whereas both baselines undesir-
+ably separate the dresses into two pieces. We provide abun-
+dant animation comparisons in the supplementary video to
+showcase the difference.
+4.3. Quantitative Evaluations.
+User study.
+We follow existing works [46, 52, 90] and
+quantitatively evaluate SimAvatar through an extensive A/B
+user study.
+Specifically, we run SimAvatar and baseline
+Metrics
+TADA
+Fantasia3D
+GAvatar
+Appearance preference
+89.55
+100
+87.03
+Motion preference
+91.87
+100
+94.47
+Table 1. User study. We provide the preference percentage of our
+method against state-of-the-art methods. The higher score indi-
+cates that more users favor our method. SimAvatar significantly
+outperforms other methods in terms of user preference. We en-
+courage looking at the supplementary video.
+methods on 22 prompts. For comparison, we generate a
+static 360 video of the avatar in A-pose and a video show-
+ing the avatar driven by a motion sequence. At each round,
+we present a pair of results by our method and one of the
+baselines to a user. For the static 360 video pairs, we ask
+the user to choose the method with a better appearance. For
+the animated video pairs, we ask the user to pay more at-
+tention to the motion. We collected 540 votes from 18 users
+and present the results in Table. 1. For both appearance and
+motion, SimAvatar is consistently favored by users, demon-
+strating its superior performance compared to baselines.
+5. Conclusions and Future Work
+In this work, we proposed a novel framework for generat-
+ing simulation-ready avatars with layered hair and clothing
+from a text prompt. Unlike existing methods for 3D human
+avatar generation, our approach represents the human body,
+
+
+hair, and garments in a layered and simulation-ready struc-
+ture. To this end, we first generated garment mesh, hair
+strands, and body shape parameters from text-conditioned
+generative models. We then optimized 3D Gaussians at-
+tached to each region to learn realistic appearance.
+The
+generated avatars can be seamlessly animated using physics
+simulators. Both qualitative and quantitative results demon-
+strate the effectiveness of our method in generating realistic,
+animatable clothed avatars, allowing cloth, and hair simula-
+tion with dynamic effects such as wrinkles and flowing hair,
+which surpasses state-of-the-art techniques.
+While SimAvatar provides avatars with significantly en-
+hanced realism, there are still areas for further improve-
+ments. Currently, our hair and garment generation mod-
+els are trained on specific datasets, which may bottleneck
+the diversity due to the used training data. In future work,
+we aim to explore methods for generating simulation-ready
+avatars that extend beyond the existing dataset diversity.
+Additionally, SimAvatar simulates garments and hair se-
+quentially, which can fail in certain cases, such as avatars
+wearing hoods. Implementing joint simulation for hair and
+garments would allow us to accommodate more complex
+garments. Finally, accessories and footwear remain entan-
+gled with the body or garment layers; in the future, we plan
+to focus on generating fully disentangled avatars.
+References
+[1] Realistic vision.
+https : / / huggingface . co /
+stablediffusionapi/realistic-vision-51,
+2023. 2, 6
+[2] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama
+Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo
+Almeida, Janko Altenschmidt, Sam Altman, Shyamal
+Anadkat, et al.
+GPT-4 technical report.
+arXiv preprint
+arXiv:2303.08774, 2023. 7
+[3] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Video based reconstruc-
+tion of 3d people models. In CVPR, 2018. 3
+[4] Thiemo Alldieck, Marcus Magnor, Bharat Lal Bhatnagar,
+Christian Theobalt, and Gerard Pons-Moll. Learning to re-
+construct people in clothing from a single rgb camera. In
+CVPR, 2019.
+[5] Thiemo Alldieck, Gerard Pons-Moll, Christian Theobalt,
+and Marcus Magnor. Tex2shape: Detailed full human body
+geometry from a single image. In ICCV, 2019. 3
+[6] Baldomero R ´Arbol and Dan Casas. Bodyshapegpt: Smpl
+body shape manipulation with llms. In ECCVW, 2024. 6
+[7] David Baraff and Andrew Witkin. Large steps in cloth sim-
+ulation. In Conference on Computer Graphics and Interac-
+tive Techniques, 1998. 3
+[8] Mikl´os Bergou, Max Wardetzky, Stephen Robinson, Basile
+Audoly, and Eitan Grinspun. Discrete elastic rods. In SIG-
+GRAPH, 2008. 4
+[9] Mikl´os Bergou, Basile Audoly, Etienne Vouga, Max
+Wardetzky, and Eitan Grinspun. Discrete viscous threads.
+ACM Transactions on graphics (TOG), 2010. 4
+[10] Hugo Bertiche, Meysam Madadi, and Sergio Escalera.
+Cloth3d: clothed 3d humans. In ECCV, 2020. 3, 4, 7
+[11] Hugo Bertiche, Meysam Madadi, and Sergio Escalera.
+PBNS: Physically based neural simulator for unsupervised
+garment pose space deformation.
+ACM Transaction on
+Graphics (TOG), 2020.
+[12] Hugo Bertiche, Meysam Madadi, Emilio Tylson, and Ser-
+gio Escalera. Deepsd: Automatic deep skinning and pose
+space deformation for 3d garment animation.
+In ICCV,
+2021. 3
+[13] Kiran S Bhat, Christopher D Twigg, Jessica K Hodgins,
+Pradeep Khosla, Zoran Popovic, and Steven M Seitz. Es-
+timating cloth simulation parameters from video.
+SIG-
+GRAPH, 2003. 3
+[14] Bharat Lal Bhatnagar, Garvita Tiwari, Christian Theobalt,
+and Gerard Pons-Moll.
+Multi-garment net: Learning to
+dress 3d people from images. In ICCV, 2019. 3
+[15] Bharat Lal Bhatnagar, Cristian Sminchisescu, Christian
+Theobalt, and Gerard Pons-Moll. Loopreg: Self-supervised
+learning of implicit surface correspondences, pose and
+shape for 3d human mesh registration. In NeurIPS, 2020. 3
+[16] Yukang Cao, Yan-Pei Cao, Kai Han, Ying Shan, and Kwan-
+Yee K Wong. DreamAvatar: Text-and-Shape Guided 3D
+Human Avatar Generation via Diffusion Models. In CVPR,
+2024. 2, 3
+[17] Honghu Chen, Yuxin Yao, and Juyong Zhang.
+Neural-
+ABC: Neural parametric models for articulated body with
+clothes. IEEE Transactions on Visualization and Computer
+Graphics, 2024. 3, 5
+[18] Rui Chen, Yongwei Chen, Ningxin Jiao, and Kui Jia. Fanta-
+sia3D: Disentangling Geometry and Appearance for High-
+quality Text-to-3D Content Creation. In ICCV, 2023. 2, 4,
+8, 13
+[19] Kwang-Jin Choi and Hyeong-Seok Ko. Stable but respon-
+sive cloth. In ACM SIGGRAPH Courses. 2005. 3
+[20] Enric Corona, Albert Pumarola, Guillem Alenya, Ger-
+ard Pons-Moll, and Francesc Moreno-Noguer.
+Smplicit:
+Topology-aware generative model for clothed people. In
+CVPR, 2021. 3
+[21] Dalle2. https://openai.com/dall-e-2, 2022. 2
+[22] Gilles Daviet. Simple and scalable frictional contacts for
+thin nodal objects. ACM Transactions on Graphics (TOG),
+2020. 4
+[23] Gilles Daviet. Interactive hair simulation on the gpu using
+admm. In SIGGRAPH, 2023. 2, 3, 4
+[24] Gilles Daviet. Interactive hair simulation on the gpu using
+admm. In SIGGRAPH, 2023. 4
+[25] Luca De Luigi, Ren Li, Benoit Guillard, Mathieu Salz-
+mann, and Pascal Fua. DrapeNet: Garment Generation and
+Self-Supervised Draping. In CVPR, 2023. 3, 5, 7
+[26] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina
+Toutanova.
+Bert:
+Pre-training of deep bidirectional
+transformers for language understanding.
+arXiv preprint
+arXiv:1810.04805, 2018. 5
+
+
+[27] Junting Dong, Qi Fang, Zehuan Huang, Xudong Xu, Jingbo
+Wang, Sida Peng, and Bo Dai1. TELA: Text to layer-wise
+3d clothed human generation. In ECCV, 2024. 2, 3
+[28] Yun (Raymond) Fei, Henrique Teles Maia, Christopher
+Batty, Changxi Zheng, and Eitan Grinspun. A multi-scale
+model for simulating liquid-hair interactions. ACM Trans-
+action on Graphics (TOG), 2017. 3
+[29] Jun Gao, Wenzheng Chen, Tommy Xiang, Alec Jacobson,
+Morgan McGuire, and Sanja Fidler. Learning deformable
+tetrahedral meshes for 3d reconstruction. In NeurIPS, 2020.
+3
+[30] Artur Grigorev, Bernhard Thomaszewski, Michael J Black,
+and Otmar Hilliges. HOOD: Hierarchical graphs for gener-
+alized modelling of clothing dynamics. In CVPR, 2023. 2,
+3, 4
+[31] Peng Guan, Loretta Reiss, David A Hirshberg, Alexander
+Weiss, and Michael J Black. Drape: Dressing any person.
+SIGGRAPH, 2012. 3
+[32] Benoit Guillard, Federico Stella, and Pascal Fua. Meshudf:
+Fast and differentiable meshing of unsigned distance field
+networks. In ECCV, 2022. 3, 5
+[33] Kai He, Kaixin Yao, Qixuan Zhang, Jingyi Yu, Lingjie Liu,
+and Lan Xu. Dresscode: Autoregressively sewing and gen-
+erating garments from text guidance. ACM Transactions on
+Graphics (TOG), 2024. 7
+[34] Fangzhou Hong, Mingyuan Zhang, Liang Pan, Zhongang
+Cai, Lei Yang, and Ziwei Liu.
+AvatarCLIP: Zero-Shot
+Text-Driven Generation and Animation of 3D Avatars. SIG-
+GRAPH, 2022. 3
+[35] Jerry Hsu, Tongtong Wang, Zherong Pan, Xifeng Gao, Cem
+Yuksel, and Kui Wu.
+Sag-free initialization for strand-
+based hybrid hair simulation. ACM Transaction of Graph-
+ics, 2023. 3
+[36] Shoukang Hu, Fangzhou Hong, Tao Hu, Liang Pan, Haiyi
+Mei, Weiye Xiao, Lei Yang, and Ziwei Liu.
+Human-
+liff: Layer-wise 3d human generation with diffusion model.
+arXiv preprint, 2023. 2, 3
+[37] Xin Huang, Ruizhi Shao, Qi Zhang, Hongwen Zhang, and
+Ying Feng. Humannorm: Learning normal diffusion model
+for high-quality and realistic 3d human generation.
+In
+CVPR, 2024. 2
+[38] Yukun Huang, Jianan Wang, Ailing Zeng, He Cao, Xi-
+anbiao Qi, Yukai Shi, Zheng-Jun Zha, and Lei Zhang.
+Dreamwaltz: Make a scene with complex 3d animatable
+avatars. In NeurIPS, 2023. 3
+[39] Yangyi Huang, Hongwei Yi, Yuliang Xiu, Tingting Liao,
+Jiaxiang Tang, Deng Cai, and Justus Thies. TeCH: Text-
+guided Reconstruction of Lifelike Clothed Humans.
+In
+3DV, 2024. 2
+[40] Nikolay Jetchev. ClipMatrix: Text-controlled creation of 3d
+textured meshes. arXiv preprint arXiv:2307.05663, 2023.
+2
+[41] Boyi Jiang, Juyong Zhang, Yang Hong, Jinhao Luo, Ligang
+Liu, and Hujun Bao. Bcnet: Learning body and cloth shape
+from a single image. In ECCV, 2020. 3
+[42] Ruixiang Jiang, Can Wang, Jingbo Zhang, Menglei Chai,
+Mingming He, Dongdong Chen, and Jing Liao.
+Avatar-
+Craft: Transforming text into neural human avatars with
+parameterized shape and pose control. In ICCV, 2023. 2, 3
+[43] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine.
+Elucidating the design space of diffusion-based generative
+models. In NeurIPS, 2022. 5
+[44] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis. 3d gaussian splatting for real-time
+radiance field rendering. SIGGRAPH, 2023. 6
+[45] Taeksoo Kim, Byungjun Kim, Shunsuke Saito, and Han-
+byul Joo.
+GALA: Generating animatable layered assets
+from a single scan. In CVPR, 2024. 3
+[46] Nikos Kolotouros, Thiemo Alldieck, Andrei Zanfir, Ed-
+uard Gabriel Bazavan, Mihai Fieraru, and Cristian Smin-
+chisescu. Dreamhuman: Animatable 3d avatars from text.
+In NeurIPS, 2023. 2, 3, 8
+[47] Maria Korosteleva and Sung-Hee Lee. Generating datasets
+of 3d garments with sewing patterns. In NeurIPS, 2021. 4
+[48] Maria Korosteleva and Sung-Hee Lee. Generating datasets
+of 3d garments with sewing patterns. In NeurIPS, 2021. 7
+[49] Yifei Li, Tao Du, Kui Wu, Jie Xu, and Wojciech Matusik.
+Diffcloth: Differentiable cloth simulation with dry fric-
+tional contact. SIGGRAPH, 2022. 3
+[50] Yifei Li, Hsiao-yu Chen, Egor Larionov, Nikolaos Sarafi-
+anos, Wojciech Matusik, and Tuur Stuyck.
+Diffavatar:
+Simulation-ready garment optimization with differentiable
+simulation. In CVPR, 2024. 3
+[51] Junbang Liang, Ming C. Lin, and Vladlen Koltun. Differ-
+entiable cloth simulation for inverse problems. In NeurIPS,
+2019. 3
+[52] Tingting Liao, Hongwei Yi, Yuliang Xiu, Jiaxiang Tang,
+Yangyi Huang, Justus Thies, and Michael J Black. TADA!
+text to animatable digital avatars. In 3DV, 2024. 2, 3, 4, 8,
+13
+[53] Chen-Hsuan
+Lin,
+Jun
+Gao,
+Luming
+Tang,
+Towaki
+Takikawa, Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja
+Fidler, Ming-Yu Liu, and Tsung-Yi Lin. Magic3D: High-
+Resolution Text-to-3D Content Creation. In CVPR, 2023.
+2
+[54] Zhiqiu Lin, Deepak Pathak, Baiqi Li, Jiayao Li, Xide
+Xia, Graham Neubig, Pengchuan Zhang, and Deva Ra-
+manan. Evaluating text-to-visual generation with image-
+to-text generation. arXiv preprint arXiv:2404.01291, 2024.
+13
+[55] Xian Liu, Xiaohang Zhan, Jiaxiang Tang, Ying Shan, Gang
+Zeng, Dahua Lin, Xihui Liu, and Ziwei Liu. Humangaus-
+sian: Text-driven 3d human generation with gaussian splat-
+ting. In CVPR, 2024. 2, 6, 13
+[56] Matthew Loper, Naureen Mahmood, Javier Romero, Ger-
+ard Pons-Moll, and Michael J. Black. SMPL: A skinned
+multi-person linear model. ToG, 34(6):248:1–248:16, 2015.
+2, 3, 4, 6
+[57] Haimin Luo, Min Ouyang, Zijun Zhao, Suyi Jiang, Long-
+wen Zhang, Qixuan Zhang, Wei Yang, Lan Xu, and Jingyi
+Yu. Gaussianhair: Hair modeling and rendering with light-
+aware gaussians. arXiv preprint arXiv:2402.10483, 2024.
+4, 6

@@ -1,0 +1,1070 @@
+Title: Im2Haircut: Single-view Strand-based Hair Reconstruction for Human Avatars
+
+Im2Haircut: Single-view Strand-based Hair Reconstruction for Human Avatars
+Vanessa Sklyarova1,2
+Egor Zakharov2
+Malte Prinzler1,2
+Giorgio Becherini1
+Michael J. Black1
+Justus Thies1,3
+1Max Planck Institute for Intelligent Systems
+2ETH Z¨urich
+3Technical University of Darmstadt
+Input Image
+Reconstructed 3D Hair Strands
+Input Image
+Reconstructed 3D Hair Strands
+Figure 1. Given a single image, our method, Im2Haircut, generates high-quality, strand-based 3D hair geometry. Im2Haircut consists of a
+prior hair geometry model trained on a mixture of synthetic and real data that is finetuned using the input image at inference time.
+Abstract
+We present a novel approach for 3D hair reconstruc-
+tion from single photographs based on a global hair prior
+combined with local optimization. Capturing strand-based
+hair geometry from single photographs is challenging due
+to the variety and geometric complexity of hairstyles and the
+lack of ground truth training data. Classical reconstruction
+methods like multi-view stereo only reconstruct the visible
+hair strands, missing the inner structure of hairstyles and
+hampering realistic hair simulation. To address this, exist-
+ing methods leverage hairstyle priors trained on synthetic
+data. Such data, however, is limited in both quantity and
+quality since it requires manual work from skilled artists
+to model the 3D hairstyles and create near-photorealistic
+renderings. To address this, we propose a novel approach
+that uses both, real and synthetic data to learn an effec-
+tive hairstyle prior. Specifically, we train a transformer-
+based prior model on synthetic data to obtain knowledge
+of the internal hairstyle geometry and introduce real data
+in the learning process to model the outer structure. This
+training scheme is able to model the visible hair strands
+depicted in an input image, while preserving the general
+3D structure of hairstyles.
+We exploit this prior to cre-
+ate a Gaussian-splatting-based reconstruction method that
+creates hairstyles from one or more images. Qualitative
+and quantitative comparisons with existing reconstruction
+pipelines demonstrate the effectiveness and superior per-
+formance of our method for capturing detailed hair orien-
+tation, overall silhouette, and backside consistency.
+For
+additional results and code, please refer to https://
+im2haircut.is.tue.mpg.de.
+1. Introduction
+Realistic digital representation of a person’s appearance, in-
+cluding their hair, is essential for creating highly personal-
+ized and realistic 3D head avatars. However, capturing a
+digital representation of hair is challenging, as hair strands
+1
+arXiv:2509.01469v1  [cs.CV]  1 Sep 2025
+
+
+are very thin structures, with complex geometry. Varying
+hair densities, orientations, and textures make accurate re-
+construction both computationally intensive and algorithmi-
+cally complex. In addition, photographs only capture the
+visible hair, while the inner structure is occluded.
+Numerous approaches have been developed to recon-
+struct strand-based hair from monocular video or multi-
+view data [16, 21, 29, 32, 37, 38] using learned hairstyle
+priors to recover the inner structure. These methods require
+extensive processing times, often taking several hours [16,
+21, 34, 37, 38, 45] or even days [29, 32]. Such techniques
+are impractical for user-friendly applications and are very
+expensive to deploy. Reconstruction from a single photo-
+graph is much simpler and more user friendly than requir-
+ing video. However, this one-shot reconstruction process,
+e.g. from a frontal photo, poses considerable challenges,
+particularly in modeling the internal geometry and unseen
+backside geometry.
+To address these challenges, strong hair priors need to
+be learned. Existing work relies on training models using
+synthetic datasets and subsequently applying them to real
+images [11, 24, 36, 42, 43]. However, a significant obsta-
+cle in these approaches is the domain gap between synthetic
+and real-world data due to difficulties in rendering hair with
+realistic textures, as most existing datasets feature coarse
+hairstyles with relatively few strands. In contrast to these
+synthetic hair models, real human hair often comprises over
+100,000 strands, each contributing to the overall appearance
+and realism of the hairstyle. This domain gap can under-
+mine the model’s performance and generalization ability.
+To reduce this domain gap, some works [36, 42, 43] employ
+orientation maps [26, 27] as input signals instead of relying
+on RGB images. HairStep [42] expands on this approach by
+incorporating depth maps and direction maps, which pro-
+vide richer geometric and structural information. These ad-
+vancements represent promising steps toward achieving ac-
+curate and efficient hair modeling, but significant challenges
+remain in bridging the gap between synthetic training and
+real-world applications (e.g. predicting direction maps).
+In this paper, we learn a hair prior using a novel mix-
+ture of synthetic and real data to decrease the domain gap
+and improve reconstruction realism. For the synthetic data,
+we assume that we have full control over the training image
+generation process, including access to the 3D structure of
+the hairstyles, which can be used as a training objective.
+For real “in-the-wild” data, this supervision is not avail-
+able. However, following an approach proposed in [38],
+we can learn from the visible structures in the images us-
+ing differentiable rendering based on 3D Gaussian Splat-
+ting [13]. After training on this real and synthetic data mix-
+ture, our model can predict global hairstyles from single
+photographs. To improve the personalization and matching
+of the hairstyle, we propose an additional optimization step,
+where local detail is recovered using the same 3D Gaussian-
+Splatting-based differentiable rendering.
+We demonstrate the capabilities of our proposed method
+in comparison to state-of-the-art single-view reconstruction
+methods. From the qualitative and quantitative results we
+can conclude that our technique improves the hair strand
+details like orientation, the overall silhouette, and back-side
+consistency of the hairstyle.
+In summary, our contributions are: (1) A novel training
+strategy to learn a hairstyle prior that mixes synthetic and
+real data, improving reconstruction quality and narrowing
+the domain gap between the training data and real test data.
+(2) An inversion approach that reconstructs hairstyles from
+single or multi-view photographs in the learned hairstyle
+prior using Gaussian splatting.
+2. Related Work
+2.1. Strand-based Hair Modeling
+The de-facto hair representation standard which is sup-
+ported by the majority of computer graphics and simulation
+pipelines is strand-based hair modeling [1, 5, 7, 23]. To
+create such assets for computer games and VFX requires
+skilled 3D artists to model the hair strands. To automati-
+cally recover strand-based 3D hairstyles from real subjects,
+several methods have been proposed that use single pho-
+tographs [11, 36, 39, 42, 43], multi-view / video [3, 4, 12,
+22, 25, 29, 32, 34, 37, 38, 40, 41, 45], or even CT data [31].
+It is worth noting that a key challenge in reconstructing
+hair from optical data is the unknown inner structure of
+the hairstyle which is mostly occluded. While CT data ad-
+dresses this, it is not feasible for consumer applications.
+2.2. Image-based 3D Hair Reconstruction.
+Most existing approaches for strand-based hair modeling
+conduct 3D hair volume reconstruction that is followed by
+either autoregressive decoding of the explicit hair strands,
+the so-called hair growing [16, 37, 39, 42, 45], or direct re-
+construction of the hairstyle in the form of a strand-based
+hair texture, or hair map [11, 19, 21, 29, 30, 32, 34, 38, 43].
+Modern hair-growing-based approaches [16, 37, 42,
+45] require a complete volumetric reconstruction of the
+hairstyle that includes not only densities but also 3D-lifted
+direction maps modeled throughout an entire hair volume.
+Hair strands are then extracted as the trajectory of the
+heuristic-based approaches, which traverse the learned ori-
+entation field. The main limitation of this approach is that it
+lacks a prior at the level of the strand-based hairstyle, which
+may result in hairstyles with unrealistic internal structures
+that are hard to physically simulate.
+Alternatively, methods that utilize a hair-map-based rep-
+resentation [11, 21, 29, 30, 32, 34, 38] rely only on the
+surface-level geometry of hair to reconstruct the underly-
+2
+
+
+Coarse Branch
+Fine Branch
+concat.
+RGB Image
+Encoder
+ViT
+avg.
+pool
+1x1xC
+Decoder
+64x64x(10+1)
+PCA Coefficients 1-10
+& Baldness Map
+Encoder
+ViT
+avg.
+pool
+1x1xC
+Decoder
+concat.
+upsample
+64x64x(54+1)
+PCA Coefficients 11-64
+& Baldness Map
+PCA 
+Decoding
+PCA Coeff. 1-10
+PCA Coeff. 11-64
+& Baldness Map
+3DGS
+Direction Map
+Seg. Map
+Depth Map
+𝐿dir + 𝐿seg + 𝐿depth 
+3D Strand Reconstr. 
+Orientation 
+Map
+Seg. Map
+Depth Map
+Direction 
+Map
+𝐿pen 
+Figure 2. Our inference pipeline consists of two stages: coarse and fine. We first train to predict the first 10 components of the PCA hair
+representation and then the remaining 54 components for more detail. To mitigate the domain gap, we train on synthetic data using 3D
+reconstruction losses and then mix in real data. As we do not have ground-truth geometry for real images, we use Gaussian splatting to
+render from the desired view and supervise with 2D rendering losses.
+ing hair strands. Since these structures are visible and, thus,
+require no prior knowledge, the hair prior is applied directly
+at the strand level, either per strand [29] or jointly over the
+entire hairstyle [21, 30, 32, 38]. Our approach adopts the
+strategy of hair-map-based modeling for a single image set-
+ting that omits any volumetric hair reconstruction, similar
+to HairNet [43], which allows us to use real-world data to
+train our method via differentiable hair rendering. Our sin-
+gle image fine-tuning strategy also favorably compares to
+retrieval-based methods such as Hairmony [24], since we
+are able to achieve precise pixel-aligned reconstructions.
+3. Background
+Strand-based Hair Modeling.
+Strand-based hairstyles
+are defined by a hair map H, which is a texture map as-
+sociated with the scalp region of the head mesh. Each texel
+i = 1 . . . H · W of this map contains a strand Si that orig-
+inates at the corresponding point on the scalp mesh. These
+strands are modeled as polylines with L line segments:
+Si = {pij}, where j = 1 . . . L is the index of the point on
+the strand, which makes H have dimensions H × W × 3L.
+To reduce the dimensionality, we use PCA-based compres-
+sion in the frequency domain of the hair strands [11]:
+  S _i =
+ \t e xt
+ {
+i
+DFT} \big ( \bar {\mathcal {S}} + \gamma _i^T X \big ), 
+(1)
+where γi are the PCA coefficients which are used as the
+parameterization of a hair strand. X ∈R|γi|×6k are the
+principal components, where k = ⌊L/2⌋+ 1 is a num-
+ber of frequency bands, ¯S = { ¯Sreal, ¯Simag} ∈Rk×3×2 is a
+mean phase vector of strands in the frequency domain, and
+iDFT(·) denotes the inverse Discrete Fourier Transform.
+These principal components are estimated using available
+strand-based hair geometries from synthetic datasets.
+In the following, we denote a hair map composed of
+these coefficients as Z, with dimensions of H × W × |γ|,
+and refer to it as a PCA hair map. Similar to [11, 44] we use
+γ = 64. Following [11], we split Z into coarse Zc and fine
+Zf components, where Zc contains the coefficients for the
+first ten principal components and Zf the rest.
+3D Gaussian Splatting for Hair Reconstruction. Recent
+work [21, 38, 45] uses 3D Gaussian Splatting [14] (3DGS)
+for hair reconstruction from multi-view data. The general
+idea of these approaches is to use 3DGS to achieve differ-
+entiable rendering of the hair strands. This is done by con-
+straining the degrees of freedom of the rasterized 3D Gaus-
+sians to make them lie on the line segments of the strand
+polylines. Specifically, the mean of each Gaussian is de-
+fined at the midpoints of hair segments, while the direction
+of the highest variance corresponds to 3D orientation. Such
+reparameterization allows us to use a 3DGS rasterization
+method to match strand-based hair renders against given sil-
+houette and orientation maps (for more details, please refer
+to the supplementary).
+4. Method
+Our proposed method for one-shot hair reconstruction has
+two major components: (i) a global hairstyle prior, and
+(ii) an optimization-based local hair strand reconstruction
+scheme. The hairstyle prior is learned using a hybrid train-
+ing scheme with full 3D supervision from synthetic data
+and self-supervised losses on real data using Gaussian splat-
+ting [14]. The training on synthetic data enables the in-
+ner 3D structure of hairstyles to be learned, while the self-
+supervised training on real data improves realistic model-
+ing of the outer layer of visible hair. During test time, we
+leverage our global hairstyle prior, which is conditioned on
+the input image, to regress an initial geometry state of the
+hairstyle. This initial state is then further refined based on
+rendering losses to match the intricate details of the hair
+strands in the input image.
+3
+
+
+4.1. Hairstyle Prior
+As detailed above, we learn a hairstyle prior using synthetic
+and real data.
+Specifically, we leverage the PERM [11]
+dataset that includes 21,054 synthetic hairstyles with around
+10,000 strands each, and the Hairstep [42] dataset which
+contains 1,250 “in-the-wild” photographs without any
+available 3D hair geometry, but with manually annotated
+directional maps (see Sec. 4.3).
+Our hairstyle prior model is conditioned on a single input
+image which is mapped by a vision transformer to predict
+a PCA-based hair map Z and a baldness mask M. These
+maps are defined on the UV space of the FLAME paramet-
+ric head model [17], covering the skull region. Leveraging
+the properties of PCA, we employ a coarse-to-fine architec-
+tural scheme, see Fig. 2. Specifically, we employ a coarse
+branch that is trained to produce the basic structure of the
+hairstyle by only predicting the first 10 PCA coefficients Zc,
+and the baldness map M. In a second branch, another 54
+PCA coefficients Zf are predicted, which contain the higher
+frequencies of the hair strands, as well as a refined version
+of the baldness map M. The outputs of both branches are
+concatenated to produce the final output.
+This architecture is trained in three stages: (1) training
+the coarse branch considering the synthetic dataset with 3D
+supervision on the output, (2) training the fine branch with
+the same losses, and (3) joint training with additional real
+data using self-supervised rendering losses.
+(1) Coarse branch. The coarse branch of our architecture
+is trained to retrieve the basic structure of the hairstyle, i.e.
+the PCA hair map of size 64 × 64 × 11 containing the first
+10 PCA components of the hair strands Zc and the coarse
+version of the baldness map Mc of size H ×W, that defines
+whether there is a hair root or not. The input to this branch is
+a feature map of shape H ×W ×4, which is a concatenation
+of orientation maps Oi ∈RH×W ×1, segmentation maps
+Si ∈RH×W ×2, and depth maps Di ∈RH×W ×1, all of
+which are extracted from the input image with off-the-shelf
+models. These inputs are processed with a convolutional en-
+coder, followed by a vision transformer (ViT) [9]. Similar to
+[18], in the transformer’s attention layers, we discard tokens
+from patches that lie outside of the hair region. The output
+of the ViT is converted to the output feature map using a
+convolutional decoder, where we concatenate learnable po-
+sitional encodings to the activation maps in each layer.
+To train this coarse branch, we employ the following
+losses based on synthetic data:
+  \math c al {L}_\t
+ext { coa
+rs
+e} = \m
+athca l
+ 
+{L
+}_\text {MAE} + \lambda _\text {PCA} \big \| Z_c - \hat {Z}_c \big \|_2 + \lambda _\text {mask} \big \| M_c - \hat {M} \big \|_1. (2)
+We denote a ground truth PCA-based hair map as ˆZc, its
+corresponding strand-based map as ˆHc = { ˆSi} = {ˆpij},
+and a strand-based map decoded from the network’s predic-
+tion Zc as Hc = {Si} = {pij}. If we also denote point-
+wise directions as vij, and their normalized versions as bij,
+then the strand’s scalar curvature can be written as:
+  g _
+{ij} =  \big 
+\|
+ b_{ij}\, \times \, b_{i,j+1} \big \|_2. 
+(3)
+Our reconstruction loss LMAE is inspired by [32] and is a
+sum of individual point-wise losses, Lpoint
+ij
+=
+  \bi g  \| 
+p_
+{ i j} -
+ \hat  {p}_
+{i
+j }  \big
+ \|_2  + \l
+am
+bda _\text {dir} \big \| v_{ij} - \hat {v}_{ij} \big \|_1 + \lambda _\text {curv} \big \| g_{ij} - \hat {g}_{ij} \big \|_2, \\ (4)
+  \m a
+t
+hca
+l
+ {
+L}_\te
+xt
+ {MAE} = \frac {1}{HWL} \sum _{ij} \mathcal {L}_{ij}^\text {point}. 
+(5)
+Moreover, the latent hair maps Zc and baldness maps Mc
+are supervised with the ground-truth ˆZc and ˆ
+M.
+(2) Fine branch. In the fine branch, we predict a feature
+map of shape 64 × 64 × (54 + 1) containing the remain-
+ing PCA components Zf to bring more high-frequency de-
+tails into the hairstyle, as well as an updated baldness map
+Mf. We use a similar architecture to the coarse stage and
+use its weights to initialize the encoder and decoder. How-
+ever, the resolution of the feature maps on which the fine
+branch transformer operates is two times higher than the
+coarse branch.
+Thus, to generate the fine branch trans-
+former’s input, we first upsample the final features of the
+coarse branch and concatenate them channel-wise with the
+features extracted with the fine branch encoder. For train-
+ing, we employ a loss similar to Lcoarse. However, we mod-
+ify the coarse point loss Lpoint to focus it on matching the
+hair regions visible on the input view. This follows Hair-
+Net [43], where it was shown to improve reconstruction de-
+tails. To do that, we define per-view visibility weights wij
+for each point in the synthetic hairstyle and use a weighted
+version of the loss LMAE:
+  
+\ma t
+h
+ca l {L}'_\t
+ex
+t
+ { MAE
+} = \frac {\sum _{ij} w_{ij} \mathcal {L}_{ij}^\text {point}}{\sum _{ij} w_{ij}} , 
+(6)
+where wij = 3 for visible points and 1 otherwise. To super-
+vise the output of the fine branch, we use:
+  \ma t hc
+al {L}_\
+text  {fi
+ne
+} = \ma
+thca l  
+{
+L}
+'_\text {MAE} + \lambda _\text {PCA} \big \| Z_f - \hat {Z}_f \big \|_2 + \lambda _\text {mask} \big \| M_f - \hat {M} \big \|_1. (7)
+After initializing the fine branch using only Lfine, we further
+optimize both branches together with synthetic data:
+  \mat h cal {L} _ \text {synth} = \mathcal {L}_\text {coarse} + \mathcal {L}_\text {fine}. 
+(8)
+Note that we use a fine baldness map Mf as the final output
+M, and the PCA map Z is a concatenation of Zc and Zf.
+(3) Hybrid training on mixed data.
+Using the model,
+which is trained on purely synthetic data, we introduce ad-
+ditional self-supervised losses based on rendering to handle
+4
+
+
+real training images where no 3D data is available. Specif-
+ically, during this training step, we mix synthetic and real
+training data. For the synthetic data, we keep the geometry-
+based losses defined above, while real data is used by com-
+paring renderings of the predicted hairstyle with the ground
+truth images. For differentiable rasterization, we use a hair
+rendering pipeline based on 3D Gaussian Splatting [38]. We
+utilize a similar set of losses as [38] with the main difference
+that we use directed orientation maps and depth instead of
+Gabor orientation maps and RGB loss. The rendering-based
+losses include a segmentation loss, Lseg, that uses an L1 loss
+to match the rendered silhouette s with the ground-truth hair
+segmentation ˆs, and a direction loss, Ldirmap:
+  \m a t
+h
+c
+a
+l {L } _\t
+ext
+ {seg} =  
+\
+f
+r
+ac { 1 }{M
+} 
+\sum _p\big | s_p - \hat {s}_p \big |,\quad \mathcal {L}_\text {dirmap} = \frac {1}{M} \sum _p \big \| b_p - \hat {b}_p \big \|_1, 
+where p denotes a pixel index, M is the number of pixels,
+bp ∈R2 is the rendered hair growth direction, and ˆbp is
+the ground-truth hair growth direction that was manually
+annotated for our training dataset. Despite not having 3D
+ground truth for the real data, we can introduce an objective
+that penalizes hair penetration with the head mesh:
+  \m a
+t
+hca
+l
+ {
+L}_\
+t
+e xt {pen}
+ 
+= \frac {1}{HWL}\sum _{ij} \text {ReLU}\big ( -\text {sdf}(p_{ij}) \big ), 
+(9)
+where sdf denotes a signed distance function for the tem-
+plate head mesh. The loss for the real data is:
+  \ma t hcal {L} _ \text {real} =  \lambda _{seg}\mathcal {L}_\text {seg} + \lambda _{dirmap} \mathcal {L}_\text {dirmap} + \lambda _{pen}\mathcal {L}_{pen}. 
+(10)
+We note that there is a tradeoff between alignment with the
+target view and realism of the hairstyle, especially in non-
+visible regions. Therefore, we adopt a hybrid training strat-
+egy that trains the network on both synthetic and real data,
+which is combined in a mini-batch with a mixing rate r:
+  \math c al {L} _ {hybrid} = \mathcal {L}_{synth} + r\mathcal {L}_{real}. 
+(11)
+To stabilize the training, we propagate the gradient from
+the real data only into the coarse branch of our architecture,
+while synthetic data influences both branches (i.e., all 64
+components). We note that the signal stemming from the
+in-the-wild rendering-based objective is too noisy to train
+the fine branch of our network and results in the appearance
+of unrealistic hair details. However, such fine-tuning allows
+us to achieve a substantially higher diversity and realism in
+the reconstructed hairstyles.
+We use AdamW [20] for optimization with learning rate
+0.0001, batch size 32, and train the whole method for 139
+hours on 4 GPUs A100, see supplementary for details.
+4.2. Hairstyle Reconstruction
+To achieve detailed and aligned hairstyles from single pho-
+tographs, we perform a single-view fine-tuning of our pre-
+trained model for 400 steps. We fine-tune all parts of the
+Synthetic data
+Real data
+chamfer pts ↓
+chamfer angle ↓
+Lundir ↓
+IoU ↑
+NeuralHDHair [36]
+0.000251
+0.627
+-
+-
+Hairstep [42]
+0.001279
+0.605
+0.12
+0.8
+PERM
+-
+-
+0.128
+0.76
+Our
+0.000246
+0.502
+0.07
+0.97
+Table 1. Quantitative comparison on real and synthetic data.
+model using a coarse-to-fine strategy: first optimizing the
+initial ten components for 20 steps, followed by training
+all components together for the remaining steps. For op-
+timization, we use the Lreal loss from the hybrid train-
+ing stage and further regularize the reconstruction process
+by computing a depth loss between the rasterized Gaus-
+sians and depth estimations from Depth Pro [2]. We follow
+HAAR [33] and increase the number of hair strands through
+interpolation during the optimization.
+The whole recon-
+struction pipeline takes around 10 minutes on an A100.
+4.3. Dataset
+We render each hairstyle from the PERM [11] dataset from
+8 different views using Blender [6], resulting in 168,032
+RGB images with silhouette masks for the train and 400
+images for the test set. Similar to [36, 43], we calculate
+orientation maps using Gabor filters and depth maps using
+the Depth Pro [2] model. Thus, our model’s input consists
+of an orientation map, a hair segmentation map, a body
+segmentation mask, and a depth map.
+For training, we
+project each synthetic hairstyle onto a regular hair texture
+grid of the size 64 × 64 using the nearest interpolation,
+which also contains a baldness map. During inference, we
+additionally calculate segmentation maps using Segment-
+Anything [15], direction maps using Hairstep [42], and
+cameras using Deep3DFaceRecon [8].
+5. Experiments
+5.1. Comparisons to state of the art
+We compare our method with four different types of meth-
+ods (1) regression-based (HairNet [43]), which aims to di-
+rectly predict global hairstyle; (2) hair-growing methods,
+which first learn global and local features of hairstyle and
+then use hair growing procedures to obtain strand-based ge-
+ometry, (e.g. NeuralHDHair [36], Hairstep [42]); (3) an op-
+timization method in hairstyle prior space, PERM [11]; and
+(4) a retrieval-based method, Hairmony [43]. PERM [11] is
+the closest to ours in terms of training setup with the main
+difference being that they use a high-cost rendering proce-
+dure to retrieve the best initialization, which requires hours,
+while we use a lightweight regressor. We compare all meth-
+ods qualitatively and compute metrics on synthetic data for
+Hairstep [42] and NeuralHDHair [36], with additional met-
+rics on real data for Hairstep [42] and PERM [11].
+5
+
+
+Image
+Ours
+Hairstep [42]
+PERM [11]
+NeuralHDHair [36]
+Figure 3. Comparison results with baseline. NeuralHDHair and Hairstep produce smooth geometry, while Hairstep also has artifacts from
+the back view of short hairstyles (see row 4). PERM reconstructs simple hairstyles well (see row 1), but struggles with more complicated
+geometry. Our method recovers more detailed hairstyles than others. Digital zoom-in is recommended.
+Quantitative comparison. First, we perform quantitative
+comparisons on synthetic data, see examples in the sup-
+plementary. We use ten hairstyles and render them from a
+hemisphere with high-resolution textures to reduce the do-
+main gap between synthetic renders and real images. We
+launch Hairstep [42], NeuralHDHair [36], and our method
+on the obtained data, align results in the same space, and
+calculate the chamfer distance on points and directions be-
+tween reconstructed and ground-truth 3D hairstyles; see Ta-
+ble 1 for results. Note that the metrics are evaluated on
+10,000 strands sampled from the predicted and ground-truth
+hairstyles. The high chamfer distance for Hairstep [42] hap-
+pens because of inaccurate length predictions, especially on
+the back of the hairstyle. Our method has the lowest cham-
+fer distance both for points and directions.
+Second, we compare our model with Hairstep [42] and
+PERM [11] on 50 real images from a test subset of the
+Hairstep dataset with ground-truth 2D direction maps. We
+render the reconstructed hairstyles for both methods from
+a chosen viewpoint using OpenGL [35]. We evaluate the
+silhouette and orientation map quality based on the ground-
+truth reference. For the silhouette, we compute the average
+IoU, for orientations we use the minimal angular difference
+Lundir. Table 1 shows that our method outperforms baselines
+both in silhouette coverage and orientation estimation.
+6
+
+
+chamfer pts ↓
+chamfer angle ↓
+angle error ↓
+mask ↓
+Lundir ↓
+coarse branch
+0.00026
+0.110
+15.81
+0.517
+0.735
+w/o pca
+0.00026
+0.109
+15.75
+0.598
+0.738
+w/o curv
+0.00022
+0.110
+15.61
+0.545
+0.739
+Table 2. Ablation study of training losses of the coarse branch.
+Image
+Ours
+Hairstep NeuralHDHair
+Figure 4. Back view comparison with Hairstep [42] and Neural-
+HDHair [36]. The strands produced by our method on the back of
+the head are cleaner and more consistent with the input image.
+Figure 5. Out-of-distribution comparison of our method (second
+column) with Hairstep [42] (last column).
+Qualitative comparison.
+Figure 3 compares our recon-
+struction method with other top-performing approaches on
+real images. Hair-growing methods, NeuralHDHair [36]
+and Hairstep [42] lack details due to the inherent smooth-
+ness of their growing procedure. Hairstep also generates un-
+realistic geometry in the back, especially for short hairstyles
+(see Fig. 3, row 4, side view, Fig. 4, and Fig. 5). PERM [11]
+produces significant reconstruction errors, especially for
+wavy hairstyles, which may be due to poor initialization
+or an inefficient rendering procedure.
+Our optimization-
+based method produces more detailed and accurate results.
+Fig. 5 illustrates that our method outperforms Hairstep on
+out-of-distribution samples. We also show a separate com-
+parison between our method with and without optimiza-
+tion (see “Oursw/o opt”), with the regression-based approach
+HairNet [43] (see Fig. 6), that struggles to obtain wavy
+structures. For comparison with the retrieval-based method
+Hairmony [24], please refer to the supplementary.
+Image
+HairNet
+Oursw/o opt
+Ours
+Figure 6. Comparison of our method with HairNet [43].
+5.2. Ablation studies
+We evaluate our losses, the influence of the depth map
+signal on reconstruction quality, as well as the training
+setup, using the following metrics: a chamfer distance with
+normals between predicted and ground-truth hairstyle, and
+the mean angular error in degrees on a test subset of 50
+hairstyles from the PERM [11] dataset. Additionally, we
+evaluate the view-related losses using a metric based on sil-
+houette preservation using an L2 distance and an undirected
+orientation metric Lundir using a subset of 33 real images:
+  \mat h cal
+ 
+{L}_\text {undir} =  \
+m
+in \big \{ \text {d}(b_p, \hat {b}_p), \text {d}(b_p, \hat {b}_p) \pm \pi \big \}, \label {eq:undir} 
+(12)
+where d denotes an angular distance between the direction
+vectors, and ˆbp is generated using oriented Gabor filters.
+Losses. We ablate the contribution of each loss during the
+coarse stage training using a leave-one-out strategy. We
+evaluate the quality using various metrics on both synthetic
+and real datasets (see Table 2). Omitting the loss on PCA
+components (“w/o pca”) yields comparable results on syn-
+thetic data, but leads to a notable drop in performance on
+real data. Interestingly, removing the curvature loss (“w/o
+curv”) improves metrics for synthetic data, yet results in a
+significant decline in quality for real-world inputs. For the
+importance of the depth map as an input signal and direction
+loss, please refer to the supplementary.
+Mixing strategy.
+We analyze the impact of the mixing
+strategy (training on both synthetic and real data, at the
+same time) for the fine stage reconstruction model (Table 3,
+“w/o Mixing” and “hybrid training”). When we add the
+mixing strategy, we see some degradation in terms of per-
+formance on synthetic data, but a significant improvement
+on real data. We also experiment with using the render-
+ing loss, but continue training only on synthetic data (see
+“Priorsyn only”). In addition, we show the importance of the
+mixing strategy for the final hairstyle reconstruction stage.
+In Fig. 7, we show results of optimization in the hairstyle
+prior space trained using the mixing strategy and without it
+(see “Ours” and “w/o Mixing”). Without the mixing strat-
+egy, there are more penetrations with the head, and the
+hairstyles look less realistic.
+7
+
+
+Image
+Ours
+w/o Mixing
+w/o prior
+Figure 7. Hair reconstruction stage. The mixing strategy and
+prior space are important for single-view inversion.
+chamfer pts ↓
+chamfer angle ↓
+angle error ↓
+mask ↓
+Lundir ↓
+hybrid training
+0.00030
+0.143
+18.03
+0.405
+0.695
+w/o coarse-to-fine
+0.00032
+0.135
+17.87
+0.578
+0.732
+w/o Mixing
+0.00032
+0.128
+17.02
+0.547
+0.735
+Priorsyn only
+0.00025
+0.136
+17.63
+0.519
+0.733
+Table 3. Ablation study w.r.t. our mixing strategy, coarse-to-fine
+prediction of PCA components.
+Coarse-to-fine strategy.
+We evaluate the importance of
+training in separate stages by training a single-stage model
+that predicts all 64 PCA coefficients simultaneously. To
+ensure training stability, we employ an unfreezing strat-
+egy, adding one more component to the optimization every
+1,000 steps. Additionally, we increase the model’s capacity
+by adding several layers to the decoder architecture. This
+single-stage model (“w/o coarse-to-fine”) is trained exclu-
+sively on synthetic data and is compared to the fine-stage
+model trained without the mixing strategy (“w/o Mixing”).
+As shown in Table 3, training in a single stage results in
+reduced quality for both synthetic and real data.
+Importance of prior during inversion. We show the im-
+portance of our prior model during inversion, comparing it
+with direct inversion in 3D space, see Fig. 7 (“Ours” and
+“w/o prior”). To do that, we predict hairstyle initialization
+using our Hairstyle prior model and then, similar to Gaus-
+sianHaircut [38], we optimize 3D directions to minimize the
+Lreal loss. Direct optimization in 3D space without a prior
+model leads to poor quality, especially for wavy hairstyles.
+5.3. Applications
+Multi-view reconstruction. Our approach can be adapted
+to multi-view hair reconstruction, see suppl. doc. Figure
+8 shows the results of our method compared to Gaussian
+Haircut [38] on several scenes using 8 views from H3DS
+dataset [28]. While our method produces smoother results,
+it has more accurate geometry. Also, Gaussian Haircut [38]
+is optimized for 10 hours on a single A100, while our
+method takes around 45 minutes, making it more efficient
+in the multi-view scenario.
+Hair Simulations. Obtained hairstyles are fully compatible
+with CG engines and can be used for realistic rendering and
+simulations, see Fig. 9 and the supplementary video.
+Image
+Ours
+Gaussian Haircut
+Figure 8.
+Multi-view Reconstruction.
+Comparison of our
+method with Gaussian Haircut [38] on 8 views.
+Figure 9. Reconstructed hairstyles animated using Unreal Engine.
+Figure 10.
+Limitations.
+Our method struggles with curly
+hairstyles (left example) due to a limited dataset and sometimes
+has problems with a partition (right example).
+5.4. Limitations and future work
+Our model depends on off-the-shelf estimators for camera,
+hair silhouette, and direction maps, making it sensitive to
+their errors. Furthermore, our approach faces challenges in
+reconstructing highly curly hairstyles (Fig. 10, left) due to
+the limited hairstyles in the synthetic dataset. Expanding the
+dataset to include a broader range of diverse and complex
+hairstyles could improve these results.
+We also observe difficulties where the hair parts (Fig. 10,
+right); these arise from fixed root positions and inaccuracies
+in the baldness masks. A joint optimization approach that
+dynamically adapts root positions and densification could
+address this limitation.
+6. Conclusion
+In this paper, we present a method for strand-based hair re-
+construction from a single input photograph. To achieve
+this, we learn a strand-based hairstyle prior model using
+a dataset of synthetic and real data by introducing 3D
+geometry-based and rendering-based training objectives.
+We leverage this model for single-view as well as multi-
+view hairstyle reconstruction, obtaining superior perfor-
+mance over competitors. We show out-of-distribution ex-
+amples and how our reconstructions can be used in simula-
+tions, which highlights the versatility of our method.
+8
+
+
+Acknowledgements
+Vanessa Sklyarova and Malte Prinzler were supported by
+the Max Planck ETH Center for Learning Systems. Egor
+Zakharov’s work was funded by the “AI-PERCEIVE” ERC
+Consolidator Grant, 2021.
+Justus Thies is supported by
+the ERC Starting Grant 101162081 “LeMo” and the DFG
+Excellence Strategy— EXC-3057.
+The authors would
+like to thank Yi Zhou for running PERM on the pro-
+vided data and Keyu Wu for executing NeuralHDHair. We
+also thank Denys Nartsev, Arina Kuznetcova, and Tomasz
+Niewiadomski for their help during the project and Ben-
+jamin Pellkofer for IT support.
+Disclosure.
+While MJB is a co-founder and Chief Sci-
+entist at Meshcapade, his research in this project was per-
+formed solely at, and funded solely by, the Max Planck So-
+ciety.
+References
+[1] Mikl´os Bergou, Max Wardetzky, Stephen Robinson, Basile
+Audoly, and Eitan Grinspun. Discrete elastic rods. ACM
+SIGGRAPH 2008 papers, 2008. 2
+[2] Aleksei Bochkovskii, Ama¨el Delaunoy, Hugo Germain,
+Marcel Santos, Yichao Zhou, Stephan R. Richter, and
+Vladlen Koltun. Depth pro: Sharp monocular metric depth
+in less than a second. ArXiv, abs/2410.02073, 2024. 5, 11
+[3] Menglei Chai, Lvdi Wang, Yanlin Weng, Yizhou Yu, Baining
+Guo, and Kun Zhou. Single-view hair modeling for portrait
+manipulation. ACM Transactions on Graphics (TOG), 31:1
+– 8, 2012. 2
+[4] Menglei Chai, Tianjia Shao, Hongzhi Wu, Yanlin Weng, and
+Kun Zhou. Autohair. ACM Transactions on Graphics (TOG),
+35:1 – 12, 2016. 2
+[5] Matt Jen-Yuan Chiang, Benedikt Bitterli, Chuck Tappan, and
+Brent Burley. A practical and controllable hair and fur model
+for production path tracing. Computer Graphics Forum, 35,
+2015. 2
+[6] Blender Online Community. Blender - a 3D modelling and
+rendering package. Blender Foundation, Stichting Blender
+Foundation, Amsterdam, 2018. 5, 12
+[7] Gilles Daviet. Interactive hair simulation on the gpu using
+admm.
+ACM SIGGRAPH 2023 Conference Proceedings,
+2023. 2
+[8] Yu Deng, Jiaolong Yang, Sicheng Xu, Dong Chen, Yunde
+Jia, and Xin Tong.
+Accurate 3d face reconstruction with
+weakly-supervised learning: From single image to image
+set. In IEEE Computer Vision and Pattern Recognition Work-
+shops, 2019. 5
+[9] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Syl-
+vain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is
+worth 16x16 words: Transformers for image recognition at
+scale. ArXiv, abs/2010.11929, 2020. 4
+[10] Epic Games. Unreal engine. 12
+[11] Chengan He, Xin Sun, Zhixin Shu, Fujun Luan, S¨oren Pirk,
+Jorge Alejandro Amador Herrera, Dominik L Michels, Tuan-
+feng Y Wang, Meng Zhang, Holly Rushmeier, and Yi Zhou.
+Perm: A parametric representation for multi-style 3D hair
+modeling. In International Conference on Learning Repre-
+sentations, 2025. 2, 3, 4, 5, 6, 7, 11, 12
+[12] Liwen Hu, Chongyang Ma, Linjie Luo, and Hao Li. Single-
+view hair modeling using a hairstyle database. ACM Trans-
+actions on Graphics (Proceedings of SIGGRAPH 2015), 34
+(4):125:1–125:9, 2015. 2, 12
+[13] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkuehler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering.
+ACM Transactions on Graphics
+(TOG), 42:1 – 14, 2023. 2
+[14] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis. 3D gaussian splatting for real-time
+radiance field rendering. ACM TOG, 42(4), 2023. 3
+[15] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao,
+Chlo´e Rolland, Laura Gustafson, Tete Xiao, Spencer White-
+head, Alexander C. Berg, Wan-Yen Lo, Piotr Doll´ar, and
+Ross B. Girshick. Segment anything. 2023 IEEE/CVF In-
+ternational Conference on Computer Vision (ICCV), pages
+3992–4003, 2023. 5
+[16] Zhiyi Kuang, Yiyang Chen, Hongbo Fu, Kun Zhou, and
+Youyi Zheng.
+DeepMVSHair: Deep hair modeling from
+sparse views. In SIGGRAPH Asia 2022 Conference Papers,
+New York, NY, USA, 2022. Association for Computing Ma-
+chinery. 2
+[17] Tianye Li, Timo Bolkart, Michael. J. Black, Hao Li, and
+Javier Romero. Learning a model of facial shape and ex-
+pression from 4D scans. ACM Transactions on Graphics,
+(Proc. SIGGRAPH Asia), 36(6):194:1–194:17, 2017. 4
+[18] Wenbo Li, Zhe Lin, Kun Zhou, Lu Qi, Yi Wang, and Jiaya
+Jia. Mat: Mask-aware transformer for large hole image in-
+painting. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, 2022. 4
+[19] Pengyu Long, Zijun Zhao, Min Ouyang, Qingcheng Zhao,
+Qixuan Zhang, Wei Yang, Lan Xu, and Jingyi Yu. Tangled:
+Generating 3d hair strands from images with arbitrary styles
+and viewpoints. arXiv preprint arXiv:2502.06392, 2025. 2
+[20] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+regularization. In 7th International Conference on Learning
+Representations, ICLR 2019, New Orleans, LA, USA, May
+6-9, 2019. OpenReview.net, 2019. 5, 11
+[21] Haimin Luo, Min Ouyang, Zijun Zhao, Suyi Jiang, Longwen
+Zhang, Qixuan Zhang, Wei Yang, Lan Xu, and Jingyi Yu.
+GaussianHair: Hair modeling and rendering with light-aware
+gaussians. arXiv preprint arXiv:2402.10483, 2024. 2, 3
+[22] Linjie Luo, Hao Li, Sylvain Paris, Thibaut Weise, Mark
+Pauly, and Szymon Rusinkiewicz. Multi-view hair capture
+using orientation fields. 2012 IEEE Conference on Computer
+Vision and Pattern Recognition, pages 1490–1497, 2012. 2
+[23] Steve Marschner, Henrik Wann Jensen, Mike Cammarano,
+Steven Worley, and Pat Hanrahan. Light scattering from hu-
+man hair fibers. ACM SIGGRAPH 2003 Papers, 2003. 2
+[24] Givi Meishvili, James Clemoes, Charlie Hewitt, Zafiirah Ho-
+senie, Xian Xiao, Martin de La Gorce, Tibor Takacs, Tadas
+9
+
+
+Baltrusaitis, Antonio Criminisi, Chyna McRae, Nina Jablon-
+ski, and Marta Wilczkowiak.
+Hairmony: Fairness-aware
+hairstyle classification. In SIGGRAPH Asia 2024 Confer-
+ence Papers, page 1–11. ACM, 2024. 2, 3, 7, 12, 13
+[25] Giljoo Nam, Chenglei Wu, Min H. Kim, and Yaser Sheikh.
+Strand-accurate multi-view hair capture. In 2019 IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 155–164, 2019. 2
+[26] Sylvain Paris, H´ector M. Brice˜no, and Franc¸ois X. Sillion.
+Capture of hair geometry from multiple images. ACM Trans-
+actions on Graphics (TOG), 23:712 – 719, 2004. 2
+[27] Sylvain Paris, William Chang, Oleg I. Kozhushnyan, Wo-
+jciech Jarosz, Wojciech Matusik, Matthias Zwicker, and
+Fr´edo Durand. Hair photobooth: geometric and photometric
+acquisition of real hairstyles. ACM SIGGRAPH 2008 papers,
+2008. 2
+[28] Eduard Ramon, Gil Triginer, Janna Escur, Albert Pumarola,
+Jaime Garcia, Xavier Giro-i Nieto, and Francesc Moreno-
+Noguer. H3d-net: Few-shot high-fidelity 3d head reconstruc-
+tion. In Proceedings of the IEEE/CVF International Confer-
+ence on Computer Vision, pages 5620–5629, 2021. 8, 12,
+19
+[29] Radu Alexandru Rosu, Shunsuke Saito, Ziyan Wang, Chen-
+glei Wu, Sven Behnke, and Giljoo Nam.
+Neural strands:
+Learning hair geometry and appearance from multi-view im-
+ages.
+In Computer Vision – ECCV 2018: 15th European
+Conference, 2022. 2, 3
+[30] Radu Alexandru Rosu, Keyu Wu, Yao Feng, Youyi Zheng,
+and Michael J. Black. DiffLocks: Generating 3D hair from
+a single image using diffusion models.
+In Proceedings
+IEEE/CVF Conf. on Computer Vision and Pattern Recogni-
+tion (CVPR), 2025. 2, 3
+[31] Yuefan Shen, Shunsuke Saito, Ziyan Wang, Olivier Maury,
+Chenglei Wu, Jessica Hodgins, Youyi Zheng, and Giljoo
+Nam. Ct2hair: High-fidelity 3d hair modeling using com-
+puted tomography. ACM Trans. Graph., 42(4), 2023. 2
+[32] Vanessa Sklyarova, Jenya Chelishev, Andreea Dogaru, Igor
+Medvedev, Victor Lempitsky, and Egor Zakharov. Neural
+haircut: Prior-guided strand-based hair reconstruction.
+In
+Proceedings of IEEE International Conference on Computer
+Vision (ICCV), 2023. 2, 3, 4
+[33] Vanessa
+Sklyarova,
+Egor
+Zakharov,
+Otmar
+Hilliges,
+Michael J. Black, and Justus Thies. Text-conditioned gen-
+erative model of 3d strand-based human hairstyles.
+2024
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 4703–4712, 2023. 5, 11
+[34] Yusuke Takimoto, Hikari Takehara, Hiroyuki Sato, Zi-
+hao Zhu, and Bo Zheng.
+Dr.hair: Reconstructing scalp-
+connected hair strands without pre-training via differentiable
+rendering of line segments. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 20601–20611, 2024. 2
+[35] Mason Woo, Jackie Neider, Tom Davis, and Dave Shreiner.
+OpenGL programming guide: the official guide to learning
+OpenGL, version 1.2. Addison-Wesley Longman Publishing
+Co., Inc., 1999. 6, 14
+[36] Keyu Wu, Yifan Ye, Lingchen Yang, Hongbo Fu, Kun Zhou,
+and Youyi Zhengl. NeuralHDHair: Automatic high-fidelity
+hair modeling from a single image using implicit neural rep-
+resentations. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 1516–
+1525, 2022. 2, 5, 6, 7, 12, 13, 16, 27, 28
+[37] Keyu Wu, Lingchen Yang, Zhiyi Kuang, Yao Feng, Xutao
+Han, Yuefan Shen, Hongbo Fu, Kun Zhou, and Youyi Zheng.
+Monohair: High-fidelity hair modeling from a monocular
+video. In 2023 IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR), 2024. 2
+[38] Egor Zakharov, Vanessa Sklyarova, Michael Black, Giljoo
+Nam, Justus Thies, and Otmar Hilliges. Human hair recon-
+struction with strand-aligned 3d gaussians. In Computer Vi-
+sion – ECCV 2024: 18th European Conference, Milan, Italy,
+September 29–October 4, 2024, Proceedings, Part XVI, page
+409–425, Berlin, Heidelberg, 2024. Springer-Verlag. 2, 3, 5,
+8, 12, 14, 19
+[39] Meng Zhang and Youyi Zheng. Hair-gans: Recovering 3d
+hair structure from a single image. ArXiv, abs/1811.06229,
+2018. 2
+[40] Meng Zhang, Menglei Chai, Hongzhi Wu, Hao Yang, and
+Kun Zhou. A data-driven approach to four-view image-based
+hair modeling. ACM Transactions on Graphics (TOG), 36:1
+– 11, 2017. 2
+[41] Meng Zhang, Pan Wu, Hongzhi Wu, Yanlin Weng, Youyi
+Zheng, and Kun Zhou. Modeling hair from an rgb-d camera.
+ACM Transactions on Graphics (TOG), 37:1 – 10, 2018. 2
+[42] Yujian Zheng, Zirong Jin, Moran Li, Haibin Huang,
+Chongyang Ma,
+Shuguang Cui,
+and Xiaoguang Han.
+HairStep: Transfer synthetic to real using strand and depth
+maps for single-view 3d hair modeling. In 2023 IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 12726–12735, 2023. 2, 4, 5, 6, 7, 11, 12,
+13, 16, 20, 21, 27, 28
+[43] Yi Zhou, Liwen Hu, Jun Xing, Weikai Chen, Han-Wei Kung,
+Xin Tong, and Hao Li. HairNet: Single-view hair recon-
+struction using convolutional neural networks. In Computer
+Vision – ECCV 2018: 15th European Conference, Munich,
+Germany, September 8-14, 2018, Proceedings, Part XI, page
+249–265, Berlin, Heidelberg, 2018. Springer-Verlag. 2, 3, 4,
+5, 7, 12
+[44] Yuxiao Zhou, Menglei Chai, Alessandro Pepe, Markus
+Gross, and Thabo Beeler. Groomgen: A high-quality gen-
+erative hair model using hierarchical latent representations.
+ACM Trans. Graph., 42(6), 2023. 3
+[45] Yuxiao Zhou, Menglei Chai, Daoye Wang, Sebastian Win-
+berg, Erroll Wood, Kripasindhu Sarkar, Markus Gross, and
+Thabo Beeler. GroomCap: High-fidelity prior-free hair cap-
+ture. ACM Trans. Graph., 43(6), 2024. 2, 3
+10

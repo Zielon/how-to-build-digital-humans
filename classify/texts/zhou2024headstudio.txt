@@ -1,0 +1,522 @@
+Title: HeadStudio: Text to Animatable Head Avatars with 3D Gaussian Splatting
+
+HeadStudio: Text to Animatable Head Avatars
+with 3D Gaussian Splatting
+Zhenglin Zhou1,2, Fan Ma2, Hehe Fan2, Zongxin Yang2, and Yi Yang1,2†
+1 State Key Laboratory of Brain-machine Intelligence, Zhejiang University, China
+2 ReLER, CCAI, Zhejiang University, China
+{zhenglinzhou, mafan, hehefan, yangzongxin, yangyics}@zju.edu.cn
+Abstract. Creating digital avatars from textual prompts has long been
+a desirable yet challenging task. Despite the promising results achieved
+with 2D diffusion priors, current methods struggle to create high-quality
+and consistent animated avatars efficiently. Previous animatable head
+models like FLAME have difficulty in accurately representing detailed
+texture and geometry. Additionally, high-quality 3D static representa-
+tions face challenges in semantically driving with dynamic priors. In
+this paper, we introduce HeadStudio, a novel framework that utilizes
+3D Gaussian splatting to generate realistic and animatable avatars from
+text prompts. Firstly, we associate 3D Gaussians with animatable head
+prior model, facilitating semantic animation on high-quality 3D repre-
+sentations. To ensure consistent animation, we further enhance the op-
+timization from initialization, distillation, and regularization to jointly
+learn the shape, texture, and animation. Extensive experiments demon-
+strate the efficacy of HeadStudio in generating animatable avatars from
+textual prompts, exhibiting appealing appearances. The avatars are ca-
+pable of rendering high-quality real-time (≥40 fps) novel views at a
+resolution of 1024. Moreover, These avatars can be smoothly driven by
+real-world speech and video. We hope that HeadStudio can enhance dig-
+ital avatar creation and gain popularity in the community. Code is at:
+https://github.com/ZhenglinZhou/HeadStudio.
+Keywords: Head avatar animation · Text-guided generation · 3D Gaus-
+sian splatting
+1
+Introduction
+With the development of deep learning, head avatar generation has improved sig-
+nificantly in recent years. At first, the image-based methods [11,83] are proposed
+to reconstruct the photo-realistic head avatar of a person, given one or more
+views. Recently, generative models (e.g. diffusion [56, 75]) have made unprece-
+dented advancements in high-quality text-to-image synthesis. As a result, the
+research focus has been on text-based head avatar generation methods [21,42],
+† Corresponding author.
+arXiv:2402.06149v2  [cs.CV]  21 Dec 2024
+
+
+2
+Z. Zhou et al.
+Joker in DC (43 fps)
+Saul Goodman (49 fps)
+Thor (44 fps)
+Hulk (49 fps)
+A boy with facial painting (48 fps)
+Kratos in God of War (52 fps)
+Fig. 1: Text-based animatable avatars generation by HeadStudio. With only one
+end-to-end training stage of 2 hours on 1 NVIDIA A6000 GPU, HeadStudio is able
+to generate animatable, high-fidelity and real-time rendering (≥40 fps) head avatars
+using text inputs.
+which have shown superiority over image-based methods in convenience and
+generalization.
+However, current text-based methods cannot combine high-quality and ani-
+mation effectively. For instance, HeadSculpt [21] leverages DMTet [59] for high-
+quality optimization and creates highly detailed head avatars but is unable to
+be animated. TADA [41] employs SMPL-X [52] to generate animatable digital
+characters but sacrifices appearance quality. There is always a trade-off between
+static quality and dynamic animation within current methods. We attribute it to
+two prominent drawbacks: (1) Limitations in representation: the animatable
+head prior model struggles to model high-quality texture and geometry (refer
+to Fig. 5 and Fig. 6); (2) Challenges in optimization: aligning the static
+representation with the dynamic head prior is difficult (refer to Fig. 8).
+In this paper, we propose a novel text-based generation framework, named
+HeadStudio, by fully exploiting 3D Gaussian splatting (3DGS) [35], which
+achieves superior rendering quality and real-time performance for novel-view syn-
+thesis. Our method comprises two components: (1) Animatable Head Gaus-
+sian: We first arm FLAME [39], an animatable head prior model, with 3D Gaus-
+sian splatting by rigging each 3D Gaussian point to a mesh. As an animatable
+head Gaussian model, we use the head prior model, to deform 3D Gaussians
+and employ them for high-quality texture and geometry modeling. (2) Text to
+Avatar Optimization: We enhance the optimization from initialization, dis-
+tillation, and regularization to jointly learn the shape, texture, and animation,
+improving the visual appearance and animated quality. In specific, we intro-
+duce super-dense Gaussian initialization to thoroughly cover the head model for
+faster convergence and improved representation. To ensure the consistency of the
+control signal during animation-based training, we denoise the score distillation
+and utilize the MediaPipe [45] facial landmark map obtained from FLAME as
+a fine-grained condition for the diffusion model. To further improve the fidelity
+
+
+HeadStudio
+3
+of our method, we utilize an adaptive geometry regularization, which gives an-
+imatable head Gaussian the ability to employ strict constraints for semantic
+deformation and represent elements beyond the FLAME space, such as helmets
+and mustaches simultaneously.
+Extensive experiments have shown that HeadStudio is highly effective and
+superior to state-of-the-art methods in generating dynamic avatars from text [21,
+41,49,53,65,74]. Moreover, our methods can be easily extended to driving gen-
+erated 3D avatars via both speech-based
+[71] and video-based [16] methods.
+Overall, our contributions can be summarized as follows.
+– To the best of our knowledge, we make the first attempt to incorporate 3D
+Gaussian splatting into the text-based dynamic head avatar generation.
+– We propose HeadStudio, which arms animatable head prior model with
+3DGS and enhances its optimization for creating high-fidelity and animat-
+able head avatars.
+– HeadStudio is simple, efficient, and effective. With only one end-to-end train-
+ing stage of 2 hours on 1 NVIDIA A6000 GPU, HeadStudio is able to generate
+40 fps high-fidelity head avatars.
+2
+Related Work
+Text-to-2D generation. Recently, with the development of vision-language
+models [55] and diffusion models [27, 61], great advancements have been made
+in text-to-image generation (T2I) [26,51,72]. In particular, Stable Diffusion [56]
+is a notable framework that trains the diffusion models on latent space, leading
+to reduced complexity and detail preservation. With the emergence of text-to-
+2D models, more applications have been developed [47, 70, 77], such as spatial
+control [62,75,80], concept control [18,40,57], and image editing [8].
+Text-to-3D generation. The success of the 2D generation is incredible. How-
+ever, directly transferring the image diffusion models to 3D is challenging, due to
+the difficulty of 3D data collection. Recently, Neural Radiance Fields (NeRF) [5,
+50] opened a new insight for the 3D-aware generation, where only 2D multi-
+view images are needed in 3D scene reconstruction. Combining prior knowledge
+from text-to-2D models, several methods, such as DreamField [31], DreamFu-
+sion [53], and SJC [63], have been proposed to generate 3D objects guided by text
+prompt [38,81]. Moreover, the recent advancement of text-to-3D generation also
+inspired multiple applications, including text-guided scenes generation [15, 29],
+text-guided 3D editing [22,33], and text-guided avatar generation [10,32,48,68].
+3D Head Generation and Animation. Previous 3D head generation is pri-
+marily based on statistical models, such as 3DMM [7] and FLAME [39], while
+current methods utilize 3D-aware Generative Adversarial Networks (GANs) [4,
+11,12,58,60,67,76]. Benefiting from advancements in dynamic scene representa-
+tion [9,17,19], animatable head avatars reconstruction has been improved. Given
+a monocular video or multi-view videos, these methods [37, 54, 69, 78, 79, 83]
+reconstruct a photo-realistic head avatar, and animate it based on FLAME.
+Specifically, our method was inspired by the technique [54,83] of deforming 3D
+
+
+4
+Z. Zhou et al.
+Training with Animations 
+Render
+Update
+Animatable Head Gaussian
+(Sec. 4.1)
+Super-dense Gaussian 
+Initialization
+(Sec. 4.2.1)
+Animate
+ℒ!"# = (𝜆$%&ℒ$%& + 𝜆&ℒ&)/ 𝑎
+Eq. (9)
+Area
+𝑎
+Regularization on distance
+ℒ$%&
+Regularization on radius
+ℒ&
+Adaptive Geometry Regularization (Sec. 4.2.3)
+Animation-based Text-to-3D Distillation (Sec. 4.2.2)
+𝑦: a DSLR portrait of Joker in DC
+𝑦'"#: unrealistic, blurry, low quality, …, gloomy
+𝑥!
+𝜖"
+# (𝑥!, 𝑦, 𝐶, 𝑡)
+𝜖"
+#!"#(𝑥!, 𝑦$%&, 𝐶, 𝑡)
+Eq. (7)
+Condition 𝑪
+Forward
+Backward
+Animations
+ControlNet
+Sampling
+𝐾= 10 points 
+per triangle
+Fig. 2: Framework of HeadStudio, which integrates animatable head prior model into
+3D Gaussian splatting and score distillation sampling. 1) Animatable Head Gaus-
+sian: each 3D point is rigged to a mesh, and then rotated, scaled, and translated by the
+mesh deformation. 2) Text to Avatar Optimization: enhance the optimization from
+initialization, distillation and regularization, including: super-dense Gaussian initial-
+ization, animation-based text-to-3D distillation, and adaptive geometry regularization.
+points through rigging with FLAME mesh. We enhance its deformation and op-
+timization to adapt to score distillation-based learning. On the other hand, the
+text-to-static head avatar methods [21,42,64,74] show superiority in convenience
+and generalization. These methods demonstrate impressive texture and geom-
+etry, but are not animatable, limiting their practical application. Furthermore,
+TADA [41] and Bergman et al. [6] explore the text-to-dynamic head avatar gen-
+eration. Similarly, we utilize FLAME to animate the head avatar, but we use
+3DGS to model texture instead of the UV-map.
+3
+Preliminary
+In this section, we provide a brief overview of text to head avatar generation.
+The generation process can be seen as distilling knowledge from a diffusion model
+ϵϕ into a learnable 3D representation θ. Given camera poses, the corresponding
+views of the scene can be rendered as images. Subsequently, the distillation
+method guides the image to align with the text description y.
+Score Distillation Sampling has been proposed in DreamFusion [53]. For a
+rendered image x from a 3D representation, SDS introduces random noise ϵ to
+x at the t timestep, and then uses a pre-trained diffusion model ϵϕ to predict
+the added noise. The SDS loss is defined as the difference between predicted and
+added noise and its gradient is given by
+  \nab l a _\theta \m
+athca l {L } _{\m
+at
+hrm {SDS}} = \mathbb {E}_{t, \epsilon }[w(t) (\epsilon ^s_{\phi }(x_t;y,t)-\epsilon )\frac {\partial _x}{\partial _\theta }], 
+(1)
+where xt = αtx0 + σtϵ and w(t) is a weighting function, and s is a pre-defined
+scalar of classifier-free guidance (CFG) [28]. The loss estimates and update di-
+
+
+HeadStudio
+5
+rection that follows the score function of the diffusion model to move x to the
+text description region.
+3D Gaussian Splatting [35] is an efficient 3D representation. It reconstructs
+a static scene with anisotropic 3D Gaussians, using paired image and camera
+pose. Each point is defined by a covariance matrix Σ centered at point µ:
+  G( \ rv x
+ ) = e^ {-\frac {1}{2}(\rvx -\vmu )^T\mSigma ^{-1}(\rvx -\vmu )}. 
+(2)
+Kerbl et al. [35] construct the semi-definite covariance matrix by defining
+an ellipse using a scaling matrix S and a rotation matrix R, ensuring that the
+points have meaningful representations:
+  \mSi gm a = \mR \mS \mS ^T\mR ^T. 
+(3)
+The shape and position of a Gaussian point can be represented by a position
+vector µ ∈R3, a scaling vector s ∈R3, and a quaternion q ∈R4. Note that
+we refer R to represent the corresponding rotation matrix. Meanwhile, each
+3D Gaussian point has additional parameters: color c and opacity α, used for
+splatting-based rendering. Therefore, a scene can be represented by 3DGS as
+θ3DGS = {µ, s, q, c, α}. Given a camera view, the scene can be rendered by the
+2D projection of Gaussians via a differentiable tile rasterizer. In optimization,
+the gradient of Gaussians is utilized to guide the densification and prune of
+Gaussians. We refer readers to [13,35] for more details.
+4
+Method
+HeadStudio is a text-to-dynamic head avatar geneartion method. The created
+head avatars can be animated by text, speech, and video. As illustrated in Fig. 2,
+the generation pipeline has two key components, including (1) the animatable
+head Gaussian in Sec. 4.1, and (2) text to avatar optimization in Sec. 4.2. Im-
+plementation details are discussed in Sec. 4.3.
+4.1
+Animatable Head Gaussian
+Animatable Head Prior Model. FLAME [39] is a vertex-based linear blend
+skinning (LBS) model, with N = 5023 vertices and 4 joints (neck, jaw, and
+eyeballs). The head animation can be formulated by a function:
+  M( \v be t a , \vgamma ,  \vpsi ): \mathbb {R}^{|\vbeta | \times |\vgamma | \times |\vpsi |} \rightarrow \mathbb {R}^{3N}, \label {eq:flame} 
+(4)
+where β ∈R|β|, γ ∈R|γ| and ψ ∈R|ψ| are the shape, pose and expression
+parameters, respectively (we refer readers to [39,44] for the blendshape details).
+Recent works have successfully achieved semantic alignment between FLAME
+and various modalities, such as speech [23,71] and talking videos [16,82]. There-
+fore, existing text-to-dynamic avatar generation methods [6,41] commonly choose
+FLAME [39] as the base model. As a result, the created avatars can be seman-
+tically animated. However, the mesh number of FLAME is struggled to model
+
+
+6
+Z. Zhou et al.
+complex textures. For example, Bergman et al. [6] learns one color for each mesh.
+It inspires us to arm FLAME with 3D Gaussian points [35] for high-quality tex-
+ture modeling.
+Deformable Gaussian Texture. To mitigate the limitations of animatable
+head prior model, we use 3D Gaussian points to model the texture. The key
+point is to make sure these points can be deformed semantically by the head
+prior model. Following Qian et al. [54], we assume every 3D Gaussian point
+is connected with a FLAME mesh. The FLAME mesh moves and deforms the
+corresponding points. Given pose and expression, the FLAME mesh can be cal-
+culated by Eq. (4). Then, we quantify the mesh triangle by its center position t,
+rotation matrix ˜R and area a, which describe the triangle’s location, orientation
+and scaling in world space, respectively. Among them, the rotation matrix is a
+concatenation of one edge vector, the normal vector of the triangle, and their
+cross-product. Formally, we deform the corresponding 3D Gaussian point as
+  \ mR '
+ =  \T ild e  {
+\m R  }\mR , \qquad \vmu ' = \sqrt {a}\Tilde {\mR }\vmu + \vt , \qquad \vs ' = \sqrt {a}\vs , \label {eq:f-3dgs} 
+(5)
+where µ′, s′ and R′ are the position vector, scaling vector and rotation matrix
+of the deformed Gaussian for rendering. Intuitively, the 3D Gaussian point will
+be rotated, scaled, and translated by the mesh triangle. In this way, Gaussians
+can be seen as a residual term of FLAME to represent intricate geometry and
+texture. As a result, FLAME enables the 3DGS to animate semantically, while
+3DGS improves the texture representation and rendering efficiency of FLAME.
+Joint Learning of Shape, Texture, Animation. The intricate texture can
+be modeled by the deformable Gaussian texture θ3DGS. Besides, we assume the
+shape of head prior model θFLAME = {β} is learnable. The learnable shape allows
+for modeling character more precisely. For example, characters like the Hulk in
+Marvel have larger heads, whereas characters like Elsa in Frozen have thinner
+cheeks. Meanwhile, we notice that excessive shape updates can negatively impact
+the learning process of 3DGS due to deformation changes. Thus, we stop the
+shape update after a certain number of training steps to ensure stable learning
+of 3DGS. As a result, a head avatar can be represented by an animatable head
+Gaussian as θ = θFLAME ∪θ3DGS.
+4.2
+Text to Avatar Optimization
+To jointly learn the shape, texture, and animation of an animatable head Gaus-
+sian, we enhance its optimization from initialization, distillation, and regulariza-
+tion, respectively.
+Super-dense Gaussian Initialization. The supervision signal of SDS loss [53]
+in head avatar generation is sparse. It inspires us to initialize 3D Gaussians
+that thoroughly cover the head model for faster convergence and improved rep-
+resentation. In specific, each mesh triangle is initialized with K evenly dis-
+tributed points. The positions of the deformed 3D Gaussians µ′ are calcu-
+lated by sampling on the FLAME model (with standard pose), with all mesh
+triangles sharing the same sampling weight. The deformed scaling s′ is the
+
+
+HeadStudio
+7
+square root of the mean distance of its K-nearest neighbor points. Then, we
+initialize the position and scaling of 3D Gaussians by the inversion of Eq. (5):
+µinit = ˜R−1((µ′ −t)/√a); sinit = s′/√a. The other learnable parameters in
+θ3DGS are initialized following vanilla 3DGS [35].
+Animation-based Text-to-3D Distillation. The vanilla text-to-3D distilla-
+tion [53] produces satisfactory performance in static but falls short in animation.
+We attribute it to the absence of new poses and expressions in training. There-
+fore, we design a new text-to-3D distillation that adapts to animation.
+Training with Animations. We first incorporate the new pose and expression
+into training [41,73]. Specifically, we sample pose and expression from real-world
+motion sequences, such as TalkSHOW [71], to ensure that the avatar satisfies
+the textual prompts with a diverse range of animation.
+FLAME-based Control Generation. Training with animations is crucial for dy-
+namic avatar generation. However, the direct introduction of new pose and ex-
+pression results in Janus (multi-faces) problem [30], due to the data bias in
+the diffusion model. This issue, represented as portrait bias with front-view,
+straight-looking, and closed mouths, hinders its application in animation-based
+distillation. To address this issue, we introduce the MediaPipe [45] facial land-
+mark map C, a fine-grained control signal marking the regions of upper lips,
+lower lips, eye boundary, eyeballs, and facial boundary [21,42], for more precise
+and detailed guidance. It can be extracted from an animatable head Gaussian,
+which ensures that the control signal aligns well with the Gaussian points when
+the shape, pose, and expression change. The loss gradient is formulated as:
+  \nab l a _\theta \mathc
+al {L }_ {\ ma t hrm 
+{S
+DS}} = \mathbb {E}_{t, \epsilon , \vgamma , \vpsi }[w(t) (\epsilon ^{s}_{\phi }(x_t;y,C,t)-\epsilon )\frac {\partial _x}{\partial _\theta }]. \label {eq: f-sds} 
+(6)
+Denoised Score Distillation. According to our experiments, we find the gener-
+ated avatars have non-detailed and over-smooth textures. To solve this issue,
+we consider the distilled score to be noisy [24,34,65]. Hertz et al. [24] indicates
+that the score can be seen as the noise when the rendered image matches the
+textual prompt. Following NFSD [34], we assume the score with a large timestep
+t ≥200 is noisy, and the rendered image can be seen as matching the negative
+textural prompts, such as yneg = “unrealistic, blurry, low quality, out of focus,
+ugly, low contrast, dull, dark, low-resolution, gloomy”. Besides, the score with a
+small timestep t < 200 is relatively clean. As a result, we reorganize the SDS
+into a piece-wise function:
+  \nab l
+a
+ _\theta \mathc
+al {L }_ {\ ma th
+rm  {
+S D S}} 
+= \begin {cases}
+ \mat hb b {E } _{t, 
+\
+epsi lon ,  \ vga mm
+a , 
+\ v psi }[w(t) \epsilon ^{s}_{\phi }(x_t;y,C,t)\frac {\partial _x}{\partial _\theta }],& {\mathrm {t} < 200}, \\ \mathbb {E}_{t, \epsilon , \vgamma , \vpsi }[w(t) (\epsilon ^{s}_{\phi }(x_t;y,C,t)-\epsilon ^{s_{neg}}_{\phi }(x_t;y_{\mathrm {neg}},C,t))\frac {\partial _x}{\partial _\theta }],& \mathrm {t} \geq 200, \end {cases} 
+(7)
+where sneg is a pre-defined CFG scalar for negative textual prompts. Intuitively,
+we get a cleaner score to improve the avatar’s texture.
+Adaptive Geometry Regularization. To deform semantically, the 3D Gaus-
+sians should closely align with the rigged mesh triangle. Introducing a regulariza-
+tion term for the 3D Gaussians, such as ∥µ∥2, will lead to the 3D Gaussians being
+
+
+8
+Z. Zhou et al.
+overly concentrated around the mesh center. Thus, the regularization should in-
+versely scale with the triangle size. For instance, in the eye and mouth region,
+where the mesh triangle is small, the rigged Gaussians should have a relatively
+small scaling and position. Following Qian et al. [54], we introduce the position
+and scaling regularization. For each triangle, we initially calculate the maximum
+distance among its center t and three vertices, termed as τ, to describe the
+triangle size. Then, we formulate the regularization term as:
+  \m a t hcal {L}_{\ma thrm {po
+s} }  = {\Vert  \max ({\Vert \sqrt {a}\mR '\vmu \Vert }_2, \tau _{\mathrm {pos}}) \Vert }_2, \qquad \mathcal {L}_{\mathrm {s}} = {\Vert \max (\sqrt {a}\vs , \tau _{\mathrm {s}}) \Vert }_{2}, \label {eq:reg-naive} 
+(8)
+where τpos = 0.5τ and τs = 0.5τ are the experimental position tolerance and
+scaling tolerance, respectively.
+Small
+Large
+Fig. 3: Visualiza-
+tion of Mesh Area.
+The regularization term effectively aligns 3D Gaussians
+with FLAME. It ensures that the 3D Gaussians are posi-
+tioned around the mesh triangle and can be semantically
+deformed. However, it also restricts animatble head Gaus-
+sian from modeling elements outside the space of FLAME in
+some cases, such as Thor’s helmet and Kratos’s long mus-
+tache, which are essential parts of their identities. On the
+other hand, as shown in Fig. 3, we observe that these ele-
+ments are located on mesh triangles with large areas. This
+observation inspires us to introduce the area a as an adaptive
+factor:
+  \m a thcal {L} _ {\mathrm {reg}} = (\lambda _{\mathrm {pos}}\mathcal {L}_{\mathrm {pos}} + \lambda _{\mathrm {s}}\mathcal {L}_{\mathrm {s}})/ \sqrt {a}, \label {eq:reg} 
+(9)
+where λpos = 0.1 and λs = 0.1. Through regularization, the avatar demonstrates
+its ability for semantic deformation and modeling complex appearance.
+4.3
+Implementation Details
+Animatable Head Gaussian Details. In 3DGS, Kerbl et al. [35] employs a
+gradient threshold to filter points that require densification. Nevertheless, the
+original design cannot handle textual prompts with varying gradient responses.
+To address this, we utilize a normalized gradient to identify the points with
+consistent and significant gradient responses. Furthermore, the cloned and split
+points will inherit the same mesh triangle correspondence of their parent [54].
+The densification and pruning iterations setting are following [43]. The FLAME’s
+shape size is |γ| = 300, the expression size is |ψ| = 100 and the pose size is
+|γ| = 3 × 4 (neck, jaw, left eyeball and right eyeball).
+Text to Avatar Optimization Details. We initialize animatable head Gaus-
+sian with K = 10 per triangle. Besides, we commonly set s = 7.5 and sneg = 1 in
+animation-based text-to-3D distillation [34]. In our experiment, we default to us-
+ing Realistic Vision 5.1 (RV5.1) [3] and ControlNetMediaPipeFace [1,75]. To alle-
+viate the multi-face Janus problem, we also use the view-dependent prompts [30].
+Training Details. The framework is implemented in PyTorch and threestu-
+dio [20]. We employ a random camera sampling strategy with camera distance
+range of [1.5, 2.0], a fovy range of [40◦, 70◦], an elevation range of [−30◦, 30◦],
+
+
+HeadStudio
+9
+DreamFusion
+ProlificDreamer
+LatentNeRF
+Fantasia3D
+HeadSculpt
+HeadArtist
+Ours
+a DSLR portrait of a boy with facial painting
+a head of Caesar in Rise of the Planet of the Apes
+a DSLR portrait of Doctor Strange
+a DSLR portrait of Lionel Messi
+a DSLR portrait of Two-face in DC
+Fig. 4: Comparison with the text-to-static avatar generation methods. Our approach
+excels at producing high-fidelity head avatars, yielding superior results.
+and an azimuth range of [−180◦, 180◦]. We train head avatars with a resolution
+of 1024 and a batch size of 8. The entire training consists of 10,000 iterations.
+The overall framework is trained using the Adam optimizer [36], with betas
+of [0.9, 0.99], and learning rates of 5e-5, 1e-3, 1e-2, 1.25e-2, 1e-2, and 1e-3 for
+mean position µ, scaling factor vs, rotation quaternion q, color c, opacity α,
+and FLAME shape β, respectively [43]. Note that we stop the FLAME shape
+optimization after 8,000 iterations. The entire optimization process takes around
+two hours on a single NVIDIA A6000 (48GB) GPU.
+5
+Experiment
+Evaluation. We evaluate the quality of head avatars with two settings. 1) static
+head avatars: producing a diverse range of avatars based on various text prompts.
+2) dynamic head avatars: driving an avatar with FLAME sequences sampled in
+TalkSHOW [71].
+
+
+10
+Z. Zhou et al.
+TADA
+“a head of I am Groot”
+“a DSLR portrait of Geralt in The Witcher”
+“a head of I am Hulk”
+48 fps
+49 fps
+49 fps
+“Geralt in The Witcher”
+“Hulk”
+“I am Groot”
+3 fps
+3 fps
+3 fps
+Ours
+“Kratos in God of War”
+3 fps
+3 fps
+3 fps
+“Zombie”
+“Robot”
+“a DSLR portrait of Kratos in God of War”
+52 fps
+“a head of a zombie”
+“a head of a robot”
+42 fps
+56 fps
+3 fps
+Fig. 5: Comparison with the text-to-dynamic avatar generation method TADA [41] in
+terms of semantic alignment and rendering speed. The yellow circles indicate semantic
+misalignment in the mouths, resulting in misplaced mouth texture. The rendering
+speed evaluation on the same device is reported in the blue box. The FLAME mesh of
+the avatar is visualized on the bottom right. Our method provides effective semantic
+alignment, smooth expression deformation, and real-time rendering.
+Table 1: Quantitative Evaluation. Evaluating the coherence of generations with
+their caption using different CLIP models.
+CLIP-Score
+ViT-L/14↑
+ViT-B/16 ↑
+ViT-B/32 ↑
+DreamFusion [53]
+0.244
+0.302
+0.300
+LatentNeRF [49]
+0.248
+0.299
+0.303
+Fantasia3D [14]
+0.267
+0.304
+0.300
+ProlificDreamer [65]
+0.268
+0.320
+0.308
+HeadSculpt [21]
+0.264
+0.306
+0.305
+HeadArtist [42]
+0.272
+0.318
+0.313
+Ours
+0.275
+0.322
+0.317
+Baselines. We compare our method with state-of-the-art methods in two set-
+tings. 1) static head avatars: We compare the generation results with six base-
+lines: DreamFusion [53], LatentNeRF [49], Fantasia3D [14] and ProlificDreamer [65],
+HeadSculpt [21] and HeadArtist [42]. It is worth noting that HeadSculpt [21] and

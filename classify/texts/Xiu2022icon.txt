@@ -1,0 +1,1358 @@
+Title: Icon: Implicit clothed humans obtained from normals
+
+ICON: Implicit Clothed humans Obtained from Normals
+Yuliang Xiu
+Jinlong Yang
+Dimitrios Tzionas
+Michael J. Black
+Max Planck Institute for Intelligent Systems, T¨ubingen, Germany
+{yuliang.xiu, jinlong.yang, dtzionas, black}@tuebingen.mpg.de
+Figure 1. Images to avatars. ICON robustly reconstructs 3D clothed humans in unconstrained poses from individual video frames (Left).
+These are used to learn a fully textured and animatable clothed avatar with realistic clothing deformations (Right).
+Abstract
+Current methods for learning realistic and animatable 3D
+clothed avatars need either posed 3D scans or 2D images
+with carefully controlled user poses. In contrast, our goal is
+to learn an avatar from only 2D images of people in uncon-
+strained poses. Given a set of images, our method estimates
+a detailed 3D surface from each image and then combines
+these into an animatable avatar. Implicit functions are well
+suited to the ﬁrst task, as they can capture details like hair
+and clothes. Current methods, however, are not robust to
+varied human poses and often produce 3D surfaces with
+broken or disembodied limbs, missing details, or non-human
+shapes. The problem is that these methods use global feature
+encoders that are sensitive to global pose. To address this,
+we propose ICON (“Implicit Clothed humans Obtained from
+Normals”), which, instead, uses local features. ICON has
+two main modules, both of which exploit the SMPL(-X) body
+model. First, ICON infers detailed clothed-human normals
+(front/back) conditioned on the SMPL(-X) normals. Second,
+a visibility-aware implicit surface regressor produces an
+iso-surface of a human occupancy ﬁeld. Importantly, at in-
+ference time, a feedback loop alternates between reﬁning
+the SMPL(-X) mesh using the inferred clothed normals and
+then reﬁning the normals. Given multiple reconstructed
+frames of a subject in varied poses, we use a modiﬁed ver-
+sion of SCANimate to produce an animatable avatar from
+them. Evaluation on the AGORA and CAPE datasets shows
+that ICON outperforms the state of the art in reconstruc-
+tion, even with heavily limited training data. Additionally,
+it is much more robust to out-of-distribution samples, e.g.,
+in-the-wild poses/images and out-of-frame cropping. ICON
+takes a step towards robust 3D clothed human reconstruc-
+tion from in-the-wild images. This enables avatar creation
+directly from video with personalized pose-dependent cloth
+deformation. Models and code are available for research at
+https://icon.is.tue.mpg.de.
+1. Introduction
+Realistic virtual humans will play a central role in mixed
+and augmented reality, forming a key foundation for the
+“metaverse” and supporting remote presence, collaboration,
+education, and entertainment. To enable this, new tools
+are needed to easily create 3D virtual humans that can be
+readily animated. Traditionally, this requires signiﬁcant artist
+effort and expensive scanning equipment. Therefore, such
+approaches do not scale easily. A more practical approach
+would enable individuals to create an avatar from one or
+more images. There are now several methods that take a
+single image and regress a minimally clothed 3D human
+model [6,7,18,21,33,48]. Existing parametric body models,
+however, lack important details like clothing and hair [29,
+38,48,53,64]. In contrast, we present a method that robustly
+extracts 3D scan-like data from images of people in arbitrary
+poses and uses this to construct an animatable avatar.
+1
+arXiv:2112.09127v2  [cs.CV]  28 Mar 2022
+
+
+We base our approach on implicit functions (IFs), which
+go beyond parametric body models to represent ﬁne shape
+details and varied topology. IFs allow recent methods to infer
+detailed shape from an image [22,24,54,55,65,70]. Despite
+promising results, state-of-the-art (SOTA) methods struggle
+with in-the-wild data and often produce humans with broken
+or disembodied limbs, missing details, high-frequency noise,
+or non-human shape; see Fig. 2 for examples.
+The
+issues
+with
+previous
+methods
+are
+twofold:
+(1) Such methods are typically trained on small, hand-
+curated,
+3D human datasets (e.g. Renderpeople [3])
+with very limited pose, shape and clothing variation.
+(2) They typically feed their implicit-function module with
+features of a global 2D image or 3D voxel encoder, but these
+are sensitive to global pose. While more, and more var-
+ied, 3D training data would help, such data remains limited.
+Hence, we take a different approach and improve the model.
+Speciﬁcally, our goal is to reconstruct a detailed clothed
+3D human from a single RGB image with a method that is
+training-data efﬁcient and robust to in-the-wild images and
+out-of-distribution poses. Our method, called ICON, stands
+for Implicit Clothed humans Obtained from Normals. ICON
+replaces the global encoder of existing methods with a more
+data-efﬁcient local scheme; Fig. 3 shows a model overview.
+ICON takes as input an RGB image of a segmented clothed
+human and a SMPL body estimated from the image [32].
+The SMPL body is used to guide two of ICON’s modules:
+one infers detailed clothed-human surface normals (front and
+back views), and the other infers a visibility-aware implicit
+surface (iso-surface of an occupancy ﬁeld). Errors in the
+initial SMPL estimate, however, might misguide inference.
+Thus, at inference time, an iterative feedback loop reﬁnes
+SMPL (i.e., its 3D shape, pose, and translation) using the
+inferred detailed normals, and vice versa, leading to a reﬁned
+implicit shape with better 3D details.
+We evaluate ICON quantitatively and qualitatively on
+challenging datasets, namely AGORA [47] and CAPE [41],
+as well as on in-the-wild images.
+Results show that
+ICON has two advantages w.r.t. the state of the art:
+(1) Generalization. ICON’s locality helps it generalize to
+in-the-wild images and out-of-distribution poses and clothes
+better than previous methods.
+Representative cases are
+shown in Fig. 2; notice that, although ICON is trained
+on full-body images only, it can handle images with out-
+of-frame cropping, with no ﬁne tuning or post processing.
+(2) Data efﬁcacy. ICON’s locality helps it avoid spurious
+correlations between pose and surface shape. Thus, it needs
+less data for training. ICON signiﬁcantly outperforms base-
+lines in low-data regimes, as it reaches SOTA performance
+when trained with as little as 12% of the data.
+We provide an example application of ICON for creating
+an animatable avatar; see Fig. 1 for an overview. We ﬁrst
+apply ICON on the individual frames of a video sequence,
+(A)
+(B)
+(D)
+(F)
+(E)
+(C)
+(B)
+(D)
+(F)
+ICON
+vs
+PIFu
+ICON
+vs
+PIFuHD
+ICON
+vs
+PaMIR
+ICON
+vs
+ARCH++
+(G)
+(H)
+(H)
+Figure 2. SOTA methods for inferring 3D humans from in-the-wild
+images, e.g., PIFu, PIFuHD, PaMIR, and ARCH++, struggle with
+challenging poses and out-of-frame cropping (E), resulting in var-
+ious artifacts including non-human shapes (A,G), disembodied
+parts (B,H), missing body parts (C,D), missing details (E), and
+high-frequency noise (F). ICON deals with these challenges and
+produces high-quality results, highlighted with a green shadow
+Front view (blue) and rotated view (bronze).
+to obtain 3D meshes of a clothed person in various poses.
+We then use these to train a poseable avatar using a modi-
+ﬁed version of SCANimate [56]. Unlike 3D scans, which
+SCANimate takes as input, our estimated shapes are not
+equally detailed and reliable from all views. Consequently,
+we modify SCANimate to exploit visibility information in
+learning the avatar. The output is a 3D clothed avatar that
+moves and deforms naturally; see Fig. 1-right and Fig. 8b.
+ICON takes a step towards robust reconstruction of 3D
+clothed humans from in-the-wild photos. Based on this,
+fully textured and animatable avatars with personalized pose-
+aware clothing deformation can be created directly from
+video frames. Models and code are available at https:
+//icon.is.tue.mpg.de.
+2. Related work
+Mesh-based statistical models. Mesh-based statistical
+body models [29,38,48,53,64] are a popular explicit repre-
+sentation for 3D human reconstruction. This is not only be-
+cause such models capture the statistics across a human popu-
+lation, but also because meshes are compatible with standard
+2
+
+
+graphics pipelines. A lot of work [18,30,31,33,57,58,66]
+estimates 3D body meshes from an RGB image, but these
+have no clothing. Other work estimates clothed humans,
+instead, by modeling clothing geometry as 3D offsets on
+top of body geometry [4–7, 34, 50, 63, 72]. The resulting
+clothed 3D humans can be easily animated, as they naturally
+inherit the skeleton and surface skinning weights from the
+underlying body model. An important limitation, though, is
+modeling clothing such as skirts and dresses; since these dif-
+fer a lot from the body surface, simple body-to-cloth offsets
+are insufﬁcient. To address this, some methods [12,27] use a
+classiﬁer to identify cloth types in the input image, and then
+perform cloth-aware inference for 3D reconstruction. How-
+ever, such a remedy does not scale up to a large variety of
+clothing types. Another advantage of mesh-based statistical
+models, is that texture information can be easily accumulated
+through multi-view images or image sequences [6,12], due
+to their consistent mesh topology. The biggest limitation,
+though, is that the state of the art does not generalize well
+w.r.t. clothing-type variation, and it estimates meshes that do
+not align well to input-image pixels.
+Deep implicit functions. Unlike meshes, deep implicit
+functions [17,44,46] can represent detailed 3D shapes with
+arbitrary topology, and have no resolution limitations. Saito
+et al. [54] introduce deep implicit functions for clothed 3D
+human reconstruction from RGB images and, later [55], they
+signiﬁcantly improve 3D geometric details. The estimated
+shapes align well to image pixels. However, their shape
+reconstruction lacks regularization, and often produces ar-
+tifacts like broken or disembodied limbs, missing details,
+or geometric noise. He et al. [22] add a coarse-occupancy
+prediction branch, and Li et al. [37] and Dong et al. [20] use
+depth information captured by an RGB-D camera to further
+regularize shape estimation and provide robustness to pose
+variation. Li et al. [35, 36] speed up inference through an
+efﬁcient volumetric sampling scheme. A limitation of all
+above methods is that the estimated 3D humans cannot be
+reposed, because implicit shapes (unlike statistical models)
+lack a consistent mesh topology, a skeleton, and skinning
+weights. To address this, Bozic et al. [14] infer an embedded
+deformation graph to manipulate implicit functions, while
+Yang et al. [65] also infer a skeleton and skinning ﬁelds.
+Statistical models & implicit functions. Mesh-based
+statistical models are well regularized, while deep implicit
+functions are much more expressive. To get the best of both
+worlds, recent methods [10,11,24,70] combine the two rep-
+resentations. Given a sparse point cloud of a clothed person,
+IPNet [10] infers an occupancy ﬁeld with body/clothing lay-
+ers, registers SMPL to the body layer with inferred body-part
+segmentation, and captures clothing as offsets from SMPL
+to the point cloud. Given an RGB image of a clothed per-
+son, ARCH [24] and ARCH++ [23] reconstruct 3D human
+shape in a canonical space by warping query points from the
+canonical to the posed space, and projecting them onto the
+2D image space. However, to train these models, one needs
+to unpose scans into the canonical pose with an accurately
+ﬁtted body model; inaccurate poses cause artifacts. More-
+over, unposing clothed scans using the “undressed” model’s
+skinning weights alters shape details. For the same RGB
+input, Zheng et al. [69,70] condition the implicit function on
+a posed and voxelized SMPL mesh for robustness to pose
+variation and reconstruct local details from the image pixels,
+similar to PIFu [54]. However, these methods are sensitive
+to global pose, due to their 3D convolutional encoder. Thus,
+for training data with limited pose variation, they struggle
+with out-of-distribution poses and in-the-wild images.
+Positioning ICON w.r.t. related work. ICON combines
+the statistical body model SMPL with an implicit function,
+to reconstruct clothed 3D human shape from a single RGB
+image. SMPL not only guides ICON’s estimation, but is
+also optimized “in the loop” during inference to enhance its
+pose accuracy. Instead of relying on the global body features,
+ICON exploits local body features that are agnostic to global
+pose variations. As a result, even when trained on heavily
+limited data, ICON achieves state-of-the-art performance
+and is robust to out-of-distribution poses. This work links
+monocular 3D clothed human reconstruction to scan/depth
+based avatar modeling algorithms [16,19,40,42,56,60,62].
+3. Method
+ICON is a deep-learning model that infers a 3D clothed
+human from a color image. Speciﬁcally, ICON takes as input
+an RGB image with a segmented clothed human (following
+the suggestion of PIFuHD’s repository [49]), along with
+an estimated human body shape “under clothing” (SMPL),
+and outputs a pixel-aligned 3D shape reconstruction of the
+clothed human. ICON has two main modules (see Fig. 3)
+for: (1) SMPL-guided clothed-body normal prediction and
+(2) local-feature based implicit surface reconstruction.
+3.1. Body-guided normal prediction
+Inferring full-360◦3D normals from a single RGB image
+of a clothed person is challenging; normals for the occluded
+parts need to be hallucinated based on the observed parts.
+This is an ill-posed task and is challenging for deep net-
+works. Unlike model-free methods [26,55,59], ICON takes
+into account a SMPL [38] “body-under-clothing” mesh to
+reduce ambiguities and guide front and (especially) back
+clothed-body normal prediction. To estimate the SMPL
+mesh M(β, θ) ∈RN×3 from image I, we use PyMAF [68]
+due to its better mesh-to-image alignment compared to other
+methods. SMPL is parameterized by shape, β ∈R10, and
+pose, θ ∈R3×K, where N = 6, 890 vertices and K = 24
+joints. ICON is also compatible with SMPL-X [48].
+Under a weak-perspective camera model, with scale
+s ∈R and translation t ∈R3, we use the PyTorch3D [51] dif-
+3
+
+
+DR (Front)
+SDF
+Back Normal (Cloth + Body, 6 dim)
+Pose & Shape
+Estimation
+Concat
+Concat
+Visibility & SDF
+6
+1
+6
+1
+Visible Point
+Invisible Point
+OR
+(1) Body-guided normal prediction
+(2) Local-feature based implicit 3D representation
+Front Normal (Cloth + Body, 6 dim)
+Body Normal
+Body Normal
+Cloth Normal
+Cloth Normal
+Marching
+Cubes
+DR (Back)
+SDF (1 dim)
+SDF (1 dim)
+Figure 3. ICON’s architecture contains two main modules for: (1) body-guided normal prediction, and (2) local-feature based implicit 3D
+reconstruction. The dotted line with an arrow is a 2D or 3D query function. The two GN networks (purple/orange) have different parameters.
+ferentiable renderer, denoted as DR, to render M from two
+opposite views, obtaining “front” (i.e., observable side) and
+“back” (i.e., occluded side) SMPL-body normal maps N b =
+{N b
+front, N b
+back}. Given N b and the original color image I,
+our normal networks GN = {GN
+front, GN
+back} predict clothed-
+body normal maps, denoted as b
+N c = { b
+N c
+front, b
+N c
+back}:
+DR(M) →N b,
+(1)
+GN(N b, I) →b
+N c.
+(2)
+We train the normal networks, GN, with the following loss:
+LN = Lpixel + λVGGLVGG,
+(3)
+where Lpixel = |N c
+v −b
+N c
+v |, v = {front, back}, is a loss (L1)
+between ground-truth and predicted normals (the two GN in
+Fig. 3 have different parameters), and LVGG is a perceptual
+loss [28] weighted by λVGG. With only Lpixel, the inferred
+normals are blurry, but adding LVGG helps recover details.
+Reﬁning SMPL. Intuitively, a more accurate SMPL body
+ﬁt provides a better prior that helps infer better clothed-body
+normals. However, in practice, human pose and shape (HPS)
+regressors do not give pixel-aligned SMPL ﬁts. To account
+for this, during inference, the SMPL ﬁts are optimized based
+on the difference between the rendered SMPL-body normal
+maps, N b, and the predicted clothed-body normal maps, b
+N c,
+as shown in Fig. 4. Speciﬁcally we optimize over SMPL’s
+shape, β, pose, θ, and translation, t, parameters to minimize:
+LSMPL = min
+θ,β,t(λN diffLN diff + LS diff),
+(4)
+LN diff = |N b −b
+N c|,
+LS diff = |Sb −bSc|,
+(5)
+where LN diff is a normal-map loss (L1), weighted by
+λN diff; LS diff is a loss (L1) between the silhouettes of the
+Body Refinement
+Rendered 
+Predicted 
+Figure 4. SMPL reﬁnement using a feedback loop.
+SMPL body normal-map Sb and the human mask bSc seg-
+mented [52] from I. We ablate LN diff, LS diff in Appx
+Reﬁning normals. The normal maps rendered from the re-
+ﬁned SMPL mesh, N b, are fed to the GN networks. The
+improved SMPL-mesh-to-image alignment guides GN to in-
+fer more reliable and detailed normals b
+N c.
+Reﬁnement loop. During inference, ICON alternates be-
+tween: (1) reﬁning the SMPL mesh using the inferred b
+N c
+normals and (2) re-inferring b
+N c using the reﬁned SMPL. Ex-
+periments show that this feedback loop leads to more reliable
+clothed-body normal maps for both (front/back) sides.
+4
+
+
+3.2. Local-feature based implicit 3D reconstruction
+Given the predicted clothed-body normal maps, b
+N c, and
+the SMPL-body mesh, M, we regress the implicit 3D sur-
+face of a clothed human based on local features FP:
+FP = [Fs(P), Fb
+n(P), Fc
+n(P)],
+(6)
+where Fs is the signed distance from a query point P to the
+closest body point Pb ∈M, and Fb
+n is the barycentric surface
+normal of Pb; both provide strong regularization against self
+occlusions. Finally, Fc
+n is a normal vector extracted from
+b
+N c
+front or b
+N c
+back depending on the visibility of Pb:
+Fc
+n(P) =
+( b
+N c
+front(π(P))
+if Pb is visible
+b
+N c
+back(π(P))
+else,
+(7)
+where π(P) denotes the 2D projection of the 3D point P.
+Please note that FP is independent of global body
+pose. Experiments show that this is key for robustness to
+out-of-distribution poses and efﬁcacy w.r.t. training data.
+We feed FP into an implicit function, IF, parameterized
+by a Multi-Layer Perceptron (MLP) to estimate the occu-
+pancy at point P, denoted as bo(P). A mean squared error
+loss is used to train IF with ground-truth occupancy, o(P).
+Then the fast surface localization algorithm [36,39] is used
+to extract meshes from the 3D occupancy inferred by IF.
+4. Experiments
+4.1. Baseline models
+We compare ICON primarily with PIFu [54] and
+PaMIR [70]. These methods differ from ICON and from
+each other w.r.t. the training data, the loss functions, the
+network structure, the use of the SMPL body prior, etc. To
+isolate and evaluate each factor, we re-implement PIFu and
+PaMIR by “simulating” them based on ICON’s architecture.
+This provides a uniﬁed benchmarking framework, and en-
+ables us to easily train each baseline with the exact same data
+and training hyper-parameters for a fair comparison. Since
+there might be small differences w.r.t. the original models,
+we denote the “simulated” models with a “star” as:
+• PIFu∗
+:
+{f2D(I, N)}
+→O,
+• PaMIR∗:
+{f2D(I, N), f3D(V)}
+→O,
+• ICON
+:
+{N, γ(M)}
+→O,
+where f2D denotes the 2D image encoder, f3D denotes the 3D
+voxel encoder, V denotes the voxelized SMPL, O denotes
+the entire predicted occupancy ﬁeld, and γ is the mesh-based
+local feature extractor described in Sec. 3.2. The results are
+summarized in Tab. 2-A, and discussed in Sec. 4.3-A. For
+reference, we also report the performance of the original
+PIFu [54], PIFuHD [55], and PaMIR [70]; our “simulated”
+models perform well, and even outperform the original ones.
+Train & Validation Sets
+Test Set
+Renderp.
+Twindom
+AGORA
+THuman
+BUFF
+CAPE
+[3]
+[61]
+[47]
+[71]
+[67]
+[41,50]
+Free & public
+
+
+
+
+
+
+Diverse poses
+
+
+
+
+
+
+Diverse identities
+
+
+
+
+
+
+SMPL(-X) poses
+
+
+
+
+
+
+High-res texture
+
+
+
+
+
+
+Number of scans
+450 [54,55]
+1000 [70]
+450 [IC]
+600 [IC†]
+5 [54,55]
+150 [IC]
+375 [24]
+3109 [IC†]
+600 [70]
+26 [24]
+300 [36,70]
+Table 1. Datasets for 3D clothed humans. Gray color indicates
+datasets used by ICON. The bottom “number of scans” row in-
+dicates the number of scans each method uses. The cell format
+is
+number of scans [method]. ICON is denoted as [IC].
+The symbol † corresponds to the “8x” setting in Fig. 6.
+4.2. Datasets
+Several public or commercial 3D clothed-human datasets
+are used in the literature, but each method uses different
+subsets and combinations of these, as shown in Tab. 1.
+Training data. To compare models fairly, we factor out
+differences in training data as explained in Sec. 4.1. Follow-
+ing previous work [54, 55], we retrain all baselines on the
+same 450 Renderpeople scans (subset of AGORA). Meth-
+ods that require the 3D body prior (i.e., PaMIR, ICON) use
+the SMPL-X meshes provided by AGORA. ICON’s GN and
+IF modules are trained on the same data.
+Testing data.
+We evaluate primarily on CAPE [41],
+which no method uses for training, to test their genereliz-
+ability. Speciﬁcally, we divide the CAPE dataset into the
+“CAPE-FP” and “CAPE-NFP” sets that have “fashion” and
+“non-fashion” poses, respectively, to better analyze the gen-
+eralization to complex body poses; for details on data split-
+ting please see Appx To evaluate performance without a
+domain gap between train/test data, we also test all models
+on “AGORA-50” [54,55], which contains 50 samples from
+AGORA that are different from the 450 used for training.
+Generating synthetic data. We use the OpenGL scripts
+of MonoPort [36] to render photo-realistic images with dy-
+namic lighting. We render each clothed-human 3D scan (I
+and N c) and their SMPL-X ﬁts (N b) from multiple views
+by using a weak perspective camera and rotating the scan in
+front of it. In this way we generate 138, 924 samples, each
+containing a 3D clothed-human scan, its SMPL-X ﬁt, an
+RGB image, camera parameters, 2D normal maps for the
+scan and the SMPL-X mesh (from two opposite views) and
+SMPL-X triangle visibility information w.r.t. the camera.
+4.3. Evaluation
+We use 3 evaluation metrics, described in the following:
+“Chamfer” distance. We report the Chamfer distance be-
+tween ground-truth scans and reconstructed meshes. For this,
+we sample points uniformly on scans/meshes, to factor out
+resolution differences, and compute average bi-directional
+point-to-surface distances. This metric captures large geo-
+metric differences, but misses smaller geometric details.
+5
+
+
+Methods
+SMPL-X
+AGORA-50
+CAPE-FP
+CAPE-NFP
+CAPE
+condition.
+Chamfer ↓
+P2S ↓
+Normals ↓
+Chamfer ↓
+P2S ↓
+Normals ↓
+Chamfer ↓
+P2S ↓
+Normals ↓
+Chamfer ↓
+P2S ↓
+Normals ↓
+Ours
+ICON
+
+1.204
+1.584
+0.060
+1.233
+1.170
+0.072
+1.096
+1.013
+0.063
+1.142
+1.065
+0.066
+A
+PIFu
+[54]
+
+3.453
+3.660
+0.094
+2.823
+2.796
+0.100
+4.029
+4.195
+0.124
+3.627
+3.729
+0.116
+PIFuHD [55]
+
+3.119
+3.333
+0.085
+2.302
+2.335
+0.090
+3.704
+3.517
+0.123
+3.237
+3.123
+0.112
+PaMIR
+[70]
+
+2.035
+1.873
+0.079
+1.936
+1.263
+0.078
+2.216
+1.611
+0.093
+2.122
+1.495
+0.088
+SMPL-X GT
+N/A
+1.518
+1.985
+0.072
+1.335
+1.259
+0.085
+1.070
+1.058
+0.068
+1.158
+1.125
+0.074
+PIFu∗
+
+2.688
+2.573
+0.097
+2.100
+2.093
+0.091
+2.973
+2.940
+0.111
+2.682
+2.658
+0.104
+PaMIR∗
+
+1.401
+1.500
+0.063
+1.225
+1.206
+0.055
+1.413
+1.321
+0.063
+1.350
+1.283
+0.060
+B
+ICONN†
+
+1.153
+1.545
+0.057
+1.240
+1.226
+0.069
+1.114
+1.097
+0.062
+1.156
+1.140
+0.064
+ICON w/o Fb
+n
+
+1.259
+1.667
+0.062
+1.344
+1.336
+0.072
+1.180
+1.172
+0.064
+1.235
+1.227
+0.067
+C
+ICONenc(I, b
+N c)
+
+1.172
+1.350
+0.053
+1.243
+1.243
+0.062
+1.254
+1.122
+0.060
+1.250
+1.229
+0.061
+ICONenc( b
+N c)
+
+1.180
+1.450
+0.055
+1.202
+1.196
+0.061
+1.180
+1.067
+0.059
+1.187
+1.110
+0.060
+D
+ICON
+
+1.583
+1.987
+0.079
+1.364
+1.403
+0.080
+1.444
+1.453
+0.083
+1.417
+1.436
+0.082
+ICON + BR
+
+1.554
+1.961
+0.074
+1.314
+1.356
+0.070
+1.351
+1.390
+0.073
+1.339
+1.378
+0.072
+PaMIR∗
+
+1.674
+1.802
+0.075
+1.608
+1.625
+0.072
+1.803
+1.764
+0.079
+1.738
+1.718
+0.077
+SMPL-X perturbed
+N/A
+1.984
+2.471
+0.098
+1.488
+1.531
+0.095
+1.493
+1.534
+0.098
+1.491
+1.533
+0.097
+Table 2. Quantitative evaluation (cm) for: (A) performance w.r.t. SOTA; (B) body-guided normal prediction; (C) local-feature based implicit
+reconstruction; and (D) robustness to SMPL-X noise. Inference conditioned on: () SMPL-X ground truth (GT); () perturbed SMPL-X
+GT; () no SMPL-X condition. SMPL-X ground truth is provided by each dataset. CAPE is not used for training, and tests generalizability.
+“P2S” distance. CAPE has raw scans as ground truth, which
+can contain large holes. To factor holes out, we additionally
+report the average point-to-surface (P2S) distance from scan
+points to the closest reconstructed surface points. This metric
+can be viewed as a 1-directional version of the above metric.
+“Normals” difference. We render normal images for recon-
+structed and ground-truth surfaces from ﬁxed viewpoints
+(Sec. 4.2, “generating synthetic data”), and calculate the L2
+error between them. This captures errors for high-frequency
+geometric details, when Chamfer and P2S errors are small.
+A. ICON -vs- SOTA. ICON outperforms all original
+state-of-the-art (SOTA) methods, and is competitive to our
+“simulated” versions of them, as shown in Tab. 2-A. We
+use AGORA’s SMPL-X [47] ground truth (GT) as a ref-
+erence. We notice that our re-implemented PaMIR∗out-
+perform the SMPL-X GT for images with in-distribution
+body poses (“AGORA-50” and “CAPE-FP”), However, this
+is not the case for images with out-of-distribution poses
+(“CAPE-NFP”). This shows that, although conditioned on
+GT SMPL-X ﬁts, PaMIR∗is still sensitive to global body
+pose due to its global feature encoder, and fails to generalize
+to out-of-distribution poses. On the contrary, ICON gen-
+eralizes well to out-of-distribution poses, because its local
+features are independent from global pose (see Sec. 3.2).
+B. Body-guided normal prediction. We evaluate the
+conditioning on SMPL-X-body normal maps, N b, for guid-
+ing inference of clothed-body normal maps, b
+N c (Sec. 3.1).
+Table 2-B shows performance with (“ICON”) and without
+(“ICONN†”) conditioning. With no conditioning, errors on
+“CAPE” increase slightly. Qualitatively, guidance by body
+normals heavily improves the inferred normals, especially
+for occluded body regions; see Fig. 5. We also ablate the ef-
+fect of the body-normal feature (Sec. 3.2), Fb
+n , by removing
+it; this worsens results, see “ICON w/o Fb
+n” in Tab. 2-B.
+C. Local-feature based implicit reconstruction.
+To
+evaluate the importance of our “local” features (Sec. 3.2),
+FP, we replace them with “global” features produced by 2D
+Hard Pose
+Monochrome
+Self-occlusion
+Rare Scale
+w/o SMPL Prior
+w/ SMPL Prior
+Figure 5. Normal prediction ( b
+N c) w/ and w/o SMPL prior (N b).
+convolutional ﬁlters. These are applied on the image and the
+clothed-body normal maps (“ICONenc(I, b
+N c)” in Tab. 2-C),
+or only on the normal maps (“ICONenc( b
+N c)” in Tab. 2-C).
+We use a 2-stack hourglass model [25], whose receptive ﬁeld
+expands to 46% of the image size. This takes a large image
+area into account and produces features sensitive to global
+body pose. This worsens reconstruction performance for
+out-of-distribution poses, such as in “CAPE-NFP”. For an
+evaluation of PaMIR’s receptive ﬁeld size, see Appx
+We compare ICON to state-of-the-art (SOTA) models for
+a varying amount of training data in Fig. 6. The “Dataset
+scale” axis reports the data size as the ratio w.r.t. the 450
+scans of the original PIFu methods [54, 55]; the left-most
+side corresponds to 56 scans and the right-most side corre-
+sponds to 3, 709 scans, i.e., all the scans of AGORA [47] and
+THuman [71]. ICON consistently outperforms all methods.
+Importantly, ICON achieves SOTA performance even when
+trained on just a fraction of the data. We attribute this to
+the local nature of ICON’s point features; this helps ICON
+generalize well in the pose space and be data efﬁcient.
+6
+
+
+1/8x
+1/4x
+1/2x
+1x
+8x
+Dataset scale (ratio)
+1.0
+1.5
+2.0
+2.5
+3.0
+Chamfer distance (cm)
+3.339
+2.968
+2.932
+2.682
+1.76
+2.024
+1.78
+1.479
+1.35
+1.095
+1.336
+1.266
+1.219
+1.142
+1.036
+PIFu
+PaMIR
+ICON
+SMPL-X
+Figure 6. Reconstruction error w.r.t. training-data size. “Dataset
+size” is deﬁned as the ratio w.r.t. the 450 scans used in [54,55]. The
+“8x” setting is all 3, 709 scans of AGORA [47] and THuman [71].
+D. Robustness to SMPL-X noise. SMPL-X estimated
+from an image might not be perfectly aligned with body
+pixels in the image. However, PaMIR and ICON are con-
+ditioned on this estimation. Thus, they need to be robust
+against various noise levels in SMPL-X shape and pose.
+To evaluate this, we feed PaMIR∗and ICON with ground-
+truth and perturbed SMPL-X, denoted with () and () in
+Tab. 2-A,D. ICON conditioned on perturbed () SMPL-X
+produces larger errors w.r.t. conditioning on ground truth
+(). However, adding the body reﬁnement module (“ICON
++BR”) of Sec. 3.1, reﬁnes SMPL-X and improves perfor-
+mance. As a result, “ICON +BR” conditioned on noisy
+SMPL-X () performs comparably to PaMIR∗conditioned
+on ground-truth SMPL-X (); it is slightly worse/better for
+in-/out-of-distribution poses.
+5. Applications
+5.1. Reconstruction from in-the-wild images
+We collect 200 in-the-wild images from Pinterest that
+show people performing parkour, sports, street dance, and
+kung fu. These images are unseen during training. We show
+qualitative results for ICON in Fig. 8a and comparisons to
+SOTA in Fig. 2; for more results see our video and Appx
+To evaluate the perceived realism of our results, we com-
+pare ICON to PIFu∗, PaMIR∗, and the original PIFuHD [55]
+in a perceptual study. ICON, PIFu∗and PaMIR∗are trained
+on all 3, 709 scans of AGORA [47] and THuman [71] (“8x”
+setting in Fig. 6). For PIFuHD we use its pre-trained model.
+In the study, participants were shown an image and either a
+rendered result of ICON or of another method. Participants
+were asked to choose the result that best represents the shape
+of the human in the image. We report the percentage of trails
+in which participants preferred the baseline methods over
+ICON in Tab. 3; p-values correspond to the null-hypothesis
+that two methods perform equally well. For details on the
+study, example stimuli, catch trials, etc. see Appx
+Figure 7. Failure cases of ICON for extreme clothing, pose, or
+camera view. We show the front (blue) and rotated (bronze) views.
+PIFu∗
+PIFuHD [55]
+PaMIR∗
+Preference
+30.9%
+22.3%
+26.6%
+P-value
+1.35e-33
+1.08e-48
+3.60e-54
+Table 3. Perceptual study. Numbers denote the chance that partici-
+pants prefer the reconstruction of a competing method over ICON
+for in-the-wild images. ICON is judged signiﬁcantly more realistic.
+5.2. Animatable avatar creation from video
+Given a sequence of images with the same subject in
+various poses, we create an animatable avatar with the help
+of SCANimate [56]. First, we use ICON to reconstruct a 3D
+clothed-human mesh per frame. Then, we feed these meshes
+to SCANimate. ICON’s robustness to diverse poses enables
+us to learn a clothed avatar with pose-dependent clothing
+deformation. Unlike raw 3D scans, which are taken with
+multi-view systems, ICON operates on a single image and its
+reconstructions are more reliable for observed body regions
+than for occluded ones. Thus, we reformulate the loss of
+SCANimate to downweight occluded regions depending on
+camera viewpoint. Results are shown in Fig. 1 and Fig. 8b;
+for animations see the video on our webpage.
+6. Conclusion
+We have presented ICON, which robustly recovers a 3D
+clothed person from a single image with accuracy and real-
+ism that exceeds prior art. There are two keys: (1) Regulariz-
+ing the solution with a 3D body model while optimizing that
+body model iteratively. (2) Using local features to eliminate
+spurious correlations with global pose. Thorough ablation
+studies validate these choices. The quality of results is sufﬁ-
+cient to build a 3D avatar from monocular image sequences.
+Limitations and future work. Due to the strong body prior
+exploited by ICON, loose clothing that is far from the body
+may be difﬁcult to reconstruct; see Fig. 7. Although ICON is
+robust to small errors of body ﬁts, signiﬁcant failure of body
+ﬁts leads to reconstruction failure. Because it is trained on or-
+thographic views, ICON has trouble with strong perspective
+effects, producing asymmetric limbs or anatomically improb-
+able shapes. A key future application is to use images alone
+to create a dataset of clothed avatars. Such a dataset could ad-
+vance research in human shape generation [15], be valuable
+to fashion industry, and facilitate graphics applications.
+7
+
+
+(a) ICON reconstructions for in-the-wild images with extreme poses (Sec. 5.1).
+(b) Avatar creation from images with SCANimate (Sec. 5.2). The input per-frame meshes are reconstructed with ICON.
+Figure 8. ICON results for two applications (Sec. 5). We show two views for each mesh, i.e., a front (blue) and a rotated (bronze) view.
+Possible negative impact. While the quality of virtual hu-
+mans created from images is not at the level of facial “deep
+fakes”, as this technology matures, it will open up the possi-
+bility for full-body deep fakes, with all the attendant risks.
+These risks must also be balanced by the positive use cases
+in entertainment, tele-presence, and future metaverse appli-
+cations. Clearly regulation will be needed to establish legal
+boundaries for its use. In lieu of societal guidelines today,
+we have made our code available with an appropriate license.
+Disclosure. https://ﬁles.is.tue.mpg.de/black/CoI CVPR 2022.txt
+Acknowledgments. We thank Yao Feng, Soubhik Sanyal,
+Hongwei Yi, Qianli Ma, Chun-Hao Paul Huang, Weiyang
+Liu, and Xu Chen for their feedback and discussions,
+Tsvetelina Alexiadis for her help with perceptual study,
+Taylor McConnell assistance, Benjamin Pellkofer for web-
+page, and Yuanlu Xu’s help in comparing with ARCH and
+ARCH++. This project has received funding from the Eu-
+ropean Union’s Horizon 2020 research and innovation pro-
+gramme under the Marie Skłodowska-Curie grant agreement
+No.860768 (CLIPE project).
+8
+
+
+Appendices
+We provide more details for the method and experiments,
+as well as more quantitative and qualitative results, as an
+extension of Sec. 3, Sec. 4 and Sec. 5 of the main paper.
+A. Method & Experiment Details
+A.1. Dataset (Sec. 4.2)
+Dataset size. We evaluate the performance of ICON and
+SOTA methods for a varying training-dataset size (Fig. 6
+and Tab. 9). For this, we ﬁrst combine AGORA [47] (3, 109
+scans) and THuman [71] (600 scans) to get 3, 709 scans
+in total. This new dataset is 8x times larger than the 450
+Renderpeople (“450-Rp”) scans used in [54,55]. Then, we
+sample this “8x dataset” to create smaller variations, for
+1/8x, 1/4x, 1/2x, 1x, and 8x the size of “450-Rp”.
+Dataset splits. For the “8x dataset”, we split the 3, 109
+AGORA scans into a new training set (3, 034 scans), val-
+idation set (25 scans) and test set (50 scans).
+Among
+these, 1, 847 come from Renderpeople [3] (see Fig. 10a),
+622 from AXYZ [8], 242 from Humanalloy [2], 398 from
+3DPeople [1], and we sample only 600 scans from THuman
+(see Fig. 10b), due to its high pose repeatability and lim-
+ited identity variants (see Tab. 1), with the “select-cluster”
+scheme described below.
+These scans, as well as their
+SMPL-X ﬁts, are rendered after every 10 degrees rotation
+around the yaw axis, to totally generate (3109 AGORA +
+600 THuman + 150 CAPE) × 36 = 138, 924 samples.
+Dataset distribution via “select-cluster” scheme. To cre-
+ate a training set with a rich pose distribution, we need to
+select scans from various datasets with poses different from
+AGORA. Following SMPLify [13], we ﬁrst ﬁt a Gaussian
+Mixture Model (GMM) with 8 components to all AGORA
+poses, and select 2K THuman scans with low likelihood.
+Then, we apply M-Medoids (n cluster = 50) on these
+selections for clustering, and randomly pick 12 scans per
+cluster, collecting 50×12 = 600 THuman scans in total; see
+Fig. 10b. This is also used to split CAPE into “CAPE-FP”
+(Fig. 10c) and “CAPE-NFP” (Fig. 10d), corresponding to
+scans with poses similar (in-distribution poses) and dissimi-
+lar (out-of-distribution poses) to AGORA ones, respectively.
+Perturbed SMPL. To perturb SMPL’s pose and shape pa-
+rameters, random noise is added to θ and β by:
+θ += sθ ∗µ,
+β += sβ ∗µ,
+(8)
+where µ ∈[−1, 1], sθ = 0.15 and sβ = 0.5. These are
+set empirically to mimic the misalignment error typically
+caused by off-the-shell HPS during testing.
+Discussion on simulated data. The wide and loose cloth-
+ing in CLOTH3D++ [9,43] demonstrates strong dynamics,
+which would complement commonly used datasets of com-
+mercial scans. Yet, the domain gap between CLOTH3D++
+and real images is still large. Moreover, it is unclear how to
+train an implicit function from multi-layer non-watertight
+meshes. Consequently, we leave it for future research.
+A.2. Reﬁning SMPL (Sec. 3.1)
+Figure 9. SMPL reﬁnement error (y-axis) with different losses (see
+colors) and noise levels, sθ, of pose parameters (x-axis).
+To statistically analyze the necessity of LN diff and LS diff
+in Eq. (4), we do a sanity check on AGORA’s validation
+set. Initialized with different pose noise, sθ (Eq. (8)), we
+optimize the {θ, β, t} parameters of the perturbed SMPL by
+minimizing the difference between rendered SMPL-body
+normal maps and ground-truth clothed-body normal maps
+for 2K iterations. As Fig. 9 shows, LN diff + LS diff always
+leads to the smallest error under any noise level, measured
+by the Chamfer distance between the optimized perturbed
+SMPL mesh and the ground-truth SMPL mesh.
+A.3. Perceptual study (Tab. 3)
+Reconstruction on in-the-wild images. We perform a per-
+ceptual study to evaluate the perceived realism of the recon-
+structed clothed 3D humans from in-the-wild images. ICON
+is compared against 3 methods, PIFu [54], PIFuHD [55], and
+PaMIR [70]. We create a benchmark of 200 unseen images
+downloaded from the internet, and apply all the methods
+on this test set. All the reconstruction results are evaluated
+on Amazon Mechanical Turk (AMT), where each partici-
+pant is shown pairs of reconstructions from ICON and one
+of the baselines, see Fig. 11. Each reconstruction result is
+rendered in four views: front, right, back and left. Partici-
+pants are asked to choose the reconstructed 3D shape that
+better represents the human in the given color image. Each
+participant is given 100 samples to evaluate. To teach partic-
+ipants, and to ﬁlter out the ones that do not understand the
+task, we set up 1 tutorial sample, followed by 10 warm-up
+samples, and then the evaluation samples along with catch
+9
+
+
+Methods
+SMPL-X
+AGORA-50
+CAPE-FP
+CAPE-NFP
+CAPE
+condition.
+Chamfer ↓
+P2S ↓
+Normal ↓
+Chamfer ↓
+P2S ↓
+Normal ↓
+Chamfer ↓
+P2S ↓
+Normal ↓
+Chamfer ↓
+P2S ↓
+Normal ↓
+ICON
+
+1.583
+1.987
+0.079
+1.364
+1.403
+0.080
+1.444
+1.453
+0.083
+1.417
+1.436
+0.082
+D
+SMPL-X perturbed
+
+1.984
+2.471
+0.098
+1.488
+1.531
+0.095
+1.493
+1.534
+0.098
+1.491
+1.533
+0.097
+ICONenc(I,N)
+
+1.569
+1.784
+0.073
+1.379
+1.498
+0.070
+1.600
+1.580
+0.078
+1.526
+1.553
+0.075
+ICONenc(N)
+
+1.564
+1.854
+0.074
+1.368
+1.484
+0.071
+1.526
+1.524
+0.078
+1.473
+1.511
+0.076
+ICONN†
+
+1.575
+2.016
+0.077
+1.376
+1.496
+0.076
+1.458
+1.569
+0.080
+1.431
+1.545
+0.079
+Table 4. Quantitative errors (cm) for several ICON variants conditioned on perturbed SMPL-X ﬁts (sθ = 0.15, sβ = 0.5).
+trial samples inserted every 10 evaluation samples. Each
+catch trial sample shows a color image along with either (1)
+the reconstruction of a baseline method for this image and
+the ground-truth scan that was rendered to create this image,
+or (2) the reconstruction of a baseline method for this image
+and the reconstruction for a different image (false positive),
+see Fig. 11c. Only participants that pass 70% out of 10 catch
+trials are considered. This leads to 28 valid participants out
+of 36 ones. Results are reported in Tab. 3.
+Normal map prediction. To evaluate the effect of the body
+prior for normal map prediction on in-the-wild images, we
+conduct a perceptual study against prediction without the
+body prior. We use AMT, and show participants a color
+image along with a pair of predicted normal maps from two
+methods. Participants are asked to pick the normal map that
+better represents the human in the image. Front- and back-
+side normal maps are evaluated separately. See Fig. 12 for
+some samples. We set up 2 tutorial samples, 10 warm-up
+samples, 100 evaluation samples and 10 catch trials for each
+subject. The catch trials lead to 20 valid subjects out of 24
+participants. We report the statistical results in Tab. 5. A
+chi-squared test is performed with a null hypothesis that
+the body prior does not have any inﬂuence. We show some
+results in Fig. 13, where all participants unanimously prefer
+one method over the other. While results of both methods
+look generally similar on front-side normal maps, using the
+body prior usually leads to better back-side normal maps.
+w/ SMPL prior
+w/o SMPL prior
+P-value
+Preference (front)
+47.3%
+52.7%
+8.77e-2
+Preference (back)
+52.9%
+47.1%
+6.66e-2
+Table 5. Perceptual study on normal prediction.
+A.4. Implementation details (Sec. 4.1)
+Network architecture. Our body-guided normal prediction
+network uses the same architecture as PIFuHD [55], orig-
+inally proposed in [28], and consisting of residual blocks
+with 4 down-sampling layers. The image encoder for PIFu∗,
+PaMIR∗, and ICONenc is a stacked hourglass [45] with 2
+stacks, modiﬁed according to [25]. Tab. 6 lists feature di-
+mensions for various methods; “total dims” is the neuron
+number for the ﬁrst MLP layer (input). The number of neu-
+rons in each MLP layer is: 13 (7 for ICON), 512, 256, 128,
+and 1, with skip connections at the 3rd, 4th, and 5th layers.
+w/ global
+pixel
+point
+total
+encoder
+dims
+dims
+dims
+PIFu∗
+
+12
+1
+13
+PaMIR∗
+
+6
+7
+13
+ICONenc(I,N)
+
+6
+7
+13
+ICONenc(N)
+
+6
+7
+13
+ICON
+
+0
+7
+7
+Table 6. Feature dimensions for various approaches. “pixel dims”
+and “point dims” denote the feature dimensions encoded from
+pixels (image/normal maps) and 3D body prior, respectively.
+# iters (460ms/it)
+0
+10
+50
+Chamfer ↓
+1.417 1.413 1.339
+P2S ↓
+1.436 1.515 1.378
+Normal ↓
+0.082 0.077 0.074
+Table 7. ICON errors w.r.t. iterations
+Receptive ﬁeld
+139
+271
+403
+Chamfer ↓
+1.418 1.478 1.366
+P2S ↓
+1.236 1.320 1.214
+Normal ↓
+0.083 0.084 0.078
+Table 8. PaMIR’s receptive ﬁeld
+Training details. For training GN we do not use THuman
+due to its low-quality texture (see Tab. 1). On the contrary,
+IF is trained on both AGORA and THuman. The front-side
+and back-side normal prediction networks are trained indi-
+vidually with batch size of 12 under the objective function
+deﬁned in Eq. (3), where we set λVGG = 5.0. We use the
+ADAM optimizer with a learning rate of 1.0 × 10−4 until
+convergence at 80 epochs.
+Test-time details. During inference, to iteratively reﬁne
+SMPL and the predicted clothed-body normal maps, we
+perform 50 iterations (each iteration takes ∼460 ms on a
+Quadro RTX 5000 GPU) and set λN = 2.0 in Eq. (4). We
+conduct an experiment to show the inﬂuence of the number
+of iterations (#iterations) on accuracy, see Tab. 7.
+The resolution of the queried occupancy space is 2563.
+We use rembg1 to segment the humans in in-the-wild im-
+ages, and use Kaolin2 to compute per-point the signed
+distance, Fs, and barycentric surface normal, Fb
+n.
+Discussion on receptive ﬁeld size. As Tab. 8 shows, simply
+reducing the size of receptive ﬁeld of PaMIR does not lead to
+better performance. This shows that our informative 3D fea-
+tures as in Eq. (6) and normal maps b
+N c also play important
+roles for robust reconstruction. A more sophisticated design
+of smaller receptive ﬁeld may lead to better performance and
+we would leave it for future research.
+1https://github.com/danielgatis/rembg
+2https://github.com/NVIDIAGameWorks/kaolin
+10

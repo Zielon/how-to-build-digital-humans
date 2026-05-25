@@ -1,0 +1,1239 @@
+Title: Relightable gaussian codec avatars
+
+Relightable Gaussian Codec Avatars
+Shunsuke Saito, Gabriel Schwartz, Tomas Simon, Junxuan Li, Giljoo Nam
+Codec Avatars Lab, Meta
+Relightable head avatars
+Video driven animation
+(animated avatar/input HMC images)
+Env. map relighting
+Close-ups
+Intrinsic decomp.
+(normal/albedo/diffuse/specular)
+Figure 1. Relightable Gaussian Codec Avatars. Our approach enables real-time relighting of human head avatars with all-frequency
+reflections and detailed hair reconstruction using 3D Gaussians and learnable radiance transfer. Our dynamic avatars can be driven live in
+real-time from images captured with head mounted cameras (HMC). https://shunsukesaito.github.io/rgca/
+Abstract
+The fidelity of relighting is bounded by both geometry
+and appearance representations. For geometry, both mesh
+and volumetric approaches have difficulty modeling intri-
+cate structures like 3D hair geometry.
+For appearance,
+existing relighting models are limited in fidelity and often
+too slow to render in real-time with high-resolution contin-
+uous environments. In this work, we present Relightable
+Gaussian Codec Avatars, a method to build high-fidelity
+relightable head avatars that can be animated to generate
+novel expressions. Our geometry model based on 3D Gaus-
+sians can capture 3D-consistent sub-millimeter details such
+as hair strands and pores on dynamic face sequences. To
+support diverse materials of human heads such as the eyes,
+skin, and hair in a unified manner, we present a novel re-
+lightable appearance model based on learnable radiance
+transfer. Together with global illumination-aware spheri-
+cal harmonics for the diffuse components, we achieve real-
+time relighting with all-frequency reflections using spheri-
+cal Gaussians. This appearance model can be efficiently
+relit under both point light and continuous illumination. We
+further improve the fidelity of eye reflections and enable ex-
+plicit gaze control by introducing relightable explicit eye
+models. Our method outperforms existing approaches with-
+out compromising real-time performance. We also demon-
+strate real-time relighting of avatars on a tethered con-
+sumer VR headset, showcasing the efficiency and fidelity of
+our avatars.
+1. Introduction
+What makes avatar relighting so challenging? Our visual
+perception is highly sensitive to facial appearance. Con-
+vincing the visual system requires modeling each part of
+the head in sufficient detail that is coherent with an environ-
+ment, and this synthesis typically needs to be performed in
+real-time for primary applications of photorealistic avatars
+including games and telecommunication [39, 57].
+Real-
+time relighting of animatable human heads with convincing
+details remains an open challenge for three reasons.
+The first challenge is that human heads are composed
+of highly complex and diverse materials that exhibit differ-
+ent properties of scattering and reflectance. For example,
+skin produces intricate reflections due to micro-geometry
+as well as significant subsurface scattering [53, 79], hair ex-
+hibits out-of-plane scattering with multiple reflections due
+to its translucent fiber structure [46], and the eyes have mul-
+tiple layers with highly reflective membranes [33, 68]. By
+and large, there is no single material representation that ac-
+curately represents them all, especially in real-time. More-
+over, precise tracking and modeling of the underlying ge-
+ometry in motion is extremely challenging because defor-
+mations do not always contain sufficient visual markers to
+track. Finally, the real-time requirement severely limits the
+algorithmic design. Increase in photorealism traditionally
+results in an exponential increase in the cost of transporting
+light and tracking motion. Our goal is to design a learn-
+1
+arXiv:2312.03704v2  [cs.GR]  28 May 2024
+
+
+ing framework that builds real-time renderable head avatars
+with accurate scattering and reflections under illuminations
+of any frequency.
+Given exhaustive measurements obtained using a light-
+stage [10, 16, 45], physically-based rendering methods [69,
+79] can generalize to novel illuminations. However, it re-
+mains non-trivial to extend these methods to dynamic per-
+formance capture and non-skin parts such as hair and eye-
+balls. Additionally, acquiring sufficiently accurate geom-
+etry and material parameters is a laborious process with a
+significant amount of manual cleanup required [69].
+More recently, neural relighting approaches sidestep the
+need for accurate geometry and material modeling by only
+modeling the direct relationship between the input (i.e., il-
+lumination) and output (i.e., outgoing radiance) with neu-
+ral networks and approximated geometry using meshes [7],
+volumetric primitives [20, 35, 88], and neural fields [33,
+67]. Typically these models are learned from one-light-at-
+a-time (OLAT) [67] or grouped lights [7, 20, 88] controlled
+by a light-stage, and supporting real-time rendering with
+continuous illumination requires expensive teacher-student
+distillation [7, 20] or physically-inspired appearance mod-
+els that explicitly maintain key properties of light transport
+such as linearity [33, 88]. Despite promising results, we
+observe that the existing approaches lead to suboptimal per-
+formance due to insufficient expressiveness of both the ge-
+ometric and appearance representations. In particular, none
+of the methods achieve all-frequency reflections on hair and
+eyes, and submillimeter thin structures such as hair strands
+are often blurred out or glued into larger blobs, making hair
+rendering less than photorealistic.
+To address the aforementioned issues, we present three
+contributions: (1) drivable avatars based on 3D Gaussians
+that can be efficiently rendered with intricate geometric de-
+tails, (2) a relightable appearance model based on learnable
+radiance transfer that supports global light transport and all-
+frequency reflections in real-time, and (3) a relightable ex-
+plicit eye model that enables disentangled control of gaze
+from other facial movements as well as all-frequency eye-
+reflections for the first time in a fully data-driven manner.
+3D Gaussian Avatars.
+Our geometric representation is
+based on 3D Gaussians [24] that can be rendered in real-
+time using splatting. To achieve a drivable avatar, we de-
+code 3D Gaussians on a shared UV space for a template
+head using 2D convolutional neural networks. We encode
+the driving signals such as facial expressions in a self-
+supervised manner akin to traditional codecs. This allows
+us to track the moving heads in a temporally coherent man-
+ner with intricate geometric details such as hair strands.
+Learnable Radiance Transfer. For appearance, inspired
+by precomputed radiance transfer [70], we introduce a re-
+lightable appearance model based on learnable radiance
+transfer that consists of diffuse spherical harmonics and
+specular spherical Gaussians.
+We learn diffuse radiance
+transfer parameterized by dynamic spherical harmonics co-
+efficients for each 3D Gaussian.
+This transfer precon-
+volves visibility and global light transport, including multi-
+bounce and subsurface scattering.
+For specular reflec-
+tion, we introduce a novel parameterization of spherical
+Gaussians [75, 90] with view-dependent visibility that ef-
+fectively approximates the combined effects of occlusion,
+Fresnel, and geometric attenuation without explicitly esti-
+mating the individual contributions.
+Our specular Gaus-
+sian lobe is aligned with the reflection vector and computed
+using the view direction and per-Gaussian view-dependent
+normals. Most importantly, spherical Gaussians support all-
+frequency reflection under high-resolution illuminations in
+real-time.
+Both diffuse and specular representations sat-
+isfy the linearity of light transport, hence supporting real-
+time rendering under both point lights and environment
+illumination without additional training. In addition, the
+proposed learnable radiance transfer supports global light
+transport and all-frequency reflection of the eyes, skin, and
+hair with the unified representation, significantly simplify-
+ing the learning process while achieving extremely high-
+fidelity relighting.
+Relightable Explicit Eye Model. To reproduce reflections
+on the cornea, our relightable Gaussian avatar incorporates
+an explicit eye model [68] that also enables explicit control
+of the eyeballs with better disentanglement. In addition, our
+appearance model naturally supports relighting of the eyes
+with all-frequency reflections, which is crucial for photore-
+alism under natural environments.
+We run an evaluation of various pairs of geometry and
+relightable appearance models in this work and other real-
+time renderable baseline methods. Our experiments show
+that the combination of 3D Gaussians with our relighting
+appearance model outperforms any other combination.
+2. Related Work
+Face Modeling. Facial avatar modeling has been an ac-
+tive research topic for over half a century [61]. We refer
+to [61] for a comprehensive overview on research and tools
+for artist-friendly authoring of 3D facial models. Advance-
+ments in image-based 3D reconstruction [12] enabled the
+precise and more automated acquisition of 3D faces using
+multi-view capture systems, especially in high-end film pro-
+duction [2, 4, 9, 16, 91]. These approaches primarily fo-
+cus on the facial skin region, and more tailored solutions
+are required for the reconstruction and modeling of differ-
+ent components such as teeth [80], lips [15], facial hair [3],
+eyes [5, 51], and hair [19, 43, 55, 60], which are difficult to
+scale for dynamic and complete head avatars.
+More recently, learning-based approaches emerged to
+holistically represent human heads without requiring pre-
+cise input geometry [39, 44, 95, 97]. In particular, volu-
+2
+
+
+metric representations [40, 50] show the promise of repre-
+senting both skin and more complex geometric structures
+like hair with a single representation [27, 95, 97]. To en-
+able real-time rendering with volumes, several hybrid ap-
+proaches are proposed to partition the space for efficient
+raymarching using mixture of volumetric primitives [41]
+or tetrahedra [14]. Point clouds are also utilized to model
+head avatars [96]. However, we observe that the existing
+shape representations for real-time renderable avatars strug-
+gle with modeling extremely thin structures such as hair
+strands. To address this limitation, we extend a state-of-
+the-art efficient scene representation based on 3D Gaussian
+splatting [24] to animatable facial avatar modeling. While
+several works already show dynamic modeling of 3D Gaus-
+sians [42, 81], we are the first to enable the modeling of an-
+imatable and (most importantly) relightable 3D Gaussians.
+Facial Reflectance Capture.
+In the early 2000s, visual
+production was a great driver for facial reflectance cap-
+ture and relighting research for composing actors into vir-
+tual environments. A seminal work by Debevec et al. [10]
+demonstrated that one-light-at-a-time (OLAT) captures can
+be used to obtain reflectance properties and relight faces
+in novel illuminations by leveraging the linearity of light
+transport. Follow-up work further extended the method to
+dynamic relighting [62], and fast acquisition of reflectance
+maps using spherical gradient illuminations [16, 18, 45].
+Subsequently, the collection of larger datasets allowed es-
+timating reflectance from a single image using neural net-
+works [31, 32, 34, 36, 59, 87].
+However, accurate re-
+flectance estimation is typically limited to skin regions be-
+cause the intricate hair and eye structure make the inverse
+rendering intractable. While inverse rendering with various
+scene representations has also been proposed to estimate
+spatially-varying BRDFs (SVBRDFs) [7, 52, 54, 90, 94],
+it remains a challenge to photorealistically model complete
+human heads due to the highly complex and diverse mate-
+rial and geometric composition. The lack of photorealism is
+also evident in recent relightable head modeling in the wild
+using simple BRDF and shading models [11, 65, 96].
+Neural Relighting.
+Instead of modeling BRDF param-
+eters, learning-based relighting approaches attempt to di-
+rectly learn relightable appearance from a light-stage cap-
+ture [13, 48, 49, 67, 84, 85, 93]. While these approaches
+show promising relighting for static [67, 84, 85, 93] and dy-
+namic scenes [48, 49], they do not support generating novel
+animations, which is an essential requirement for avatars.
+Portrait relighting methods [58, 71, 72, 77, 89] also en-
+able relighting under novel illuminations given a single im-
+age. However, they cannot produce novel view synthesis or
+temporally coherent dynamic relighting. Bi et al. [6] pro-
+pose a neural-rendering method that supports global illu-
+mination for animatable facial avatars. To enable real-time
+rendering with natural environments, they distillate a slow
+teacher model conditioned with individual point lights into
+a light-weight student model that can be conditioned with
+environment maps. This work is later extended to articu-
+lated hand modeling [20], compositional modeling of heads
+and eyeglasses [35], and scalable training by eliminating the
+need of teacher-student distillation [88]. These relightable
+avatars take as input the lighting information, which we dis-
+cover is the main limiting factor for expressiveness in all-
+frequency relighting. In contrast, inspired by Precomputed
+Radiance Transfer (PRT) [70, 75], we propose to integrate a
+target illumination at the output of our neural decoder, im-
+proving quality and simplifying the learning pipeline.
+Precomputed Radiance Transfer. In computer graphics,
+rendering a scene with global illumination is an expensive
+process due to iterative path tracing or multiple bounce
+computations. To enable real-time rendering with global
+light transport, Sloan et al. [70] propose to precompute a
+part of light transport that only depends on intrinsic scene
+properties, such as geometry and reflectance, and then inte-
+grate the precomputed intrinsic factor with an extrinsic illu-
+mination at runtime. For fast integration, they utilize spher-
+ical harmonics as an angular basis. To overcome the limited
+frequency band in spherical harmonics, follow-up works in-
+troduce wavelets [56], spherical radial basis functions [74],
+spherical Gaussians [17, 75], anisotropic spherical Gaus-
+sians [82], and neural network-based decompositions [86].
+Similarly, Neural PRT [63] applies the same principle to
+screen-space relighting based on neural deferred render-
+ing [73]. Despite many desirable properties, these methods
+primarily focus on static scenes due to the dependency on
+knowing geometry and material properties. Unfortunately,
+we neither know the geometry and material properties for
+human heads a priori, nor are they static. Thus, we pro-
+pose to learn the intrinsic radiance transfer from dynamic
+real-data observations without explicitly assuming any ma-
+terial types or underlying geometry. The closest to our work
+in terms of the appearance representation is EyeNeRF [33],
+where they learn view-independent spherical harmonics for
+diffuse and view-conditioned spherical harmonics for spec-
+ular components from image observations to build a re-
+lightable eye model. However, this appearance model suf-
+fers from the limited expressiveness of spherical harmon-
+ics for specular reflections. Empirically, we find that their
+proposed model does not generalize well to novel view and
+light directions. Please refer to Sec. 4 for our analysis.
+3. Method
+In this section, we provide details of the data acquisi-
+tion process (Sec. 3.1), geometry and appearance represen-
+tations (Sec. 3.2–3.3), the relightable explicit eye model
+(Sec. 3.4), as well as the training method (Sec. 3.5).
+3
+
+
+{𝜎!, 𝐑!, 𝐬!, 𝐭!, 𝑜!, 𝐝!
+", 𝐝!
+#}
+𝒆!
+𝒆"
+𝝎#
+𝐳
+{𝐧!, 𝑣!}
+Diffuse
+Eq.(5)
+𝛒$
+Specular
+Eq.(8)
+Splatting
+Eq.(2)
+ℒ!"#
+𝒟{"#,"%}
+Ground truth
+𝒟!"
+𝒟{$,!&}
+𝒄$
+%&'()*+,
+geometry
+appearance
+𝒄$
+-.//)%'
+𝒄$
+Eyeballs
+Gaze
+(right)
+Viewing
+angle
+Gaze
+(left)
+Latent
+expression
+code
+Lighting
+𝒟"
+Figure 2. Overview. Given an expression latent code z, gaze e{l,r}, and view direction ωo, our model decodes the parameters of 3D
+Gaussians (rotation Rk, translation tk, scale sk, and opacity ok) and learnable radiance transfer functions (colored and monochrome
+diffuse SH coefficients dc
+k, dm
+k , roughness σk, normal nk, and visibility vk). We integrate the radiance transfer functions with the input
+light to compute the final color ck, which we then render via splatting and supervise in image space. The coarse vertex decoder Dv and
+geometry decoder Dg are described in Sec. 3.2, the appearance decoders D{ci,cv} in Sec. 3.3, and eyeball decoders D{ei,ev} in Sec. 3.4.
+3.1. Data Acquisition
+We use a setup similar to [6, 35], where we capture cali-
+brated and synchronized multiview images at 4096 × 2668
+resolution with 110 cameras and 460 white LED lights at 90
+Hz. Each participant is asked to perform a predefined set of
+various facial expressions, sentences, and gaze motions for
+about 144,000 frames. To collect diverse illumination pat-
+terns while enabling stable facial tracking, we employ time-
+multiplexed illumination. In particular, the full-on illumi-
+nation is interleaved at every third frame to allow tracking,
+and the rest is lit with grouped or random sets of 5 lights.
+As in [6, 35], we perform a topologically consistent
+coarse mesh tracking using multi-view full-on images. We
+further stabilize the head pose using the mode pursuit
+method of Lamarre et al. [30]. We also estimate the eye
+gaze of both eyes using the method described in [68]. The
+tracked mesh, head pose, unwrapped averaged texture, and
+gaze are interpolated to adjacent partially lit frames for the
+following avatar training.
+3.2. Geometry: 3D Gaussian Avatars
+The core of our geometric representation is the mixture of
+3D anisotropic Gaussians [24], which supports representing
+varying topology and can represent thin volumetric struc-
+tures. We first review the underlying parameterization and
+key idea in 3D Gaussian Splatting [24] and then highlight
+major changes to enable animatable avatar modeling.
+We render avatars as collections of 3D Gaussians, where
+each Gaussian gk = {tk, Rk, sk, ok, ck} is defined by a
+translation tk ∈R3, a rotation matrix Rk ∈SO(3) param-
+eterized as a quaternion, per-axis scale factors sk ∈R3, an
+opacity value ok ∈R, and a color ck ∈R3. The spatial
+extent of each Gaussian is defined in 3D by its covariance
+matrix Σk = Rk diag(sk) diag(sk)T RT
+k .
+This representation allows efficient rendering using the
+Elliptical Weighted Average (EWA) splatting technique
+proposed by Zwicker et al. [98] by computing the 2D pro-
+jection of each 3D Gaussian,
+  
+\ l abel { eq :ewa} \mathbf {\Sigma }_k^{\prime } = \mathbf {J}\mathbf {V}\mathbf {\Sigma }_k \mathbf {V}^T\mathbf {J}^T, 
+(1)
+where J ∈R2×3 is the Jacobian of the projective trans-
+formation, V ∈R3×3 the viewing transformation, and
+Σ′
+k ∈R2×2 is the covariance matrix of the projected 2D
+Gaussian (a “splat”). The final color Cp at pixel p given
+N ordered splats is computed with point-based cumulative
+volumetric rendering [24, 28, 29] as follows:
+  \
+l
+abe
+l {e
+q:v
+o
+lre
+nd e r} \mathbf {C}_p=\sum _{k \in \mathcal {N}} \mathbf {c}_k \alpha _k \prod _{j=1}^{k-1}\left (1-\alpha _j\right ), 
+(2)
+where the transparency αk is evaluated using the 2D co-
+variance Σ′
+k and multiplied by the per-Gaussian opacity ok.
+Please refer to [24] for more details.
+In contrast to 3D Gaussian Splatting [24], which focuses
+on static scene reconstruction, our objective is to build an
+animatable 3D avatar representation that can span the dy-
+namic facial expressions of a person and also be relit un-
+der novel illuminations. This necessitates a relightable ap-
+pearance model to recolor ck of all Gaussians as a function
+of the environmental illumination, allowing for a realistic
+adaptation of the avatar’s appearance under varying light-
+ing conditions. Additionally, it is essential to register the
+geometry {gk} for all Gaussians in response to the state
+of any facial expressions, ensuring that the avatar’s expres-
+sions remain consistent with the user’s actual facial move-
+ments. Enabling the encoding and decoding of any facial
+movements is crucial for animating and driving avatars.
+4
+
+
+To this end, we parameterize the 3D Gaussians on a
+shared UV texture map of a coarse template mesh, and de-
+code their transformation and opacity using 2D convolu-
+tional neural networks. As facial expressions are highly
+non-linear and non-trivial to precisely define, in the spirit
+of Lombardi et al. [39] and Xu et al. [83], we employ a
+conditional variational auto-encoder (CVAE) [26] to learn
+the latent distribution of facial expressions from the data.
+Given the eye gaze directions of both eyes e{l,r} ∈R3 in
+head-centric coordinates, coarse tracked mesh vertices V,
+an unwrapped averaged texture T, our encoder E and ge-
+ometry decoder Dg are defined as:
+  \ be g in { ga ther
+ed} \ lab el {eq:
+geo _ encde c} \mat hbf {\mu }_e, \mathbf {\sigma }_e = \mathcal {E}(\mathbf {V}, \mathbf {T}; \Theta _e), \\ \{\mathbf {\delta t}_k, \mathbf {R}_k, \mathbf {s}_k, o_k\}_{k=1}^{M} = \mathcal {D}_g(\mathbf {z}, \mathbf {e}_{\{l,r\}}; \Theta _g), \end {gathered} 
+(3)
+where Θe and Θg are the learnable parameters for the en-
+coder and decoder respectively, M is the total number of
+Gaussians, and σe and µe are the mean and standard devia-
+tion of a normal distribution z ∼N(µe, σe). The sampled
+latent vector z ∈R256 is computed using the reparameteri-
+zation trick proposed by Kingma and Welling [26]. We also
+decode mesh vertices from z such that we can animate the
+avatars from a headset [78] or latent-space manipulation [1]:
+  \ mathb f {V}^{\prime } = \mathcal {D}_v(\mathbf {z}; \Theta _v). 
+(4)
+Note that while we directly infer the rotation R and scale
+s, we use the coarse geometry g as guidance to avoid poor
+local minima under large motions. The final Gaussian po-
+sition tk is computed as tk = ˆtk + δtk, where ˆtk is the
+interpolated coarse mesh position of the corresponding UV-
+coordinates using barycentric interpolation of the vertices
+in V′. To assign UV-coordinates to Gaussians, we map one
+Gaussian to each texel in the UV map.
+While the aforementioned parameterization is similar to
+the Mixture of Volumetric Primitives (MVP) [41], where a
+collection of voxel grids is anchored on a template mesh and
+used as the renderable primitive, there are two important
+differences: (1) Unlike MVP, which requires raymarching,
+the 3D Gaussians can be more efficiently rendered using
+splatting [24, 98]. (2) Additionally, the Gaussians have a
+greater ability to recreate thin structures, yielding sharper
+appearance for hair, which we show in Sec. 4.
+3.3. Appearance: Learnable Radiance Transfer
+An appearance model for faces must accurately model a
+wide range of light transport effects, including subsurface
+scattering in skin, and specular reflections on the skin, eyes,
+as well as multi-bounced scattering on the hair. As dis-
+cussed in early works [70, 75], while a diffuse transfer oper-
+ator is a low-pass filtering of incident illumination, a spec-
+ular transfer operator requires the ability to represent all-
+frequency information for mirror-like reflections. To effec-
+tively allocate the capacity of the network to each compo-
+nent, we decompose the final color ck of each 3D Gaus-
+sian into a view-independent diffuse term cdiffuse
+k
+, and a
+view-dependent specular term cspecular
+k
+(ωo), such that ck =
+cdiffuse
+k
++ cspecular
+k
+(ωo), where ωo is the viewing direction.
+Diffuse Color. Our diffuse term is based on spherical har-
+monics (SH), and incorporates global light transport ef-
+fects including occlusion, subsurface scattering, and multi-
+bounce scattering [70].
+The diffuse color contribution
+cdiffuse
+k
+is computed by the spherical integration of an (ex-
+trinsic) incident illumination, L(·), with an intrinsic func-
+tion that models the radiance transfer, d(·). By represent-
+ing both functions in the SH basis, this can be efficiently
+computed as a dot product of the coefficient vectors due to
+orthonormality of the basis:
+  \label
+ 
+{ eq:
+d
+if f} \mathbf {c}^ { \te
+xtrm {
+d
+iff
+us e }}
+_{k} = \boldsymbol {\rho }_k \odot \int _{\mathbb {S}^2} \mathbf {L}(\boldsymbol {\omega }_i) \odot \mathbf {d}_k(\boldsymbol {\omega }_i) \mathrm {d} \boldsymbol {\omega }_i = \boldsymbol {\rho }_k\odot \sum _{i=1}^{(n+1)^2}{\mathbf {L}_{i}\odot \mathbf {d}_{k}^{i}}, 
+(5)
+where L = {Li} and dk = {di
+k} are the n-th order SH
+coefficients of the incident light and the intrinsic radiance
+transfer function, with di
+k ∈R3, and ρk ∈R3 a learnable
+albedo which we statically define on each Gaussian to en-
+courage temporally consistent reconstructions. While dif-
+fuse light transport is a low-pass filter that requires only 2nd
+or 3rd order SH [64], this is not sufficient to represent shad-
+ows. To enable higher-frequency shadows while decoding a
+manageable number of coefficients that can fit on consumer
+GPU memory, we propose to decode RGB intrinsic SH co-
+efficients dc
+k up to the 3rd order, and only monochrome in-
+trinsic SH coefficients dm
+k from 4-th to 8-th order.
+Specular Reflection. To achieve sharp, mirror-like reflec-
+tions, for the view-dependent specular term we use a spher-
+ical Gaussian (SG) as an angular basis. In particular, we
+propose a normalized, angle-based spherical Gaussian:
+  \la be l { eq: s
+g }  G_{s}(\mat
+h
+bf {p}; \mathbf {q}, \sigma ) = Ce^{-\frac {1}{2}(\frac {\arccos (\mathbf {p}\cdot \mathbf {q})}{\sigma })^2}, 
+(6)
+where σ ∈R+ is the standard deviation of angular decay,
+q ∈S2 is the lobe axis, p ∈S2 is the direction of evalu-
+ation, and C = 1/(
+√
+2π2/3σ) is a normalization factor to
+preserve the integral of the Gaussian.
+Note that this parameterization is different from the
+more widely used parameterization G(p; q, λ, µ)
+=
+µeλ(p·q−1) [75, 90], but we observed that this choice often
+fails to model highly reflective surfaces, such as the cornea.
+As the majority of specular BRDFs have a lobe that is
+axis-aligned with a particular reflection direction, we com-
+pute a reflection vector as the lobe axis:
+  \ labe
+l  {eq:r e f}
+ \mathbf {q}_k = 2(\boldsymbol {\omega }^o_k \cdot \mathbf {n}_k)\mathbf {n}_k - \boldsymbol {\omega }^o_k, 
+(7)
+where ωo
+k is the viewing direction evaluated at the Gaus-
+sian center, and nk is a normal direction computed for each
+5
+
+
+Gaussian, and qk is the lobe axis. Our final color for the
+specular term of each 3D Gaussian is defined as follows:
+  \label 
+{
+eq:s p ec} \m
+a
+th bf {c}^{\te xtr m {specular}}_{k}(\boldsymbol {\omega }_o) = v_k(\boldsymbol {\omega }_o) \int _{\mathbb {S}^2} \mathbf {L}(\boldsymbol {\omega }_i)G_s(\boldsymbol {\omega }_i; \mathbf {q}_k, \sigma _{k}) \mathrm {d} \boldsymbol {\omega }_i, (8)
+where vk(ωo) ∈(0, 1) is a learnable view-dependent visi-
+bility term that accounts for Fresnel effects and geometric
+occlusion integrated within the BRDF lobe. Please refer
+to Appendix B for the connection to the rendering equa-
+tion [21]. For point lights, we use a Dirac delta function
+multiplied by a light intensity as the incident light L(ωi)
+for fast evaluation, but an SG parameterization with closed
+form integrals [75] would also be possible for directional
+area lights. Importantly, Eq. 8 can be efficiently evaluated
+with negligible overhead for all-frequency continuous illu-
+mination by prefiltering the environment maps [23, 47] as
+demonstrated in Fig. 1. This requires only a single mipmap
+texture look up per 3D Gaussian, which is a critical property
+for real-time relighting with all-frequency reflections.
+Although the aforementioned formulation works well for
+surfaces, we use 3D Gaussians to also represent thin fiber-
+like structures such as hair strands, where Eq. 8 is incorrect
+if a viewer rotates along a tangent vector of each fiber [22].
+To support specular reflection of both surfaces and fibers in
+a unified manner, we propose to learn a view-conditioned
+surface normal. While the learned normal can remain con-
+stant under view changes for surface regions, the normal
+can rotate along the tangent axis based on the view direc-
+tion for fibers. This way, each 3D Gaussian can flexibly
+choose its underlying reflection behavior without requiring
+predefining it a priori. Our learnable view-dependent nor-
+mal also supports the case where BRDF lobes are not ex-
+actly aligned with the surface normal [46] by adjusting the
+normal orientation.
+Decoder. Similar to the geometric decoder, we decode radi-
+ance transfer parameters using a view-independent decoder
+Dci and a view-dependent decoder Dcv as follows:
+  \
+be gi
+n  {gat
+her e d} \{\ mathbf {d}^{
+\text rm {
+c}} _ {k}, \ mathbf {d} ^{\textrm {m}}_{k}, \sigma _{k}\}_{k=1}^{M} = \mathcal {D}_{ci}(\mathbf {z}, \mathbf {e}_{\{l,r\}}; \Theta _{ci}), \\ \{\mathbf {\delta n}_k, v_k\}_{k=1}^{M} = \mathcal {D}_{cv}(\mathbf {z}, \mathbf {e}_{\{l,r\}}, \boldsymbol {\omega }_o; \Theta _{cv}), \end {gathered} \label {eq:spec_dec} 
+(9)
+where Θci and Θcv are the learnable parameters of each de-
+coder, and the normal residual δnk is added to the barycen-
+tric interpolated coarse mesh normal ˆnk to obtain the final
+normal nk as follows: nk = (ˆnk + δnk)/∥ˆnk + δnk∥. In
+practice, since Dg in Eq. 3 and Dci in Eq. 9 take the same
+input and produce per-Gaussian values, we model them us-
+ing a single decoder.
+3.4. Relightable Explicit Eye Model
+To enable better disentanglement and high-fidelity eye
+relighting, we use an explicit eye model proposed by
+Schwartz et al. [68] as the underlying geometric represen-
+tation of eyes. In particular, we parameterize eyeballs as
+the smooth blending of two spheres; one accounts for the
+eyeball and the other for the cornea. They are explicitly
+rotated based on a gaze direction. Each eyeball is parame-
+terized by E = {re, rc, d, ce} with the radii of the eyeball
+re and cornea rc, the offset d along the optical axis from the
+center of the eyeball to the center of the cornea sphere, and
+the center of the eyeball ce relative to the head in a canon-
+ical space. We first optimize E following the optimization
+presented in Schwartz et al. [68], and then jointly refine it
+end-to-end with the other parameters of an avatar.
+While we use the same geometric and appearance rep-
+resentations for eyeballs as the rest of the head, we ob-
+serve that additional modification is required to enable high-
+fidelity eye relighting. Since the cornea exhibits mirror-like
+reflections, the discrete point lights of our capture system
+create reflections that span only a few pixels (often a single
+Bayer cell) and saturate the sensor. The remaining region
+has nearly zero contribution. Due to this highly discrete
+signal, 3D Gaussians quickly fall into poor local minima
+and fail to correctly model eye glints if we independently
+optimize the position and surface normal of each Gaussian.
+Therefore, we freeze the position of Gaussians on the sur-
+face of the eyeballs and fix their normals to be the surface
+normals of the eyeball mesh. In addition, the iris is observed
+only through the transparent cornea, with significant refrac-
+tion. To support refraction with the same underlying ap-
+pearance representation, we use a view-conditioned albedo
+for the eyes. This effectively allows the eye diffuse color to
+account for refraction based on the input viewpoint.
+To incorporate these modifications, our geometry and ap-
+pearance eye decoders for each eye are defined as follows:
+  \b egi n { ga
+th er
+e d } \la
+bel  {eq:sp ec_ dec 2} \{
+\mat hbf {
+R}_ k , \mat hbf  {s }_k , o_k,\mathbf {d}^{\textrm {c}}_{k}, \mathbf {d}^{\textrm {m}}_{k}, \sigma _{k}\}_{k=1}^{M_e} = \mathcal {D}_{ei}( \mathbf {e}, \mathbf {h}_p, \mathbf {h}_r; \Theta _{ei}), \\ \{\boldsymbol {\rho }_k,v_k\}_{k=1}^{M_e} = \mathcal {D}_{ev}(\mathbf {e}, \mathbf {h}_p, \mathbf {h}_r, \boldsymbol {\omega }_o; \Theta _{ev}), \end {gathered} 
+(10)
+where Dei and Dev are view-independent and view-
+conditioned eye decoders with parameters Θei and Θev re-
+spectively, and the relative head position hp ∈R3 and rota-
+tion hr ∈SO(3) and the gaze e are used to absorb tracking
+errors.
+3.5. Training
+Given multiview video data of a person illuminated with
+known point light patterns, we jointly optimize all trainable
+network parameters Θ, the static albedo ρ, and the eyeball
+parameters E{l,r} with the following loss function L:
+  \lab e l {e q :loss_all} \mathcal {L} = \mathcal {L}_{\mathrm {rec}} + \mathcal {L}_{\mathrm {reg}} + \lambda _{\mathrm {kl}} \mathcal {L}_{\mathrm {kl}}, 
+(11)
+where Lkl is the KL-divergence loss on our encoder outputs.
+The reconstruction loss Lrec consists of L1 and D-SSIM on
+the rendered image as in the original 3DGS paper [24, 76]
+as well as L2 loss on the coarse geometry V ′ as follows:
+  \l a bel {e q :loss_reco n } \mathcal {L}_{\mathrm {rec}} = \lambda _{\mathrm {l1}} \mathcal {L}_{\mathrm {l1}} + \lambda _{\mathrm {ssim}} \mathcal {L}_{\mathrm {ssim}} + \lambda _{\mathrm {geo}} \mathcal {L}_{\mathrm {geo}}. 
+(12)
+6
+
+
+Table 1. Comparison on held-out segments. The top three tech-
+niques are highlighted in red, orange, and yellow, respectively.
+Geometry
+Appearance
+Metrics
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+A
+Ours w/ EEM
+EyeNeRF [33]
+34.550
+0.939
+0.115
+B
+Ours
+36.501
+0.943
+0.110
+C
+Ours
+EyeNeRF [33]
+35.110
+0.938
+0.113
+D
+Linear [88]
+33.831
+0.936
+0.184
+E
+Ours
+36.529
+0.943
+0.111
+F
+MVP [41]
+EyeNeRF [33]
+27.594
+0.922
+0.151
+G
+Linear [88]
+36.294
+0.942
+0.140
+H
+Ours
+35.789
+0.943
+0.134
+The regularization loss is defined as:
+  \l a bel {eq:loss_reg1} \mathcal {L}_{\mathrm {reg}} = \lambda _{\mathrm {s}} \mathcal {L}_{\mathrm {s}} + \lambda _{\mathrm {c-}} \mathcal {L}_{\mathrm {c-}} + \lambda _{\mathrm {es}} \mathcal {L}_{\mathrm {es}} + \lambda _{\mathrm {ev}} \mathcal {L}_{\mathrm {ev}} + \lambda _{\mathrm {eo}} L_{\mathrm {eo}}. (13)
+The scale regularization term Ls encourages the Gaussian
+scale {sk} to stay within a reasonable range as follows:
+  \ begin {al ig n
+e
+d
+}
+ 
+\
+la bel {e q:los
+s_ r e g2}
+ \ m athcal
+ { L } _{\m
+a
+thrm {s}} = \mathrm {mean}(l_{\mathrm {s}}), \, l_{\mathrm {s}} &= \begin {cases} 1/\max (s,10^{-7}) & \text {if } s < 0.1 \\ (s - 10.0)^2 & \text {if } s > 10.0\\ 0 & \text {otherwise}, \end {cases} \end {aligned} 
+(14)
+where s denotes the scale value of each axis in each Gaus-
+sian, and mean(·) is the average operation across all dimen-
+sions. The negative color loss Lc−penalizes negative color
+in the diffuse term as SH can yield negative values:
+  \ l abel {eq:l oss _ neg} \mathca
+l
+ {L}_{\mathrm {c-}} = \mathrm {mean}(l_{\mathrm {c-}}), \, l_{\mathrm {c-}} = \min (\mathbf {c}^{\textrm {diffuse}}_{k}, 0)^2. 
+(15)
+Also, three regularization terms are used to prevent eye
+Gaussians from becoming transparent as follows:
+  \ b egin {gath ere d } \la b el { eq:l
+oss _ eye} \math cal  {L } _{\ma
+thr m  {es}} = \ mat h rm  {mean}(l_{\mathrm {es}}), \, l_{\mathrm {es}} = \max (s - 0.1, 0)^2, \\ \mathcal {L}_{\mathrm {eo}} = \mathrm {mean}(l_{\mathrm {eo}}), \, l_{\mathrm {eo}} = (1 -o_{k})^2, \\ \mathcal {L}_{\mathrm {ev}} = \mathrm {mean}(l_{\mathrm {ev}}), \, l_{\mathrm {ev}} = (1-v_{k})^2. \end {gathered} 
+(16)
+The relative weights are λgeo = λl1 = 10, λssim = 0.2,
+λs = λc−= λes = 1.0 × 10−2, λeo = λev = 1.0 × 10−4,
+and λkl = 2.0 × 10−3. We use the Adam optimizer [25]
+with a learning rate of 0.0005. We train our model on 4
+NVIDIA A100 GPUs with a batch size of 16 for 200k itera-
+tions. Please refer to Appendix A for network architecture.
+4. Experiments
+Evaluation Protocol.
+We selected three subjects for
+quantitative evaluations and three more subjects for qualita-
+tive results with diverse races, genders, and hairstyles. Our
+evaluation included around 9,000 conversational expression
+frames and about 100 disgust expression frames not seen
+during training. We also exclude 10 unique frontally-biased
+light patterns entirely from the training. This corresponds
+to approximately 1800 out of 144,000 frames. We report
+PSNR, SSIM, and LPIPS [92] on images masked with the
+face region to avoid influence from the background.
+Table 2. Comparison on held-out lights. The top three tech-
+niques are highlighted in red, orange, and yellow, respectively.
+Geometry
+Appearance
+Metrics
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+A
+Ours w/ EEM
+EyeNeRF [33]
+30.7976
+0.828
+0.162
+B
+Ours
+34.042
+0.858
+0.148
+C
+Ours
+EyeNeRF [33]
+30.836
+0.815
+0.163
+D
+Linear [88]
+32.829
+0.870
+0.202
+E
+Ours
+33.845
+0.831
+0.148
+F
+MVP [41]
+EyeNeRF [33]
+28.030
+0.812
+0.210
+G
+Linear [88]
+33.444
+0.726
+0.192
+H
+Ours
+33.778
+0.877
+0.168
+4.1. Qualitative Results
+Fig. 1 shows that our reconstructed avatars generalize to
+novel views, expressions, and illuminations including point
+lights and high-resolution environment maps. Notice the
+mirror-like reflections in the eyes that faithfully represent
+the environment without losing high-frequency details. As
+our model is drivable and supports real-time relighting, real-
+time driving from a headset is also possible [78].
+While this is not our primary goal, as a bi-product, our
+approach estimates intrinsic properties of reflectance in-
+cluding albedo, geometry, surface normal, multi-bounce
+scattering, and specular components in a self-supervised
+manner. As shown in Fig. 3, our method enables 3D consis-
+tent and high-fidelity intrinsics decomposition.
+4.2. Discussion
+Geometric Representation.
+We evaluate the geometry
+component by comparing three variations: our proposed
+method, our method excluding the explicit eye model
+(EEM) [68], and voxel-based primitives [41].
+For fair
+comparison, we use the same appearance model and only
+change the geometric representation (Tab. 1 and Tab. 2 B, D,
+H). Fig. 4 clearly demonstrates that our geometry based on
+3D Gaussians can better model skin details and hair strands
+than MVP. Further, our full model, when combined with an
+EEM, achieves convincing eye glints.
+Appearance Representation. For appearance representa-
+tion, we compare our appearance model with existing re-
+lightable appearance representations that support rendering
+with environment maps in real-time. The model presented
+by Yang et al. [88] is a linear neural network that explicitly
+retains the linearity of light transport (denoted as Linear),
+demonstrating superior performance than a previous state-
+of-the-art method [6]. For this reason, we omit the compar-
+ison with [6]. To evaluate the effectiveness of our specu-
+lar reflection model, we also replace our specular compo-
+nent with view-dependent spherical harmonics proposed by
+EyeNeRF [33]. Tab. 1 and Tab. 2 C, D, E show that our
+appearance representation outperforms existing appearance
+models in most of the metrics. As shown in Fig. 5, while
+7
+
+
+(a)
+(d)
+(b)
+(e)
+(c)
+(f)
+x2
+Figure 3. Intrinsics decomposition. The full render (a) is pro-
+duced by addition of a diffuse (b) and a specular component (c)
+(intensity multiplied by 2 for clarity). The diffuse component is
+obtained by multiplying a learned albedo (d) with shading com-
+puted by SH-based radiance transfer (e). The specular lobes direc-
+tion is computed using a per-Gaussian normal (f).
+the linear model produces correct overall color, the relight-
+ing result is blurry and lacks high-frequency details. This
+is primarily limited by the bottleneck lighting representa-
+tion. The view-dependent spherical harmonics in EyeNeRF
+shows more detailed reflections, but its expressiveness is
+limited due to the use of spherical harmonics for specular-
+ity. Additionally, we observe that view-dependent spherical
+harmonics are more prone to overfitting, resulting in flicker-
+ing artifacts in animation. Please refer to our supplemental
+video for more details. In contrast, our approach based on
+spherical Gaussians is not band-limited and thus achieves
+high-frequency reflections.
+Impact of Data Quality. We discover that our approach
+works even for more relaxed setups such as using a generic
+template mesh as the base geometry regardless of expres-
+sions, and ablating up to 90% of cameras or 95% of light
+patterns from the training data. While we recommend to
+use our setup to achieve the best quality, this indicates that
+the proposed method can be applied to much more modest
+setups. Please refer to Appendix C for the experiments.
+5. Conclusion
+We presented Relightable Gaussian Codec Avatars, a novel
+appearance and geometric representation for relightable 3D
+head avatars that supports real-time rendering. Our exper-
+iments show that high-fidelity relighting of hair, skin, and
+eyes in all-frequency illuminations is now possible in real-
+time with the proposed radiance transfer basis composed
+of spherical harmonics and spherical Gaussians. We have
+also shown that our choice of the geometric representa-
+(a) GT
+(b) Ours  w/ EEM
+(c) Ours w/o EEM
+(d) MVP
+Figure 4. Geometric representation comparison. Compared to a
+held out frame, (a), our Gaussian splatting decoded geometry (b,c)
+shows improved resolution over MVP [41] (d), especially in fine
+details like eyelashes and pores. The explicit eyeball model (b)
+additionally improves realism in eye glints. All methods use the
+appearance model described in Sec. 3.3.
+(a) GT
+(b) Ours
+(c) Linear
+(d) Eyenerf
+Figure 5. Appearance representation comparison. Compared
+to a held out frame (a), our appearance model (Sec. 3.3) shows
+sharper pore-level specularities than methods using only a lin-
+ear neural network [88] or the spherical harmonics-only method
+“Eyenerf” [33]. All methods use the geometric representation de-
+scribed in Sec. 3.2 (without explicit eyeballs.)
+tion based on 3D Gaussian Splatting is critical for strand-
+accurate hair reconstruction and relighting. Our approach
+achieves a significant quality improvement in comparison
+to existing real-time-renderable geometry and appearance
+models, both qualitatively and quantitatively.
+Limitations and Future Work. The current approach re-
+quires a coarse mesh and gaze tracking as a preprocessing
+step, which may be sensitive to tracking failures. Similar
+to [88], end-to-end learning together with topology consis-
+tent tracking [8, 37, 38] is an interesting future work di-
+rection to enable scalable training. Extending our approach
+to in-the-wild inputs also remains a challenge due to the
+lack of precisely known illumination information. Lastly,
+rendering a large number of our Gaussian avatars would be
+difficult, as the relighting operation is performed per indi-
+vidual 3D Gaussian, and scales linearly with the number
+of avatars. Offloading computation in a per-pixel fragment
+shader, similar to [44], is also an exciting future research.
+8
+
+
+References
+[1] Rameen Abdal, Yipeng Qin, and Peter Wonka.
+Im-
+age2stylegan: How to embed images into the stylegan latent
+space? In Proceedings of the IEEE/CVF international con-
+ference on computer vision, pages 4432–4441, 2019. 5
+[2] Thabo Beeler, Bernd Bickel, Paul Beardsley, Bob Sumner,
+and Markus Gross. High-quality single-shot capture of fa-
+cial geometry. In ACM SIGGRAPH 2010 papers, pages 1–9.
+2010. 2
+[3] Thabo Beeler, Bernd Bickel, Gioacchino Noris, Paul Beards-
+ley, Steve Marschner, Robert W Sumner, and Markus Gross.
+Coupled 3d reconstruction of sparse facial hair and skin.
+ACM Transactions on Graphics (ToG), 31(4):1–10, 2012. 2
+[4] Thabo Beeler, Fabian Hahn, Derek Bradley, Bernd Bickel,
+Paul A Beardsley, Craig Gotsman, Robert W Sumner, and
+Markus H Gross. High-quality passive facial performance
+capture using anchor frames. ACM Trans. Graph., 30(4):75,
+2011. 2
+[5] Pascal B´erard, Derek Bradley, Markus Gross, and Thabo
+Beeler. Lightweight eye capture using a parametric model.
+ACM Transactions on Graphics (TOG), 35(4):1–12, 2016. 2
+[6] Sai Bi, Stephen Lombardi, Shunsuke Saito, Tomas Simon,
+Shih-En Wei, Kevyn Mcphail, Ravi Ramamoorthi, Yaser
+Sheikh, and Jason Saragih.
+Deep relightable appearance
+models for animatable faces. ACM Transactions on Graphics
+(TOG), 40(4):1–15, 2021. 3, 4, 7, 13
+[7] Sai Bi, Zexiang Xu, Kalyan Sunkavalli, Miloˇs Haˇsan, Yan-
+nick Hold-Geoffroy, David Kriegman, and Ravi Ramamoor-
+thi. Deep reflectance volumes: Relightable reconstructions
+from multi-view photometric images. In Computer Vision–
+ECCV 2020: 16th European Conference, Glasgow, UK, Au-
+gust 23–28, 2020, Proceedings, Part III 16, pages 294–311.
+Springer, 2020. 2, 3
+[8] Timo Bolkart, Tianye Li, and Michael J Black. Instant multi-
+view head capture through learnable registration.
+In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 768–779, 2023. 8
+[9] Derek Bradley, Wolfgang Heidrich, Tiberiu Popa, and Alla
+Sheffer. High resolution passive facial performance capture.
+In ACM SIGGRAPH 2010 papers, pages 1–10. 2010. 2
+[10] Paul Debevec, Tim Hawkins, Chris Tchou, Haarm-Pieter
+Duiker, Westley Sarokin, and Mark Sagar.
+Acquiring the
+reflectance field of a human face.
+In Proceedings of the
+27th annual conference on Computer graphics and interac-
+tive techniques, pages 145–156, 2000. 2, 3
+[11] Boyang Deng, Yifan Wang, and Gordon Wetzstein.
+Lu-
+migan: Unconditional generation of relightable 3d human
+faces. arXiv preprint arXiv:2304.13153, 2023. 3
+[12] Yasutaka Furukawa and Jean Ponce. Accurate, dense, and
+robust multiview stereopsis. IEEE transactions on pattern
+analysis and machine intelligence, 32(8):1362–1376, 2009.
+2
+[13] Duan Gao, Guojun Chen, Yue Dong, Pieter Peers, Kun Xu,
+and Xin Tong. Deferred neural lighting: free-viewpoint re-
+lighting from unstructured photographs. ACM Transactions
+on Graphics (TOG), 39(6):1–15, 2020. 3
+[14] Stephan J Garbin, Marek Kowalski, Virginia Estellers,
+Stanislaw Szymanowicz, Shideh Rezaeifar, Jingjing Shen,
+Matthew Johnson, and Julien Valentin. Voltemorph: Real-
+time, controllable and generalisable animation of volumetric
+representations. arXiv preprint arXiv:2208.00949, 2022. 3
+[15] Pablo Garrido, Michael Zollh¨ofer, Chenglei Wu, Derek
+Bradley,
+Patrick P´erez,
+Thabo Beeler,
+and Christian
+Theobalt. Corrective 3d reconstruction of lips from monoc-
+ular video. ACM Trans. Graph., 35(6):219–1, 2016. 2
+[16] Abhijeet Ghosh, Graham Fyffe, Borom Tunwattanapong, Jay
+Busch, Xueming Yu, and Paul Debevec. Multiview face cap-
+ture using polarized spherical gradient illumination. ACM
+Transactions on Graphics (TOG), 30(6):1–10, 2011. 2, 3
+[17] Paul Green, Jan Kautz, Wojciech Matusik, and Fr´edo Du-
+rand.
+View-dependent precomputed light transport using
+nonlinear gaussian function approximations.
+In Proceed-
+ings of the 2006 symposium on Interactive 3D graphics and
+games, pages 7–14, 2006. 3
+[18] Kaiwen Guo, Peter Lincoln, Philip Davidson, Jay Busch,
+Xueming Yu, Matt Whalen, Geoff Harvey, Sergio Orts-
+Escolano, Rohit Pandey, Jason Dourgarian, et al. The re-
+lightables: Volumetric performance capture of humans with
+realistic relighting. ACM Transactions on Graphics (ToG),
+38(6):1–19, 2019. 3
+[19] Liwen Hu, Chongyang Ma, Linjie Luo, and Hao Li. Robust
+hair capture using simulated examples. ACM Transactions
+on Graphics (TOG), 33(4):1–10, 2014. 2
+[20] Shun Iwase, Shunsuke Saito, Tomas Simon, Stephen Lom-
+bardi, Timur Bagautdinov, Rohan Joshi, Fabian Prada,
+Takaaki Shiratori, Yaser Sheikh, and Jason Saragih.
+Re-
+lightablehands:
+Efficient neural relighting of articulated
+hand models. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 16663–
+16673, 2023. 2, 3, 13
+[21] James T Kajiya. The rendering equation. In Proceedings of
+the 13th annual conference on Computer graphics and inter-
+active techniques, pages 143–150, 1986. 6, 13
+[22] James T Kajiya and Timothy L Kay. Rendering fur with three
+dimensional textures. ACM Siggraph Computer Graphics,
+23(3):271–280, 1989. 6
+[23] Jan Kautz, Pere-Pau V´azquez, Wolfgang Heidrich, and
+Hans-Peter Seidel. A unified approach to prefiltered envi-
+ronment maps. In Rendering Techniques 2000: Proceedings
+of the Eurographics Workshop in Brno, Czech Republic, June
+26–28, 2000 11, pages 185–196. Springer, 2000. 6
+[24] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering.
+ACM Transactions on Graphics
+(ToG), 42(4):1–14, 2023. 2, 3, 4, 5, 6
+[25] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization.
+arXiv preprint arXiv:1412.6980,
+2014. 7
+[26] Diederik P Kingma and Max Welling. Auto-encoding varia-
+tional bayes. arXiv preprint arXiv:1312.6114, 2013. 5
+[27] Tobias Kirschstein, Shenhan Qian, Simon Giebenhain, Tim
+Walter, and Matthias Nießner. Nersemble: Multi-view ra-
+diance field reconstruction of human heads. arXiv preprint
+arXiv:2305.03027, 2023. 3
+[28] Georgios Kopanas, Thomas Leimk¨uhler, Gilles Rainer,
+Cl´ement Jambon, and George Drettakis. Neural point cata-
+caustics for novel-view synthesis of reflections. ACM Trans-
+9
+
+
+actions on Graphics (TOG), 41(6):1–15, 2022. 4
+[29] Georgios Kopanas, Julien Philip, Thomas Leimk¨uhler, and
+George Drettakis.
+Point-based neural rendering with per-
+view optimization.
+In Computer Graphics Forum, vol-
+ume 40, pages 29–43. Wiley Online Library, 2021. 4
+[30] Mathieu Lamarre, John P Lewis, and Etienne Danvoye. Face
+stabilization by mode pursuit for avatar construction. In 2018
+International Conference on Image and Vision Computing
+New Zealand (IVCNZ), pages 1–6. IEEE, 2018. 4
+[31] Alexandros Lattas, Stylianos Moschoglou, Baris Gecer,
+Stylianos
+Ploumpis,
+Vasileios
+Triantafyllou,
+Abhijeet
+Ghosh, and Stefanos Zafeiriou. Avatarme: Realistically ren-
+derable 3d facial reconstruction” in-the-wild”. In Proceed-
+ings of the IEEE/CVF conference on computer vision and
+pattern recognition, pages 760–769, 2020. 3
+[32] Alexandros
+Lattas,
+Stylianos
+Moschoglou,
+Stylianos
+Ploumpis, Baris Gecer, Abhijeet Ghosh, and Stefanos
+Zafeiriou.
+Avatarme++: Facial shape and brdf inference
+with photorealistic rendering-aware gans.
+IEEE Trans-
+actions on Pattern Analysis and Machine Intelligence,
+44(12):9269–9284, 2021. 3
+[33] Gengyan Li, Abhimitra Meka, Franziska Mueller, Marcel C
+Buehler, Otmar Hilliges, and Thabo Beeler.
+Eyenerf: a
+hybrid representation for photorealistic synthesis, animation
+and relighting of human eyes. ACM Transactions on Graph-
+ics (TOG), 41(4):1–16, 2022. 1, 2, 3, 7, 8, 15
+[34] Jiaman Li, Zhengfei Kuang, Yajie Zhao, Mingming He,
+Kalle Bladin, and Hao Li. Dynamic facial asset and rig gen-
+eration from a single scan. ACM Transactions on Graphics
+(TOG), 39:1 – 18, 2020. 3
+[35] Junxuan Li, Shunsuke Saito, Tomas Simon, Stephen Lom-
+bardi, Hongdong Li, and Jason Saragih.
+Megane: Mor-
+phable eyeglass and avatar network.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 12769–12779, 2023. 2, 3, 4
+[36] Ruilong Li, Kalle Bladin, Yajie Zhao, Chinmay Chinara,
+Owen Ingraham, Pengda Xiang, Xinglei Ren, Pratusha Bhu-
+vana Prasad, Bipin Kishore, Jun Xing, and Hao Li. Learn-
+ing formation of physically-based face attributes.
+2020
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 3407–3416, 2020. 3
+[37] Tianye Li, Shichen Liu, Timo Bolkart, Jiayi Liu, Hao Li,
+and Yajie Zhao. Topologically consistent multi-view face in-
+ference using volumetric sampling. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 3824–3834, 2021. 8
+[38] Shichen Liu, Yunxuan Cai, Haiwei Chen, Yichao Zhou, and
+Yajie Zhao.
+Rapid face asset acquisition with recurrent
+feature alignment. ACM Transactions on Graphics (TOG),
+41(6):1–17, 2022. 8
+[39] Stephen Lombardi, Jason Saragih, Tomas Simon, and Yaser
+Sheikh. Deep appearance models for face rendering. ACM
+Transactions on Graphics (ToG), 37(4):1–13, 2018. 1, 2, 5,
+13
+[40] Stephen Lombardi, Tomas Simon, Jason Saragih, Gabriel
+Schwartz, Andreas Lehrmann, and Yaser Sheikh. Neural vol-
+umes: Learning dynamic renderable volumes from images.
+arXiv preprint arXiv:1906.07751, 2019. 3
+[41] Stephen Lombardi,
+Tomas Simon,
+Gabriel Schwartz,
+Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. Mix-
+ture of volumetric primitives for efficient neural rendering.
+ACM Transactions on Graphics (ToG), 40(4):1–13, 2021. 3,
+5, 7, 8, 13, 15
+[42] Jonathon Luiten, Georgios Kopanas, Bastian Leibe, and
+Deva Ramanan.
+Dynamic 3d gaussians:
+Tracking
+by persistent dynamic view synthesis.
+arXiv preprint
+arXiv:2308.09713, 2023. 3
+[43] Linjie Luo, Hao Li, and Szymon Rusinkiewicz. Structure-
+aware hair capture. ACM Transactions on Graphics (TOG),
+32(4):1–12, 2013. 2
+[44] Shugao Ma, Tomas Simon, Jason Saragih, Dawei Wang,
+Yuecheng Li, Fernando De La Torre, and Yaser Sheikh. Pixel
+codec avatars. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 64–73,
+2021. 2, 8
+[45] Wan-Chun Ma, Tim Hawkins, Pieter Peers, Charles-Felix
+Chabert, Malte Weiss, Paul E Debevec, et al.
+Rapid ac-
+quisition of specular and diffuse normal maps from polar-
+ized spherical gradient illumination. Rendering Techniques,
+2007(9):10, 2007. 2, 3
+[46] Stephen R Marschner, Henrik Wann Jensen, Mike Cam-
+marano, Steve Worley, and Pat Hanrahan. Light scattering
+from human hair fibers.
+ACM Transactions on Graphics
+(TOG), 22(3):780–791, 2003. 1, 6
+[47] David K McAllister, Anselmo Lastra, and Wolfgang Hei-
+drich. Efficient rendering of spatial bi-directional reflectance
+distribution functions.
+In Proceedings of the ACM SIG-
+GRAPH/EUROGRAPHICS conference on Graphics hard-
+ware, pages 79–88, 2002. 6
+[48] Abhimitra Meka, Christian Haene, Rohit Pandey, Michael
+Zollh¨ofer, Sean Fanello, Graham Fyffe, Adarsh Kowdle,
+Xueming Yu, Jay Busch, Jason Dourgarian, et al.
+Deep
+reflectance fields: high-quality facial reflectance field infer-
+ence from color gradient illumination. ACM Transactions on
+Graphics (TOG), 38(4):1–12, 2019. 3
+[49] Abhimitra Meka, Rohit Pandey, Christian Haene, Sergio
+Orts-Escolano, Peter Barnum, Philip David-Son, Daniel Er-
+ickson, Yinda Zhang, Jonathan Taylor, Sofien Bouaziz, et al.
+Deep relightable textures: volumetric performance capture
+with neural rendering.
+ACM Transactions on Graphics
+(TOG), 39(6):1–21, 2020. 3
+[50] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis. Communications of the ACM, 65(1):99–106, 2021.
+3
+[51] Erick Miller and Dmitriy Pinskiy. Realistic eye motion using
+procedural geometric methods. In SIGGRAPH 2009: Talks,
+pages 1–1. 2009. 2
+[52] Jacob Munkberg, Jon Hasselgren, Tianchang Shen, Jun Gao,
+Wenzheng Chen, Alex Evans, Thomas M¨uller, and Sanja Fi-
+dler. Extracting triangular 3d models, materials, and lighting
+from images. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 8280–
+8290, 2022. 3
+[53] Koki Nagano, Graham Fyffe, Oleg Alexander, Jernej Bar-
+bic, Hao Li, Abhijeet Ghosh, and Paul E Debevec.
+Skin
+microstructure deformation with displacement map convo-
+10

@@ -1,0 +1,524 @@
+Title: 3d clothed human reconstruction in the wild
+
+3D Clothed Human Reconstruction in the Wild
+Gyeongsik Moon1∗, Hyeongjin Nam2∗, Takaaki Shiratori1, and
+Kyoung Mu Lee2,3
+1 Meta Reality Labs Research
+2 Dept. of ECE & ASRI, Seoul National University, Korea
+3 IPAI, Seoul National University, Korea
+{mks0601,tshiratori}@fb.com, {namhjsnu28,kyoungmu}@snu.ac.kr
+Abstract. Although much progress has been made in 3D clothed hu-
+man reconstruction, most of the existing methods fail to produce robust
+results from in-the-wild images, which contain diverse human poses and
+appearances. This is mainly due to the large domain gap between train-
+ing datasets and in-the-wild datasets. The training datasets are usually
+synthetic ones, which contain rendered images from GT 3D scans. How-
+ever, such datasets contain simple human poses and less natural image
+appearances compared to those of real in-the-wild datasets, which makes
+generalization of it to in-the-wild images extremely challenging. To re-
+solve this issue, in this work, we propose ClothWild, a 3D clothed human
+reconstruction framework that firstly addresses the robustness on in-the-
+wild images. First, for the robustness to the domain gap, we propose a
+weakly supervised pipeline that is trainable with 2D supervision targets
+of in-the-wild datasets. Second, we design a DensePose-based loss func-
+tion to reduce ambiguities of the weak supervision. Extensive empirical
+tests on several public in-the-wild datasets demonstrate that our pro-
+posed ClothWild produces much more accurate and robust results than
+the state-of-the-art methods. The codes are available in here.
+1
+Introduction
+3D clothed human reconstruction aims to reconstruct humans with various poses,
+body shapes, and clothes in 3D space from a single image. It is an essential task
+for various applications, such as 3D avatars and virtual try-on. Most of the
+recent 3D clothed human reconstruction methods [33,37,2,34,15,13,14,6,17,7,3]
+require 3D scans for the training; hence, they are trained on synthetic datasets,
+which consist of 3D scans [31,4] and rendered images from the scans. Although
+significant progress has been made by utilizing such synthetic datasets, all of
+them fail to produce robust results on in-the-wild images.
+The in-the-wild images are taken in our daily environments, such as cluttered
+offices and concert halls, and have diverse human poses, appearances, and severe
+human occlusions. On the other hand, the 3D scans are captured from restricted
+* equal contribution
+This work was primarily done while Gyeongsik Moon was in SNU.
+arXiv:2207.10053v1  [cs.CV]  20 Jul 2022
+
+
+2
+G. Moon et al.
+PIFuHD
+BCNet
+ClothWild (Ours)
+input image
+in-the-wild images
+(a) Domain gap (pose, appearance, occlusion, etc)
+(b) Qualitative comparison
+rendered images
+Fig. 1. (a) Domain gap between rendered images and in-the-wild images. (b) Due to
+the large domain gap, existing methods (e.g. PIFuHD [34] and BCNet [17]) fail on in-
+the-wild images, while our ClothWild successfully reconstructs. Colors of reconstructed
+3D clothes are manually assigned to represent cloth types.
+environments, such as motion capture studios. To ease 3D scan capturing, sub-
+jects are often instructed to take simple poses. Therefore, rendered images from
+the 3D scans have artificial appearances and simple human poses compared to
+those of in-the-wild images, as shown in Fig. 1(a). This large domain gap be-
+tween in-the-wild and rendered images makes the methods trained on synthetic
+datasets fail to generalize to in-the-wild images, as shown in Fig. 1(b).
+For the robustness to the domain gap, we present ClothWild, a 3D clothed
+human reconstruction framework that leverages a weak-supervision strategy to
+learn 3D clothed humans from in-the-wild datasets. Here, the weak supervi-
+sion means that the supervision target is not full 3D data, but 2D data defined
+only in the single-camera viewpoint (i.e., 2D cloth segmentations [9]). For the
+weak-supervision strategy, our reconstruction pipeline is divided into two net-
+works: a cloth generative model and a regressor, ClothNet. The cloth generative
+model generates 3D cloth geometry around the T-posed 3D body of SMPL [23]
+from the cloth latent codes, where the 3D cloth geometry is animatable using
+a skinning function of SMPL. It is fully supervised on the synthetic datasets
+beforehand, and we freeze it during the weakly supervised training. Although
+the cloth generative model covers various cloth types and styles, it does not
+cover complicated human poses and diverse image appearances of in-the-wild
+datasets. For the robustness to such in-the-wild datasets, we design a regressor,
+called ClothNet, and weakly supervise it on in-the-wild datasets to predict la-
+tent codes of the cloth generative model. The final output can be obtained by
+passing the output of the ClothNet to the cloth generative model. As the cloth
+generative model is fixed during the weakly supervised training, we can protect
+the generative model from being hurt by imperfect 2D supervision targets of
+in-the-wild datasets, while making our ClothNet robust to diverse human poses
+and image appearances of in-the-wild images. Our weak-supervision strategy can
+recover full 3D geometry only from the evidence of the single-camera viewpoint
+by regularizing the predicted cloth latent codes to be in the cloth latent space.
+
+
+3D Clothed Human Reconstruction in the Wild
+3
+Note that such regularization is not possible for previous approaches [33,34,36,3]
+as they do not model cloth latent space.
+For the weak supervision, we can enforce the projection of 3D reconstruction
+results to be close to 2D supervision targets (i.e., cloth segmentations [9]) of
+in-the-wild datasets. However, naively adopting such a strategy has three diffi-
+culties in learning 3D clothed humans. First, the 2D supervision targets provide
+information for only a single camera viewpoint. Therefore, there is no guarantee
+that the weak supervision can recover 3D geometry of other viewpoints. Second,
+severe depth ambiguity of the cloth segmentations hampers learning accurate
+3D clothes. Since each pixel in cloth segmentations corresponds to innumerable
+points in 3D space, it is difficult to specify 3D points corresponding to clothes.
+Third, pixel-level misalignment can occur between projected 3D reconstruction
+results and 2D cloth segmentation. As camera parameters are not available for
+in-the-wild images, we should additionally predict the camera parameters to
+project the 3D clothed humans. This is a highly ill-posed problem as various
+combinations of camera parameters and 3D clothed humans correspond to the
+same 2D cloth segmentation. Due to the ill-posedness, camera prediction can
+often fail, which results in the wrong projection to the 2D image space.
+In this regard, we design a DensePose-based loss function to resolve the
+issues which can occur when weakly supervising 3D clothed human reconstruc-
+tions based on their projections. DensePose [10] informs where each human pixel
+corresponds to the 3D human body surface of SMPL. Using DensePose, our
+DensePose-based loss function obtains 3D points that correspond to the cloth
+segmentations around the SMPL surface. Then, it enforces such 3D points to be
+a part of the 3D cloth surface. As the DensePose effectively limits possible posi-
+tions of 3D points around the SMPL surface, it significantly reduces the depth
+ambiguity. In addition, DensePose is already aligned with cloth segmentations
+in the image space; therefore, we do not have to predict camera parameters and
+project 3D reconstructions to the 2D image space. Hence, our DensePose-based
+loss function does not suffer from pixel-level misalignment.
+We show that the proposed ClothWild produces far more robust and better
+results than the previous 3D clothed human reconstruction methods from in-
+the-wild images. As robustness on in-the-wild images has not been extensively
+studied in the 3D human reconstruction community, we believe ours can give
+useful insights to the following research.
+Our contributions can be summarized as follows.
+• We present ClothWild, which reconstructs robust 3D clothed humans from
+a single in-the-wild image. To the best of our knowledge, it is the first to
+explicitly address robustness on in-the-wild images.
+• For the robustness to the domain gap between synthesized and in-the-wild
+datasets, we propose a weakly supervised pipeline that is trainable with 2D
+supervision targets of in-the-wild datasets.
+• Our DensePose-based loss function resolves the ambiguities of weak supervi-
+sion by effectively limiting possible positions of 3D points using DensePose.
+• ClothWild largely outperforms previous methods on in-the-wild images.
+
+
+4
+G. Moon et al.
+2
+Related works
+3D clothed human reconstruction. Varol et al. [35] and Jackson et al. [16]
+proposed volumetric regression networks that directly predict a voxel represen-
+tation of a 3D clothed human from a single image. Saito et al. [33,34] and He et
+al. [13] presented a pixel-aligned implicit function that predicts 3D occupancy
+fields of clothed humans. Alldieck et al. [1] utilized displacement vectors between
+a human body surface and clothes for reconstruction. Alldieck et al. [2] presented
+a method estimating normal and displacement maps on top of a human body
+model, such as SMPL [23]. Bhatnagar et al. [6] and Jiang et al. [17] presented 3D
+clothed human reconstruction systems that predict PCA coefficients of cloth gen-
+erative model space. Huang et al. [15] and He et al. [14] handle implicit function
+representation of 3D clothed humans in arbitrary poses and produce animatable
+reconstruction results. Xiu et al. [36] presented ICON, which utilizes local fea-
+tures for robust 3D clothed human reconstruction. Alldieck et al. [3] proposed
+PHORHUM to photorealistically reconstruct the 3D geometry and appearance
+of a dressed person. As all of the above methods require 3D scans for training,
+they are trained on synthetic datasets, which consist of 3D scans and the ren-
+dered images from the scans. As the synthetic datasets mainly contain simple
+human poses with artificial appearances, the methods trained on such datasets
+fail to generalize to in-the-wild datasets. In contrast, our ClothWild is the first
+work that can be weakly supervised with 2D supervision targets of in-the-wild
+datasets, which results in robust outputs on in-the-wild images.
+Recently, Corona et al. [7] presented a fitting framework that fits their cloth
+generative model to 2D cloth segmentations. Although their fitting framework
+handles reconstruction on in-the-wild images, there are two major differences
+from ours. First, their fitting framework is not a learning-based system; hence,
+it cannot utilize image features. As it only relies on 2D cloth segmentations for
+fitting, it produces wrong results when cloth segmentations are not available
+due to truncations or occlusions. On the other hand, ClothWild is a learning-
+based system that utilizes image features; hence, it is much more robust to
+occlusions and truncations by considering contextual information of image fea-
+tures, as shown in Fig. 5. Second, their fitting framework suffers from the depth
+ambiguity and pixel-misalignment as described in Section 1, since it projects
+3D reconstruction results to the 2D image space and compares the projected
+one with 2D cloth segmentations. On the other hand, ClothWild leverages our
+newly proposed DensePose-based loss function. Hence, ClothWild suffers much
+less from the depth ambiguity and is free from the pixel-misalignment issue. The
+detailed description of it is provided in Section 6.4.
+3D cloth generative model. 3D cloth generative models parameterize 3D
+clothes by embedding acquired 3D cloth scans in a latent space. Bhatnagar et
+al. [6] and Jiang et al. [17] used the PCA algorithm to represent clothes in a
+latent space. Ma et al. [25] used a graph convolutional neural network-based
+generative model to embed the clothes in a latent space. Bertiche et al. [5]
+embedded displacements from the human body surface to registered cloth meshes
+and cloth types as latent codes. Patel et al. [29] decomposed 3D clothes into low-
+
+
+3D Clothed Human Reconstruction in the Wild
+5
+and high-frequency components and represented them as a function of human
+poses, shapes and cloth styles. Corona et al. [7] presented a cloth generative
+model, SMPLicit, which embeds 3D clothes as latent codes that represent cloth
+styles and cloth cuts. SMPLicit covers a wide variety of clothes, which differ in
+their geometric properties, such as sleeve length and looseness. In our framework,
+we employ SMPLicit as a cloth generative model.
+3D human body reconstruction. 3D human body reconstruction methods
+predict parameters of the SMPL [23] body model from a single image. They
+perform well on in-the-wild images via weakly supervision with 2D GTs of in-
+the-wild images. Kanazawa et al. [18] proposed an end-to-end framework that
+utilizes adversarial loss to reconstruct plausible human bodies. Kolotouros et
+al. [20] combined a regressor and iterative fitting framework. Moon et al. [27]
+presented Pose2Pose utilizing local and global image features. We use Pose2Pose
+as an off-the-shelf 3D human body reconstruction method of our ClothWild due
+to its superior accuracy compared to other works.
+3
+ClothWild
+Fig. 2 shows the overall pipeline of our ClothWild, which consists of ClothNet
+and BodyNet. We provide a detailed description of each module below.
+3.1
+ClothNet
+Given an input image I, ClothNet predicts cloth existence scores c = (c1, . . . , cNc),
+a set of cloth latent codes {zi}Nc
+i=1, and a gender g. Nc = 5 denotes the number of
+clothes we consider, which include upper cloth, coat, pants, skirt, and shoes. The
+ith cloth existence score ci represents the probability that a human is wearing
+ith cloth. The ith cloth latent code zi ∈Rdi represents a low-dimensional code
+of ith 3D cloth, embedded in latent space of the 3D cloth model, SMPLicit [7].
+We set di = 4 for shoes and di = 18 for other clothes following SMPLicit [7].
+The gender g ∈R2 is a one-hot encoded vector that represents a label for the
+appropriate human body model (i.e., male and female). We use ResNet-50 [12]
+to extract an image feature vector f ∈R2048 from the input image after remov-
+ing the fully-connected layer of the last part of the original ResNet. The image
+feature vector f is passed into a fully-connected layer, followed by a sigmoid
+activation function, to predict the cloth existence scores c. In addition, we use
+Nc fully-connected layers to predict a set of cloth latent codes {zi}Nc
+i=1 from f,
+where ith fully-connected layer predicts the latent codes of ith cloth, zi. Finally,
+another fully-connected layer, followed by a softmax activation function, predicts
+the gender from f. The predicted set of cloth latent codes {zi}Nc
+i=1 and gender g
+are passed to SMPLicit.
+3.2
+BodyNet
+The BodyNet takes the input image I and predicts a shape parameter β ∈R10
+and a pose parameter θ ∈R72 of the SMPL human body model [23]. The shape
+
+
+6
+G. Moon et al.
+DensePose-based loss (Training)
+Input image (I)
+unsigned distance field
+Cloth generative
+model
+Marching 
+Cubes
+cloth existence score (ci)
+pose
+deformation
+shape (𝛽)
+Integration of clothes and body (Inference)
+[Section 3.1]
+[Section 3.2]
+[Section 3.4]
+cloth latent code (zi)
+Ldp
+T-posed clothed human mesh
+DensePose & cloth segm.
+clothed human mesh
+[Section 3.3]
+ClothNet
+upper cloth
+coat
+pants
+skirt
+shoes
+pose (𝜃)
+gender (g)
+[Section 4.1]
+BodyNet
+Fig. 2. The overall pipeline of ClothWild. ClothNet predicts cloth latent codes of the
+cloth generative model, SMPLicit, and produces an unsigned distance field by passing
+the codes to the SMPLicit. BodyNet predicts SMPL pose and shape parameters. At the
+training stage, the unsigned distance field is supervised with a combination of Dense-
+Pose and cloth segmentations with our DensePose-based loss function. At the inference
+stage, the final 3D clothed human reconstruction is obtained through Marching Cubes
+and pose deformation steps.
+parameter β represents PCA coefficients of T-posed human body shape space,
+and the pose parameter θ represents 3D rotations of human body joints. The
+shape parameter β is forwarded to SMPLicit that is described in Section 3.3. The
+pose parameter θ is used in the inference stage, of which detailed descriptions
+are in Section 3.4. We use Pose2Pose [27] as the BodyNet, which achieves state-
+of-the-art performance on in-the-wild benchmarks.
+3.3
+Cloth generative model
+The cloth generative model embeds 3D clothes in the latent space. We use SM-
+PLicit [7] as our cloth generative model, which produces a continuous unsigned
+distance field of a 3D cloth from a cloth latent code, gender, and human shape.
+We use the pre-trained SMPLicit and fix it while training ClothWild. Given the
+cloth latent codes {zi}Nc
+i=1, gender g, and human shape β, SMPLicit outputs the
+unsigned distance field for the ith cloth, as follows:
+  \l abe l {e q1 } C
+( \ ma th b f  { x}, \mathbf {z}_{i}, \mathbf {g}, \beta ) \longrightarrow \mathbb {R}^+ , \quad i = 1, 2, \ldots , N_c, 
+(1)
+where x ∈R3 is a 3D query point in a canonical 3D space where the human is
+in a T-pose. In the canonical 3D space, a T-posed naked human body mesh is
+founded by deriving from the gender g and human shape β. Around the T-posed
+naked human body, a set of 3D query points indicate the closest distance to the
+3D cloth surface as the unsigned distance field. The above step only proceeds for
+the ith cloth when its cloth existence score ci is larger than a threshold, which
+we empirically set to 0.25.
+
+
+3D Clothed Human Reconstruction in the Wild
+7
+3.4
+Integration of clothes and body
+Marching Cubes. In the inference stage, we obtain cloth meshes using March-
+ing Cubes [24], which extracts a mesh of an isosurface from a 3D discrete scalar
+field, such as the unsigned distance field. We calculate the unsigned distance
+field by densely sampling 3D query points in the 3D space and forwarding them
+to the SMPLicit model. Then, we extract cloth meshes on the T-pose from the
+unsigned distance field by Marching Cubes. At the end of this step, we obtain
+a T-posed clothed human mesh that comprises a T-posed naked human body
+mesh and cloth meshes.
+Pose deformation. Finally, we apply the pose deformation to the naked human
+body mesh and cloth meshes of the T-posed clothed human mesh, respectively,
+following Corona et al. [7]. To deform the naked human body, we use the skinning
+deformation of SMPL with the pose parameter θ predicted by the BodyNet. To
+deform cloth meshes, we allocate each cloth vertex of the cloth meshes to its
+closest naked human body vertex and apply the same pose deformation of the
+human body vertex. Such the SMPL-driven pose deformation has the strength
+that the reconstruction results can be deformed with an arbitrary pose instead
+of the predicted pose, which enables an animation.
+4
+Learning from in-the-wild datasets
+In this section, we describe loss functions to train our framework on in-the-wild
+datasets without any 3D scan GTs. ClothNet is the only trainable module in our
+framework, and all other modules, including BodyNet and SMPLicit, are fixed
+during the training. The overall loss function is
+  L_{\ t ext {t o tal}} = \ lambda _{\te x t {dp}}L_{\text {dp}}+\lambda _{\text {reg}}L_{\text {reg}}+\lambda _{\text {exist}}L_{\text {exist}}+\lambda _{\text {gender}}L_{\text {gender}}, 
+(2)
+where λdp = 1, λreg = 0.1, λexist = 0.01, and λgender = 0.01.
+4.1
+DensePose-based loss function
+The DensePose-based loss function Ldp, which uses a combination of cloth seg-
+mentations and DensePose, makes reconstructed clothes close to cloth segmen-
+tations. The loss is computed in three steps: cloth-to-body mapping, query point
+selection, and loss calculation.
+Cloth-to-body mapping. In the first step, we place pixels of 2D cloth seg-
+mentations in 3D space. Fig. 3 shows the procedure of the cloth-to-body map-
+ping step. In the area where DensePose is defined, we sample 2D cloth points
+{p2D
+k }Np
+k=1 on cloth segmentations, where Np = 196 is the number of the sampled
+2D points. We utilize DensePose that informs where each human pixel corre-
+sponds to the 3D human body surface of SMPL to map the 2D cloth points
+{p2D
+k }Np
+k=1 to 3D cloth points {p3D
+k }Np
+k=1 on the T-posed human body surface.
+Each of the mapped 3D cloth points represents a cloth label (e.g., upper cloth,
+pants, or non-cloth) elicited from the cloth segmentations.
+
+
+8
+G. Moon et al.
+(a) image
+(c) cloth segm.
+(b) DensePose
+p2D
+(d) T-posed human body
+x 
+p3D
+Fig. 3.
+The procedure of the cloth-to-body mapping step. From (a) an in-the-wild
+image, we exploit 2D supervision targets: (b) DensePose and (c) cloth segmentations.
+(d) We sample a 2D cloth point p2D of the cloth segmentations, and map the 2D
+cloth point p2D to the 3D cloth point p3D on the T-posed human body surface. We
+select the 3D query point x within constant distance from the 3D cloth points, and the
+DensePose-based loss function supervises the selected 3D query point.
+Query point selection. In this step, we select 3D query points around the
+T-posed human body for loss calculation. For each cloth type, we uniformly
+sample 3D query points at a resolution of 21 × 21 × 21 from a 3D bounding
+box, where the sampling strategy is described in the supplementary material.
+We select 3D query points {xj}Nq
+j=1 within a distance threshold τ from the 3D
+cloth points {p3D
+k }Np
+k=1 on the 3D human body surface, where Nq is the number
+of the sampled 3D query points. The distance threshold τ is set 10 cm for the
+coat and 3 cm for others.
+Loss calculation. To the formal description of the loss function, we define a
+cloth binary function Si(·). If the closest 3D cloth point from a 3D query point
+xj belongs to the ith cloth, Si(xj) becomes 1 and 0 else. With the cloth binary
+function Si(·), the DensePose-based loss function follows:
+  \ b
+e
+gin 
+{s
+p
+lit
+} 
+L
+_{\
+text {dp}} = {1 \o ver
+ N_ { c}N_{q}}\sum \li mi ts  _{i=1}^{N_{c}}\sum \limits _{j=1}^{N_{q}} ( S_{i}(\mathbf {x}_{j})|C(\mathbf {x}_{j}, \mathbf {z}_{i}, \mathbf {g}, \beta )| \\ +(1-S_{i}(\mathbf {x}_{j}))|C(\mathbf {x}_{j}, \mathbf {z}_{i}, \mathbf {g}, \beta )-d_{\text {max}}| ), \end {split} 
+(3)
+where dmax is a maximum cut-off distance of the unsigned distance fields, set to
+0.01 for shoes and 0.1 for others. The first loss term forces the 3D query point
+x to belong to ith cloth by making its unsigned distance close to zero when
+the 3D point matches cloth label i. The second loss term forces the 3D query
+point x to not belong to ith cloth when the 3D point does not match cloth
+label i. As a result, the DensePose-based loss function supervises the 3D query
+points established by the above steps without the depth ambiguity of the cloth
+segmentations.
+4.2
+Other loss functions
+Regularization loss. The regularization loss function Lreg makes predicted
+latent codes close to the mean of the cloth latent space, which results in plau-
+
+
+3D Clothed Human Reconstruction in the Wild
+9
+sible 3D clothes. The regularization loss function is defined as follows: Lreg =
+PNc
+i=1 αi∥zi∥2, where αi is set 0.1 for shoes and 1.0 for others. As the DensePose-
+based loss supervises 3D points that belong to partial areas of clothes, there is
+a possibility to learn implausible clothes (e.g., overly thick cloth or torn cloth)
+that only rely on the areas. The regularization loss prevents it by constraining
+output clothes to be close to the mean.
+Cloth existence loss. For the cloth existence prediction, we calculate a binary
+cross-entropy as follows: Lexist = −1
+Nc
+PNc
+i=1(c∗
+i logci + (1 −c∗
+i )(1 −logci)), where
+the asterisk denotes the groundtruth.
+Gender classification loss. For the gender classification, we calculate a cross-
+entropy as follows: Lgender = −(g∗
+mloggm + g∗
+floggf) , where gm and gf = 1 −gm
+is the probability of being male and female of the input human, respectively.
+The asterisk denotes the groundtruth.
+5
+Implementation details
+PyTorch [28] is used for implementation. The backbone part is initialized with
+the publicly released ResNet50 [12] pre-trained on ImageNet [32]. The weights
+are updated by Adam optimizer [19] with a mini-batch size of 8. The human
+body region is cropped using a GT box in both training and testing stages
+following previous works [33,34]. The cropped image is resized to 256×192. Data
+augmentations, including scaling, rotation, random horizontal flip, and color
+jittering, are performed in training. The initial learning rate is set to 10−4 and
+reduced by a factor of 10 after the 5th epoch. We train the model for 8 epochs
+with an NVIDIA GTX 2080 Ti GPU.
+6
+Experiment
+6.1
+Datasets
+MSCOCO. MSCOCO [22] is a large-scale in-the-wild dataset, which provides
+in-the-wild images with diverse human poses and appearances. We train ours
+on the training split and evaluate on the validation split. We use outputs of the
+DensePose regression model [10] for the DensePose-based loss function as GT
+DensePose provides only sparse annotations. For the cloth segmentations, we use
+LIP [9], which contains cloth segmentation annotations of MSCOCO images. We
+acquire gender annotations by running Homogenus [30] on MSCOCO and use
+its predictions as supervision targets.
+DeepFashion2. DeepFashion2 [8] is a comprehensive dataset that focuses on
+capturing clothed humans with a wide variety of cloth styles, and we use it as
+the additional train set along with the MSCOCO. We obtain DensePose and
+gender annotations by the same procedure as MSCOCO, described above. For
+cloth segmentation annotations, we use SCHP [21] to obtain cloth segmentations
+of the dataset.
+
+
+10
+G. Moon et al.
+(a) Chamfer distance (CD)
+(b) Body-cloth correspondence (BCC)
+cloth-to-body
+mapping
+image / DensePose / cloth segm.
+correctly 
+covered
+incorrectly 
+covered
+reconstruction
+GT surface
+image
+after alignment
+𝐶𝐷
+Procrustes 
+analysis
+Fig. 4.
+Descriptions of our evaluation metrics. (a) Chamfer distance (CD) is a 3D
+distance between reconstruction and GT surface. It is measured after aligning them
+based on each 2D projection. (b) BCC is a proportion of 3D points that have correctly
+matched cloth types. The purple and red points on the right body surface are 3D
+points that are mapped from cloth segmentations using DensePose. The purple points
+represent 3D points that are covered with a correct type of reconstructed 3D clothes,
+while the red points represent others. It is measured after normalizing 3D poses.
+3DPW. 3DPW [26] is an in-the-wild dataset, and we use it only for the eval-
+uation purpose after sampling every 25th frame of test set videos. We use two
+items of 3DPW: T-posed clothed human meshes registered to each subject’s 3D
+scan and SMPL pose parameters of humans in images. As the registered 3D
+clothed human meshes have the same mesh topology as that of SMPL body
+mesh, we deform the registered ones with SMPL pose parameters following the
+same skinning algorithm of SMPL. We use the posed registered meshes as GT
+3D clothed humans of 3DPW.
+6.2
+Evaluation metrics
+Fig. 4 shows our two evaluation metrics. Since there has been no work dealing
+with 3D clothed human reconstruction on the in-the-wild dataset, we propose
+two evaluation metrics in the following.
+Chamfer distance (CD). Chamfer Distance (CD) is a 3D distance between the
+3D clothed human reconstruction and the GT surface, widely used in previous
+works [33,34,17]. Before measurement, we rigidly align global rotation, scale, and
+translation of the reconstruction to the GT surface. The alignment is not trivial
+as there are no semantically matching pairs between the reconstruction and GT
+surface. For the alignment, we assume that the same human parts (e.g., shoulders
+and knees) of both the reconstruction and the GT surface are projected to the
+same pixel in the image. We rasterize both the reconstruction and GT surface
+and pair two vertices (i.e., one from the reconstruction and the other from the
+GT surface) that correspond to the same pixel. Based on the matching pairs, we
+align the reconstruction and measure the Chamfer distance (CD) in millimeter.
+More details of CD metric is described in the supplementary material.
+Body-cloth correspondence (BCC). Body-cloth correspondence (BCC) is a
+proportion of 3D points that have correct cloth types on the T-posed naked hu-
+man body surface. It only considers 3D cloth predictions, excluding 3D human

@@ -1,0 +1,1166 @@
+Title: Intrinsicavatar: Physically based inverse rendering of dynamic humans from monocular videos via explicit ray tracing
+
+IntrinsicAvatar: Physically Based Inverse Rendering of Dynamic Humans from
+Monocular Videos via Explicit Ray Tracing
+Shaofei Wang1,2,3, Boˇzidar Anti´c2,3, Andreas Geiger2,3, Siyu Tang1
+1ETH Z¨urich
+2University of T¨ubingen
+3T¨ubingen AI Center
+Input: a monocular video (~100 frames)
+Output: animatable avatar with intrinsic properties
+Animation Under Novel Lighting Condition
+applications
+4 hours
+training
+“city”
+“cambridge”
+Rendering
+Albedo
+Shading
+Metallic
+Roughness
+Visibility Geometry
+Lighting
+Figure 1. IntrinsicAvatar aims to achieve physically based inverse rendering of clothed humans from monocular videos. Left: Our model
+takes a monocular video as input and learns an avatar of the target person. Middle: We show decomposed properties of the learned avatar.
+Importantly, our model can produce such decomposition without any data-driven prior on geometry, albedo, or material. Right: With the
+learned avatar and intrinsic properties, we can animate and relight the avatar using arbitrary pose and arbitrary lighting condition.
+Abstract
+We present IntrinsicAvatar, a novel approach to recov-
+ering the intrinsic properties of clothed human avatars in-
+cluding geometry, albedo, material, and environment light-
+ing from only monocular videos. Recent advancements in
+human-based neural rendering have enabled high-quality
+geometry and appearance reconstruction of clothed humans
+from just monocular videos. However, these methods bake
+intrinsic properties such as albedo, material, and environ-
+ment lighting into a single entangled neural representation.
+On the other hand, only a handful of works tackle the prob-
+lem of estimating geometry and disentangled appearance
+properties of clothed humans from monocular videos. They
+usually achieve limited quality and disentanglement due to
+approximations of secondary shading effects via learned
+MLPs. In this work, we propose to model secondary shad-
+ing effects explicitly via Monte-Carlo ray tracing. We model
+the rendering process of clothed humans as a volumetric
+scattering process, and combine ray tracing with body ar-
+ticulation. Our approach can recover high-quality geom-
+etry, albedo, material, and lighting properties of clothed
+humans from a single monocular video, without requiring
+supervised pre-training using ground truth materials. Fur-
+thermore, since we explicitly model the volumetric scatter-
+ing process and ray tracing, our model naturally general-
+izes to novel poses, enabling animation of the reconstructed
+avatar in novel lighting conditions.
+1. Introduction
+Photo-realistic reconstruction and animation of clothed hu-
+man avatars is a long-standing problem in augmented real-
+ity, virtual reality, and computer vision. Existing solutions
+can achieve high-quality reconstruction for both geome-
+try and appearance of clothed humans given dense multi-
+view cameras [24, 28, 70].
+Recently, reconstruction of
+clothed humans from monocular videos has also been ex-
+plored [23, 64, 82, 85]. While these approaches achieve
+satisfactory results, they model the appearance of clothed
+humans as a single neural representation. This makes it
+difficult to edit the physical properties of the reconstructed
+clothed human avatars, such as reflectance and material,
+or to relight the reconstructed clothed human avatars un-
+der novel lighting conditions. In this work, we aim to re-
+cover physically based intrinsic properties for clothed hu-
+man avatars including geometry, albedo, material, and en-
+vironment lighting from only monocular videos.
+Physically based inverse rendering is a challenging prob-
+lem in computer graphics and computer vision.
+Tradi-
+tional approaches tackle this problem as a pure optimiza-
+tion problem with simplifying assumptions such as con-
+arXiv:2312.05210v2  [cs.CV]  11 Jul 2024
+
+
+trolled, known illumination. On the other hand, recent ad-
+vances in neural fields have enabled the high-quality re-
+construction of geometry and surface normals from multi-
+view RGB images. Given this progress, physically based
+inverse rendering of static scenes under unknown natural il-
+lumination has been demonstrated [34, 97]. Most recently,
+various works have combined human body priors with the
+physically based inverse rendering pipeline to reconstruct
+clothed human avatars with disentangled geometry, albedo,
+material, and lighting from monocular videos [15, 29, 79].
+However, these methods either ignore physical plausibility
+or model secondary shading effects via approximation, re-
+sulting in limited quality of reconstructed human avatars.
+Two major challenges are present for physically based
+inverse rendering of clothed humans from monocular
+videos: (1) accurate geometry reconstruction, especially
+normal estimates are essential for high-quality inverse ren-
+dering.
+(2) Modeling secondary shading effects such as
+shadows and indirect illumination is expensive and requires
+a certain level of efficiency to query the underlying neural
+fields. Existing monocular geometry reconstruction meth-
+ods of clothed humans all rely on large MLPs to achieve
+high-quality geometry reconstruction. However, using large
+MLPs negatively impacts the efficiency of secondary shad-
+ing computation.
+Therefore, most existing methods are
+forced to rely on simple assumptions (no shadows, no in-
+direct illumination) or approximations (pre-trained MLPs)
+to model secondary shading effects. More efficient neural
+field representations such as instant NGP (iNGP [55]) have
+proven to be effective for geometric reconstruction given
+multiple input views of a static scene [45, 71, 83], but it re-
+mains a challenge to extend such representation to dynamic
+humans under monocular setup.
+In this paper, we employ iNGP with hashing-based vol-
+umetric representation and signed distance field (SDF) to
+achieve fast and high-quality reconstruction of clothed hu-
+mans from monocular videos. The high-quality initial ge-
+ometry estimation and efficiency of iNGP facilitate the
+modeling of inverse rendering via explicit Monte-Carlo ray
+tracing. Furthermore, traditional surface-based inverse ren-
+dering methods give ambiguous predictions at edges and
+boundaries.
+We propose to use volumetric scattering to
+model edges and boundaries in a more physically plausi-
+ble way. Our experiments demonstrate that we can achieve
+high-quality reconstruction of clothed human avatars with
+disentangled geometry, albedo, material, and environment
+lighting from only monocular videos. In summary, we make
+the following contributions:
+• We propose a model for fast, high-quality geometry re-
+construction of clothed humans from monocular videos.
+• We propose to combine volumetric scattering with the
+human body articulation for physically based inversed
+rendering of dynamic clothed humans. We use explicit
+Monte-Carlo ray tracing in canonical space to model the
+volumetric scattering process, enabling relighting for un-
+seen poses.
+• We demonstrate that our method can achieve high-quality
+reconstruction of clothed human avatars with disentan-
+gled geometry, albedo, material, and environment light-
+ing from only monocular videos of clothed humans. We
+also show that our learned avatars can be rendered realis-
+tically under novel lighting conditions and novel poses.
+We have made our code and models publicly available1.
+2. Related Work
+Traditional Inverse Rendering:
+Traditional approaches
+to inverse rendering work on either single RGB images [4,
+43, 44, 46, 73, 76, 84, 90] or multi-view, multi-modality in-
+puts [21, 24, 37, 40, 57, 59, 68, 74, 92]. Recovering shape,
+reflectance, and illumination from a single RGB image is
+heavily underconstrained and often works poorly on real-
+world setups such as scene-level reconstruction and artic-
+ulated object reconstruction. A more practical approach is
+to reconstruct shapes from multi-view RGB(D) images and
+make simplifying assumptions such as controlled lighting
+conditions [51, 57, 75]. This kind of approach often re-
+sults in high-quality reconstruction of physical properties
+but lacks flexibility.
+Physically Based Inverse Rendering with Neural Fields:
+Since the blossom of neural radiance fields (NeRF [54]),
+a variety of works have been proposed to tackle the in-
+verse rendering problem using neural field representations.
+However, many works make use of simplifying assumptions
+such as known lighting conditions [77], ignoring shadowing
+effects [7, 8, 56, 91], or assuming constant material [91].
+NeRFactor [93] was the first work that enabled full estima-
+tion of a scene’s underlying physical properties (geometry,
+albedo, BRDF, and lighting) under a single unknown nat-
+ural illumination while also taking shadowing effect into
+account.
+InvRender [94] builds upon the state-of-the-art
+shape and radiance field reconstruction methods [81, 88]
+and proposed to model indirect illumination by distilling a
+pre-trained NeRF into auxiliary MLPs. [52] learns a neural
+radiance transfer field to enable global illumination under
+novel lighting conditions, but relies on accurate geometry
+initialization and does not optimize it jointly with mate-
+rial and lighting. NVDiffRecMC [25] tackles the inverse
+rendering problem by exploring the combination of mesh-
+based Monte-Carlo ray tracing and off-the-shelf denoisers.
+However, the mesh-based representation of NVDiffRecMC
+gives less accurate reconstruction compared to [81, 88].
+Most recently, TensoIR [34] takes advantage of fast ra-
+diance field data structures [10] and conducts explicit visi-
+1https://neuralbodies.github.io/IntrinsicAvatar/
+
+
+bility and indirect illumination estimation via ray marching.
+In comparison, we use an SDF representation and combine
+iso-surface search technique with volumetric scattering, re-
+sulting in better visibility modeling, especially for cloth
+wrinkles. Most importantly, we target dynamic, animat-
+able clothed avatar reconstruction while TensoIR focuses
+on static scene reconstruction.
+Microfacet fields [53] proposed to utilize volumetric
+scattering with a surface BRDF and ad-hoc sampling strate-
+gies.
+Concurrent to [53] , NeMF [95] also proposed
+to use volumetric scattering with microflake phase func-
+tions [27, 32] to replace surface-based BRDF for volume
+scattering, resulting in the ability to reconstruct thin struc-
+tures and low-density volumes.
+Both methods focus on
+static scenes reconstruction and relighting while using den-
+sity fields to represent the underlying geometry.
+Neural Radiance Fields for Human Reconstruction:
+Neural radiance fields have been used for human recon-
+struction from monocular videos. Most works [19, 33, 41,
+61, 62, 85] focus on appearance reconstruction while using
+density fields as a noisy geometry proxy. Some methods use
+SDFs to represent the geometry of humans and achieve im-
+pressive results in both geometry reconstruction and photo-
+realistic rendering [23, 64, 82, 86]. However, these methods
+bake intrinsic properties such as albedo, material, and light-
+ing all into the learned neural representations, preventing
+the application of these methods in relighting and material
+editing.
+Physically Based Inverse Rendering of Humans: High-
+quality 3D relightable human assets can be obtained via a
+multi-view, multi-modality capture system with controlled
+lighting [6, 17, 24, 30, 72, 92] or by training regressors
+on high-quality digital 3D assets [3, 18, 96]. RANA [29]
+pre-trains a mesh representation on multiple subjects with
+ground truth 3D digital assets while using a simplified
+spherical harmonics lighting model, thus cannot handle sec-
+ondary shading effects such as shadows and indirect illumi-
+nation. [79] propose to model the secondary shading effects
+via spherical Gaussian approximations, which do not han-
+dle shadowing effects. Relighting4D [15] jointly estimates
+the shape, lighting, and the albedo of dynamic humans from
+monocular videos under unknown illumination by approx-
+imating visibility via learned MLPs. These learned MLPs
+are over-smoothed approximations to real visibility values,
+while also having the inherent problem of not being able to
+generalize to novel poses. In contrast, we employ fast, ex-
+act visibility querying via explicit ray tracing, and thus can
+generalize to any novel poses.
+Concurrent Works:
+[5] and [35] respectively recon-
+struct relightable faces and hands from monocular videos.
+For full-body relightable avatars, [47] proposes to construct
+part-wise light visibility MLPs to achieve better novel pose
+generalization for relighting. However, it needs to train light
+visibility MLPs on additional unseen poses. In compari-
+son, we use explicit ray tracing to compute secondary ray
+visibilities, which generalizes to novel poses without addi-
+tional training. [87] designs a hierarchical distance query al-
+gorithm and extends DFSS [60] to deformable neural SDF,
+achieving efficient light visibility computation using sphere
+tracing. However, the use of sphere tracing and surface ren-
+dering results in visible artifacts around elbows and armpits,
+as sphere tracing does not guarantee convergence, espe-
+cially when combined with human body articulation. In
+contrast, we use volumetric scattering to model the human
+body, which results in less visual artifacts.
+3. Method
+In this section, we first introduce basic concepts of neural
+radiance fields (NeRF [54]). Then we describe our frame-
+work of geometry reconstruction of clothed avatars from
+monocular videos. The clothed avatars are modeled as an
+articulated NeRF with SDF as its geometry representation.
+Next, we introduce the volumetric scattering process from
+computer graphics and draw a connection between it and
+NeRF. Finally, we describe our solution to secondary ray
+tracing of volumetric scattering, which combines the ex-
+plicit ray-marching with iso-surface search and body artic-
+ulation. The final outputs are intrinsic properties of clothed
+avatars including geometry, material, albedo, and lighting.
+3.1. Background: Neural Radiance Fields
+Given a ray r = (o, d) defined by its camera center o and
+viewing direction d, NeRF computes the output radiance
+(i.e. pixel color) of the ray via:
+Crf(r) =
+Z tf
+tn
+T(tn, t)σt(r(t))L(r(t), −d)dt
+(1)
+s.t
+r(t) = o + td
+T(tn, t) = exp
+
+−
+Z t
+tn
+σt(r(s))ds
+
+where (tn, tf) defines the near/far point for the ray integral.
+In practice, NeRF uses a ray marching algorithm to approx-
+imate the exact value of the integral:
+Crf(r) ≈
+N
+X
+i=1
+w(i)L(r(t(i)), −d)
+(2)
+s.t
+r(t) = o + td
+w(i) = T (i) 
+1 −exp(−σt(r(t(i)))δi
+T (i) = exp
+
+−
+X
+j<i
+σt(r(t(j)))δ(j)
+
+
+δ(i) = t(i+1) −t(i)
+
+
+𝐶!"(𝐫)
+𝐿
+Observation Space
+Articulation
+𝐿𝐵𝑆#$
+𝐱%
+𝐱&
+Canonical Space
+Radiance 
+Field 
+Rendering
+𝐫
+Input Image
+Volumetric 
+Scattering
+𝛼
+𝑚
+𝑟
+Primary ray
+Secondary ray
+𝐶23!(𝐫)
+Primary sample
+Secondary sample
+Geometry Grid 
+and MLP
+𝛾4,𝑓5
+Appearance Grid
+𝛾&
+Radiance MLP 
+𝑓!"
+Material MLP 
+𝑓#
+𝜎
+𝐳
+𝐧
+Primary ray computation
+Secondary ray computation
+Primary and secondary ray computation
+Environment Map
+Figure 2. Inverse Rendering of Clothed Avatars with Volumetric Scattering. Given an input image and associated camera rays, we
+warp the rays to the canonical space and do both primary and secondary ray marching/tracing in canonical space. We model geometry with
+a geometry hash grid γg and MLP fg, while also modeling volumetric radiance and material with an appearance grid γc and two additional
+MLPs frf, fm. We supervise both Crf and Cpbr using a L1 loss wrt. the input image.
+where {t(1), · · · , t(N)} are a set of sampled offsets on the
+ray. σt(·) and L(·, ·) are represented as either neural net-
+works [54, 58, 81, 89], explicit grid data [1, 78], or a hybrid
+of both [10–12, 16, 20, 55, 69].
+3.2. Clothed Humans Avatars as Articulated Neural
+Radiance Fields
+We follow the recent approaches of modeling humans as ar-
+ticulated NeRF [33, 41, 82, 85]. We assume body articula-
+tions are based on the SMPL model [50]. Following previ-
+ous works, we define the observation space as a space where
+the human is observed, and the canonical space as a space
+where the human is in a canonical pose. We apply inverse
+linear blend skinning (LBS) to transform 3D points in the
+observation space xo = r(t) to the point in canonical space
+xc. We model the radiance field, materials, and albedo all
+in the canonical space.
+Articulation via Inverse LBS: In the SMPL model, the
+linear blender skinning (LBS) function is defined as:
+xo = LBS(xc, {Bb}B
+b=1, w(xc)) =
+ B
+X
+b=1
+w(xc)bBb
+!
+xc
+(3)
+where {Bb}B
+b=1 are the rigid bone-transformations de-
+fined by estimated SMPL parameters. w(xc) are skinning
+weights of point xc. We use Fast-SNARF [14] to model
+the canonical skinning weight function w(·) and the inverse
+skinning function:
+xc = LBS−1(xo, {Bb}B
+b=1, w(xc))
+(4)
+For simplicity, we drop the dependency on {Bb}B
+b=1 and
+w(xc) for the remainder of the paper.
+Geometry:
+We use iNGP [55] with SDF to represent the
+underlying canonical shape of clothed humans.
+Specifi-
+cally, given a query point xc in canonical space, we predict
+the SDF value of the point and a latent feature z:
+(SDF(xc), z) = fg(γg(xc))
+(5)
+where γg(·) is the iNGP hash grid feature of the input point,
+and fg is a small MLP with a width of 64 and one hidden
+layer. We use VolSDF [89] to convert from SDF to density
+σt.
+Radiance and Material: Radiance and materials are pre-
+dicted as follows:
+L(xc, d) = frf(γc(xc), z, ref(d, n), n)
+(6)
+α(xc), r(xc), m(xc) = fm(γc(xc), z)
+(7)
+where γc(·) is the feature from another iNGP hash grid
+designed specifically for radiance and material prediction.
+The same strategy was also employed in [71] for learning
+better geometric details. frf and fm are both MLPs with a
+width of 64 and two hidden layers. n is the analytical nor-
+mal obtained from SDF fields. ref(d, n) reflects the viewing
+direction d around the normal n, similar to [80]. L(·, ·) will
+be used for Eq. (2) whereas α, r, and m are spatially vary-
+ing albedo, roughness, and metallic parameters that will be
+used for physically based rendering.
+For ray marching, we use 128 uniform samples and do
+two rounds of importance sampling, each time with 16 sam-
+ples, to obtain a final set of 160 samples per ray.
+With the aforementioned model, we can quickly recon-
+struct the detailed geometry of clothed human avatars from
+a single monocular video in less than 30 minutes.
+
+
+3.3. Physically Based Inverse Rendering via Volu-
+metric Scattering
+With initial geometry and radiance estimation from previ-
+ous sections, we now account intrinsic properties of clothed
+human avatars, i.e. material, albedo, and lighting conditions
+for the rendering process.
+With the standard equation of transfer of participating
+media in computer graphics [31, 65], we reach the NeRF
+formula Eq. (1) by assuming all the radiance that reaches
+the camera is modeled by neural networks. On the other
+hand, if we think all the radiance that reaches the camera is
+scattered from some light sources (e.g. environment maps)
+by a volume of media, while the media itself does not emit
+any radiance, then we are tackling the volume scattering
+problem.
+Formally, we have the following integral to compute the
+radiance scattered by the volume representing the human
+body along a certain camera ray (o, d):
+Cpbr(r) =
+Z tf
+tn
+T(tn, t)σs(r(t))Ls(r(t), −d)dt
+(8)
+s.t
+r(t) = o + td
+T(tn, t) = exp
+
+−
+Z t
+tn
+σt(r(s))ds
+
+Ls(x, −d) =
+Z
+S2 fp(x, −d, ¯d)Li(x, −¯d)d¯d
+σt(r(t)) = σa(r(t)) + σs(r(t))
+S2 is the domain of a unit sphere.
+σs and σa are the
+scattering coefficient and the absortion coefficient, respec-
+tively. Their sum is the attentuation coefficient, which is
+also known as the density in NeRF literature. fp(x, −d, ¯d)
+is the phase function that describes the probability of light
+scattering from direction ¯d to −d at point x. Li(x, −¯d) is
+the incoming radiance towards point x along the direction
+−¯d, it can be computed as a weighted sum of Crf(x, ¯d)
+(Eq. (1)) and radiance from an environment map Env(¯d):
+Li(x, −¯d) =Crf(x, ¯d)
++ exp
+ 
+−
+Z tf′
+tn′
+σt(x + s¯d)ds
+!
+Env(¯d)
+(9)
+where tn′ and tf ′ are the near and far points of secondary
+rays. In traditional physically based rendering, the first term
+represents indirect illumination while the second term rep-
+resents direct illumination. Instead of modeling indirect il-
+lumination with path tracing, we use the trained radiance
+field to approximate it. This is also done in various recent
+works [34, 94] for modeling static scenes from multi-view
+input images. For Monte-Carlo estimation of Cpbr(r), we
+will have to sample the two integrals
+R tf
+tn and
+R
+S2 separately.
+Surface
+Volume
+Surface
+Volume
+Radiance field sample !(")
+Volume scattering sample !(")
+Camera ray
+Figure 3. Illustration of Volumetric Scattering. Volumetric scat-
+tering can blend between multiple surfaces when a ray crosses
+edges (left). This results in smooth transitions of appearance at
+boundaries, avoiding noisy shadow (middle) and lighting (right) at
+these locations.
+The first integral is estimated via quadrature as was done in
+standard NeRF rendering. We next describe how to sample
+the second integrals.
+For approximating Eq. (8), we importance sample off-
+sets {¯t(1), · · · , ¯t(M)} from the PDF estimated by radiance
+field samples that have been used to estimate Eq. (2) . The
+approximated Eq. (8) becomes:
+Cpbr(r) ≈
+M
+X
+i=1
+w(i) σs(r(¯t(i)))
+σt(r(¯t(i))) Ls(r(¯t(i)), −d)
+(10)
+s.t
+r(t) = o + td
+w(i) = T (i) 
+1 −exp(−σt(r(¯t(i))δ(i))
+
+T (i) = exp
+
+−
+X
+j<i
+σt(r(¯t(j)))δ(j)
+
+
+Ls(r(¯t(i)), −d) = fp(r(¯t(i)), −d, ¯d(i))
+pdf(¯d(i))
+· Li(r(¯t(i)), −¯d(i))
+σt(r(t)) = σa(r(t)) + σs(r(t))
+in which σs(r(¯t(i)))
+σt(r(¯t(i))) corresponds to the spatially varying
+albedo and is analogous to that in surface-based rendering.
+pdf(¯d(i)) is the PDF from which ¯d(i) is sampled.
+Essentially, we use quadrature to estimate the first inte-
+gral
+R tf
+tn , and Monte-Carlo sampling to estimate the second
+integral
+R
+S2, all together with M samples. We refer readers
+to Appendix A for a detailed derivation of Eq. (10). During
+training ¯d(i) is uniformly sampled from the unit sphere with
+M = 512 and stratified jittering [66]. For relighting, we use
+light importance sampling with M = 1024 to sample from
+a known environment map.
+We note that when using an SDF-density representation,
+most of the samples ¯t(i) are concentrated around the surface
+of the human body. This makes the volumetric scattering
+process similar to a surface-based rendering process when
+there is a clear intersection between the ray and the surface.
+
+
+On the other hand, rays at edges and boundaries may not
+have a well-defined surface as the corresponding pixels may
+cover multiple surfaces. For these rays, it would be difficult
+to employ surface-based rendering while volume scattering
+suits naturally for this case (Fig. 3).
+We use a simplified version of Disney BRDF [9]
+to model the combined effect of the volumetric albedo
+σs(r(¯t(i)))
+σt(r(¯t(i))) and the phase function fp.
+It takes predicted
+albedo α, roughness r and metallic m as inputs:
+σs
+σt
+fp(ωo, ωi) = BRDF(ωo, ωi, α, r, m, n) max (n · ωi, 0)
+We drop dependency on spatial locations for brevity.
+An extended implementation detail of the above BRDF
+can be found in Appendix B. More physically accurate
+phase functions for rendering surface-like volumes, such as
+SGGX [27] can also be plugged into our formulation, but
+we empirically do not find them providing any advantage
+for our application.
+3.4. Articulated Secondary Ray Tracing
+Given the M samples {¯t(i)}M
+i=1 on a primary ray, we trace
+one secondary ray for each of the samples, and compute
+opacity (or visibility in a surface rendering setup) and ra-
+diance for each secondary ray. Formally, we trace a sec-
+ondary ray ¯r(i) from the corresponding sample, where
+¯r(i) = (¯o(i), ¯d(i)) with ¯o(i) = r(¯t(i)).
+Secondary Ray Tracing:
+We note that traditional sphere
+tracing could lead to non-convergence rays when the SDF is
+not smooth. This is exacerbated when the SDF is approxi-
+mated by neural networks and combined with body articula-
+tion. Furthermore, the sequential evaluation of SDF values
+on a ray is not amenable to parallelization, especially when
+a large number of secondary rays need to be evaluated and
+each evaluation involves neural networks.
+Given the underlying NeRF representation, precise sur-
+face location is often not required to compute radiance,
+while the opacity is binary most of the time due to the SDF-
+density representation. This motivates us to use ray march-
+ing to compute secondary shading effects. However, we
+observe that the Laplace density function of [89] tends to
+assign non-negligible density values to small positive SDF
+values. This will cause the secondary ray marching to give
+non-zero weights to points that are very close to the surface,
+i.e. starting points ¯o’s of secondary rays. While NeuS [81] is
+more well-behaved as it only assigns high weights for SDF
+zero-crossing intervals, estimating weights of ray segments
+requires estimation of analytical surface normals, which
+usually doubles the computation cost of ray marching.
+Motivated by these facts, we propose a hybrid approach
+to secondary ray marching by searching for the first SDF
+zero-crossing point of a set of uniform samples on the sec-
+ondary ray and only start accumulating importance weights
+Algorithm 1 Zero-Crossing Search and Importance Weight
+Accumulation
+Require: {SDF(¯r(t′(i)))}64
+i=1, ¯r = (¯o, ¯d)
+Ensure: Importance weights {w(i)}63
+i=1
+1: s ←1
+2: {w(i)}63
+i=1 ←0
+3: while s < 63 do
+4:
+if SDF(¯r(t′(s))) · SDF(¯r(t′(s+1))) < 0 then
+5:
+break
+6:
+end if
+7:
+s ←s + 1
+8: end while
+9: T(¯r) ←1
+10: for i = s to 63 do
+11:
+δ(i) ←t′(i+1) −t′(i)
+12:
+w(i) ←
+ 1 −exp(−σt(¯r(t′(i)))δ(i))
+
+T(¯r)
+13:
+T(¯r) ←T(¯r) exp
+ −σt(¯r(t′(i)))δ(i)
+14: end for
+15: return {w(i)}63
+i=1
+from that point. Given the weights of uniform samples, we
+sample 4 additional samples on the secondary ray and com-
+pute the transmittance and radiance from these 4 samples.
+The computed transmittance and radiance are inputs to in-
+coming radiance evaluation Eq. (9).
+Formally, given a secondary ray ¯r, we first uniformly
+sample 64 offsets {t′(1), · · · , t′(64)} on the ray between the
+near and far points, tn′ = 0 tf ′ = 1.5. Each of the sampled
+offsets is transformed to the canonical space to query its
+SDF value:
+SDF(¯r(t′)) = fg(γg(LBS−1(¯r(t′))))
+(11)
+Alg. 1 describes the procedure of searching for the first
+zero-crossing point and accumulating weights for each of
+the points. This is similar to the traditional sphere tracing
+algorithm, with the difference that SDF values are evaluated
+uniformly in parallel instead of sequentially. We parallelize
+Alg. 1 together with importance sampling over rays with
+custom CUDA implementation.
+3.5. Training Details
+We use standard L1 loss wrt. input images on radiance pre-
+dicted by both radiance field (RF loss) and volumetric scat-
+tering (PBR loss). We apply eikonal loss [22] (throughout
+training) and curvature loss [71] (only the first half of the
+training) to regularize the SDF field. We also apply Lips-
+chitz regularization [71] and standard smoothness regular-
+ization [34, 93] to the material predictions. Details on losses
+and hyperparameters can be found in Appendix C.1.
+We train a total of 25k iterations with a learning rate of
+0.001 decayed by a factor of 0.3 at 12.5k, 18.75k, 22.5k,
+
+
+and 23.75k iterations, respectively. The first 10k iterations
+are trained with the RF loss only, while the rest of the itera-
+tions are trained on both the RF loss and the PBR loss. We
+use a batch size of 4096 rays. Training is done on a single
+NVIDIA RTX 3090 GPU in 4 hours.
+4. Experimental Evaluation
+4.1. Datasets
+We utilize 3 different datasets to conduct our experiments
+• RANA [29] To quantitatively evaluate our estimation of
+the physical properties of the reconstructed avatar, we
+use 8 subjects from the RANA dataset. The dataset is
+rendered using a standard path tracing algorithm, with
+ground truth albedo, normal, and relighted images avail-
+able for evaluation. We follow protocol A in which the
+training set resembles a person holding an A-pose rotat-
+ing in front of the camera under unknown illumination.
+The test set consists of images of the same subject in ran-
+dom poses under novel illumination conditions.
+• PeopleSnapshot [2] In PeopleSnapshot, subjects always
+hold a simple A-pose and rotate in front of the camera
+under natural illumination. We use 6 subjects from the
+dataset with refined pose estimation from [13, 33].
+• SyntheticHuman-Relit To additionally evaluate relight-
+ing on more complex training poses of continuous videos,
+we create a synthetic dataset by rendering two subjects
+from the SyntheticHuman dataset [64] with Blender un-
+der different illumination conditions. Due to space limits,
+we refer readers to the Appendix D and E for details and
+results on this dataset.
+4.2. Baselines
+To our knowledge, Relighting 4D (R4D [15]) is the only
+baseline with publicly available code for the physically
+based inversed rendering of clothed human avatars under
+unknown illumination, without pretraining on any ground
+truth geometry/albedo/materials.
+RANA [29] only pro-
+vides public access to their data at the time of our submis-
+sion. Furthermore, RANA pretrains on ground truth albedo,
+which is not available in our setting.
+We note that the original R4D implementation does not
+employ any mask loss. We therefore also report a variant of
+R4D (denoted as R4D*) that employs a mask loss. R4D*
+achieves overall better performance than R4D (Tab. 1) and
+thus we primarily compared our method to this improved
+version of R4D.
+4.3. Evaluation Metrics
+On synthetic datasets, we evaluate the following metrics:
+• Albedo PNSR/SSIM/LPIPS we evaluate the standard
+image quality metrics on albedos rendered under training
+views. Due to ambiguity in estimating albedo and light
+intensity, we follow the practice of [93] to align the pre-
+dicted albedo with the ground truth albedo. More details
+can be found in Appendix C.2.
+• Normal Error this metric evaluates normal estimation er-
+ror (in degrees) between predicted normal images and the
+ground-truth normal images.
+• Relighting PSNR/SSIM/LPIPS we also evaluate image
+quality metrics on images synthesized on novel poses
+with novel illumination. Relighting evaluation on train-
+ing poses (i.e. SyntheticHuman-Relit dataset) is reported
+in Appendix E.
+On real-world datasets, i.e. PeopleSnapshot, we primar-
+ily present qualitative results including novel view/pose
+synthesis under novel illuminations.
+4.4. Comparison to Baselines
+We present the average metrics on the RANA dataset in
+Tab. 1.
+Our method significantly outperforms R4D and
+R4D* on all metrics, achieving 77% and 64% reduction in
+the normal estimation error, respectively. This combined
+with our explicit ray tracing technique also gives us a sig-
+nificant improvement in albedo-related metrics on training
+poses.
+For relighting novel poses, we note that the SMPL model
+is not perfectly aligned with images in the RANA dataset,
+which could make the PSNR metric less meaningful. Thus
+we argue that SSIM and LPIPS can better reflect the quality
+of the relighting results. Nevertheless, R4D* fails to pro-
+duce reasonable results due to its inability to generalize to
+novel poses. On the other hand, our method can produce
+high-quality re-posing and relighting results (Fig. 4).
+4.5. Ablation Study
+In this section, we ablate several of our design choices. We
+use subject 01 from the RANA dataset for this ablation
+study.
+We visualize average visibility (AV) maps which
+best reflect the quality of the reconstruction geometry and
+secondary ray tracing. The AV value of a primary ray r is
+defined as:
+AV(r) = 2 ∗1
+M
+M
+X
+i=1
+V (¯r(i))
+(12)
+where V (¯ri) is the visibility of the i-th secondary ray (1
+for not occluded, 0 for occluded), and M is the number of
+secondary rays sampled for each primary ray. We multi-
+ply visibility by 2 as we sample secondary rays on a unit
+sphere instead of a hemisphere. The results are summarized
+in Fig. 5. We describe different variants in the following:
+• Ours: Our full method with all the components described
+in Section 3.
+• Rendered Depth with Surface Scattering: This variant
+corresponds to [34] that uses rendered depth and surface
+scattering.
+
+
+Rendering
+Albedo
+Geometry
+Relight
+(train pose)
+Relight
+(novel pose)
+Rendering
+Albedo
+Geometry
+Relight
+(train pose)
+Relight
+(novel pose)
+Rendering
+Albedo
+Geometry
+Relight
+(train pose)
+Relight
+(novel pose)
+Ours
+R4D*
+Figure 4. Qualitative comparison to the baseline. We show the results of our method and R4D* on both synthetic (left) and real (middle,
+right) datasets. As indicated, R4D* struggles to recover intrinsic properties of avatars and do not produce realistic relighting results.
+Furthermore, it fails to generalize to novel poses. Our method produces high-quality results on both synthetic and real datasets, while
+generalizing well to novel poses and illuminations. More qualitative results can be found in Appendix F
+Method
+Albedo
+Normal
+Relighting (Novel Pose)
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+Error ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+R4D
+18.24
+0.7780
+0.2414
+42.69 ◦
+14.37
+0.8133
+0.2017
+R4D*
+18.23
+0.8254
+0.2043
+27.38 ◦
+16.62
+0.8370
+0.1726
+Ours
+22.83
+0.8816
+0.1617
+9.96 ◦
+18.18
+0.8722
+0.1279
+Table 1. Quantitative comparison to the baseline on the RANA dataset.
+With Rendered Depth
+Ours
+No Secondary 
+Iso-surface Search
+Reference Image
+24.05/0.8671/𝟏𝟏. 𝟖𝟒°
+𝟐𝟒. 𝟏𝟏/𝟎. 𝟖𝟔𝟕𝟗/12.05°
+23.75/0.8651/14.1°
+Figure 5. Ablation study. We visualize average visibility (AV)
+maps of each variant and report albedo PSNR (↑)/albedo SSIM
+(↑)/Normal Error (↓). Surface scattering with rendered depth re-
+sults in discontinuities at boundaries and edges. Without our pro-
+posed iso-surface search for secondary ray tracing, the visibility
+map is much darker and does not reflect true visibility. We also
+refer readers to Fig. 3 for qualitative relighting results
+• No Iso-surface Search for Secondary Ray Tracing: In
+this variant we do not perform the iso-surface search for
+secondary ray tracing (Sec. 3.4) and start accumulating
+weights from the first sample of the 64 samples on the
+secondary ray.
+5. Conclusion
+We have presented a novel approach to the inverse render-
+ing of dynamic humans from only monocular videos. Our
+method can achieve high-quality reconstruction of clothed
+human avatars with disentangled geometry, albedo, mate-
+rial, and environment lighting from only monocular videos.
+We have also shown that our learned avatars can be ren-
+dered realistically under novel lighting conditions and novel
+poses. Experiment results show that our method signifi-
+cantly outperforms the state-of-the-art method both qualita-
+tively and quantitatively. We discuss limitations and future
+work in Appendix G.
+6. Acknowledgment
+We thank Umar Iqbal and Zhen Xu for the helpful
+discussion on setting up synthetic datasets.
+We thank
+Zijian Dong and Naama Pearl for constructive feedback
+on our early draft.
+SW, BA and AG were supported
+by the ERC Starting Grant LEGO-3D (850533) and the
+DFG EXC number 2064/1 - project number 390727645.
+SW and ST acknowledge the SNSF grant 200021 204840.
+
+
+References
+[1] Alex Yu and Sara Fridovich-Keil, Matthew Tancik, Qinhong
+Chen, Benjamin Recht, and Angjoo Kanazawa. Plenoxels:
+Radiance fields without neural networks. Proc. IEEE Conf.
+on Computer Vision and Pattern Recognition (CVPR), 2022.
+4, 17
+[2] Thiemo Alldieck, Marcus A. Magnor, Weipeng Xu, Chris-
+tian Theobalt, and Gerard Pons-Moll. Video based recon-
+struction of 3d people models. In Proc. IEEE Conf. on Com-
+puter Vision and Pattern Recognition (CVPR), 2018. 7
+[3] Thiemo Alldieck, Mihai Zanfir, and Cristian Sminchisescu.
+Photorealistic monocular 3d reconstruction of humans wear-
+ing clothing. In Proc. IEEE Conf. on Computer Vision and
+Pattern Recognition (CVPR), 2022. 3
+[4] Jonathan T. Barron and Jitendra Malik.
+Shape, illumina-
+tion, and reflectance from shading.
+IEEE Trans. on Pat-
+tern Analysis and Machine Intelligence (PAMI), 37(8):1670–
+1687, 2015. 2
+[5] Shrisha
+Bharadwaj,
+Yufeng
+Zheng,
+Otmar
+Hilliges,
+Michael J. Black, and Victoria Fernandez Abrevaya. Flare:
+Fast learning of animatable and relightable mesh avatars.
+ACM Trans. on Graphics, 42(6):1–15, 2023. 3
+[6] Sai Bi, Stephen Lombardi, Shunsuke Saito, Tomas Simon,
+Shih-En Wei, Kevyn McPhail, Ravi Ramamoorthi, Yaser
+Sheikh, and Jason M. Saragih. Deep relightable appearance
+models for animatable faces. ACM Trans. on Graphics, 40
+(4):89:1–89:15, 2021. 3
+[7] Mark Boss, Raphael Braun, Varun Jampani, Jonathan T Bar-
+ron, Ce Liu, and Hendrik Lensch. Nerd: Neural reflectance
+decomposition from image collections. In Proc. of the IEEE
+International Conf. on Computer Vision (ICCV), 2021. 2
+[8] Mark Boss, Varun Jampani, Raphael Braun, Ce Liu,
+Jonathan T. Barron, and Hendrik P.A. Lensch.
+Neural-
+pil: Neural pre-integrated lighting for reflectance decompo-
+sition. In Advances in Neural Information Processing Sys-
+tems (NIPS), 2021. 2
+[9] Brent Burley. Physically-based shading at disney. In Proc.
+of SIGGRAPH, 2012. 6, 15
+[10] Anpei Chen, Zexiang Xu, Andreas Geiger, Jingyi Yu, and
+Hao Su. Tensorf: Tensorial radiance fields. In Proc. of the
+European Conf. on Computer Vision (ECCV), 2022. 2, 4, 17
+[11] Anpei Chen, Zexiang Xu, Xinyue Wei, Siyu Tang, Hao Su,
+and Andreas Geiger. Factor fields: A unified framework for
+neural fields and beyond. arXiv.org, 2302.01226, 2023.
+[12] Anpei Chen, Zexiang Xu, Xinyue Wei, Siyu Tang, Hao Su,
+and Andreas Geiger. Dictionary fields: Learning a neural
+basis decomposition. ACM Trans. on Graphics, 42(4):1–12,
+2023. 4
+[13] Jianchuan Chen, Ying Zhang, Di Kang, Xuefei Zhe, Linchao
+Bao, Xu Jia, and Huchuan Lu. Animatable neural radiance
+fields from monocular rgb videos. arXiv.org, 2106.13629,
+2021. 7
+[14] Xu Chen, Tianjian Jiang, Jie Song, Max Rietmann, Andreas
+Geiger, Michael J. Black, and Otmar Hilliges. Fast-snarf: A
+fast deformer for articulated neural fields. IEEE Trans. on
+Pattern Analysis and Machine Intelligence (PAMI), 45(10):
+11796–11809, 2023. 4
+[15] Zhaoxi Chen and Ziwei Liu.
+Relighting4d:
+Neural re-
+lightable human from videos. In Proc. of the European Conf.
+on Computer Vision (ECCV), 2022. 2, 3, 7
+[16] Zhang Chen, Zhong Li, Liangchen Song, Lele Chen, Jingyi
+Yu, Junsong Yuan, and Yi Xu. Neurbf: A neural fields repre-
+sentation with adaptive radial basis functions. In Proc. of the
+IEEE International Conf. on Computer Vision (ICCV), 2023.
+4
+[17] Zhaoxi Chen, Gyeongsik Moon, Kaiwen Guo, Chen Cao,
+Stanislav Pidhorskyi, Tomas Simon, Rohan Joshi, Yuan
+Dong, Yichen Xu, Bernardo Pires, He Wen, Lucas Evans,
+Bo Peng, Julia Buffalini, Autumn Trimble, Kevyn McPhail,
+Melissa Schoeller, Shoou-I Yu, Javier Romero, Michael
+Zollh¨ofer, Yaser Sheikh, Ziwei Liu, and Shunsuke Saito.
+URhand: Universal relightable hands. In Proc. IEEE Conf.
+on Computer Vision and Pattern Recognition (CVPR), 2024.
+3
+[18] Enric Corona, Mihai Zanfir, Thiemo Alldieck, Eduard
+Gabriel Bazavan, Andrei Zanfir, and Cristian Sminchisescu.
+Structured 3d features for reconstructing relightable and an-
+imatable avatars. In Proc. IEEE Conf. on Computer Vision
+and Pattern Recognition (CVPR), 2023. 3
+[19] Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black,
+and Timo Bolkart.
+Capturing and animation of body and
+clothing from monocular video.
+In Proc. of SIGGRAPH,
+2022. 3
+[20] Stephan J. Garbin, Marek Kowalski, Matthew Johnson,
+Jamie Shotton, and Julien Valentin. Fastnerf: High-fidelity
+neural rendering at 200fps. In Proc. of the IEEE Interna-
+tional Conf. on Computer Vision (ICCV), 2021. 4
+[21] Purvi Goel,
+Loudon Cohen,
+James Guesman,
+Vikas
+Thamizharasan, James Tompkin, and Daniel Ritchie. Shape
+from tracing: Towards reconstructing 3d object geometry
+and SVBRDF material from images via differentiable path
+tracing.
+In Proc. of the International Conf. on 3D Vision
+(3DV), 2020. 2
+[22] Amos Gropp, Lior Yariv, Niv Haim, Matan Atzmon, and
+Yaron Lipman. Implicit geometric regularization for learn-
+ing shapes. In Proc. of the International Conf. on Machine
+learning (ICML), 2020. 6
+[23] Chen Guo, Tianjian Jiang, Xu Chen, Jie Song, and Otmar
+Hilliges. Vid2avatar: 3d avatar reconstruction from videos in
+the wild via self-supervised scene decomposition. In Proc.
+IEEE Conf. on Computer Vision and Pattern Recognition
+(CVPR), 2023. 1, 3, 18
+[24] Kaiwen Guo, Peter Lincoln, Philip L. Davidson, Jay Busch,
+Xueming Yu, Matt Whalen, Geoff Harvey, Sergio Orts-
+Escolano, Rohit Pandey, Jason Dourgarian, Danhang Tang,
+Anastasia Tkach, Adarsh Kowdle, Emily Cooper, Mingsong
+Dou, Sean Ryan Fanello, Graham Fyffe, Christoph Rhe-
+mann, Jonathan Taylor, Paul E. Debevec, and Shahram Izadi.
+The relightables: volumetric performance capture of humans
+with realistic relighting. ACM Trans. on Graphics, 38(6):
+217:1–217:19, 2019. 1, 2, 3
+[25] Jon Hasselgren, Nikolai Hofmann, and Jacob Munkberg.
+Shape, light, and material decomposition from images using
+monte carlo rendering and denoising. In Advances in Neural
+Information Processing Systems (NeurIPS), 2022. 2
+
+
+[26] Eric Heitz. Sampling the ggx distribution of visible normals.
+Journal of Computer Graphics Techniques (JCGT), 7(4):1–
+13, 2018. 15
+[27] Eric Heitz, Jonathan Dupuy, Cyril Crassin, and Carsten
+Dachsbacher.
+The SGGX microflake distribution.
+ACM
+Trans. on Graphics, 34(4):48:1–48:11, 2015. 3, 6
+[28] Mustafa Is¸ık, Martin R¨unz, Markos Georgopoulos, Taras
+Khakhulin, Jonathan Starck, Lourdes Agapito, and Matthias
+Nießner. Humanrf: High-fidelity neural radiance fields for
+humans in motion. ACM Trans. on Graphics, 42(4):1–12,
+2023. 1
+[29] Umar Iqbal, Akin Caliskan, Koki Nagano, Sameh Khamis,
+Pavlo Molchanov, and Jan Kautz. Rana: Relightable articu-
+lated neural avatars. In Proc. of the IEEE International Conf.
+on Computer Vision (ICCV), 2023. 2, 3, 7, 18
+[30] Shun Iwase, Saito Saito, Tomas Simon, Stephen Lombardi,
+Bagautdinov Timur, Rohan Joshi, Fabian Prada, Takaaki Shi-
+ratori, Yaser Sheikh, and Jason Saragih. Relightablehands:
+Efficient neural relighting of articulated hand models.
+In
+Proc. IEEE Conf. on Computer Vision and Pattern Recog-
+nition (CVPR), 2023. 3
+[31] Wenzel Jakob. Light Transport On Path-Space Manifolds.
+PhD thesis, Cornell University, 2013. 5
+[32] Wenzel Jakob, Adam Arbree, Jonathan T. Moon, Kavita
+Bala, and Steve Marschner. A radiative transfer framework
+for rendering materials with anisotropic structure.
+ACM
+Trans. on Graphics, 29(4):53:1–53:13, 2010. 3
+[33] Tianjian Jiang, Xu Chen, Jie Song, and Otmar Hilliges. In-
+stantavatar: Learning avatars from monocular video in 60
+seconds. In Proc. IEEE Conf. on Computer Vision and Pat-
+tern Recognition (CVPR), 2023. 3, 4, 7, 17, 18
+[34] Haian Jin, Isabella Liu, Peijia Xu, Xiaoshuai Zhang, Song-
+fang Han, Sai Bi, Xiaowei Zhou, Zexiang Xu, and Hao Su.
+Tensoir: Tensorial inverse rendering. In Proc. IEEE Conf. on
+Computer Vision and Pattern Recognition (CVPR), 2023. 2,
+5, 6, 7, 16
+[35] Pratik Kalshetti and Parag Chaudhuri. Intrinsic hand avatar:
+Illumination-aware hand appearance and shape reconstruc-
+tion from monocular rgb video. In Proc. of the IEEE Win-
+ter Conference on Applications of Computer Vision (WACV),
+2024. 3
+[36] Brian Karis. Real shading in unreal engine 4. In Proc. of
+SIGGRAPH, 2013. 15
+[37] Pierre-Yves Laffont, Adrien Bousseau, and George Dret-
+takis. Rich intrinsic image decomposition of outdoor scenes
+from multiple views.
+IEEE Transactions on Visualization
+and Computer Graphic (TVCG), 19(2):210–224, 2013. 2
+[38] S´ebastien
+Lagarde.
+Spherical
+gaussian
+approxima-
+tion for blinn-phong,
+phong and fresnel.
+https : / /
+seblagarde.wordpress.com/2012/06/03/spherical-gaussien-
+approximation-for-blinn-phong-phong-and-fresnel/, 2012.
+15
+[39] Greg Ward Larson and Rob Shakespeare. Rendering with
+Radiance: The Art and Science of Lighting Visualization.
+Morgan Kaufmann Publishers Inc., 1998. 17
+[40] Hendrik P. A. Lensch, Jan Kautz, Michael Goesele, Wolf-
+gang Heidrich, and Hans-Peter Seidel. Image-based recon-
+struction of spatial appearance and geometric detail. ACM
+Trans. on Graphics, 22(2):234–257, 2003. 2
+[41] Ruilong Li, Julian Tanke, Minh Vo, Michael Zollhofer, Jur-
+gen Gall, Angjoo Kanazawa, and Christoph Lassner. Tava:
+Template-free animatable volumetric actors. In Proc. of the
+European Conf. on Computer Vision (ECCV), 2022. 3, 4
+[42] Ruilong Li, Hang Gao, Matthew Tancik, and Angjoo
+Kanazawa.
+Nerfacc: Efficient sampling accelerates nerfs.
+In Proc. of the IEEE International Conf. on Computer Vision
+(ICCV), 2023. 17
+[43] Zhengqin Li, Zexiang Xu, Ravi Ramamoorthi, Kalyan
+Sunkavalli, and Manmohan Chandraker. Learning to recon-
+struct shape and spatially-varying reflectance from a single
+image. ACM Trans. on Graphics, 37(6):269:1–269:11, 2018.
+2
+[44] Zhengqin Li,
+Mohammad Shafiei,
+Ravi Ramamoorthi,
+Kalyan Sunkavalli, and Manmohan Chandraker. Inverse ren-
+dering for complex indoor scenes: Shape, spatially-varying
+lighting and SVBRDF from a single image. In Proc. IEEE
+Conf. on Computer Vision and Pattern Recognition (CVPR),
+2020. 2
+[45] Zhaoshuo Li, Thomas M¨uller, Alex Evans, Russell H Tay-
+lor, Mathias Unberath, Ming-Yu Liu, and Chen-Hsuan Lin.
+Neuralangelo: High-fidelity neural surface reconstruction. In
+Proc. IEEE Conf. on Computer Vision and Pattern Recogni-
+tion (CVPR), 2023. 2
+[46] Daniel Lichy, Jiaye Wu, Soumyadip Sengupta, and David W.
+Jacobs. Shape and material capture at home. In Proc. IEEE
+Conf. on Computer Vision and Pattern Recognition (CVPR),
+2021. 2
+[47] Wenbin Lin, Chengwei Zheng, Jun-Hai Yong, and Feng Xu.
+Relightable and animatable neural avatars from videos. In
+Proc. of the Conf. on Artificial Intelligence (AAAI), 2024. 3
+[48] Hsueh-Ti Derek Liu, Francis Williams, Alec Jacobson, Sanja
+Fidler, and Or Litany. Learning smooth neural functions via
+lipschitz regularization. In Proc. of SIGGRAPH, 2022. 17
+[49] Jia-Wei Liu, Yan-Pei Cao, Tianyuan Yang, Eric Zhongcong
+Xu, Jussi Keppo, Ying Shan, Xiaohu Qie, and Mike Zheng
+Shou. Hosnerf: Dynamic human-object-scene neural radi-
+ance fields from a single video. In Proc. of the IEEE Inter-
+national Conf. on Computer Vision (ICCV), 2023. 18
+[50] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J. Black. SMPL: A skinned multi-
+person linear model. ACM Trans. on Graphics, 2015. 4
+[51] Fujun Luan, Shuang Zhao, Kavita Bala, and Zhao Dong.
+Unified shape and svbrdf recovery using differentiable monte
+carlo rendering. In Computer Graphics Forum, pages 101–
+113. Wiley Online Library, 2021. 2
+[52] Linjie Lyu, Ayush Tewari, Thomas Leimkuehler, Marc
+Habermann, and Christian Theobalt. Neural radiance trans-
+fer fields for relightable novel-view synthesis with global il-
+lumination. In Proc. of the European Conf. on Computer
+Vision (ECCV), 2022. 2
+[53] Alexander Mai, Dor Verbin, Falko Kuester, and Sara
+Fridovich-Keil. Neural microfacet fields for inverse render-
+ing. In Proc. of the IEEE International Conf. on Computer
+Vision (ICCV), 2023. 3

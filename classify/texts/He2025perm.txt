@@ -1,0 +1,614 @@
+Title: Perm: A Parametric Representation for Multi-Style 3D Hair Modeling
+
+Published as a conference paper at ICLR 2025
+PERM: A PARAMETRIC REPRESENTATION FOR MULTI-
+STYLE 3D HAIR MODELING
+Chengan He1∗, Xin Sun2, Zhixin Shu2, Fujun Luan2, S¨oren Pirk3,
+Jorge Alejandro Amador Herrera4, Dominik L. Michels4, Tuanfeng Y. Wang2,
+Meng Zhang5, Holly Rushmeier1, Yi Zhou2
+1Yale University
+2Adobe Research
+3Kiel University
+4KAUST
+5NJUST
+{chengan.he,holly.rushmeier}@yale.edu
+{xinsun,zshu,fluan,yangtwan,yizho}@adobe.com
+sp@informatik.uni-kiel.de
+{jorge.amadorherrera,dominik.michels}@kaust.edu.sa
+mengzephyr@njust.edu.cn
+ABSTRACT
+We present PERM, a learned parametric representation of 3D human hair de-
+signed to facilitate various hair-related applications. Unlike previous work that
+jointly models the global hair structure and local curl patterns, we propose to
+disentangle them using a PCA-based strand representation in the frequency do-
+main, thereby allowing more precise editing and output control.
+Specifically,
+we leverage our strand representation to fit and decompose hair geometry tex-
+tures into low- to high-frequency hair structures, termed guide textures and resid-
+ual textures, respectively.
+These decomposed textures are later parameterized
+with different generative models, emulating common stages in the hair groom-
+ing process. We conduct extensive experiments to validate the architecture de-
+sign of PERM, and finally deploy the trained model as a generic prior to solve
+task-agnostic problems, further showcasing its flexibility and superiority in tasks
+such as single-view hair reconstruction, hairstyle editing, and hair-conditioned
+image generation.
+More details can be found on our project page: https:
+//cs.yale.edu/homes/che/projects/perm/.
+1
+INTRODUCTION
+3D hair modeling, as a crucial and expensive component in the realm of digital humans for industries
+like gaming, animation, VFX, and virtual reality, combines the complex and artistic processes to
+model the geometry of individual strands to create specific hairstyles in the 3D environment. With
+the recent availability of high-quality 3D hair data (Hu et al., 2015; Shen et al., 2023; Zhou et al.,
+2018), machine learning methods have emerged for automatic hairstyle synthesis (Zhou et al., 2023;
+Sklyarova et al., 2023b), and 3D hair reconstruction from images (Wu et al., 2022; Zheng et al.,
+2023; Takimoto et al., 2024; Kuang et al., 2022; Zhou et al., 2018) and monocular videos (Wu et al.,
+2024; Luo et al., 2024; Sklyarova et al., 2023a).
+Despite their achievements, these methods often overlook the inherent biscale nature of hair, where
+the global structure defines the hair flow, volume and length and the local structure defines the
+strand’s curl patterns. Neglecting these biscale variations not only limits the quality of hair gener-
+ation and reconstruction (illustrated in the comparisons in Fig. 7 and Fig. 10), but also restricts the
+editing capability on different scales. Moreover, most of the models proposed in existing methods
+are heavy and task-specific, lacking the generalization capability to different down-stream tasks. In
+contrast, the field of human body modeling has well-accepted lightweight parametric models like
+SMPL (Loper et al., 2015) and MANO (Romero et al., 2017), which designed disentangled coeffi-
+cients for pose and shape and are widely applied as a generic prior in deep learning applications such
+as human reconstruction and animation. To address this gap, we propose PERM, a parametric repre-
+∗The work was mainly conducted at Adobe Research.
+1
+arXiv:2407.19451v6  [cs.CV]  19 May 2025
+
+
+Published as a conference paper at ICLR 2025
+sentation of 3D human hair that is both lightweight and generic for various hair-related applications.
+Parameter Space of ⃗θ
+Parameter Space of ⃗β
+Guide Strands
+Full Hair Models
+Wisps
+Figure 1: PERM is a learned parametric representation of 3D human hair that is designed with
+disentangled parameters ⃗θ and ⃗β to respectively control the global hair structure (represented as
+guide strands) and local curl patterns (represented as wisps).
+PERM is novelly formulated as M(⃗θ, ⃗β, R), where the output hair is conditioned on the guide
+strand parameter ⃗θ for its global structure, the hair styling parameter ⃗β for its curl patterns, and
+a pre-defined root set R for the hair density (as illustrated in Fig. 1). To independently control the
+global structure and curl pattern, we propose a strand representation based on principal component
+analysis (PCA) in the frequency domain, which naturally aligns with the cyclical nature of hair
+growth (Hoover et al., 2023). We use around three millions of different strands to train the PCA
+model and compare it with several deep neural network-based models. Despite the PCA model’s
+simplicity, it demonstrates high effectiveness in forming a compact subspace for strands that pre-
+serves geometry details much better than the deep neural network alternatives while demanding
+much less computation and memory consumption.
+Center Strand
+Our Guide Strand
+Center Strand
+Our Guide Strand
+Figure 2: Guide strand of a wisp from PCA.
+The learned principal components form an
+interpretable space for hair decomposition,
+where the initial components capture low-
+frequency information, such as the rough di-
+rection and length, while the subsequent com-
+ponents encode high-frequency details like
+curliness. As visualized in Fig. 2, this rep-
+resentation allows for the intuitive extraction
+of smooth guide strands from the given wisp,
+closer to what artists really use when groom-
+ing 3D hair in industrial software like Maya
+XGen (Autodesk, 2024).
+For parameterizing the full hair, we follow previous literature to compute the uv of the scalp, and
+map the geometry features of each strand onto a 2D texture based on its root position on the scalp.
+With the strand PCA representation, we can fit and store the dominant coefficients into guide textures
+for guide strands and higher-order coefficients into residual textures for detailed strand patterns.
+These decomposed textures are then used to train a framework composed of multiple generative
+models as illustrated in Fig. 4.
+After training PERM with 20k different hair styles, we obtain a compact, robust and editable gen-
+erative hair model that can function as a generic hair prior for solving task-agnostic problems. We
+demonstrate its capability across multiple applications, including single-view hair reconstruction
+and hairstyle editing, such as changing a hairstyle from smooth to bouncy while maintaining a simi-
+lar haircut. Despite not being trained specifically for any of these tasks, PERM achieves performance
+equivalent or superior to state-of-the-art task-specific alternatives in our experiments. Moreover, we
+introduce a novel application of using PERM-generated hair for conditional image generation and
+editing hairstyles in the 3D latent space. A demo of these applications is provided in Fig. 3.
+2
+
+
+Published as a conference paper at ICLR 2025
+“wavy and short hair, white sweater”
+Input Image
+Single-view Recon.
+PERM Parameter Editing
+Hair-conditioned Image Generation
+Figure 3: An application demo of PERM, where we first fit PERM parameters to reconstruct 3D hair
+from the input image, then edit the parameters to change its style from straight to wavy, and finally
+use the edited hairstyle and certain viewing direction as a condition for image generation with Adobe
+Firefly (Adobe, 2024).
+2
+RELATED WORK
+Due to the limited availability of 3D hair data, early hair modeling works (Wang et al., 2009) pri-
+marily focused on generating variations from a single hairstyle using methods like PCA. With the
+recent release of high-quality 3D hair datasets (Hu et al., 2015; Shen et al., 2023; Zhou et al., 2018),
+machine learning methods have emerged to tackle various hair-related tasks. Hair representations
+used in these methods are generally categorized into two types: volumetric hair representation and
+strand-based hair representation.
+Volumetric Hair Representation
+Considering the volumetric nature of hair, Saito et al. (2018)
+first proposed a volumetric hair representation that converts a 3D hair into a combination of a 3D
+occupancy field and an orientation field, where strands could later be generated from discretized
+voxels. As an efficient spatially-aware intermediate representation for network training, this rep-
+resentation has been widely adopted in subsequent works for a range of hair-related applications,
+spanning from sketch-based hair modeling (Shen et al., 2020), video-based dynamic hair model-
+ing (Yang et al., 2019; Wang et al., 2023b), to 3D hair reconstruction from images (Zhang & Zheng,
+2019; Takimoto et al., 2024; Kuang et al., 2022) or monocular videos (Wu et al., 2024; Sklyarova
+et al., 2023a). However, since discrete volumetric fields are not well-suited for representing curly
+and kinky hair, another line of research has sought to improve this volumetric representation. These
+advancements include implicit volumetric representations (Wu et al., 2022; Zheng et al., 2023) and
+hybrid representations that attach multiple neural volumetric primitives to pre-obtained sparse guide
+strands (Wang et al., 2022; 2023a).
+Strand-based Hair Representation
+Since real human hair consists of individual strands, the most
+intuitive way to represent it is as a collection of strands, where each strand can be represented as a 3D
+polyline with a fixed number of points. Zhou et al. (2018) adopted this strand-based representation
+and proposed to organize strand features as a 2D hair texture according to the scalp uv parameter-
+ization, which facilitates the training of 2D convolutional networks. This idea has been expanded
+by subsequent works, incorporating more advanced networks such as U-Net (Ronneberger et al.,
+2015) and diffusion models (Ho et al., 2020) to solve tasks such as neural hair rendering (Rosu
+et al., 2022), text-conditioned hair generation (Sklyarova et al., 2023b) and 3D hair capture from
+monocular videos (Sklyarova et al., 2023a). While these diffusion-based methods produce impres-
+sive results, they typically involve a heavy denoising process and lack a compact latent space for
+hair reconstruction and editing. Recent work on 3D Gaussian Splatting (Kerbl et al., 2023) offers a
+potential enhancement to this representation, where Gaussian splats can be attached to each segment
+of the strand. This hybrid representation enables the joint learning of both hair geometry and ap-
+pearance, showing promise in 3D hair capture (Zakharov et al., 2024; Luo et al., 2024; Zhou et al.,
+2024). However, all these strand-based works are task-specific and neglect the biscale nature of hair,
+thereby limiting the quality and versatility of the generated or reconstructed hairstyles.
+Generative Hair Model
+GroomGen (Zhou et al., 2023), most related to our work, learns a hair
+prior using hierarchical latent spaces. However, their hierarchy is only for the low-resolution hair
+texture, which refers to a sparse set of strands, and the high-resolution hair texture, which refers
+to the final full hair, is upsampled in a deterministic way. Although they denote the sparse strands
+3
+
+
+Published as a conference paper at ICLR 2025
+as guide strands, those are just like the center strands as illustrated in Fig. 2 without the filtered
+structure. They do not have the disentangled parameters for controlling the overall hair structure
+features and the detailed hair curl patterns, which leads to a different architecture design from our
+method.
+While GroomGen reported promising results in their paper, we found it is both theoretically and
+experimentally unreliable through our experiments. Its VAE-based strand representation struggles
+to preserve the strand structure and the entire architecture is very unstable to train. We further
+found that some curly hairstyles showcased in the paper are unachievable with the described strand
+resolution. We include our experiments of GroomGen in Appendix C.4.
+PCA for Hair
+The biology community has widely adopted PCA to analyze and classify different
+hair types in the real world (Hoover et al., 2023; De La Mettrie et al., 2007; Loussouarn et al., 2007).
+We transfer these biological insights into the machine learning domain, introducing the first neural
+network architecture to incorporate a PCA-based strand representation for human hair. While Wang
+et al. (2009) previously explored PCA-based representations for variations of a single hair model,
+we aim at generating high variety of hairstyles trained on large-scale dataset. This approach has
+proven to be both efficient and highly accurate in preserving strand details, which can be deployed
+as a generic hair prior to solve task-agnostic problems.
+3
+MODEL FORMULATION
+StyleGAN2
+U-Net Super Resolution
+256x256x10
+256x256x54
+Geometry Texture
+Guide Strands
+Guide Texture
+Baldness Map
+Concat.
+Residual Texture
+Baldness Map
+Encode
+Modulate
+Blend
+Upsampled Guide Texture
+Reconstructed Residual Texture
+256x256x64
+32x32x10
+Figure 4: Architecture overview.
+In PERM, hair is represented as geometry textures T storing the strand PCA coefficients ⃗γ (Sec. 3.1).
+These textures are decomposed into a lower-order component, the guide texture, which captures the
+global hair structure, and a higher-order component, the residual texture, which encodes local curl
+pattern information. To parameterize these textures, a parameter ⃗θ is designed to generate the guide
+textures Tguide and Mguide through the function G(⃗θ), covering the sparse set of guide strands and the
+hair growing area on the scalp respectively (Sec. 3.2.1). These guide textures are upsampled with
+a deterministic function F(·), whose output contains the complete hair structure but lacks high-
+frequency details (Sec. 3.2.2). To complement that, another parameter ⃗β is introduced to infer the
+residual texture Tres through the function D(⃗β), storing high-frequency information such as different
+curl patterns (Sec. 3.2.3). Concatenating the upsampled guide texture and residual texture yields the
+geometry texture, which can then be sampled and decoded with the strand function S(⃗γ) formulated
+in Sec. 3.1 to produce the final strand geometry. An overview of this architecture is illustrated in
+Fig. 4, and the resulting PERM model, denoted as M(⃗θ, ⃗β, R), can then be expressed as:
+M(⃗θ, ⃗β, R; Φ) = S
+
+Sample
+ R; F(G(⃗θ)) ⊕D(⃗β)
+
+,
+(1)
+where Sample(·) denotes nearest neighbor interpolation used to sample the synthesized texture with
+2D root coordinates in the pre-defined root set R, ⊕represents the concatenation operation along the
+feature channels, and Φ specifies the full set of trainable parameters in PERM used to approximate
+the functions above. Once trained, parameters in Φ are held fixed, and novel 3D hairstyles are
+synthesized by varying ⃗θ and ⃗β respectively, while the hair density can be adjusted by manipulating
+the number of roots in R. The dimension of parameters ⃗θ and ⃗β are both set to 512 in our model
+(|⃗θ| = |⃗β| = 512). In the following, we delve into the details of each term in our model.
+4
+
+
+Published as a conference paper at ICLR 2025
+3.1
+STRAND REPRESENTATION
+For human hair, its cyclical growth behavior has been extensively documented in the biology com-
+munity, where PCA has also been employed to analyze different hair types (Hoover et al., 2023;
+De La Mettrie et al., 2007; Loussouarn et al., 2007). Inspired by these biological findings, we define
+a low-dimensional parameter space based on PCA in the frequency domain. Formally, for 3D hair
+strands with a fixed number of points S = {p1, p2, . . . , pL} ∈RL×3 (L = 100 in our experiments),
+they are represented as the output of a linear function S(⃗γ) in the frequency domain:
+S(⃗γ; X) = iDFT(¯S + ⃗γ⊤X) = iDFT(¯S +
+|⃗γ|
+X
+n=1
+⃗γnXn),
+(2)
+where ⃗γ = [γ1, . . . , γ|⃗γ|]⊤is a vector of strand coefficients, and X = [X1, X2, . . . , X|⃗γ|]⊤∈
+R|⃗γ|×6k forms a matrix of orthonormal principal components that capture phase variations in
+different strands, with k = ⌊L/2⌋+ 1 referring the number of frequency bands.
+The term
+¯S = [¯Sreal, ¯Simag] ∈Rk×3×2 represents the mean phase vector of strands, and iDFT(·) denotes
+the inverse Discrete Fourier Transform that maps strands back from the frequency domain to the
+spatial domain. In other sections, we often omit X in Eq. 2 for notational convenience.
+To obtain quantities in Eq. 2, we first apply the Discrete Fourier Transform (DFT) along the x, y, z
+axes to all strands in our collected hair models, and then compute the mean phase vector ¯S and solve
+the principal components X by performing PCA on the computed Fourier bases, which is similar to
+the prevalent PCA-based modeling methods in digital humans (Blanz & Vetter, 1999; Loper et al.,
+2015; Li et al., 2017). We set the number of PCA coefficients |⃗γ| = 64, which explained almost
+100% of the variance in the training set (see Fig. 12).
+Our PCA-based representation also facilitates a meaningful decomposition of strand geometry by
+forming an interpretable parameter space. Our analysis in Appendix B.4 reveals that the first 10 PCA
+coefficients are enough to effectively capture the global structure of each strand, and the remaining
+54 coefficients encode high-frequency details, such as curl patterns (see Fig. 19). Leveraging this
+intuitive decomposition, we can effortlessly edit a given hairstyle or transfer the curl patterns from
+one hairstyle to another. Examples are provided in Fig. 6.
+3.2
+FULL HAIR REPRESENTATION
+We define a 2D parameterization of hairstyles on the scalp surface as a regular uv texture map, where
+each texel stores the strand PCA coefficients ⃗γ formulated in Eq. 2. These textures are referred
+to as hair geometry textures, denoted as T ∈R256×256×64. Similar to GroomGen (Zhou et al.,
+2023), we separately model the baldness area as a baldness map M ∈R256×256. Both T and M
+are downsampled to 32 × 32 to represent guide strands (denoted as the guide texture Tguide and
+mask Mguide), where only the low-rank PCA coefficients (|⃗γguide| = 10) are kept in Tguide. As
+not all texels will be decoded to meaningful strands, Tguide typically accommodates around 400
+strands, as visualized in Fig. 1. Note that the concept of guide strands here is different from previous
+works (Zhou et al., 2023; Shen et al., 2023), where the guide strands are just quantitatively down-
+sampled strands as visualized in Fig. 2 without the filtered structure.
+Since guide strands only serve as a sparse representation of the full hair, an upsampling process is
+necessary to obtain the final hair strands. However, as illustrated in GroomGen, this process en-
+tails a one-to-many mapping (Zhou et al., 2023), wherein the same guide strands can be upsampled
+to yield diverse hairstyles with varying strand randomness and curliness. Achieving this property
+proves challenging, necessitating an orthogonal decomposition of the global hair structure and local
+curl patterns. Previous methods thus either downgraded to a deterministic one-to-one mapping (Skl-
+yarova et al., 2023b) or resorted to a manual post-processing step (Zhou et al., 2023). To address
+this challenge, we further decompose our hair geometry texture T into Tlow ∈R256×256×10 and
+Tres ∈R256×256×54 by splitting along the feature channels. Given the explainability of our strand
+PCA coefficients, we discern that Tlow encapsulates the global hair structure, while Tres embodies
+the local curl patterns, denoted as the residual texture.
+Leveraging this decomposition, we employ different neural networks to parameterize them, simu-
+lating the automated process of hair modeling pipeline.
+5
+
+
+Published as a conference paper at ICLR 2025
+3.2.1
+GUIDE TEXTURE SYNTHESIS
+Formally, for guide textures, we train a neural network to approximate the function, G(⃗θ; ϕ1):
+R|⃗θ| 7→R32×32×(10+1), which synthesizes Tguide and Mguide from the guide strand parameter ⃗θ,
+where ϕ1 denotes the trainable network parameters. In our formulation, we choose StyleGAN2 (Kar-
+ras et al., 2020) as the backbone of our model, which has been proved to be a powerful generator
+in both 2D images and 3D feature tri-planes (Chan et al., 2022). It also ensures our guide strand
+parameter will follow the normal distribution ⃗θ ∼N(0, I), making it easy to sample. Moreover,
+the intermediate W and W+ spaces introduced in StyleGAN allow for more faithful latent embed-
+ding (Abdal et al., 2019), which in our case facilitates hair reconstruction either from 3D strands
+or 2D orientation images. Since our generator synthesizes both the guide texture Tguide and mask
+Mguide, we use a similar dual discrimination method as EG3D (Chan et al., 2022), where we con-
+catenate these two images and feed them into the discriminator. This operation ensures consistency
+between the generated texture and mask, which helps the generator to place zero-length strands in
+bald areas. Our training objective is identical to StyleGAN2, which consists of a non-saturating
+GAN loss (Goodfellow et al., 2014) with R1 regularization (Mescheder et al., 2018) on both the
+texture and mask, where the regularization strengths are set to 5 and 1, respectively.
+3.2.2
+GUIDE TEXTURE UPSAMPLING
+To upsample the synthesized guide textures, we formulate it as an image super resolution problem,
+which can be defined as the function, F(Tguide, Mguide; ϕ2) : R32×32×11 7→R256×256×10, with
+trainable network parameters ϕ2. Note that this function operates as a deterministic mapping with-
+out parameter control, which aligns with both previous deep learning-based methods (Zhou et al.,
+2023; Sklyarova et al., 2023b) and the adaptive interpolation algorithm used in current hair model-
+ing software. To approximate F(·), we train a U-Net (Ronneberger et al., 2015) on the bilinearly
+upsampled textures, which translates them to 14-channel weight maps, where the first 4 channels
+represent the weight vector ⃗ω for the 4 neighboring guide strands, and the last 10 channels represent
+a residual vector ⃗δ to correct the blended coefficients. Therefore, the final coefficient ⃗γlow can be
+calculated as:
+⃗γlow = ⃗ω⊤γguide + ⃗δ =
+4
+X
+n=1
+ωn⃗γn
+guide + ⃗δ.
+(3)
+Our experiments demonstrate that this weight-based blending output allows the network to converge
+to a sharper result compared to predicting coefficients directly.
+We train the U-Net in a supervised manner, where we employ both an L1 loss for the blended
+texture ˆTlow and a geometric loss Lgeo for the decoded strand geometry. Specifically, the geometric
+loss Lgeo encompasses an L1 loss for the point position ˆpn, a cosine distance for the orientation
+ˆdn = ˆpn+1 −ˆpn (Rosu et al., 2022), and an L1 loss for the curvature, represented as the L2 norm
+of binormal vector ˆbn = ∥ˆdn × ˆdn+1∥2 (Sklyarova et al., 2023a):
+Lgeo =
+L
+X
+n=1
+∥ˆpn −pn∥1 + (1 −ˆdn · dn) + ∥ˆbn −bn∥1.
+(4)
+A regularization term is included as well to constrain the residual vector ⃗δ towards 0. The overall
+loss function, denoted as Lsuperres, then can be expressed as:
+Lsuperres = λtex∥ˆTlow −Tlow∥1 + λgeoLgeo + λreg∥⃗δ∥2
+2,
+(5)
+where the weighting factors λtex, λgeo and λreg are set to 1, 1 and 0.1, respectively.
+3.2.3
+RESIDUAL TEXTURE SYNTHESIS
+To simulate the artistic process of creating different curl patterns, we train a neural network to ap-
+proximate the function, D(⃗β; ϕ3) : R|⃗β| 7→R256×256×54, where we learn to synthesize the residual
+texture Tres from the hair styling parameter ⃗β, and ϕ3 represents the trainable network parameters.
+Although StyleGAN2 performs well in generating textures for guide strands, we found it struggles
+with residual textures, as they contain more data than high-resolution RGB images. Therefore, we
+6
+
+
+Published as a conference paper at ICLR 2025
+opted for VAE (Kingma & Welling, 2013) as the backbone, where the encoder adopts an architecture
+similar to pSp (Richardson et al., 2021), and the decoder takes the same architecture as StyleGAN2
+generator. Essentially, the encoder E projects the residual texture Tres and baldness map M into the
+latent space, where the latent vectors will then be used to modulate the decoder to reconstruct the
+input. A similar loss function as Eq. 5 is defined as the training objective for the VAE, which can be
+expressed as:
+Lres = λtex(∥ˆTres −Tres∥1 + ∥ˆM −M∥1) + λgeoLgeo + λKLLKL,
+(6)
+where the reconstruction terms are computed on the residual texture, baldness map, and decoded
+strand geometry. The weighting factors λtex, λgeo, and λKL are set to 10, 1, and 1e−4, respectively.
+4
+EXPERIMENTS
+We train PERM on an augmented version of USC-HairSalon (Hu et al., 2015), which contains a total
+of 21, 054 data samples. For evaluation, we compiled a separate dataset of 17 publicly available hair
+models, comprising 151, 829 strands in total. Detailed data augmentation and source of our testing
+data are provided in Appendix B.1. Since USC-HairSalon lacks sufficient curly hair data, we curated
+a private dataset consisting of 80 manually groomed hairstyles, comprising a total of 4, 368, 679
+strands with a greater diversity of style. We conducted experiments on this private dataset to further
+validate the robustness of our representation, whose results are detailed in Appendix B.4.
+4.1
+STRAND REPRESENTATION
+We first conducted extensive experiments to evaluate our PCA-based strand representation against
+various alternative deep learning-based representations and a simpler PCA-based formulation with-
+out DFT. Contrary to the common belief that neural network methods outperform linear models like
+PCA, our experiments show that the PCA method performs better in the context of hair modeling.
+To quantitatively assess their reconstruction capabilities, we present the mean position error (pos.
+err.), computed as the average Euclidean distance between corresponding points on the reconstructed
+strands and the ground truth. Additionally, we report the mean curvature error (cur. err.), defined
+as the L1 norm between the curvatures of reconstructed and ground truth strands. Please refer to
+Appendix B.3 for details of the metrics.
+Table 1: Reconstruction errors reported on different strand representations. Here boldface corre-
+sponds to the best result and underline means the second best.
+Freq. VAE CNN VAE Transformer VAE
+MLP VAE
+PCA
+Freq. PCA (Ours)
+# params.
+15.67M
+759.24K
+2.29M
+15.67M
+19.31K
+19.50K
+pos. err.
+1.211
+0.446
+0.288
+0.158
+0.019
+0.020
+cur. err.
+0.910
+6.250
+8.539
+1.594
+2.361
+2.150
+Quantitative results are reported in Table 1, where the deep learning-based strand representations
+include a VAE model trained with frequency features (Freq. VAE) (Zhou et al., 2023), and other
+VAE variants with CNN, Transformer (Vaswani et al., 2017), and ModSIREN MLP (Mehta et al.,
+2021) decoders. All configurations compress strands to 64-dimensional vectors. While simple, our
+PCA-based representations demonstrate a remarkably small position error, achieving this with a sig-
+nificantly reduced number of parameters compared to all different VAE variants. It also significantly
+reduces training time and GPU memory consumption due to its analytical computation. Note that
+position error is more dominant in determining the quality of reconstruction. Although some VAEs
+may achieve a lower curvature error, their reconstructed strands often appear noticeably different
+from the ground truth because they fail to preserve the overall shape (see Fig. 5). To further demon-
+strate the robustness of our strand representation, we trained all models on the curlier private dataset
+and evaluated them using the same 17 publicly available hairstyles. Detailed experimental results
+can be found in Appendix B.4, which reveal a trend similar to those in Table 1 (our PCA-based
+representation achieves the lowest position error and a comparatively low curvature error).
+7
+
+
+Published as a conference paper at ICLR 2025
+0.00
+0.25
+0.50
+0.75
+1.00
+1.25
+1.50
+1.75
+2.00
+Freq. VAE
+CNN VAE
+Transformer VAE
+MLP VAE
+PCA
+Freq. PCA (Ours)
+Ground Truth
+Figure 5: Comparison of our PCA-based strand representation (Freq. PCA) with other VAE and
+PCA-based representations. Reconstructed strands are color-coded by their position error.
+Additionally, with our proposed PCA-based strand representation, we can smooth a given hairstyle
+by truncating its strand PCA coefficients (Fig. 6a, b), or transfer hairstyle details by blending the
+low-rank and high-rank portions of PCA coefficients from different hairstyles (Fig. 6c – f).
+(a) Style A: 64 coeff.
+(b) Style A: 10 coeff.
+(c) Style B: 64 coeff.
+(d) B: 10 coeff. + A: 54 coeff. (e) Style C: 64 coeff.
+(f) C: 10 coeff.+ A: 54 coeff.
+Figure 6: Examples of hairstyle editing with our PCA-based strand representation. (a) and (b)
+demonstrate hair smoothing by truncating the strand PCA coefficient from 64 to 10. (c) – (f) show
+the detail transfer between different hairstyles.
+4.2
+FULL HAIR REPRESENTATION
+3D Hair Parameterization
+To evaluate our proposed hairstyle representation, we first fit PERM
+parameters to target 3D hair models through differentiable optimization, which we term as 3D hair
+parameterization. Technical details are provided in Appendix B.5. In Fig. 8 we present a subset of
+fitted results that illustrate our model’s capability to accurately recover the given 3D hair models.
+Even if the target hair has no guide strands, our model can generate reasonable guide strands to
+depict their overall shapes, obtaining directly from S
+ G(⃗θ∗)
+
+.
+GroomGen (Zhou et al., 2023)
+Ours
+Figure 7: Comparison with our implementation of GroomGen (Zhou
+et al., 2023) on random hairstyle synthesis. Full results are available
+in Fig. 27.
+Comparison with Groom-
+Gen
+The most relevant
+previous work is Groom-
+Gen (Zhou et al., 2023)
+that learns hierarchical rep-
+resentations of 3D hair. As
+there is no publicly avail-
+able GroomGen code, we
+implemented and trained
+it on the same augmented
+USC-HairSalon
+dataset.
+We
+also
+contacted
+the
+authors to obtain part of
+their official checkpoints to
+verify the correctness of our implementation. Detailed verification can be found in Appendix C.4,
+where we compared each network module with the available official checkpoints to demonstrate
+the correctness of our implementation. Through experiments with our implementation, we found
+the neural upsampler module in GroomGen, which is a GAN architecture, is very unstable to train,
+frequently leading to collapsed results. In Fig. 7 we visualize randomly synthesized hairstyles
+by sampling our parameter space and GroomGen’s latent space with the same Gaussian noise,
+demonstrating their collapsed output with weird shapes and curls. We further conducted a quan-
+8
+
+
+Published as a conference paper at ICLR 2025
+titative evaluation of reconstruction errors on the 17 testing hairstyles, where our model achieves
+a position error of 1.658 and curvature error of 0.769, both of which are lower than GroomGen’s
+corresponding values (position error 2.570, curvature error 6.199). During quantitative evaluation,
+we also found that 100 points per strand are insufficient to faithfully represent long kinky hairstyles.
+Examples are provided in Fig. 25.
+Figure 8: A subset of 3D hair models fitted by PERM.
+5
+APPLICATIONS
+M(⃗θ, ⃗β, R)
+T
+ M(⃗θ, ⃗β, R)
+
+Hair Mask Mrender
+Strand Map Orender
+GT Strand Map Ogt
+Input Image
+Figure 9: Illustration of our differentiable
+rendering pipeline for single-view hair re-
+construction.
+Single-view Hair Reconstruction
+With 2D ob-
+servations as input, we can reconstruct 3D hair by
+optimizing PERM parameters to minimize the en-
+ergy of generated hair when projected to the 2D
+images.
+To fit 3D hair to 2D supervisions, we
+design a differentiable rendering pipeline, as illus-
+trated in Fig. 9. In the pipeline, we pre-compute
+the transformation between our in-house head mesh
+and SMPL-X (Pavlakos et al., 2019), denoted as the
+function T , thus placing strand polylines generated
+from PERM onto SMPL-X. We then attach a cylin-
+der mesh onto each strand segment, as well as com-
+puting the 3D orientation of each vertex as the per-
+vertex feature. These features are projected and ren-
+dered using Nvdiffrast (Laine et al., 2020) with the
+estimated camera parameters, thereby obtaining the
+rendered hair mask Mrender and strand map Orender.
+By computing the pixel-wise mask loss and strand
+map loss similar to HairStep (Zheng et al., 2023), gradients are back-propagated to optimize ⃗θ and
+⃗β with decoupled weight decay regularization (Loshchilov & Hutter, 2017). A penetration loss is
+applied as well to penalize hair intersecting the body geometry.
+In Fig. 10 and Fig. 30, we qualitatively compare our single-view reconstruction results with
+HairStep (Zheng et al., 2023), the state-of-the-art open-source method for single-view hair recon-
+struction. With PERM as a robust prior to ensure the generation quality, our method not only excels
+at reconstructing the global structure of the reference hairstyle but also better preserves local curl
+patterns compared to HairStep. With the introduction of penetration loss, our algorithm effectively
+handles input images with large and tilted head poses, avoiding outputs with unintended bald areas,
+9
+
+
+Published as a conference paper at ICLR 2025
+an artifact we occasionally observed in HairStep. In Fig. 31 we show the single-view reconstruction
+results of HAAR (Sklyarova et al., 2023b), a recent text-conditioned hair generation method. How-
+ever, since textual descriptions cannot capture the intricate details of a hairstyle, its output can only
+produce a rough approximation.
+PERM Parameter Editing
+As we introduce separate parameters to control the global hair shape
+and local strand details, we can edit the hairstyle with varying granularity by either swapping the
+parameters from different hairstyles or interpolating the corresponding parameters. In the last row of
+Fig. 30, we edit our reconstructed hairstyles by swapping their ⃗β parameters from a wavy reference
+hairstyle, thereby altering their curl patterns while maintaining a similar haircut. More examples of
+hairstyle interpolation are provided in Appendix D.2, with comparisons to (Weng et al., 2013) and
+(Zhou et al., 2018).
+Hair-conditioned Image Generation
+Latest text-to-image (T2I) models (e.g., Adobe Fire-
+fly (Adobe, 2024)) can generate high-quality portrait images. However, the text embedding of simple
+prompts like “wavy and short hair” is not precise enough to represent a specific hairstyle. To tackle
+this issue, we show the use of PERM in facilitating conditional image generation. Specifically, We
+could use PERM to sample and edit hairstyles in 3D, or reconstruct 3D hairstyles from images, and
+then feed the depth and edge information extracted from the hair geometry to the T2I models to
+generate the final images. As shown in Fig. 32, pure text prompts often lead to images with different
+hairstyles, while combined with the input hair reference, the generated images show a much more
+consistent hairstyle. More examples are available in Fig. 33.
+Input Images
+Ours
+HairStep
+Figure 10: Single-view hair reconstruction on images with curly hair and tilted head poses, with
+comparison to HairStep (Zheng et al., 2023). More examples are available in Fig. 30.
+6
+CONCLUSION
+We present PERM, a parametric hair representation supporting independent control over the global
+hair structure and local curl patterns. While our approach demonstrates strong performance when
+trained on 3D hair models, exploring methods to develop a 3D generative model for hair from 2D
+in-the-wild images remains a compelling direction for future research. Besides, since our uv-based
+hair representation is compatible with the existing diffusion pipeline, with more data available, it
+would be interesting to train a 3D diffusion model for full-head synthesis with controllable hair
+modeling. Last but not least, aligning with trends in other 2D or 3D generative tasks, controllable
+3D hair synthesis with multi-modal input signals presents another exciting avenue for future work
+in this domain.
+10

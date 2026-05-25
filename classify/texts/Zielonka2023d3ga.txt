@@ -1,0 +1,943 @@
+Title: Drivable 3d gaussian avatars
+
+Drivable 3D Gaussian Avatars
+Wojciech Zielonka1,2,3∗, Timur Bagautdinov3, Shunsuke Saito3, Michael Zollh¨ofer3,
+Justus Thies1,2, Javier Romero3
+1Max Planck Institute for Intelligent Systems, T¨ubingen, Germany
+2Technical University of Darmstadt
+3Codec Avatars Lab, Meta
+https://zielon.github.io/d3ga/
+Figure 1. Given a multi-view video input, D3GA is trained to create light, drivable, photorealistic 3D human avatars. These avatars are
+constructed as a composition of 3D Gaussians encapsulated within tetrahedral cages. The Gaussians undergo transformation and stretching
+influenced by these cages, are colored using an MLP, and are rasterized into splats. By representing the drivable human as a collection of
+3D Gaussian layers, we gain the ability to decompose and manipulate the avatar as needed.
+Abstract
+We present Drivable 3D Gaussian Avatars (D3GA), a
+multi-layered 3D controllable model for human bodies that
+utilizes 3D Gaussian primitives embedded into tetrahedral
+cages. The advantage of using cages compared to com-
+monly employed linear blend skinning (LBS) is that prim-
+itives like 3D Gaussians are naturally re-oriented and their
+kernels are stretched via the deformation gradients of the
+encapsulating tetrahedron. Additional offsets are modeled
+for the tetrahedron vertices, effectively decoupling the low-
+dimensional driving poses from the extensive set of primi-
+tives to be rendered. This separation is achieved through the
+localized influence of each tetrahedron on 3D Gaussians,
+resulting in improved optimization. Using the cage-based
+deformation model, we introduce a compositional pipeline
+that decomposes an avatar into layers, such as garments,
+hands, or faces, improving the modeling of phenomena like
+garment sliding. These parts can be conditioned on dif-
+ferent driving signals, such as keypoints for facial expres-
+∗Work done while Wojciech Zielonka was an intern at Codec Avatars
+Lab, Meta, Pittsburgh, PA, USA
+sions or joint-angle vectors for garments and the body. Our
+experiments on two multi-view datasets with varied body
+shapes, clothes, and motions show higher-quality results.
+They surpass PSNR and SSIM metrics of other SOTA meth-
+ods using the same data while offering greater flexibility
+and compactness.
+1. Introduction
+Developing drivable, photorealistic human avatars is crucial
+for better long-distance telecommunication that provides an
+immersive experience to the users. The motion and defor-
+mations across various segments of a complex avatar’s body
+are influenced by distinct signals, such as facial expres-
+sions and body movements. This complexity poses chal-
+lenges for accurate modeling using a single layer. Multi-
+layered avatars become essential to represent these different
+regions, ensuring proper motion and visual fidelity. Simi-
+larly, garments present challenges such as sliding, necessi-
+tating separate modeling of each clothing piece.
+Mixture of Volumetric Primitives (MVP) [31] started a
+1
+arXiv:2311.08581v2  [cs.CV]  10 Feb 2025
+
+
+successful line of hybrid implementations, where volumet-
+ric primitives are embedded on the surface of the tracked
+mesh. This representation, despite excellent results, strug-
+gles when the provided mesh is not precise or lacks details,
+ultimately producing artifacts and misaligning the primi-
+tives. Similar CNN-based architectures [1, 28, 30, 31, 53],
+do not allow for easy garment decomposition and assume
+a fixed amount of 3D primitives since the CNN size has
+to be set for the training. Furthermore, numerous meth-
+ods [1, 25, 31, 60] lack the capability of layered condition-
+ing specific to different body parts. For example, they may
+not support using keypoints for the face or motion vectors
+for clothing like t-shirts. This is an important aspect of a
+holistic system that, ultimately, needs to capture speech,
+face, gestures, and garment motion. State-of-the-art driv-
+able avatars [53, 72] require dense input signals like RGB-
+D images or even multi-view camera setups at test time,
+which might not be suitable for low-bandwidth connec-
+tions in telepresence applications. Finally, drivable NeRFs
+and 3DGS avatars typically rely on LBS to transform sam-
+ples between canonical and observation spaces. However,
+LBS is limited by the low degree of freedom of the model,
+whereas cages can handle more complex non-linear motion
+and offer additional physical properties (e.g., stretching).
+We designed our method to use a minimal set of inputs
+and still be competitive with the ones that require more in-
+formation to train an avatar. D3GA models digital humans
+using volumetric primitives represented as 3D Gaussians
+embedded into a tetrahedral cage which is naturally de-
+scribed by phenomenons like stretching, rotation, and scal-
+ing. Accordingly, instead of LBS, our method builds on a
+classic deformation model for transforming volumes [41].
+Specifically, by recasting cages from the canonical space
+into a deformed one, the 3D Gaussian covariance matrices
+undergo the encapsulating tetrahedral deformation transfor-
+mation. Recent advancements in incorporating physics into
+Gaussians [8, 74] show further promise in the context of
+cage usage for garment modeling by capitalizing on [4, 36].
+Also, cages decouple the representation resolution (related
+to the amount of Gaussians) from the degrees of freedom
+present in the model ultimately allowing an effective reg-
+ularization of the deformations in contrast to LBS which
+depends on the global bone transformations only. In addi-
+tion, we employ a compositional structure based on separate
+body, face, and garment cages, allowing us to model those
+parts independently, including localized conditioning based
+on different driving signals (e.g., keypoints).
+We train person-specific models on nine high-quality
+multi-view sequences with a wide range of body shapes,
+motion, and clothing (not limited to tight-fitting), which
+later can be driven with new poses from any subject.
+In summary, we present Drivable 3D Gaussian Avatars
+(D3GA) with the following contributions:
+• A light, flexible, and composable model based on 3D
+Gaussian primitives driven by tetrahedral cage-based de-
+formations which improve their body modeling proper-
+ties.
+• Localized motion conditioning which enables for instance
+facial expressions.
+2. Related Work
+D3GA reconstructs controllable digital full-body avatars us-
+ing multi-view video and joint angle motion by combining
+3D Gaussian Splatting (3DGS) [19] with cage-based de-
+formations [12, 14, 17]. Current methods for controllable
+avatars rely on dynamic Neural Radiance Fields (NeRF)
+[39, 44, 45], point-based [35, 75, 81], or hybrid represen-
+tations [1, 6, 31, 83], which are either slow to render or fail
+to correctly disentangle garments from the body, leading to
+poor generalization to new poses. Recently, incorporating
+3DGS into dynamic scenarios has opened new research av-
+enues [28, 50, 73, 76, 80]. For a thorough overview, we re-
+fer readers to state-of-the-art reports on digital avatars and
+neural rendering [63, 64, 86].
+Dynamic Neural Radiance Fields NeRF [40] is a popular
+appearance model for human avatars, representing scenes
+volumetrically with density and color information using an
+MLP. Images are rendered via ray casting and volumetric
+integration of sample points [18]. Many methods have suc-
+cessfully applied NeRF to dynamic scenes [9, 27, 44, 45,
+48, 69, 75, 83], achieving high-quality results. However,
+most methods treat avatars as a single layer [25, 39, 46, 58–
+60, 82], which complicates modeling phenomena like slid-
+ing or loose garments.
+Methods like [6, 7] address this
+using a hybrid representation, combining explicit geome-
+try from SMPL[32] with implicit dynamic NeRF. Despite
+impressive garment reconstruction, these methods struggle
+with novel pose prediction. TECA [78] extends SCARF to
+a generative framework, enabling prompt-based generation
+of NeRF-based accessories and hairstyles.
+Point-based Rendering Before 3DGS, many methods used
+point-based rendering [35, 60, 81] or sphere splatting [24],
+with optimizable positions and sizes. NPC by Su et al. [60]
+defines a point-based body model for avatar representation,
+but requires lengthy nearest neighbor searches during train-
+ing (12 hours vs. 30 minutes for our model), making it
+impractical for dense multi-view datasets. Ma et al. [35]
+represent garments as a pose-dependent function mapping
+SMPL points [32] to the clothing space. This is improved
+in [49] with a neural deformation field, but both models only
+address geometry, not appearance. Zheng et al. [81] repre-
+sent the upper part of an avatar as a point cloud, grown dur-
+ing optimization and rasterized using a differentiable ren-
+derer [67]. While achieving photorealistic local results, the
+avatars suffer from artifacts like holes.
+2
+
+
+Cage-based Deformations Cages[41] are commonly used
+for geometry modeling and animation, serving as sparse
+proxies to control all interior points, enabling efficient de-
+formation by manipulating only cage nodes.
+Yifan et
+al. [68] introduced neural cages for detail-preserving shape
+deformation, where a neural network rigs the source object
+into the target via a proxy. Garbin et al. [10] extended dy-
+namic NeRF with tetrahedron cages to unposed ray sam-
+ples based on tetrahedron intersections.
+This method is
+real-time, high-quality, and controllable, but limited to ob-
+jects with local deformations like heads, and not suitable
+for highly articulate objects like full-body avatars. Peng et
+al. used a cage to deform a radiance field in CageNeRF
+[47]. While their low-resolution cages can be applied to
+full-body avatars, they fail to model detailed features like
+faces or complex deformations.
+Time-conditioned Methods Playback methods [2, 5, 13,
+26, 70, 77] represent a scene as a time-conditioned func-
+tion that cannot be arbitrarily controlled, allowing only for
+a novel viewpoint synthesis while traversing the time axis.
+Yang et al. [77] extended the representation of 3DGS [19]
+into 4DGS, effectively incorporating time into the primi-
+tive representation. Wu et al. [70] combine Gaussians with
+4D neural voxels, inspired by HexPlane [2], which achieves
+real-time rendering and novel-view synthesis.
+However,
+these solutions fall into a different class of algorithms com-
+pared to pose-conditioned drivable avatars, which is our
+goal.
+Dynamic Gaussian Splatting D3GA is based on 3D Gaus-
+sian Splatting (3DGS) [19], a recent alternative to NeRF
+for modeling neural scenes. Due to its real-time capabili-
+ties and high-quality results, 3DGS has inspired numerous
+follow-up papers [8, 15, 34, 50, 73, 74, 76, 80, 84, 85] in ar-
+eas such as physics simulation, hair modeling, head avatars,
+and fluid dynamics. Several works [28, 42, 56] recently in-
+troduced convolutional networks to regress Gaussian maps.
+Despite achieving high-quality results, fixed convolutional
+architectures do not allow for local conditioning or adjust-
+ing the number of Gaussians during training. These meth-
+ods also use up to 23 times more parameters, causing the
+model size to reach almost 1 GiB. In contrast, our pipeline
+remains lightweight and flexible, offering garment decom-
+position and localized conditioning. Finally, using CNNs
+can slow down the pipeline to around 10 FPS [28], whereas
+our method remains real-time.
+3. Method
+D3GA is built on 3DGS extended by a neural representation
+and tetrahedral cages to model the color and geometry of
+each dynamic part of the avatar, respectively. In the follow-
+ing, we introduce the formulation of 3D Gaussian Splatting
+and give a detailed description of our method.
+3.1. 3D Gaussian Splatting
+3D Gaussian Splatting (3DGS) [19] is designed for real-
+time novel view synthesis in multi-view static scenes. Their
+rendering primitives are scaled 3D Gaussians [22, 67] with
+a 3D covariance matrix Σ and mean µ:
+G(x) = e−1
+2 (x−µ)T Σ−1(x−µ).
+(1)
+To splat the Gaussians, Zwicker et al. [87] define the pro-
+jection of 3D Gaussians onto the image plane as:
+Σ′ = AWΣWT AT ,
+(2)
+where Σ′ is a covariance matrix in 2D space, W is the view
+transformation, and A is the Jacobian of the affine approx-
+imation of the projective transformation. During optimiza-
+tion, enforcing the positive semi-definiteness of the covari-
+ance matrix Σ is challenging. To avoid this, Kerbl et al.
+[19] use an equivalent formulation of a 3D Gaussian as a
+3D ellipsoid parameterized with a scale S and rotation R:
+Σ = RSST RT .
+(3)
+3DGS uses spherical harmonics [52] to model the view-
+dependent color of each Gaussian. In practice, appearance
+is modeled with an optimizable 48 elements vector repre-
+senting four bands of spherical harmonics.
+3.2. Body Cage Creation
+Body
+Garment
+Figure 3. D3GA uses a tetrahedral
+mesh for deformation modeling.
+To deform 3D Gaus-
+sians,
+we
+utilize
+tetrahedron
+cage-
+based
+deformations
+as a coarse proxy
+for the body, face,
+and individual gar-
+ments.
+Unlike a
+triangle,
+which
+is
+two-dimensional,
+a
+tetrahedron
+is
+a polyhedron with four triangular faces (A, B, C, D),
+providing a three-dimensional structure. The volume of a
+tetrahedron can be calculated using the scalar triple product
+of vectors, which enables precise control and deformation
+of the enclosed 3D Gaussians. The volume V is given by:
+V = 1
+6 |AB · (AC × AD)|
+(4)
+where AB, AC, AD are edges of tetraherdon. This property
+allows us to compute the deformation gradient similarly to
+Sumner et al. [61] and transfer it to the Gaussian covariance
+matrix (Equation 7), see Supp. Mat, for more details.
+To create a cage per garment, we segment all images of
+a single time instance using an EfficientNet [62] backbone
+3
+
+
+Figure 2. Overview. D3GA uses 3D pose ϕ, face embedding κ, viewpoint dk and canonical cage v (as well as auto-decoded color
+features hi) to generate the final render ¯C and auxiliary segmentation render ¯P. The inputs in the left are processed through three networks
+(ΨMLP, ΠMLP, ΓMLP) per avatar part to generate cage displacements ∆v, Gaussians deformations bi, qi, si and color/oppacity ci, oi
+respectively. After cage deformations transform canonical Gaussians, they are rasterized into the final images according to Eq. 10.
+with PointRend [21] refinement, trained on a corpus of sim-
+ilar multi-view captures. The per-image 2D segmentation
+masks are projected onto a body mesh ˆM to obtain per-
+triangle labels (body, upper, lower). To get the mesh ˆM, we
+fit a low-resolution LBS model to a single 3D scan of the
+subject and then fit such model to the segmented frame by
+minimizing the distance to the 3D keypoints, extracted with
+an EfficientNet trained on similar captures. We transform
+the body mesh into canonical space with LBS and divide it
+into body part templates Mk. The garment meshes are addi-
+tionally inflated by 1-3 cm along the vertex normals. After-
+ward, we run a voxelization of the meshes and subsequently
+extract the mesh using the marching cubes algorithm [33].
+After that, we use TetGen [57] to turn the unposed meshes
+Mk into tetrahedral meshes Tk. Consequently, cages for
+garments are hollow, containing only their outer layer, while
+the body cage is solid (Figure 3). The face cage is composed
+of the body tetrahedra which contains triangles defined as
+the face on the LBS template. The cage nodes are deformed
+according to LBS weights transferred from the closest ver-
+tex in Mk.
+3.3. Cage Deformation Transfer
+While classic cage methods typically deform the volume
+according to complex weight definitions [14, 16, 17], us-
+ing linear weights works well in practice when cage cells
+are small, making it easier to integrate into an end-to-end
+training system. Specifically, we define vij as the vertices
+of tetrahedron i in canonical space, any point x inside this
+tetrahedron can be defined by its barycentric coordinates bj:
+x =
+4
+X
+j=1
+bjvij.
+(5)
+Each Gaussian 3D mean µ = x is obtained as a linear com-
+bination of learnable barycentric coordinates bj and tetra-
+hedron vertices vij. When the tetrahedra are transformed
+to posed space according to ˆvij = LBS(vij,ϕ, wij), where
+ϕ is the pose and wij are the blendweights, the same lin-
+ear relation holds ˆx = P4
+j=1 bj ˆvij. To leverage the cage
+volume properties (rotation, sheer, and scaling), we use the
+deformation gradient [61]:
+JiEi = ˆEi,
+(6)
+Ji = ˆEiE−1
+i ,
+(7)
+where ˆEi ∈R3×3 and Ei ∈R3×3 contain three edges from
+tetrahedron i defined in deformed and canonical spaces, re-
+spectively. The gradient Ji is used to transform the kernel
+of each Gaussian i (Eq 8). See Supp. mat for more details.
+3.4. Drivable Gaussian Avatars
+We initialize a fixed number of Gaussians, whose 3D means
+µ are sampled on the surface of ˆM.
+However, we are
+not limited to the fixed amount of Gaussians allowing for
+cloning or densification if needed.
+The rotation of each
+Gaussian is initialized so that the first two axes are aligned
+with the triangle surface and the third one with the normal:
+this is a good approximation for a smooth surface. The scale
+is initialized uniformly across a heuristic range depending
+on inter-point distances as in [19]. We assign each sampled
+position x to the intersecting tetrahedron and compute its
+barycentric coordinates b ∈R4. To deform the tetrahedron
+volume, we incorporate the deformation gradient J defined
+in Eq. 7 into the Gaussian covariance matrix from Eq. 3.
+This is an important step as the deformation gradient J
+encapsulates many phenomena that we want to model, for
+instance, rotation, stretching, and sheering. To correctly
+transfer the deformation to 3D Gaussian primitives, we ap-
+ply it to the covariance matrix Σ, effectively modeling the
+3DGS ellipsoids depending on the shape deformation from
+the canonical space into deformed one. Thus, the final co-
+variance matrix passed to the rasterizer is denoted as:
+ˆΣ = JiΣJT
+i ,
+(8)
+4
+
+
+where Ji is the deformation gradient of the tetrahedron con-
+taining the 3D mean of the Gaussian with covariance Σ.
+This way, we transfer the deformation into the Gaussians,
+improving modeling phenomena like garment stretching.
+Each part of the avatar (the garment,
+body,
+or
+face) is controlled by a separate GaussianNet GNet
+=
+{ΓMLP, ΠMLP, ΨMLP} which is defined as a set of small spe-
+cialized multi-layer perceptrons (MLP) parametrized as:
+ΨMLP : {ϕ, encpos(v)} →∆v,
+ΠMLP : {ϕ, bi, qi, si} →{∆bi, ∆si, ∆qi},
+ΓMLP : {ϕ, encview(dk), hi, fj} →{ci, oi}.
+(9)
+All the networks take joint angles ϕ (or face encodings κ for
+the face networks) as inputs, in addition to network-specific
+conditioning. The cage node correction network ΨMLP takes
+positional encodings [40] for all canonical vertices to trans-
+form them into offsets of the cage node positions similar to
+SMPL [32] pose-correctives. To adapt our representation
+further to the pose, the Gaussian correction network ΠMLP
+takes the canonical Gaussian parameters (barycentric coor-
+dinates bi ∈R4, rotation qi ∈R4 and scale si ∈R3) to
+predict corrections of those same parameters. These two
+networks are necessary to capture high-frequency details
+outside the parametric transformation.
+The shading network ΓMLP transforms encoded view di-
+rection and initial color into final color and opacity, ci, oi.
+Unlike 3DGS, we use a pose-dependent color representa-
+tion to model self-shadows and wrinkles in garments. The
+view angle is projected onto the first four spherical har-
+monics bands encpos(·), while the initial color is an auto-
+decoded feature vector hi [43]. Additionally, the face re-
+gion utilizes face embeddings κ as input instead of pose
+ϕ. This adaptability stems from our model’s composability
+and holds the potential for extension to other regions, such
+as hair, shoes, or hands. A small auxiliary MLP regresses κ
+based on 150 3D keypoints k normalized by their training
+mean and standard deviations. This effectively enables us
+to model facial expressions.
+Finally, we also add an embedding vector with the time
+frame of the current sample [37]. This allows D3GA to ex-
+plain properties that cannot be modeled (e.g., cloth dynam-
+ics) from our input, effectively avoiding excessive blur due
+to averaging residuals. During testing, the average training
+embedding is used.
+3.5. Training Objectives
+As in 3DGS [19], we define the color ¯C of pixel (u, v):
+¯Cu,v =
+X
+i∈N
+ciαi
+i−1
+Y
+j=1
+(1 −αi),
+(10)
+where ci is the color predicted by ΓMLP, which replaces the
+spherical harmonics in 3DGS. αi is computed as the product
+of the Gaussian density in Eq. 1 with covariance matrix Σ′
+from Eq. 2 and the learned per-point opacity oi predicted
+by ΓMLP. The sum is computed over set N, the Gaussians
+with spatial support on (u, v). The primary loss in D3GA is
+a weighted sum of three different color losses applied to the
+estimated image ¯C and the ground truth RGB image C:
+LColor = (1 −ω)L1 + ωLD-SSIM + ζLVGG,
+(11)
+where ω = 0.2, ζ = 0.005 (after 400k iterations steps and
+zero otherwise), LD-SSIM is a structural dissimilarity loss,
+and LVGG is the perceptual VGG loss.
+To encourage correct garment separation, we introduce a
+garment loss. Since each Gaussian i is statically assigned to
+a part, we define pi as a constant-per-part color and conse-
+quently render ¯P by replacing ci by pi in Eq. 10. Then, we
+compute the L1 norm between predicted parts ¯P and ground
+truth segmentations P, LGarment = L1(¯P, P). Moreover,
+we are using the Neo-Hookean loss based on Macklin et al.
+[36] to enforce the regularization of the predicted tetrahedra
+for the regions with low supervision signal:
+LNeo = 1
+N
+N
+X
+i=0
+λ
+2 (det(Ji) −1)2 + µ
+2
+ tr(JT
+i Ji) −3
+
+,
+(12)
+where Ji denotes the deformation gradient between a
+canonical and a deformed tetrahedron (Eq. 7), N is the total
+number of tetrahedrons, and λ and µ are the Lam´e parame-
+ters [36]. The overall loss is defined as:
+L = νLColor + νLGarment + τLNeo,
+(13)
+where ν = 10 and τ = 0.005 balance the different losses.
+We implemented D3GA based on the differentiable
+3DGS renderer [19]. The networks ΠMLP,ΨMLP, ΓMLP have
+three hidden layers with 128 neurons and ReLU activation
+functions. In our experiments, we train the networks for
+700k (Ours) and 400k (ActorsHQ) steps with a multi-step
+scheduler with a decay rate of 0.33, a batch size of one, and
+using the Adam optimizer [20] with a learning rate set to
+5e −4. We ran all experiments on a single Nvidia V100
+GPU with 1024 × 667 images. When ground truth poses
+are not available, as in the case of ActorsHQ [13], we addi-
+tionally refine poses regressed from keypoints during avatar
+training and during the test time, and optionally projected
+them onto PCA basis computed from the training set.
+4. Dataset
+Our dataset comprises nine subjects performing various mo-
+tions, observed by 200 cameras. We use 12,000 frames for
+training (at 10 FPS) and 1,500 for testing (at 30 FPS). Im-
+ages were captured at a resolution of 4096×2668 in a multi-
+view studio with synchronized cameras and downsampled
+to 1024 × 667 to reduce computational cost. We utilize 2D
+5
+
+
+Ground Truth
+Ours
+MVP[31]
+BD [1]
+Figure 4. Qualitative comparisons show that D3GA models facial expressions and garments better than other SOTA approaches. Especially
+regions with loose garments like skirts or sweatpants.
+segmentation masks, RGB images, keypoints, and 3D joint
+angles for training, as well as a single registered mesh to
+create our template ˆM. Of the nine subjects, data for four
+is publicly available through the Goliath-4 dataset release
+[38].
+5. Results
+We evaluate and benchmark our method w.r.t. five state-of-
+the-art multiview-based solutions [1, 11, 28, 31, 51]. We
+compare D3GA to the mesh-based full-body avatar meth-
+ods BodyDecoder (BD) [1] and MVP-based avatars [31, 53]
+evaluated on our dataset.
+Additionally, we evaluated D3GA on the ActorsHQ
+dataset [13] using a significantly smaller number of cam-
+eras (40). We compare to SOTA pose-conditioned 3DGS
+avatar methods, including Animatable Gaussians (AG)
+[28], 3DGS-Avatar [51], and Gaussian Avatar (GA) [11]
+which were trained on the same multiview data.
+Please note that our method, along with 3DGS-Avatar
+and GA, represents a lightweight class of MLP-based algo-
+rithms, utilizing up to 10 million parameters. In contrast,
+the CNN-based MVP, BD, and AG [28] which in this case
+uses approximately 23 times more parameters (230 mil-
+lion).
+5.1. Image Quality Evaluation
+Our model is evaluated using SSIM, PSNR, and the per-
+ceptual metric LPIPS [79], with random color backgrounds.
+For the ActorsHQ evaluation, we utilized SMPL-X fittings
+obtained through OpenPose [3] and scan-to-mesh optimiza-
+tion. Table 1 shows that our method achieves the best PSNR
+and SSIM on our dataset compared to MVP [31] and BD
+[1]. Furthermore, on the ActorsHQ dataset, D3GA outper-
+forms other Gaussian Avatar methods in terms of PSNR
+and SSIM. However, similar to previous evaluations, our
+method lacks sharpness due to its much smaller size com-
+pared to the CNN-based architecture of AG [28]. Moreover,
+our approach allows us to decompose avatars into drivable
+layers, unlike other volumetric methods. Each separate gar-
+ment layer can be controlled solely by skeleton joint angles,
+without requiring specific garment registration modules as
+in [71].
+5.2. Ablation Studies
+Importance of cage deformations We replaced tetrahe-
+drons with triangles to emphasize the crucial role of cage
+deformation gradients in transforming Gaussians. We mod-
+ified Eq 5 such that 3D means are obtained through the
+barycentric coordinates of triangles b ∈R3 instead of tetra-
+6
+
+
+Ground Truth
+Ours
+3DGS-Avatar [51]
+Gaussian Avatar [11]
+Animitable GA [28]
+Figure 5. ActorsHQ [13] comprises challenging garments that contain high-frequency patterns. Our method despite its small size can
+capture it and performs the best in terms of PSNR and SSIM, ranking second only in terms of sharpness to AG [28], which presents very
+sharp results due to the powerful StyleUNet [65].
+hedrons b ∈R4.
+The rest of the pipeline remains un-
+changed, with MLPs computing the same corrective terms
+as our cage-based model. Since triangles do not provide
+volume, we disabled the application of the cage deformation
+gradient J, but the Gaussians are still modeled by the pre-
+dicted residuals w.r.t. the canonical space. Figure 8 shows
+that the triangle-based approach does not stretch the prim-
+itives correctly, creating holes and artifacts which demon-
+strates the importance of using cages for deformation.
+Garment loss The garment loss LGarment (Fig. 7) serves
+two primary purposes: it improves garment separation and
+reduces erroneously translucid regions.
+We can observe
+qualitatively that regions between garments’ boundaries
+without the regularizer are blurry and have erroneous opac-
+ity, see supp. mat.
+7
+
+
+Dataset
+Method
+PSNR ↑
+LPIPS ↓
+SSIM ↑
+Ours
+Ours
+30.634
+0.054
+0.964
+MVP [31]
+28.795
+0.051
+0.955
+BD [1]
+29.918
+0.044
+0.959
+ActorsHQ
+Ours
+26.562
+0.065
+0.944
+GA [11]
+24.731
+0.088
+0.933
+3DGS-Avatar [51]
+21.709
+0.082
+0.915
+AG [29]
+26.454
+0.055
+0.937
+Table 1. Our method scores the best in terms of PSNR and SSIM
+compared to BD [1] and MVP [31] on our dataset. D3GA is the
+best among MLP-based avatars, ranking only second in terms of
+sharpness compared to AG, which uses a CNN-based architecture.
+Figure 6. D3GA enables motion transfer showing good generaliz-
+ability while preserving each avatar’s high-quality details.
+Single layer avatar D3GA supports a single-layer training
+for the garment and body, which struggles to model proper
+garment sliding. The results are presented in the last column
+of Fig. 7. It can be observed that the edges between the T-
+shirt and jeans are over-smoothed.
+Size and compactness Our model offers an optimal balance
+between quality and model size, making it both compact
+and easily portable.
+This lightweight representation sets
+D3GA apart from much larger and more cumbersome mod-
+els like AG [28]. As shown in Table 2, D3GA is similar in
+size to other methods, yet it delivers superior quality com-
+pared to models in the same category. This makes D3GA an
+attractive choice for telepresence applications, where both
+efficiency and performance are crucial.
+Ground Truth
+Ours
+w/o LGarment
+Single Layer
+Figure 7.
+Ablation of D3GA: shape smoothness without
+LGarment, and sliding artifacts with a single layer representation.
+Method
+#parameters (M)
+size (MiB)
+Ours
+9
+45
+GaussianAvatar [11]
+7
+59
+3DGS-Avatar [51]
+6
+57
+AG [29]
+232
+862
+Table 2. Model compactness. D3GA offers the best tradeoff be-
+tween quality and model size.
+Tetrahedrons
+Triangles
+Figure 8. Gaussian primitives embedded in triangles, compared to
+tetrahedrons, produce more artifacts, resulting in small holes and
+reduced sharpness that is reflected in the LIPIS score, which drops
+from 0.0648 to 0.0703.
+6. Discussion
+While D3GA shows better quality and competitive render-
+ing speed w.r.t. the state of the art, there are still particular
+challenges. High-frequency patterns, like stripes, may re-
+sult in blurry regions. One way of improving image quality
+would be using a variational autoencoder to regress Gaus-
+sian parameters per texel of a guide mesh similar to [28, 31].
+Despite using the LGarment loss, self-collisions for loose
+garments are still challenging, and the sparse controlling
+signal does not contain enough information about complex
+wrinkles or self-shadowing. A potential solution to solve
+self-penetration would be to incorporate explicit collision
+detection [4] for the tetrahedrons. An exciting follow-up
+work direction would be replacing the appearance model in
+D3GA with a relightable one. D3GA is currently limited
+to model photorealistic avatars for a few consenting sub-
+jects captured in a dense multi-view capture device. While
+this limits the potential misuse of the technology of driving
+somebody else’s avatar without their consent, it needs to be
+addressed in future work. In conclusion, it’s worth noting
+that the D3GA offers significant flexibility and can be cus-
+tomized for particular applications. For instance, one could
+employ additional Gaussians to capture high-frequency de-
+tail or opt to eliminate garment supervision, particularly if
+precise cage geometry decomposition isn’t necessary.
+8
+
+
+7. Conclusion
+We have proposed D3GA, a novel approach for reconstruct-
+ing multi-layered animatable human avatars using tetrahe-
+dral cages embedded with 3D Gaussians. To transform the
+rendering primitives from canonical to deformed space, we
+directly apply the deformation gradient to the 3D Gaussian
+parametrization, enabling improved avatar modeling. Our
+method’s compositional approach enables various forms
+of localized conditioning, such as using keypoints for fa-
+cial expressions, and can be extended to other regions like
+hair, hands, or shoes. This capability is essential for cre-
+ating holistic avatars driven by diverse input signals. We
+have demonstrated high-quality results that surpass state-
+of-the-art methods with similar model architectures, all
+while maintaining a lightweight, real-time, and compact ap-
+proach.
+Acknowledgement The authors thank the International
+Max Planck Research School for Intelligent Systems
+(IMPRS-IS) for supporting WZ. We also want to thank
+Giljoo Nam for the help with Gaussian visualizations, and
+Anka Chen for very useful conversations about tetrahe-
+drons.
+References
+[1] Timur M. Bagautdinov, Chenglei Wu, Tomas Simon, Fabi´an
+Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser
+Sheikh, and Jason M. Saragih. Driving-signal aware full-
+body avatars. ACM Transactions on Graphics (TOG), 40:1 –
+17, 2021. 2, 6, 8
+[2] Ang Cao and Justin Johnson. Hexplane: A fast represen-
+tation for dynamic scenes. Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR), 2023. 3
+[3] Z. Cao, G. Hidalgo Martinez, T. Simon, S. Wei, and Y. A.
+Sheikh. Openpose: Realtime multi-person 2d pose estima-
+tion using part affinity fields. IEEE Transactions on Pattern
+Analysis and Machine Intelligence, 2019. 6
+[4] Heng Chen, Elier Diaz, and Cem Yuksel. Shortest path to
+boundary for self-intersecting meshes. ACM Transactions
+on Graphics (TOG), 42:1 – 15, 2023. 2, 8
+[5] Jiemin Fang, Taoran Yi, Xinggang Wang, Lingxi Xie, Xi-
+aopeng Zhang, Wenyu Liu, Matthias Nießner, and Qi Tian.
+Fast dynamic radiance fields with time-aware neural voxels.
+In SIGGRAPH Asia 2022 Conference Papers, 2022. 3
+[6] Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black,
+and Timo Bolkart.
+Capturing and animation of body and
+clothing from monocular video. SIGGRAPH Asia 2022 Con-
+ference Papers, 2022. 2
+[7] Yao Feng, Weiyang Liu, Timo Bolkart, Jinlong Yang, Marc
+Pollefeys, and Michael J. Black.
+Learning disentangled
+avatars with hybrid 3d representations. arXiv, 2023. 2
+[8] Yutao Feng, Xiang Feng, Yintong Shang, Ying Jiang, Chang
+Yu, Zeshun Zong, Tianjia Shao, Hongzhi Wu, Kun Zhou,
+Chenfanfu Jiang, and Yin Yang.
+Gaussian splashing:
+Dynamic fluid synthesis with gaussian splatting.
+ArXiv,
+abs/2401.15318, 2024. 2, 3
+[9] Guy Gafni, Justus Thies, Michael Zollhofer, and Matthias
+Nießner. Dynamic neural radiance fields for monocular 4d
+facial avatar reconstruction.
+2021 IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+8645–8654, 2020. 2
+[10] Stephan J. Garbin, Marek Kowalski, Virginia Estellers,
+Stanislaw Szymanowicz, Shideh Rezaeifar, Jingjing Shen,
+Matthew Johnson, and Julien Valentin. Voltemorph: Real-
+time, controllable and generalisable animation of volumetric
+representations. CoRR, abs/2208.00949, 2022. 3
+[11] Liangxiao Hu, Hongwen Zhang, Yuxiang Zhang, Boyao
+Zhou, Boning Liu, Shengping Zhang, and Liqiang Nie.
+Gaussianavatar:
+Towards realistic human avatar model-
+ing from a single video via animatable 3d gaussians.
+In
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), 2024. 6, 7, 8, 15
+[12] Jin Huang, Xiaohan Shi, Xinguo Liu, Kun Zhou, Li-Yi
+Wei, Shang-Hua Teng, Hujun Bao, Baining Guo, and Harry
+Shum. Subspace gradient domain mesh deformation. ACM
+SIGGRAPH 2006 Papers, 2006. 2
+[13] Mustafa Isik, Martin R¨unz, Markos Georgopoulos, Taras
+Khakhulin, Jonathan Starck, Lourdes Agapito, and Matthias
+Nießner. Humanrf: High-fidelity neural radiance fields for
+humans in motion. ACM Trans. Graph., 42(4):160:1–160:12,
+2023. 3, 5, 6, 7, 14
+[14] Alec Jacobson, Ilya Baran, Jovan Popovi´c, and Olga
+Sorkine-Hornung.
+Bounded biharmonic weights for real-
+time deformation. ACM SIGGRAPH 2011 papers, 2011. 2,
+4
+[15] Ying Jiang, Chang Yu, Tianyi Xie, Xuan Li, Yutao Feng,
+Huamin Wang, Minchen Li, Henry Lau, Feng Gao, Yin
+Yang, and Chenfanfu Jiang. Vr-gs: A physical dynamics-
+aware interactive gaussian splatting system in virtual reality.
+ArXiv, abs/2401.16663, 2024. 3
+[16] Pushkar Joshi, Mark Meyer, Tony DeRose, Brian Green, and
+Tom Sanocki. Harmonic coordinates for character articula-
+tion. ACM Trans. Graph., 26(3):71, 2007. 4
+[17] Tao Ju, Scott Schaefer, and Joe D. Warren. Mean value coor-
+dinates for closed triangular meshes. ACM SIGGRAPH 2005
+Papers, 2005. 2, 4
+[18] James T. Kajiya. The rendering equation. Proceedings of the
+13th annual conference on Computer graphics and interac-
+tive techniques, 1986. 2
+[19] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkuehler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering.
+ACM Transactions on Graphics
+(TOG), 42:1 – 14, 2023. 2, 3, 4, 5
+[20] Diederik P. Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. CoRR, abs/1412.6980, 2014. 5
+[21] Alexander Kirillov, Yuxin Wu, Kaiming He, and Ross B.
+Girshick. Pointrend: Image segmentation as rendering. In
+2020 IEEE/CVF Conference on Computer Vision and Pat-
+tern Recognition, CVPR 2020, Seattle, WA, USA, June 13-
+19, 2020, pages 9796–9805. Computer Vision Foundation /
+IEEE, 2020. 4
+9
+
+
+[22] Georgios Kopanas, Julien Philip, Thomas Leimk¨uhler, and
+George Drettakis.
+Point-based neural rendering with per-
+view optimization.
+Computer Graphics Forum, 40, 2021.
+3
+[23] Wen C. Lai, David Rubin, and Erhard Krempl. Introduc-
+tion to Continuum Mechanics. Pergamon Press, 3rd edition,
+1993. 14
+[24] Christoph Lassner and Michael Zollh¨ofer. Pulsar: Efficient
+sphere-based neural rendering. 2021 IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+1440–1449, 2021. 2
+[25] Ruilong Li, Julian Tanke, Minh Vo, Michael Zollhofer,
+Jurgen Gall, Angjoo Kanazawa, and Christoph Lassner.
+Tava: Template-free animatable volumetric actors. ArXiv,
+abs/2206.08929, 2022. 2, 14
+[26] Tianye Li, Mira Slavcheva, Michael Zollhoefer, Simon
+Green, Christoph Lassner, Changil Kim, Tanner Schmidt,
+Steven Lovegrove, Michael Goesele, Richard Newcombe,
+and Zhaoyang Lv. Neural 3d video synthesis from multi-
+view video. Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), 2022. 3
+[27] Zhengqi Li, Simon Niklaus, Noah Snavely, and Oliver Wang.
+Neural scene flow fields for space-time view synthesis of dy-
+namic scenes.
+2021 IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), pages 6494–6504,
+2020. 2
+[28] Zhe Li, Zerong Zheng, Lizhen Wang, and Yebin Liu.
+Animatable gaussians: Learning pose-dependent gaussian
+maps for high-fidelity human avatar modeling.
+ArXiv,
+abs/2311.16096, 2023. 2, 3, 6, 7, 8, 14, 15
+[29] Zhe Li, Zerong Zheng, Lizhen Wang, and Yebin Liu. Ani-
+matable gaussians: Learning pose-dependent gaussian maps
+for high-fidelity human avatar modeling. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), 2024. 8
+[30] Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu
+Sarkar, Jiatao Gu, and Christian Theobalt.
+Neural actor.
+ACM Transactions on Graphics (TOG), 40:1 – 16, 2021. 2
+[31] Stephen Lombardi,
+Tomas Simon,
+Gabriel Schwartz,
+Michael Zollhoefer, Yaser Sheikh, and Jason M. Saragih.
+Mixture of volumetric primitives for efficient neural render-
+ing. ACM Transactions on Graphics (TOG), 40:1 – 13, 2021.
+1, 2, 6, 8
+[32] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J. Black. Smpl: A skinned multi-
+person linear model. Seminal Graphics Papers: Pushing the
+Boundaries, Volume 2, 2015. 2, 5
+[33] William E. Lorensen and Harvey E. Cline. Marching cubes:
+A high resolution 3d surface construction algorithm. In SIG-
+GRAPH ’87: Proceedings of the 14th Annual Conference on
+Computer Graphics and Interactive Techniques, pages 163–
+169, 1987. 4
+[34] Haimin Luo, Ouyang Min, Zijun Zhao, Suyi Jiang, Longwen
+Zhang, Qixuan Zhang, Wei Yang, Lan Xu, and Jingyi Yu.
+Gaussianhair: Hair modeling and rendering with light-aware
+gaussians. ArXiv, abs/2402.10483, 2024. 3
+[35] Qianli Ma, Jinlong Yang, Siyu Tang, and Michael J. Black.
+The power of points for modeling humans in clothing. 2021
+IEEE/CVF International Conference on Computer Vision
+(ICCV), pages 10954–10964, 2021. 2
+[36] Miles Macklin and Matthias M¨uller. A constraint-based for-
+mulation of stable neo-hookean materials. Proceedings of
+the 14th ACM SIGGRAPH Conference on Motion, Interac-
+tion and Games, 2021. 2, 5, 14
+[37] Ricardo Martin-Brualla, Noha Radwan, Mehdi S. M. Saj-
+jadi, Jonathan T. Barron, Alexey Dosovitskiy, and Daniel
+Duckworth. Nerf in the wild: Neural radiance fields for un-
+constrained photo collections. 2021 IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pages
+7206–7215, 2020. 5
+[38] Julieta Martinez, Emily Kim, Javier Romero, Timur Bagaut-
+dinov, Shunsuke Saito, Shoou-I Yu, Stuart Anderson,
+Michael Zollh¨ofer, Te-Li Wang, Shaojie Bai, Chenghui Li,
+Shih-En Wei, Rohan Joshi, Wyatt Borsos, Tomas Simon,
+Jason Saragih, Paul Theodosis, Alexander Greene, Anjani
+Josyula, Silvio Mano Maeta, Andrew I. Jewett, Simon Ven-
+shtain, Christopher Heilman, Yueh-Tung Chen, Sidi Fu, Mo-
+hamed Ezzeldin A. Elshaer, Tingfang Du, Longhua Wu,
+Shen-Chi Chen, Kai Kang, Michael Wu, Youssef Emad,
+Steven Longay, Ashley Brewer, Hitesh Shah, James Booth,
+Taylor Koska, Kayla Haidle, Matt Andromalos, Joanna Hsu,
+Thomas Dauer, Peter Selednik, Tim Godisart, Scott Ardis-
+son, Matthew Cipperly, Ben Humberston, Lon Farr, Bob
+Hansen, Peihong Guo, Dave Braun, Steven Krenn, He Wen,
+Lucas Evans, Natalia Fadeeva, Matthew Stewart, Gabriel
+Schwartz, Divam Gupta, Gyeongsik Moon, Kaiwen Guo,
+Yuan Dong, Yichen Xu, Takaaki Shiratori, Fabian Prada,
+Bernardo R. Pires, Bo Peng, Julia Buffalini, Autumn Trim-
+ble, Kevyn McPhail, Melissa Schoeller, and Yaser Sheikh.
+Codec Avatar Studio: Paired Human Captures for Complete,
+Driveable, and Generalizable Avatars.
+NeurIPS Track on
+Datasets and Benchmarks, 2024. 6
+[39] Marko Mihajlovic, Aayush Bansal, Michael Zollhoefer, Siyu
+Tang, and Shunsuke Saito.
+Keypointnerf:
+Generalizing
+image-based volumetric avatars using relative spatial encod-
+ing of keypoints. ArXiv, abs/2205.04992, 2022. 2
+[40] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik,
+Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf.
+Communications of the ACM, 65:99 – 106, 2020. 2, 5
+[41] Jes´us R Nieto and Antonio Sus´ın. Cage based deformations:
+a survey. In Deformation Models: Tracking, Animation and
+Applications, pages 75–99. Springer, 2012. 2, 3
+[42] Haokai Pang, Heming Zhu, Adam Kortylewski, Christian
+Theobalt, and Marc Habermann. Ash: Animatable gaussian
+splats for efficient and photoreal human rendering. ArXiv,
+abs/2312.05941, 2023. 3
+[43] Jeong Joon Park, Peter Florence, Julian Straub, Richard
+Newcombe, and Steven Lovegrove. Deepsdf: Learning con-
+tinuous signed distance functions for shape representation.
+In Proceedings of the IEEE/CVF conference on computer vi-
+sion and pattern recognition, pages 165–174, 2019. 5
+[44] Keunhong Park, U. Sinha, Jonathan T. Barron, Sofien
+Bouaziz, Dan B. Goldman, Steven M. Seitz, and Ricardo
+Martin-Brualla. Nerfies: Deformable neural radiance fields.
+2021 IEEE/CVF International Conference on Computer Vi-
+sion (ICCV), pages 5845–5854, 2020. 2
+10

@@ -1,0 +1,1270 @@
+Title: Sag-Free Initialization for Strand-Based Hybrid Hair Simulation
+
+Sag-Free Initialization for Strand-Based Hybrid Hair Simulation
+JERRY HSU∗, University of Utah & LightSpeed Studios, USA
+TONGTONG WANG, LightSpeed Studios, China
+ZHERONG PAN, LightSpeed Studios, USA
+XIFENG GAO, LightSpeed Studios, USA
+CEM YUKSEL, University of Utah & Roblox, USA
+KUI WU, LightSpeed Studios, USA
+Guide hairs
+Full hairs
+z                                                                              }|                                                                              {
+z                                                                              }|                                                                              {
+Naive
+[Hsu et al. 2022]
+Ours
+Naive
+[Hsu et al. 2022]
+Ours
+Fig. 1. On an example wavy hairstyle “Long”, we compare three techniques applicable to the Lagrangian/Eulerian hybrid strand-based hair
+simulation techniques: the naive initialization that treats the given initial shape as the rest shape, the previous sag-free initialization approach [Hsu
+et al. 2022], and ours. While both naive and previous sag-free initializations lead to hairs sliding down with gravity, our initialization can preserve
+the given initial hairstyle shape by treating it as the intended shape in static equilibrium under gravity. The left is the guide hairs used for the
+actual initialization and simulation, while the right shows the full hairs interpolated from the guide hairs.
+Lagrangian/Eulerian hybrid strand-based hair simulation techniques have
+quickly become a popular approach in VFX and real-time graphics applica-
+tions. With Lagrangian hair dynamics, the inter-hair contacts are resolved
+in the Eulerian grid using the continuum method, i.e., the MPM scheme
+with the granular Drucker–Prager rheology, to avoid expensive collision
+detection and handling. This fuzzy collision handling makes the authoring
+process significantly easier. However, although current hair grooming tools
+provide a wide range of strand-based modeling tools for this simulation
+approach, the crucial sag-free initialization functionality remains often ig-
+nored. Thus, when the simulation starts, gravity would cause any artistic
+hairstyle to sag and deform into unintended and undesirable shapes.
+This paper proposes a novel four-stage sag-free initialization framework
+to solve stable quasistatic configurations for hybrid strand-based hair dy-
+∗Part of this work was done when Jerry Hsu was an intern at LightSpeed Studios.
+Authors’ addresses: Jerry Hsu, jerry060599@gmail.com, University of Utah & Light-
+Speed Studios, Salt lake city, UT, USA; Tongtong Wang, tongttwang@tencent.com,
+LightSpeed Studios, Shenzhen, Guangzhou, China; Zherong Pan, zrpan@global.tencent.
+com, LightSpeed Studios, Seattle, WA, USA; Xifeng Gao, xifgao@global.tencent.com,
+LightSpeed Studios, Seattle, WA, USA; Cem Yuksel, cem@cemyuksel.com, University of
+Utah & Roblox, Salt lake city, UT, USA; Kui Wu, kwwu@global.tencent.com, LightSpeed
+Studios, Los Angeles, CA, USA.
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission
+and/or a fee. Request permissions from permissions@acm.org.
+© 2018 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+0730-0301/2023/8-ART1 $15.00
+https://doi.org/10.1145/3592143
+namic systems. These four stages are split into two global-local pairs. The
+first one ensures static equilibrium at every Eulerian grid node with ad-
+ditional inequality constraints to prevent stress from exiting the yielding
+surface. We then derive several associated closed-form solutions in the local
+stage to compute segment rest lengths, orientations, and particle deforma-
+tion gradients in parallel. The second global-local step solves along each hair
+strand to ensure all the bend and twist constraints produce zero net torque
+on every hair segment, followed by a local step to adjust the rest Darboux
+vectors to a unit quaternion. We also introduce an essential modification
+for the Darboux vector to eliminate the ambiguity of the Cosserat rod rest
+pose in both initialization and simulation. We evaluate our method on a
+wide range of hairstyles, and our approach can only take a few seconds
+to minutes to get the rest quasistatic configurations for hundreds of hair
+strands. Our results show that our method successfully prevents sagging
+and has minimal impact on the hair motion during simulation.
+CCS Concepts: • Computing methodologies →Physical simulation.
+Additional Key Words and Phrases: Hybrid MPM-Hair, Inverse Modeling,
+Sag-Free Simulation
+ACM Reference Format:
+Jerry Hsu, Tongtong Wang, Zherong Pan, Xifeng Gao, Cem Yuksel, and Kui
+Wu. 2023. Sag-Free Initialization for Strand-Based Hybrid Hair Simulation.
+ACM Trans. Graph. 42, 4, Article 1 (August 2023), 14 pages. https://doi.org/
+10.1145/3592143
+1
+INTRODUCTION
+Hair simulations have long been an active research topic in com-
+puter graphics that plays a critical role in the appearance and ani-
+mation of humans and animals. Among various physically-based
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+1:2
+•
+Jerry Hsu, Tongtong Wang, Zherong Pan, Xifeng Gao, Cem Yuksel, and Kui Wu
+models, Lagrangian/Eulerian hybrid strand-based hair simulation
+techniques [Fei et al. 2021a; Han et al. 2019; Jiang et al. 2017] have
+quickly become very popular in both VFX and real-time applications,
+achieving a superb balance between realism and performance over
+the sheet- and volumetric-based methods [Koh and Huang 2001;
+Wu and Yuksel 2016]. These hybrid techniques use Cosserat rod
+theory [Kugelstadt and Schömer 2016] to model individual strand
+deformations while relying on the continuum method, e.g., the MPM
+scheme with the granular Drucker–Prager rheology, to handle con-
+tacts between strands. With the prevalence of these simulations,
+several hair grooming tools, such as Maya XGen, Yeti, and nHair,
+have been introduced to aid artists in the creation of strand-based
+visual hair models. However, since these tools do not model any
+internal or external forces, the designed visual hair models are
+rarely simulation-ready. Indeed, as soon as the simulation starts,
+hair strands suffer from sagging (Fig. 1 left), i.e., unintended sliding
+and deformation due to gravity ruins carefully handcrafted hairstyle.
+Although there has been a successful attempt toward sag-free
+hair modeling [Derouet-Jourdan et al. 2013], their method targets
+a purely Lagrangian hair simulation system and solves for static
+equilibrium configuration under Lagrangian contact forces. How-
+ever, expensive hair-hair contact handling renders it impossible
+to achieve real-time Lagrangian simulations. On the other hand,
+extending their method to Lagrangian/Eulerian hybrid hair systems
+can be non-trivial, since the hybrid method handles the frictional
+contacts using the drastically different particles using the granular
+Drucker–Prager rheology MPM scheme.
+Recently, Hsu et al. [2022] introduced a general framework for sag-
+free initialization of deformable simulations. This method utilizes an
+efficient global-local optimizer to fine-tune rest configurations that
+cancel out external forces (such as gravity and contacts). While this
+is a highly-promising and flexible approach that works with various
+simulation systems, hybrid hair simulations are not among them
+(Fig. 1 middle). This is owing to the fact that the Cosserat rod model
+tightly couples point-wise translational, segment-wise rotational,
+and grid-wise contact degrees of freedom. Simply decomposing this
+highly non-linear constrained problem into multiple small problems,
+as in the previous work, is non-trivial. Canceling out the forces and
+torques for such an intricate system requires substantially restruc-
+turing the global-local optimization approach. This further applies
+to stability-related concerns exacerbated by twisting and particle
+slippage, for which the prior work presents no solutions. We see
+this as a great missed opportunity as the fuzzy contact handling
+of hybrid hair simulations naturally lends it to practical and useful
+sag-free initialization.
+In this paper, we propose a novel four-stage sag-free initialization
+framework that is the first to solve stable quasistatic configurations
+for hybrid strand-based hair systems (Fig. 1 right). We first intro-
+duce an essential modification for the Darboux vector to eliminate
+the ambiguity of the Cosserat rod rest pose in both initialization
+and simulation. We further propose a four-stage sag-free initializa-
+tion algorithm, which is split into two global-local pairs. The first
+global-local pair ensures zero net force at every grid node, followed
+by a second global-local pair that ensures zero net torque at every
+hair segment. We enforce additional inequality constraints in the
+first global stage to prevent stress from exiting the yielding sur-
+face and then derive several associated closed-form solutions and
+constraints in the latter local stages to ensure computational effi-
+ciency and simulation stability. To cancel out the torque produced
+by the first global-local step, the second global-local step solves
+along each hair strand separately to ensure zero net torque on every
+hair segment, followed by a novel local quaternion adjustment to
+ensure rest Darboux vectors to be unit quaternions. We show that
+decomposing the highly non-linear quasi-static problem into multi-
+ple small constrained linear problems is possible. And we prove that
+our four-stage algorithm is guaranteed to yield feasible rest poses
+with zero net force and torque.
+We validate our method on an efficient hybrid GPU hair simu-
+lator, which is built off of several existing techniques, including
+the hybrid MPM method [Han et al. 2019], position-based Cosserat
+rods [Kugelstadt and Schömer 2016], and the ASFLIP scheme [Fei
+et al. 2021a]. We highlight our method in a row of benchmarks
+with various hairstyles. As illustrated in Fig. 1, our method can find
+sag-free rest configurations for the given wavy hairstyle, for which
+our simulator yields stable animations.
+2
+BACKGROUND
+This section first briefly reviews related work, and then introduces
+the hybrid hair simulation method that our approach is based on.
+2.1
+Related Work
+Hair Dynamic Models. Hair simulation is computationally inten-
+sive due to the large number of hair strands (with about 100K strands
+on an average human). In practical applications, engineers typically
+use a number of representative primitives to simulate hair dynamics
+rather than simulating every hair. Over the years, a row of simplified
+hair representations has been proposed to approximate large bun-
+dles of hairs at a low cost. These include 2D strips [Koh and Huang
+2001], cubic lattice representations [Volino and Magnenat-Thalmann
+2006], short hair strips [Guang and Zhiyong 2002], and volumet-
+ric representations [Lee et al. 2019; Wu and Yuksel 2016]. These
+representations can be converted to dense hair models at render
+time. In comparison to these approaches, a more prevalent modeling
+technique is to simulate a small number of guiding hair strands and
+then recover the dense hair model via interpolation. Early works
+model hair strands using mass-spring chains [Rosenblum et al. 1991]
+or rigid multi-body chains [Anjyo et al. 1992; Chang et al. 2002],
+but ghost particles [Umetani et al. 2015] or altitude springs [Selle
+et al. 2008] are needed to take twisting effects into account for
+modeling curly hairs. Recently, researchers have devised more phys-
+ically accurate models of hair strands with bending and twisting,
+such as the super-helix model [Bertails et al. 2006], Cosserat rod
+elements (CoRdE) [Spillmann and Teschner 2007], discrete elastic
+rods (DER) [Bergou et al. 2008], damped exponential time integrator
+(DETI) model [Michels et al. 2015], and position-based Cosserat
+rods [Kugelstadt and Schömer 2016].
+Inter-Strand Contact Models. With a large number of hairs also
+comes a massive number of complex inter-strand collisions and con-
+tacts. Although the frictional contact between hairs can be resolved
+using explicit hair geometries [Daviet 2020; Daviet et al. 2011; Kauf-
+man et al. 2014], their exhaustive contact resolution is too costly
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+Sag-Free Initialization for Strand-Based Hybrid Hair Simulation
+•
+1:3
+for real-time applications. In view of this, Hadap and Magnenat-
+Thalmann [Hadap and Magnenat-Thalmann 2001] proposed a fluid-
+inspired, hybrid formulation to resolve collisions on a background
+Eulerian grid. Their result exhibits a significant speedup using a
+grid resolution much coarser than the characteristic length of hair
+strands. This idea has been extended to model volume-preserved
+gross behavior [McAdams et al. 2009], frictional contacts [Jiang et al.
+2017], and two-way coupling with fluids [Fei et al. 2017]. A com-
+mon issue with hybrid formulation lies in the numerical viscosity
+caused during particle-grid transfers. Han et al. [2019] proposed a
+hybrid particle-grid solver to alleviate this issue. Recently, Fei et al.
+[2021a] introduced the Affine-augmented Separable FLIP (ASFLIP)
+scheme that utilizes both velocity and positional adjustments to
+break the positional trap. Leveraging the power of GPU, the lat-
+est GPU implementation can simulate hundreds of thousands of
+MPM particles in real-time [Fei et al. 2021b]. In this work, we build
+our efficient GPU-based hair simulator by combining ideas from
+position-based Cosserat rods [Kugelstadt and Schömer 2016], hybrid
+particle-grid solver using the granular Drucker–Prager rheology for
+contacts [Han et al. 2019], and the ASFLIP scheme [Fei et al. 2021a].
+Our forward hybrid hair simulation framework is capable of simu-
+lating thousands of visually convincing hair strands in real-time.
+Sag-free Initialization. Artists oftentimes design physical scenar-
+ios by assuming they are in static force equilibrium. However, an
+exact force equilibrium cannot be achieved without carefully tun-
+ing the object’s material properties and relative rest configurations.
+Without such fine-tuning, objects will gradually deviate from their
+designed configurations under gravity, an artifact known as sagging.
+A myriad of research has been devoted to automatically fine-tuning
+physical scenarios to achieve force equilibrium. A large class of
+techniques considers purely elastic objects and optimizes their rest
+shapes. This method has been applied to design balloons [Skouras
+et al. 2012], soft characters with actuators [Skouras et al. 2013],
+deformable 3D printable objects [Chen et al. 2014; Mukherjee et al.
+2018; Wang et al. 2015], rod structures [Miguel et al. 2016; Pérez
+et al. 2015], and garments [Bartle et al. 2016]. To incorporate con-
+tact models, Twigg and Kačić-Alesić [2011] formulated the static
+equilibrium problem as a complex nonlinear global optimization to
+solve for rest configurations, such as the rest length of springs, for
+multiple deformable objects modeled as mass-spring systems. Ly
+et al. [2018] presented a sag-free initialization method for elastic
+shells with frictional contact handling. The vertices in contact are
+first constrained as static, and the results are then projected onto a
+convex frictional cone. Hsu et al. [2022] solve the nonlinear global
+optimization problem using a two-stage global-local optimization
+with a generalized formula for handling various dynamic systems,
+including FEM, MPM, and Position-Based Dynamics (PBD) with
+frictional contacts. Our proposed approach uses the same decompo-
+sition strategy but supports Cosserat rods while constraining the
+solution to avoid plastic flow for the MPM scheme, among other
+stability enhancements.
+Unlike prior works, our initialization method can handle hybrid
+Cosserat-MPM hair dynamics. A key challenge for sag-free hair
+modeling is incorporating thousands of hair-body and hair-hair
+collisions in the optimization formulation. Existing hair initialization
+technique relies on exhaustive hair simulation [Lee and Ko 2001]
+or additional spring forces and constraints [Iben et al. 2019]. It
+has been shown that, for a single hair strand modeled as a multi-
+body chain, the static equilibrium state can be found using inverse
+dynamics [Hadap 2006]. Derouet-Jourdan et al. [2010] proposed
+an initialization approach for 2D super-helix model. Unfortunately,
+all of these approaches initialize each strand separately without
+considering contacts. Derouet-Jourdan et al. [2013] solves for the
+inverse static equilibrium configuration with Lagrangian contact
+forces as a well-posed constrained optimization problem. Their
+method can initialize thousands of hair strands with contacts in
+the order of a few seconds. Unfortunately, their method is designed
+for the pure Lagrangian case with explicit frictional contacts. In
+comparison, our approach also targets sag-free hair initialization
+but for a completely different forward simulation system that is
+more suitable for real-time applications. To our best knowledge, we
+propose the first contact-aware sag-free initialization approach for
+hybrid Lagrangian/Eulerian hair dynamics.
+2.2
+Hybrid Cosserat-MPM Hair Simulation
+In this section, we describe the hybrid hair simulation method used.
+Our algorithm is very similar to the prior hybrid work [Han et al.
+2019] and takes the Lagrangian point of view and models each
+hair strand as a Cosserat rod with time integration via extended
+position-based dynamics (XPBD). The vertices of each hair strand
+are further used as material particles in conjunction with the MPM
+method to handle collisions on an auxiliary Eulerian grid. Although
+such a hybrid framework has been proposed, we introduce essential
+modifications to allow stable sag-free initialization, which will be
+presented in the next section.
+(a)
+(b)
+(c)
+(d)
+Fig. 2. Forward simulation pipeline: (a) integrate Cosserat rod us-
+ing XPBD scheme to predict per-particle Lagrangian force, (b) compute
+and transfer particle stress with predicted Lagrangian force to grid
+nodes and update velocity at each grid node, (c) transfer velocity back
+to the particle, and (d) advance particles based on the new velocity
+from G2P.
+We use subscript 𝑖as grid node indices, subscript 𝑝, 𝑝+, and 𝑝++
+as consecutive particle indices along the hair strand, and subscript 𝑠
+as indices of hair segment between consecutive particles pair 𝑝and
+𝑝+. We use superscript 𝑛as timestep index. 𝛼= {1, 2, 3} indicates
+the orthonormal vectors. To model twisting and bending, Cosserat
+theory attaches a frame with each strand segment, denoted as a
+quaternion q. q indicates the conjugate of a quaternion q and ℑ(q)
+indicates the imaginary component of q. 𝛀and 𝛀0 indicate the
+Darboux vector at the current and rest pose. As shown in Fig. 2, our
+forward hair simulator uses a time-splitting scheme consisting of
+the following steps:
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+1:4
+•
+Jerry Hsu, Tongtong Wang, Zherong Pan, Xifeng Gao, Cem Yuksel, and Kui Wu
+2.2.1
+Cosserat Rod Integration. We adopt the PBD frame-
+work [Kugelstadt and Schömer 2016] to model each hair strand as
+Cosserat rods and extend it to XPBD [Macklin et al. 2016]. This
+step is performed independently for each hair strand. Cosserat rods
+introduce a frame q𝑠for each hair segment. As such, the 𝛼’th axis of
+the frame is expressed as d𝑠,𝛼= q𝑠e𝛼q𝑠, where e𝛼are orthonormal
+basis. The Cosserat dynamic is modeled with two constraints. The
+stretch and shear constraint Css
+𝑠ensures that the rod segment 𝑠is
+nearly length-preserved and normal with the rod’s cross-section:
+Css
+𝑠(x𝑝, x𝑝+, q𝑠) = 1
+𝑙0
+(x𝑝−x𝑝+) −d𝑠,3,
+(1)
+with rest length 𝑙0. To model the bending and twisting behaviors,
+an additional bend and twist constraint Cbt
+𝑠is introduced between
+two pairs of consecutive particles, quaternion of which denoted as
+q𝑠and q𝑠+, to penalize the difference between the Darboux vector
+𝛀at current and rest pose, which is given by:
+Cbt
+𝑠(q𝑠, q𝑠+) = 𝛀(q𝑠, q𝑠+) −𝜙𝛀0
+𝜙=
+(
++1
+for ∥𝛀−𝛀0∥2 ≤∥𝛀+ 𝛀0∥2
+−1
+for ∥𝛀−𝛀0∥2 > ∥𝛀+ 𝛀0∥2 ,
+(2)
+where 𝜙is used to always move 𝛀towards the nearest pole, since
+both 𝛀0 and −𝛀0 correspond to the same angle.
+The energy potential 𝐸is further specified in terms of constraint
+functions 𝐸★𝑠= 1
+2𝑘★C★𝑠
+𝑇C★𝑠, where ★indicates constraint type and
+𝑘★indicates the corresponding stiffness. We can use the XPBD time
+integrator to approximately solve each particle’s orientation q𝑛+1
+𝑠
+,
+angular velocity 𝝎𝑛+1
+𝑠
+, temporary position ˜x𝑛+1
+𝑝
+, and temporary
+velocity ˜v𝑛+1
+𝑝
+via the optimization:
+˜x𝑛+1
+𝑝
+, ˜v𝑛+1
+𝑝
+, q𝑛+1
+𝑠
+, 𝝎𝑛+1
+𝑠
+≈argmin
+x𝑝,v𝑝,q𝑠,𝝎𝑠
+∑︁
+𝑝
+𝑚𝑝
+2Δ𝑡2 ∥v𝑝−v𝑛
+𝑝∥2+
+∑︁
+𝑠
+1
+2Δ𝑡2 ∥𝝎𝑠−𝝎𝑛
+𝑠∥2
+I𝑠+
+∑︁
+𝑠
+𝐸ss
+𝑠+
+∑︁
+𝑠
+𝐸bt
+𝑠,
+(3)
+where 𝑚𝑝is the particle mass and I𝑠is the segment inertial tensor.
+To solve the optimization problem, an XPBD scheme is used to
+calculate the stretch and shear iterants as:
+Δ𝝀ss = 𝑙0
+ x𝑝−x𝑝+ + q𝑠e3q𝑠𝑙0 −˜𝛼ss𝝀ss𝑙0
+
+𝑤𝑝+ 𝑤𝑝+ + 𝑙2 (4𝑤𝑠+ ˜𝛼ss)
+,
+Δx𝑝= +Δ𝝀𝑠
+𝑙0
+,
+Δx𝑝+ = −Δ𝝀𝑠
+𝑙0
+,
+Δq𝑠= −2Δ𝝀𝑠q𝑠e3.
+and the bend and twist iterants as:
+Δ𝝀bt =
+−
+
+q𝑠q𝑠+ −𝑠𝛀0
+−˜𝛼bt𝝀bt
+𝑤𝑠+ 𝑤𝑠+ + ˜𝛼bt
+,
+Δq𝑠= q𝑠+Δ𝝀bt,
+Δq𝑠+ = q𝑠Δ𝝀bt,
+where 𝝀★is the Lagrange multiplier and ˜𝛼★is a block diagonal
+compliance matrix corresponding to inverse stiffness. At the end
+of each iteration, the rotation quaternion is normalized. We refer
+readers to the previous work [Kugelstadt and Schömer 2016] for
+more details on the XPBD integration of Cosserat rods.
+2.2.2
+Particle Stress Computation. Instead of explicitly detecting
+and resolving inter-hair contacts using Lagrangian geometries, we
+follow the previous hybrid hair method [Fei et al. 2021a; Han et al.
+2019] to resolve the contacts on the Eulerian grid with the elastoplas-
+tic MPM scheme. Like traditional MPM methods, besides position
+x𝑝and velocity v𝑝, each particle carries affine coefficients C𝑝and
+deformation gradient F𝑝. We treat each particle as elastoplastic
+material and follow standard MPM derivation [Klár et al. 2016] to
+compute the per-particle stress tensor:
+𝝈𝑛
+𝑝=
+1
+det(F𝑛𝑝)
+  𝜕𝜓
+𝜕F (F𝑛
+𝑝)(F𝑛
+𝑝)𝑇,
+(4)
+with the material model:
+𝜓(F) = 𝜇tr((ln 𝚺)2) + 1
+2𝜆tr(ln 𝚺)2 ,
+(5)
+where F = U𝚺V𝑇is the singular value decomposition, and 𝜇, 𝜆are
+the Lamé parameters. It is worth noting that, for real-time perfor-
+mance, we only resolve the contacts on the Eulerian grid, with-
+out using explicit Lagrangian geometric correction for collision as
+in [Han et al. 2019].
+2.2.3
+Particle-to-Grid (P2G) and Grid Update. After adjusting parti-
+cle velocities and stress, the momentum P𝑖is then transferred from
+particles to the grid nodes, where explicit force computation is used
+to update grid velocity:
+v𝑛
+𝑖= P𝑛
+𝑖/
+∑︁
+𝑝
+𝑤𝑖𝑝𝑚𝑝.
+(6)
+2.2.4
+Grid-to-Particle (G2P). The final step updates particles’ ve-
+locity v𝑛+1
+𝑝
+, position x𝑛+1
+𝑝
+, affine coefficient C𝑛+1
+𝑝
+, and deformation
+gradient F𝑛𝑝using the following ASFLIP scheme [Fei et al. 2021a]:
+v𝑛+1
+𝑝
+=
+∑︁
+𝑖
+v𝑛+1
+𝑖
+𝑤𝑖𝑝+ 𝛼(v𝑛
+𝑝−
+∑︁
+𝑖
+v𝑛
+𝑖𝑤𝑖𝑝)
+x𝑛+1
+𝑝
+= x𝑛
+𝑝+ Δ𝑡(
+∑︁
+𝑖
+v𝑛+1
+𝑖
+𝑤𝑖𝑝+ 𝛽𝑝𝛼(v𝑛
+𝑝−
+∑︁
+𝑖
+v𝑛
+𝑖𝑤𝑖𝑝))
+C𝑛+1
+𝑝
+=
+4
+Δ𝑥2
+∑︁
+𝑖
+v𝑛+1
+𝑖
+(x𝑖−x𝑝)𝑇𝑤𝑖𝑝
+˜F𝑛+1
+𝑝
+= F𝑛
+𝑝+ Δ𝑡∇(v𝑛)𝑝F𝑛
+𝑝,
+(7)
+where 𝛼is a velocity adjustment and 𝛽𝑝is the parameter to avoid
+the position trap caused by the numerical viscosity during particle-
+grid transfers. Here, 𝑤𝑖𝑝is a standard B-spline quadratic kernel.
+Finally, we project ˜F𝑛+1
+𝑝
+to derive F𝑛+1
+𝑝
+satisfying the following
+Drucker–Prager yielding condition:
+𝑐𝐹tr(𝝈𝑛+1
+𝑝
+) +
+𝝈𝑛+1
+𝑝
+−
+tr(𝝈𝑛+1
+𝑝
+)
+𝑑
+F
+≤0 ,
+(8)
+where 𝑑= 2, 3 as in 2D and 3D, and 𝑐𝐹≥0 increases with amount of
+friction between grains. We refer readers to the previous work [Klár
+et al. 2016] for more details on this step.
+3
+METHOD
+This section introduces our essential modifications to the hybrid
+hair simulator that enables sag-free initialization and then describes
+our four-stage sag-free solver with regularization techniques.
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+Sag-Free Initialization for Strand-Based Hybrid Hair Simulation
+•
+1:5
+3.1
+Modifications to the Forward Simulator
+We have briefly described the hybrid strand-based hair simulator
+in Sec. 2.2; however, the existing framework contains ambiguities
+during computation, which impedes the stability of sag-free Initial-
+izations.
+3.1.1
+Augmented Darboux Vector. The following discrete Darboux
+vector suggested by Kugelstadt and Schömer [2016]:
+𝛀= 2/𝑙0ℑ(q𝑠q𝑠+),
+(9)
+only takes the imaginary components and leads to an ambiguity
+in the sign of the real part of q𝑠q𝑠+. As such, both the positive and
+negative values of the real part become valid rest poses. Problemati-
+cally, this does not represent the same angle but an axis-inverted
+configuration instead and can be exceptionally prone to creating
+instantaneous inversions of two axes as the angle between segments
+approaches zero for highly bent hair. In order to resolve this ambi-
+guity, we modify the definition of the discrete Darboux vector as
+follows:
+𝛀= 2/𝑙0(q𝑠q𝑠+),
+(10)
+dictating the real and imaginary parts to completely remove ambi-
+guity and allow the hair to return to a unique rest shape reliably.
+x𝑝
+x𝑝+
+x𝑝+
+x𝑝
+q𝑠
+q𝑠
+q𝑠+
+q𝑠+
+x𝑝++
+x𝑝++
+d3
+d2
+d1
+q𝑠q𝑠+ = (0, 0,
+√
+2
+2 , −
+√
+2
+2 )
+q𝑠q𝑠+ = (0, 0,
+√
+2
+2 ,
+√
+2
+2 )
+Fig. 3. Those two configurations have the same discrete Darboux vec-
+tor under the definition of [Kugelstadt and Schömer 2016] (ignoring
+the real component), which introduces ambiguity. In practice, when
+the angle between segments gets smaller, this manifests as an instan-
+taneous inversion of two axes when the segments crossover.
+Fig. 3 demonstrates ambiguous discrete Darboux vector suggested
+by Kugelstadt and Schömer [2016], which only takes the imaginary
+components. This leads to an ambiguity in the sign of the real part of
+q𝑠q𝑠+, while our augmented Darboux vector resolves this ambiguity
+and significantly improves the simulation quality of twisting. In
+summary, there are two ambiguities at play for the discrete Darboux
+vector. The first is the ambiguity between the equivalent angles of
+𝑞and −𝑞within the bending and twisting constraint. The second
+ambiguity lies in the sign of the missing real component in the case
+of the discrete Darboux vector. Our constraint formulation flips the
+sign of 𝑞to resolve the first ambiguity and we augment the Darboux
+vector to resolve the second ambiguity.
+3.1.2
+Lagrangian/Eulerian Coupling. Unlike previous works that
+directly update position x𝑛+1
+𝑝
+and velocity v𝑛+1
+𝑝
+after Cosserat rod
+integration for the next frame, we use it as the temporary velocity
+˜v𝑛+1
+𝑝
+to predict per-particle Lagrangian force f𝑛𝑝as:
+f𝑛
+𝑝= 𝑚𝑝( ˜v𝑛+1
+𝑝
+−v𝑛
+𝑝)/Δ𝑡,
+which is then transferred to the grid for the actual position and veloc-
+ity update. This modification has two advantages. First, it prevents
+hairs from exhibiting penetration during the Lagrangian update step.
+Second, this later allows the contacts which, in this case, correspond
+to our MPM forces to fully respond to the forces introduced by the
+Lagrangian step. Note that, due to the relatively small hair radius,
+we assume the hair segment’s angular velocities and rotations do
+not impact MPM-hybridization. Thus, we updates q𝑛+1
+𝑝
+and 𝝎𝑛+1
+𝑝
+directly to their configurations.
+In P2G, we also account for additional per-particle Lagrangian
+forces f𝑝computed by the previous step using XPBD. Summing up
+the contributions, the linear momentum P𝑛
+𝑖of each grid node takes
+the following form:
+P𝑛
+𝑖= Δ𝑡
+∑︁
+𝑝
+f𝑛
+𝑝𝑤𝑖𝑝−Δ𝑡
+∑︁
+𝑝
+𝑉0
+𝑝det(F𝑛
+𝑝)𝝈𝑛
+𝑝∇𝑤𝑖𝑝+
+∑︁
+𝑝
+𝑤𝑖𝑝𝑚𝑝(v𝑛
+𝑝+ C𝑛
+𝑝(x𝑛
+𝑖−x𝑛
+𝑝)) + Δ𝑡g
+∑︁
+𝑝
+𝑤𝑖𝑝𝑚𝑝,
+(11)
+where the first term accounts for Lagrangian forces, the second
+term is the traction force, the third term uses the affine-corrected
+velocity [Jiang et al. 2015], and the last term is the gravitational
+force.
+3.2
+Sag-free Initialization
+Assuming that the initial state of the hair system is quasistatic,
+i.e., v0𝑝, 𝝎0𝑝, and C0𝑝are zero, the goal of the sag-free initialization
+is to solve for stable rest configurations including q𝑝, F𝑝, 𝑙0, and
+𝛀0, such that all future v𝑛𝑝, 𝝎𝑛𝑝, v𝑛
+𝑖are zero under gravity and the
+system remains quasistatic. This is a challenging problem because
+our hybrid system chains these variables together into a complex
+nonlinear pipeline spanning multiple systems. Our method follows
+a similar idea as the two-stage approach introduced in [Hsu et al.
+2022] and applies induction on the condition that v𝑛𝑝= 𝝎𝑛𝑝= v𝑛
+𝑖= 0
+to avoid deformation. Under this condition, all the variables become
+intransient, and we can omit the superscript 𝑛without confusion.
+We propose a four-stage approach:
+(1) Global Force Step computes the Lagrangian force f𝑝and
+the volume-scaled stress ˜𝝈𝑝= det(F𝑝)𝝈𝑝that cancel out
+gravitational forces on each grid node.
+(2) Local Force Step computes the rest length 𝑙0 for each stretch
+and shear constraint, quaternion q for each hair segment, and
+deformation gradient F𝑝for each particle based on the result
+from the previous global step.
+(3) Global Torque Step computes the rest Darboux vector 𝛀0
+for each bend and twist constraint to cancel out the torque
+produced by the quaternion q from the local-force step.
+(4) Local Torque Step enforces that 𝛀0 correspond to a stable
+unit quaternion under stability constraints.
+We describe each of these four steps below and present our regular-
+ization techniques:
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+1:6
+•
+Jerry Hsu, Tongtong Wang, Zherong Pan, Xifeng Gao, Cem Yuksel, and Kui Wu
+3.2.1
+Global Force Step. Thanks to our Lagrangian force transfer
+scheme in Eq. 11, we can utilize the grid momentum to solve for the
+hair static equilibrium state. In particular, our inductive condition
+implies the third term in Eq. 11 evaluates to zero, and P𝑖= 0;
+otherwise, the G2P step would produce non-zero velocities. Put
+together, and we have the following expression for each node 𝑖:
+0 =
+∑︁
+𝑝
+f𝑝𝑤𝑖𝑝−
+∑︁
+𝑝
+𝑉0
+𝑝det(F𝑝)𝝈𝑝∇𝑤𝑖𝑝+ g
+∑︁
+𝑝
+𝑤𝑖𝑝𝑚𝑝.
+(12)
+The Lagrangian force f𝑝on each particle is the summation of
+stretch and shear forces contributed by each neighboring segment
+as f𝑝= Í
+𝑝∈𝑠fss
+𝑠, where 𝑝can be either particle of segment 𝑠and
+stretch and shear force fss
+𝑠= −𝜕𝐸ss
+𝑠(x𝑝, x𝑝+)/𝜕x𝑝.
+Among infinitely many solutions that can lead to quasistatic
+configurations, we encourage small Lagrangian force f𝑝and the
+volume-scaled stress ˜𝝈𝑝under the quasistatic constraint since those
+forces/stresses are related to the user-input material model and
+should be unaltered as much as possible. More importantly, we can-
+not accept just any ˜𝝈𝑝due to the Drucker-Prager yielding condition,
+and violating that would lead to plastic flow. Unfortunately, directly
+solving Eq. 12 with the above constraints for rest configurations in
+𝐸ss and deformation gradient F𝑝in 𝝈𝑝is a non-convex optimization
+problem, due to the Cosserat rod model (Eq. 1, 2) and the hypere-
+lastic material model (Eq. 5). Even worse, the optimization would
+be large-scale and involves all the hair segments, making a direct
+numerical optimization prohibitively costly.
+We propose a novel convexification technique to boost perfor-
+mance significantly. Our idea is to leave the material model out of
+the optimization and use the per-segment force fss
+𝑠and per parti-
+cle volume-scaled stress ˜𝝈𝑝as the decision variables to solve the
+following Second-Order Conic Programming (SOCP):
+argmin
+˜𝝈𝑝,fss
+𝑠
+∑︁
+𝑠
+fss
+𝑠
+2 + 𝛼
+∑︁
+𝑝
+∥˜𝝈𝑝∥2
+s.t.
+∑︁
+𝑝
+f𝑝𝑤𝑖𝑝−
+∑︁
+𝑝
+𝑉0
+𝑝˜𝝈𝑝∇𝑤𝑖𝑝+ g
+∑︁
+𝑝
+𝑤𝑖𝑝𝑚𝑝= 0
+∀𝑖
+𝑐𝐹tr( ˜𝝈𝑝) +
+ ˜𝝈𝑝−tr( ˜𝝈𝑝)
+𝑑
+F
+≤0
+∀𝑝,
+(13)
+where 𝛼= 1𝑒−2 is a scaling factor used to bias for contacts. Note that
+the second constraint is equivalent to the Drucker–Prager yielding
+condition (Eq. 8), where det(F𝑝) is positive due to our hyperelastic
+material model. Although Eq. 13 is still large-scale, there exists
+an efficient splitting algorithm [O’Donoghue et al. 2016] to solve
+such a SOCP. Similar to the global-local algorithm [Hsu et al. 2022],
+O’Donoghue et al. [2016] factorizes the global matrix only once
+and then uses local steps to satisfy each conic constraint. In the
+Appendix A, we show that Eq. 13 is always feasible.
+3.2.2
+Local Force Step. Given the per-segment force fss
+𝑠from global
+step and per-particle volume-scaled stress ˜𝝈𝑝, we can solve the
+inverse problem to recover rest configurations for each hair segment
+and particle in parallel.
+Local step for fss
+𝑠. Given the fss
+𝑠, the local step aims to find the rest
+length 𝑙0 for the stretch and shear constraint so that it can produce
+a matching force. However, only tuning 𝑙0 would expose one degree
+of freedom, so the force can be only along the segment direction,
+while fss
+𝑠can be arbitrarily given by the optimization in Eq. 13. To
+match the degree of freedom, we must put the rest orientation q𝑠
+as the additional tunable parameter. To find 𝑙0 and q𝑠such that:
+fss
+𝑠= 𝑘ss
+𝑙0
+ x𝑝−x𝑝+
+𝑙0
+−d𝑠,3
+
+,
+we notice that d𝑠,3 must be a unit vector, i.e.:
+∥d𝑠,3∥2 =
+
+𝑙0fss
+𝑠
+𝑘ss −x𝑝−x𝑝+
+𝑙0
+
+2
+= 1.
+(14)
+The above equation is bi-quadratic in𝑙0 , which could lead to multiple
+solutions for 𝑙0. We choose the solution that is closest to the current
+segment length. After 𝑙0 is computed, we solve for q𝑠that rotates
+e𝑠,3 to d𝑠,3. Unfortunately, given fss
+𝑠, there is no guarantee that Eq. 14
+has a solution since the magnitude of compressive forces generated
+by Eq. 14 is upper-bounded by definition. To ensure the solvability,
+we could introduce the following hard constraint to Eq. 13 that
+ensures the discriminant of Eq. 14 is positive:
+ 
+(x𝑝−x𝑝+)𝑇fss
+𝑠
+(𝑘ss)2
++ 1
+!2
+−4 ||x𝑝−x𝑝+ ||2||fss
+𝑠||2
+(𝑘ss)2
+≥0
+∀𝑠.
+(15)
+Although the above hard constraint is a rotated quadratic cone
+and can be readily handled by the splitting solver, enforcing it in
+the global step often leads to no solution depending on the given
+initial shape. Hence, we do not enforce that constraint in the global
+step. Instead, we adjust the stiffness in the local step to ensure the
+discriminant of Eq. 14 is positive and then solve for 𝑙0.
+Local step for ˜𝝈𝑝. Given ˜𝝈𝑝, we can recover F𝑝based on the
+hyperelastic material model defined in Eq. 5. Given the SVD decom-
+position of ˜𝝈𝑝= U ˜𝚺𝑝V, the U, V component must be the same as
+those of F𝑝. We analytically solve for the diagonal component of
+ln(𝚺) via the following linear system:
+diag(ln 𝚺) =
+h
+2𝑉0
+𝑝𝜇I + 𝑉0
+𝑝𝜆11𝑇i−1
+diag( ˜𝚺𝑝),
+where 1 is the all-one vector. We can then recover F𝑝as F𝑝=
+U exp(ln 𝚺)V𝑇.
+3.2.3
+Global Torque Step. While the node force is canceled out in
+the local-force step, additional torque can be induced by stretch
+and shear energy 𝐸ss
+𝑠, denoted as 𝝉ss
+𝑠. Here we use 4D generalized
+torque associated with an energy 𝐸★𝑠defined as: 𝝉★𝑠= −𝜕𝐸★/q𝑠. To
+prevent the hair segment from rotating, we solve the second global
+step on each hair strand to achieve torque equilibrium. In particular,
+we solve the temporary rest orientation ˜𝛀0,𝑠for segment 𝑠, such
+that stretch and shear torque is canceled out by the twist and bend
+torque for each hair segment 𝑠
+𝝉ss
+𝑠+
+∑︁
+𝑠
+𝝉bt
+𝑠( ˜𝛀0) = 0
+∀𝑠,
+(16)
+where 𝝉bt
+𝑠denotes the torque from the bend and twist constraint,
+which is linearly related to ˜𝛀0 (we ignore 𝑠for brevity). The gener-
+alized torque we solve in this step is temporary because it does not
+satisfy the unity constraint: ∥𝑙0𝛀0/2∥= 1. In the next step, we will
+show how to adjust ˜𝛀0 to yield unit 𝛀0 without violating Eq. 16.
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+Sag-Free Initialization for Strand-Based Hybrid Hair Simulation
+•
+1:7
+𝑝
+𝑠
+𝑝+
+𝑠+
+𝑝++
+Fig. 4. We illustrate the cone
+(blue), in which 𝑠0,+ must stays
+to avoid flipping of elements.
+3.2.4
+Local Torque Step. In
+the local stage, we then need
+to adjust ˜𝛀0 to 𝛀0 by ensur-
+ing ∥𝑙0𝛀0/2∥= 1. Further-
+more, this needs to be done
+while maintaining the zero net
+torque condition. Interestingly,
+for the consecutive segments
+𝑠and 𝑠+, any 4D generalized
+torque along q𝑠q𝑠+ would gen-
+erate zero 3D torque. Hence,
+there is always an orthogonal
+decomposition of 𝛀0 = 𝛀0,∥+
+𝛀0,⊥such that 𝛀0,∥= 𝑡q𝑠q𝑠+
+does not generate any torque for any real scaler 𝑡. For the derivation,
+please refer to Appendix B.
+Therefore, we could choose a scalar 𝑡such that 𝛀0 is a unit quater-
+nion. However, an arbitrary 𝛀0 can lead to an unstable dynamic
+system in two cases. First, Cbt relies on a non-smooth jump function
+𝜙, which changes abruptly when the difference between ∥𝛀−𝛀0∥
+and ∥𝛀+ 𝛀0∥is close to zero. To avoid such abrupt change, we
+need to choose 𝛀0 that leaves enough margin between the two
+values. Thus, we solve for the most stable 𝛀0 via the following local
+optimization:
+argmax
+∥𝛀0 ∥=1,𝑡
+|∥𝛀−𝛀0∥2 −∥𝛀+ 𝛀0∥2|
+(17)
+s.t.
+𝜙𝛀0 = ˜𝛀0,⊥+ 𝑡q𝑠q𝑠+,
+where 𝑡is an auxiliary variable. A second unstable case happens
+when the segment 𝑠+ at its current- and rest-pose lies on two sides
+of segment 𝑠. To keep these two poses on the same side of segment
+𝑠, we need the following additional constraint as shown in Fig. 4:
+∥𝛀⊥∥≤min
+
+ℜ(𝛀), 2(1 −𝜖𝑏)
+𝑙0
+
+,
+(18)
+for some small constant margin 𝜖𝑏. Unfortunately, given the ˜𝛀0
+solved from the global-torque step, no remaining degree of freedom
+can be used to satisfy Eq. 18. Hence, we enforce the above constraint
+by raising the bending stiffness locally until Eq. 18 is met. Then, we
+can use the new ∥𝛀⊥∥to solve Eq. 17 for the final unit quaternion
+𝛀0. In Appendix B, we derive the constraint in detail, provide a
+closed-form solution for Eq. 17, and show that it is always feasible
+given sufficiently large stiffness 𝑘bt.
+3.2.5
+Regularization. In practice, the simple regularization from
+Eq. 13 can yield unsatisfactory solutions. This is because, for the
+Lagrangian force, we would like to penalize bending forces more
+than stretching forces since relying on bending force often leads to
+undesirable rest configuration as shown in Fig. 5. Regarding stretch-
+ing force, we prefer tension forces over compression forces because
+compression forces can result in follow-up bending along indefinite
+directions. But the stretching stiffness of hair is often several magni-
+tudes larger than the bending stiffness, which results in a relatively
+small pocket of stability in the case of compression. To alleviate
+this issue, we design an asymmetric regularization technique for
+the global force step.
+Initial shape
+Ours w/o regularization Ours w/ regularization
+Fig. 5. Given the initial rod (right), without Lagrangian force regu-
+larization, we will get a rest configuration that relies on bending forces
+to support itself, which is demonstrated by simulating the rod without
+gravity (middle). Unfortunately, this bent shape is on the saddle point
+and easy to deform. By penalizing bending forces more than stretching
+forces, we get a more stable rest shape (right).
+We first decompose fss
+𝑠into tangent and normal components:
+fss
+𝑠= t𝑠𝑧𝑡
+𝑠+ n𝑠𝑧𝑛
+𝑠,
+(19)
+where n𝑠= (x𝑝−x𝑝+)/∥x𝑝−x𝑝+ ∥is the tangent direction and t𝑠
+are the two normal directions. We then decompose 𝑧𝑛𝑠into positive
+and negative components via the following constraints:
+𝑧𝑛
+𝑠= 𝑧𝑛+
+𝑠
++ 𝑧𝑛−
+𝑠
+∧𝑧𝑛+
+𝑠
+≥0 ∧𝑧𝑛−
+𝑠
+≤0.
+(20)
+For similar reasons, it would be better to use hydrostatic stress z𝑑𝑝
+(diagonal part) over deviatoric stress z𝑜
+𝑑(off-diagonal part) of ˜𝝈𝑝,
+so we use the following decomposition:
+˜𝝈𝑝= z𝑑
+𝑝+ z𝑜
+𝑝.
+(21)
+To enforce asymmetric regularization, we add Eq. 19, 20, 21 to Eq. 13
+and replace the objective function with:
+𝑤𝑡∑︁
+𝑠
+(𝑧𝑛+
+𝑠)2 + 𝑤𝑐∑︁
+𝑠
+(𝑧𝑛−
+𝑠
+−𝑧𝑛−★
+𝑠
+)2 + 𝑤𝑏∑︁
+𝑠
+∥𝑧𝑡
+𝑠∥2
++ 𝑤𝑑∑︁
+∥z𝑑
+𝑝∥2 + 𝑤𝑜∑︁
+∥z𝑜
+𝑝∥2,
+(22)
+where 𝑧𝑡𝑠, 𝑧𝑛±
+𝑠, z𝑑𝑝, and z𝑜𝑝are our new decision variables, and we
+use 𝑤𝑡= 1, 𝑤𝑐= 104, 𝑤𝑏= 104, 𝑤𝑑= 103, 𝑤𝑜= 105 in all our
+experiments. We also regulate using a bias value 𝑧𝑛−★
+𝑠
+. Empirically,
+we find setting 𝑧𝑛−★
+𝑠
+to be half the weight of a hair strand to yield
+good results.
+4
+RESULTS
+We implement our sag-free initialization via C++ using the Splitting
+Conic Solver (SCS) [O’Donoghue 2021] and our forward hair simu-
+lation based on a CUDA MPM implementation [Gao et al. 2018]. All
+timings are measured on a desktop machine with a 3.4 GHz AMD
+Ryzen 9 5950X CPU and an NVIDIA GeForce RTX 3090 GPU with
+24 GB of memory, except forward simulation time and sag-free ini-
+tialization time for the “Curly wig” hairstyle measured on a desktop
+machine with a 3.7 GHz AMD Ryzen Threadripper 3970X CPU and
+an NVIDIA GeForce RTX 3090 GPU with 256 GB of memory.
+To verify the practicality of our method, we export four hairstyles
+from MetaHuman in Unreal Engine. Given the hairstyle (full hairs),
+we first randomly pick either 256 or 512 hair strands and uniformly
+sample 16 particles per hair strand as guide hairs for sag-free ini-
+tialization and forward simulation. Meanwhile, we build an interpo-
+lation weight map between guide hairs and full hairs based on their
+initial relative position. With the weight map, we reconstruct the
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+1:8
+•
+Jerry Hsu, Tongtong Wang, Zherong Pan, Xifeng Gao, Cem Yuksel, and Kui Wu
+Frame 100
+Frame 300
+Frame 500
+Frame 700
+Discrete Darboux vector [Kugelstadt and Schömer 2016]
+Ours augmented Darboux vector
+Fig. 6. Twisting rod: Comparison between discrete Darboux vector
+(top) and our augmented Darboux vector (bottom). Our Darboux vector
+definition uses both the real and imaginary parts to remove ambiguity
+and improve curvature smoothness.
+Discrete Darboux vector
+Ours augmented Darboux vector
+Frame 1
+Frame 30
+Frame 300
+Frame 1
+Frame 30
+Frame 300
+Fig. 7. Zig-zag rod: Our method can initialize the sag-free rod based
+on either the discrete Darboux vector (left) or our augmented Darboux
+vector (right) in bend and twist constraints. The Zig-Zag rod that uses
+the discrete Darboux vector cannot recover after being blown by the
+wind due to the ambiguity in the Darboux vector computation. The
+arrow indicates the force direction.
+full hair at render time based on the new guide hair positions. Fig. 1
+shows an example hairstyle with both guide and full hairs.
+In the forward simulation, we use 64 iterations for each XPBD
+step with a time step size of Δ𝑡= 10−3. Thanks to our GPU imple-
+mentation and efficient inter-hair contact handling over the grid, it
+only takes 0.9 ms per timestep, including 64 XPBD iterations and
+one MPM collision step, which makes the strand-based hair sim-
+ulation accessible for real-time applications. Note that since our
+vertices and grid size are relatively small, the reported simulation
+time is dominated by the CUDA kernel launch overheads and can
+be subject to further optimizations.
+Fig. 6 shows that our augmented Darboux vector can significantly
+improve the simulation quality of the twisting rod. Furthermore,
+Fig. 7 demonstrates the ambiguity caused by the discrete Darboux
+vector for sag-free initialization. The Zig-zag rods are modeled by
+the bend and twist constraints based on either the discrete Darboux
+vector (left) or our augmented Darboux vector (right). Although our
+method can initialize both rods with a sag-free initial pose under
+gravity, the rod with the discrete Darboux vector cannot recover its
+initial shape after being blown by the wind due to the ambiguity in
+the Darboux vector definition.
+Fig. 8 demonstrates the importance of enforcing yielding condi-
+tions during initializing a cluster of hairs lying on another bunch
+initially. With either naive initialization or if we solve static equilib-
+Naive
+Without enforcing
+yielding constraint
+Ours final
+Fig. 8. Drape: A cluster of hair strands laying on another cluster
+initially. With either naive initialization (left) or if we solve the static
+equilibrium state without considering Drucker–Prager yielding con-
+dition (middle), hair strands slide down when the simulation starts,
+while our initialization (right) can correctly solve inter-hair frictional
+contacts and preserve the initial shape under the gravity.
+Naive
+Ours
+Gravity only
+Under wind
+Wind direction
+Wind direction
+Fig. 9. Curly wig: We evaluate our method on the “Curly wig”
+hairstyle extracted from the same data used in the prior work [Derouet-
+Jourdan et al. 2013] with a similar number of hair strands. Using the
+naive initialization (top row), the hairstyle breaks as soon as the simula-
+tion starts due to the large sagging artifacts. Our sag-free initialization
+(bottom row) can preserve the designed hairstyle while having similar
+hair dynamics under blowing wind (right).
+rium state without considering Drucker–Prager yielding condition,
+hair strands slide down after the simulation starts.
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+Sag-Free Initialization for Strand-Based Hybrid Hair Simulation
+•
+1:9
+Guide hairs
+Full hairs
+z                                                                              }|                                                                              {
+z                                                                              }|                                                                              {
+Naive
+[Hsu et al. 2022]
+Ours
+Naive
+[Hsu et al. 2022]
+Ours
+Fig. 10. Long: The “Long” hairstyles initialized with the naive method, the previous sag-free initialization approach [Hsu et al. 2022], and ours
+behave very similarly under the wind from the left. The left is the guide hairs used for the actual initialization and simulation, and the right shows
+the full hairs interpolated from the guide hairs.
+Naive
+Ours
+Guide hairs
+Front
+Back
+Under wind
+Fig. 11. Afro: We show the guide hairs (leftmost), the front (second
+leftmost), and back (second rightmost) views of full hairs under gravity,
+where naive initialization causes significant volume loss while ours
+can preserve the given hair shape. Meanwhile, our result (rightmost)
+behaves very similarly to that of the naive method under the wind
+force blowing from the left.
+To compare with the prior work [Derouet-Jourdan et al. 2013], we
+perform sag-free initialization on the same hairstyle (Fig. 9) with a
+similar number of hair strands (1024). Since their work uses explicit
+contact handling while ours uses an inter-hair Eulerian grid, there is
+no clear way to match the exact number of contacts. In our setup, we
+use 32 particles per strand with a grid size of 1283, leading to 32555
+occupied voxels. Since our system has six unknown variables for
+each deformation gradient per particle and seven unknown variables
+for constraints associated with per hair segment, we have a total
+of 323584 unknown variables to solve for in our initialization step,
+a much larger problem size than the prior work [Derouet-Jourdan
+et al. 2013]. Even with a larger system to solve, our method can
+still successfully initialize this challenging curly hairstyle without
+sagging in 606.4 seconds. More importantly, it only takes 1.3 ms
+per step to simulate the hybrid system with 1024 hair strands and
+32768 particles, which shows the superiority of our frameworks
+over previous methods.
+To compare with another previous work [Hsu et al. 2022], we
+use one step of the global-local solver to only solve for net force
+Naive
+Ours
+Gravity only
+Under blowing wind
+Fig. 12. Short: We evaluate our method on one “Short” hairstyle.
+With the naive initialization (top row), the hairstyles break as soon
+as the simulation starts. Our sag-free initialization (bottom row) can
+preserve the designed hairstyles while having similar hair dynamics
+under blowing wind (right).
+in the “Long” example. Unfortunately, since the prior method does
+not consider the net torque and cannot support bend and twist
+constraints with quaternions and the Darboux vector, the hairstyle
+initialized via the prior method breaks as soon as the simulation
+starts (Fig. 1) as it does in the naive initialization. Fig. 10 further
+demonstrates that all results present similar hair dynamics under
+the blowing wind.
+We further evaluate our method on three additional hairstyles,
+including Afro (Fig. 11), Short (Fig. 12), and Middle (Fig. 14). Without
+the correct sag-free initialization, the hairstyles deform once the sim-
+ulation starts and significantly change the avatars’ appearances. Our
+sag-free initialization preserves the designed hairstyles. “Long” and
+“Middle” demonstrate our method with long hairstyles that contain
+large overhangs in both the front and the back. “Afro” demonstrates
+our approach can also work well for highly intertwined volumetric
+hair.
+Additionally, we use two common human head motions, head-
+turning (Fig. 13) and dance (Fig. 14), to evaluate the simulation
+quality of “Long” and “Middle”. As shown in Fig. 13, the hairstyle
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.
+
+
+1:10
+•
+Jerry Hsu, Tongtong Wang, Zherong Pan, Xifeng Gao, Cem Yuksel, and Kui Wu
+Naive
+Ours
+Fig. 13. Head-turning: We evaluate our method on the curly hairstyle with a moderate head-turning motion. Our sag-free initialization (top
+row) can produce similar visual results as the one with naive initialization (bottom row) does while preserving the bangs.
+Naive
+Ours
+Fig. 14. Dance: We further evaluate our result on the “Middle” hairstyle with an aggressive dance motion of the head. The Leftmost demonstrates
+the guide hairs used for initialization and simulation, while the rest are the corresponding full hairs in the dance sequence. The hairs with naive
+initialization (top row) cannot preserve the initialization and lead to intertwined (second rightmost), while ours (bottom row) has a much better
+visual quality.
+initialized with our method allows us to preserve both the initial
+shape under static equilibrium and the dynamic motion under ani-
+mation. The dynamics under motion remain visually similar, both
+with and without our initialization. Note that Fig. 14 shows that with-
+out our initialization, hairs become universally too soft to preserve
+the hairstyle and later excessively intertwine with each other due to
+the aggressive head motions. We list all physical parameters, input
+parameters, and their resulting initialization metrics in Table 1. We
+show the percentage of elements where material modifications take
+place. Generally, hairstyles with curly hair exhibit more significant
+local stiffening. In particular, any hairstyle or segment positioned
+horizontally to gravity requires additional stiffening. This is often
+required when sweeping strands on the forehead or extremely curly
+hair. We also list the equilibrium condition residual as force (in
+Newtons) mean squared error (MSE) in Table 1.
+To evaluate the scalability of our method, we initialize the “Curly
+wig” with 128, 256, 512, and 1024 hair strands and 643, 643, 1283,
+and 1283 grid sizes, respectively. As shown in Fig. 15, the initial-
+ization takes 27, 91, 129, and 606 seconds for different numbers
+of hair strands, where we observe a roughly quadratic scaling in
+initialization time as the number of hair strands increases under the
+same grid size. In terms of the forward simulation, thanks to our
+GPU-friendly implementation, it only takes 0.75, 0.78, 1.16, and 1.30
+ms per step, respectively. The forward simulation performance is
+highly related to the grid size as the MPM update dominates the
+computation performance, and the Lagrangian rod integration is
+reasonably fast. It is worth noting that our system can initialize up
+ACM Trans. Graph., Vol. 42, No. 4, Article 1. Publication date: August 2023.

@@ -1,0 +1,1069 @@
+Title: 3d gaussian parametric head model
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+1
+GPHM: Gaussian Parametric Head Model for
+Monocular Head Avatar Reconstruction
+Yuelang Xu, Zhaoqi Su, Qingyao Wu, Yebin Liu
+Abstract—Creating high-fidelity 3D human head avatars is crucial for applications in VR/AR, digital human, and film production.
+Recent advances have leveraged morphable face models to generate animated head avatars from easily accessible data, representing
+varying identities and expressions within a low-dimensional parametric space. However, existing methods often struggle with modeling
+complex appearance details, e.g., hairstyles, and suffer from low rendering quality and efficiency. In this paper we introduce a novel
+approach, 3D Gaussian Parametric Head Model, which employs 3D Gaussians to accurately represent the complexities of the human
+head, allowing precise control over both identity and expression. The Gaussian model can handle intricate details, enabling realistic
+representations of varying appearances and complex expressions. Furthermore, we presents a well-designed training framework to
+ensure smooth convergence, providing a robust guarantee for learning the rich content. Our method achieves high-quality,
+photo-realistic rendering with real-time efficiency, making it a valuable contribution to the field of parametric head models. Finally, we
+apply the 3D Gaussian Parametric Head Model to monocular video or few-shot head avatar reconstruction tasks, which enables instant
+reconstruction of high-quality 3D head avatars even when input data is extremely limited, surpassing previous methods in terms of
+reconstruction quality and training speed. Project page: https://yuelangx.github.io/gphmv2/.
+Index Terms—Gaussian Splatting, Parametric Model, Head Avatar
+✦
+1
+INTRODUCTION
+C
+REATING high-fidelity 3D human head avatars holds
+significant importance across various fields, including
+VR/AR, telepresence, digital human interfaces, and film
+production. The automatic generation of such avatars has
+been a focal point in computer vision research for many
+years. Recent methods [1]–[10] can create an animated head
+avatar through conveniently collected data such as a monoc-
+ular video data or even a picture [11], [12]. Serving as the
+most fundamental tool in these methods, the 3D morphable
+models (3DMM) [13], [14], which represent varying identi-
+ties and expressions within a low-dimensional space, have
+been proven to be a highly successful avenue in addressing
+this challenging problem.
+Since the traditional parametric 3DMMs are typically
+limited by the topology of the underlying template mesh
+and only focus on the face part, some works [15]–[18]
+propose to use implicit Signed Distance Field (SDF) as the
+geometric representation to model the entire head. Despite
+their flexibility, these methods fall short in recovering high-
+frequency geometric and/or texture details like complex
+hairstyles, glasses or accessories. On the other end of the
+spectrum, Neural Radiance Field (NeRF) [19] based meth-
+ods [20], [21] learn parametric head models by directly
+synthesizing photo-realistic images, thus eliminating the
+need of geometry modeling. However, NeRF is built upon
+volumetric rendering, which involves sampling and in-
+tegrating points distributed throughout space. Therefore,
+NeRF-based methods typically suffer from low rendering
+Yuelang Xu, Zhaoqi Su, and Yebin Liu are with the Department of
+Automation, Tsinghua University, Beijing 100084, P.R.China.
+Qingyao Wu is with the School of Software Engineering, South China
+University of Technology, Beijing, P.R.China.
+Corresponding author: Yebin Liu.
+efficiency and have to trade it off with rendering resolution,
+thereby greatly reducing rendering quality. Moreover, skip-
+ping geometric reconstruction would probably lead to poor
+3D consistency.
+More recently, 3D Gaussian Splatting (3DGS) [22], which
+uses explicit Gaussian ellipsoids to represent 3D scenes, has
+attracted significant attention from the research community.
+Experiments have verified the superior quality of the ren-
+dered results and excellent rendering efficiency compared
+to previous NeRF-based or surface-based methods even on
+dynamic scenes [23]–[26]. Motivated by this progress, we
+propose a novel 3D Gaussian Parametric Head Model for
+head avatar modeling, which, for the first time, marries the
+power of 3DGS with the challenging task of parametric head
+modeling. Our 3D gaussian parametric head model decou-
+ples the control signals of the head into the latent spaces of
+identity and expression, as is also done in SDF-based face
+model NPHM [17]. These latent spaces are then mapped
+to the offsets of the Gaussian positions, which effectively
+represent the variance of shape and appearance of different
+identities and expressions. Benefiting from the differentia-
+bility of Gaussian splatting, our model can be learned from
+multi-view video data corpus in an end-to-end manner,
+without relying on geometry supervision, achieving high
+quality monocular head avatar reconstruction results.
+Unfortunately, training our 3D Gaussian parametric
+head model is not quite straightforward, because Gaussian
+ellipsoids are unstructured and each Gaussian ellipsoid has
+its own independent learnable attribute. Such a characteris-
+tic makes 3DGS powerful in overfitting a specific object or
+scene, but poses great challenges for generative head mod-
+eling. Without proper initialization and regularization, the
+learned parametric head model may suffer from unstable
+training or a large number of Gaussian points becoming
+arXiv:2407.15070v2  [cs.CV]  23 Oct 2024
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+2
+redundant and noisy, as shown in Fig. 6.
+To overcome these challenges, we propose a well-
+designed two-stage training strategy to ensure smooth con-
+vergence of our model training. Specifically, we first roughly
+train all the networks on a mesh-based guiding model.
+Subsequently, the network parameters are migrated to the
+Gaussian model, and all Gaussian points are initialized with
+the trained mesh geometry to ensure that they are located
+near the actual surface. Compared to naive initialization
+with FLAME [14], our initialization strategy leads to a better
+guess of the positions of Gaussian points, making the sub-
+sequent training of the model converge stably and the areas
+like hairs better recovered. Moreover, we propose to use 3D
+landmark loss to supervise the deformation of the model
+learning expressions, which can speed up the convergence
+and avoid artifacts under exaggerated expressions. Lastly,
+our method supports training from both 3D head scans and
+multi-view 2D face datasets, which enhances the versatility
+and comprehensiveness of facial data collection and model
+training.
+After training on large corpus of multi-view head videos,
+our parametric Gaussian head model can generate photo-
+realistic images that accurately depict the diverse range of
+facial appearances, naturally handling complex and exag-
+gerated expressions, while also enabling real-time render-
+ing. Additionally, our method supports single-image fitting
+and surpasses previous techniques in both reconstruction
+accuracy and identity consistency. Furthermore, the model
+resulting from our fitting process allows for the control
+of various expressions while maintaining naturalness and
+consistent identity even under exaggerated expressions.
+A preliminary version of this work has been published in
+ECCV 2024 [27], in which we propose a novel 3D Gaussian
+Parametric Head Model (GPHM) enabling photo-realistic
+representation of human heads and high-quality face avatar
+from a single image. However, the preliminary work [27]
+mainly focuses on representing a parametric head model,
+lacking ease of use and robustness for downstream tasks
+like head reconstruction from input images. In the current
+version, we present GPHMv2, a head avatar reconstruction
+framework, which supports instant and robust head avatar
+reconstruction from monocular video or even few-shot im-
+age inputs. The proposed head reconstruction pipeline sur-
+passes previous NeRF-based [2]–[5] or 3DGS-based [28], [29]
+head reconstruction methods in reconstruction quality and
+training speed. Moreover, previous methods heavily rely on
+the 3DMM models [13], [14], suffering from the coupling of
+expression and shape, and perform poorly in cross-identity
+reenactment (see Sec 4). And due to lacking sufficient prior
+information, these methods can hardly support few-shot or
+one-shot head reconstruction like our method.
+We extend the preliminary version [27] as follows.
+Firstly, we extend our network structure and adjust data
+preprocessing for a more expressive and generalizable head
+model. Specifically, to better disentangle the expression and
+head motion of the avatar and capture more detailed expres-
+sion information, we introduce a facial expression encoder
+and a non-face motion encoder to extract latent expressions
+and latent motions from images (see Section 3.2, 3.3). These
+components are jointly trained with the other network com-
+ponents to enable end-to-end avatar animation via image
+reconstruction results. However, training the model in an
+end-to-end self-reconstruction manner and directly using
+the input image as the expression condition inevitably leads
+to the leakage of identity-related appearance information
+into the latent expression codes. To address this, we utilize
+LivePortrait [30] to synthesize a large number of images
+with different identities but the same expression as the
+additional expression condition during training, effectively
+eliminating this issue (see Section 3.1). Therefore, the model
+can more accurately isolate and capture expression features
+independently of identity, leading to more precise and ver-
+satile avatar animations.
+Secondly, we enhance the functionality of the prelimi-
+nary model by designing a few-shot 3D head avatar recon-
+struction framework. Leveraging the pre-trained extended
+GPHMv2 model, a high-quality 3D head avatar can be
+rapidly reconstructed using only a small amount of monoc-
+ular data. Specifically, we optimize our model for a single
+identity-specific avatar in a two-stage process, from coarse
+to fine. In the first stage, we focus solely on optimizing
+the identity code to provide a rough initialization. In the
+second stage, we refine the model by optimizing the neutral
+Gaussian attributes and motion-related networks to capture
+finer details. Also in this stage, we introduce a tiny network
+to accurately model the expression-related dynamic changes
+in color and Gaussian attributes. Finally, the well-finetuned
+head avatar can be driven by any video fed into the en-
+coders.
+The contributions of our method can be summarized as:
+•
+We propose 3D Gaussian Parametric Head Model,
+a novel parametric head model which utilizes 3D
+Gaussians as the representation, enabling photo-
+realistic rendering quality and real-time rendering
+speed.
+•
+We propose a well-designed training strategy to
+ensure that the Gaussian model converges stably
+while learning rich appearance details and complex
+expressions efficiently.
+•
+We extend our preliminary proposed 3D Gaussian
+Parametric Head Model to the more expressive and
+generalizable GPHMv2, which enables instant head
+avatar reconstruction from monocular video or even
+few-shot images, achieving state-of-the-art quality
+and training time.
+2
+RELATED WORK
+Parametric Head Models. Parametric head models are
+used to represent facial features, expressions, and identities
+effectively and efficiently. They allow for the creation of
+realistic human faces with adjustable parameters, making
+them essential in computer graphics, animation, and virtual
+reality. Therefore, research in this field has always been a
+hot topic. Traditional 3D Morphable Models(3DMM) [13],
+[14], [31]–[33] are constructed by non-rigidly registering
+a template mesh with fixed topology to a series of 3D
+scans. Through this registration process, a 3DMM can be
+computed using dimensionality reduction techniques such
+as principal component analysis (PCA). The resulting para-
+metric space captures the variations in facial geometry and
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+3
+Fig. 1. We utilize hybrid datasets comprising captured multi-view video data and rendered image data from 3D scans for training our model. The
+trained model can be manipulated using decoupled identity and expression codes to produce a diverse array of high-fidelity head models. When
+presented with an image, our model can be adjusted to reconstruct the portrait in the image and edit the expression according to any other desired
+expressions.
+appearance across a population. However, while 3DMMs
+offer a powerful way to represent faces, they do have lim-
+itations. These models rely heavily on the correspondence
+between the 3D scans and the template for accurate fitting
+and may struggle to represent local surface details like
+wrinkles or hair styles that deviate significantly from the
+template mesh. Recent advances in implicit representation
+have led to the great development of neural parametric
+head models. Some methods [15], [17], [18], [34] propose
+implicit Signed Distance Field (SDF) based head models,
+which are not constrained by topology thus can recover
+more complex content like hair compared to previous mesh-
+based Methods. Other methods [20], [21], [35], [36] propose
+to use NeRF [19] as the representation of the parametric
+head models, which can directly synthesize photorealistic
+images without geometric reconstruction. Cao, et al. [37]
+use a hybrid representation [38] of mesh and NeRF to train
+their model on unpublished large-scale light stage data.
+However, rendering efficiency is typically low in NeRF-
+based methods, often resulting in a trade-off with rendering
+resolution.
+3D GAN based Head Models. 3D Generative Adversarial
+Networks (GANs) have revolutionized the field of computer
+vision, particularly in the domain of human head and face
+modeling, enabling the generation of face avatars from input
+images. Traditional methods often require labor-intensive
+manual work or rely on multi-view images to create 3D
+models. 3D GANs as a more automated and data-driven
+approach, which are just trained on single-view 2D images
+but generate detailed and realistic 3D models of human
+head [39]–[44]. Panohead [45] additionally introduces im-
+ages of hairstyles on the back of characters and trains a
+full-head generative model. Based on the previous methods,
+IDE-3D [46] proposes to use semantic map to edit the 3D
+head model. Next3D [47] and AniFaceGAN [48] extend to
+uses the FLAME model [14] to condition the generated head
+model, so that the expression and pose of the generated
+head model can be controlled. AniPortraitGAN [49] further
+replaces FLAME model with SMPLX model [50] to generate
+upper body avatars, thus the shoulders and the neck can
+also be controlled. These 3D GAN-based models primarily
+leverage the coarse FLAME model for expression control,
+often leading to a loss of expression details in the generated
+faces. In contrast, our method directly learns the expression
+distribution from the dataset, capturing more facial appear-
+ance details.
+3D Gaussians-based Head Models. Recently, 3D Gaussian
+splatting [22] has shown superior performance compared to
+NeRF, excelling in both novel view synthesis quality and
+rendering speed. Several methods have expanded Gaussian
+representation to dynamic scene reconstruction [23]–[26].
+For human body avatar modeling, recent approaches [51],
+[52] propose training a 3D Gaussian avatar animated by
+SMPL [53] or a skeleton from multi-view videos, surpassing
+previous methods in rendering quality and efficiency. In
+the realm of human head avatar modeling, recent tech-
+niques [54]–[57] also utilize 3D Gaussians to create high-
+fidelity and efficient head avatars. These approaches centers
+on the creation of a high-fidelity person-specific avatar using
+data of a single person. In contrast, our method focus
+on a versatile prior model that can accommodate varying
+appearances. Once trained, our model is also capable of
+person-specific avatar reconstruction by fitting to the input
+image data provided.
+Monocular 3D Head Avatar Reconstruction. 3D head
+avatars reconstruction from monocular videos is also a
+popular yet challenging research topic. Early methods [58]–
+[63] optimize a morphable mesh to fit the training video.
+Recent methods [8], [64] leverage neural networks to learn
+non-rigid deformation upon 3DMM face templates [13],
+[14], thus can recover more dynamic details. However, such
+methods are not flexible enough to handle complex topolo-
+gies. IMavatar [6] proposes to learn head avatars with im-
+plicit SDF-based geometry [65], [66], thus getting rid of the
+topology limitation of the mesh templates. PointAvatar [7]
+combines the explicit point cloud with the implicit repre-
+sentation to improve the quality of the rendered images.
+As NeRF [19] demonstrates its ability to synthesize high-
+fidelity novel view images, several methods [2], [9], [10],
+[67]–[70] attempt to exploit such representation for neural
+head modeling. Furthermore, the voxel-based data structure
+is introduced for training acceleration [3]–[5]. However,
+these representations usually suffer from the loss of high-
+frequency details. To overcome, recent methods [28], [29],
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+4
+Fig. 2. The overview of our GPHM model. Our training strategy can be divided into a Guiding Geometry Model for initialization, and a final
+3D Gaussian Parametric Head Model. Deformations of each model are further decoupled into identity-related, expression-related and non-face
+deformations. For the expression condition images, we input crop groundtruth face image or synthesized images via LivePortrait [30]. For the non-
+face motion condition, we input groundtruth images with the face area masked. The renderer involves a convolutional refine network Ψ, which finally
+transfers the feature maps from mesh/Gaussian renderer to fine portrait images. During inference, our output exclusively comes from the Gaussian
+model.
+[71] introduce 3D Gaussian representation [22] to model the
+head avatars, thereby improving the reconstruction qual-
+ity while reducing the training time requirement. How-
+ever, despite these advancements, there is still potential for
+further enhancement in reconstruction quality and train-
+ing/inference speed.
+3
+METHOD
+In this section, we present the 3D Gaussian Parametric Head
+Model. In contrast to previous mesh-based or NeRF-based
+models, initializing and training Gaussian-based models
+pose distinct challenges. This section introduces the dataset
+and preprocessing, the carefully designed guiding geometry
+model, the Gaussian Parametric Head Model, and outlines
+their respective training processes. Additionally, we will
+provide the training details and demonstrate how to utilize
+our model for head avatar reconstruction when given an
+input monocular video.
+3.1
+Data Preprocessing
+We used 4 datasets for our model training, including a
+multi-view video dataset NeRSemble [72], a large-scale
+monocular video dataset VFHQ [73], two 3D scans datasets
+NPHM [17] and FaceVerse [33]. We do not use the 3D
+geometry of the scans directly, but render them into multi-
+view images and use only the images from the 4 datasets
+Fig. 3. We generate additional expression condition images via LivePor-
+trait [30] for training the appearance decoupled expression encoder.
+as supervision. To better utilize these 4 different datasets,
+preprocessing is necessary. First, we resize the images to 512
+resolution and adjust the camera parameters. Note that for
+the monocular videos in VFHQ dataset, we assign a global
+default value to the camera parameters.
+Then, we use BackgroundMattingV2 [74] to extract the
+foreground characters in the NeRSemble dataset and record
+the masks. For the VFHQ dataset, we use RobustVideoMat-
+ting [75] to segment foreground and masks. This step is not
+required for the two synthetic datasets. Next, we use face
+alignment [76] to detect 2D landmarks in all the images.
+Through these 2D landmarks, we fit a Basel Face Model
+(BFM) [13] for each expression of each identity, and record
+the head pose and 3D landmarks of the BFM. For all the
+images in which the facial area is visible, we extract the face
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+5
+region images through the 2D landmarks and the non-face
+images by masking the face region.
+Finally, we use LivePortrait [30] to synthesize additional
+expression condition images. Specifically, for each frontal
+face image in the training set, we randomly sample another
+from VFHQ. The original image provides the expression
+as the driving image, and the sampled image provides the
+appearance as the source image, creating a new image with
+the same expression but a random identity. All synthesized
+images are used as additional expression condition images
+to train the expression encoder for better generalization as
+described in Section 3.2.
+We will use the processed camera parameters, images,
+masks, head pose, 3D landmarks, face images, non-face
+images, and synthesized expression condition images men-
+tioned above to train our parametric head model.
+3.2
+Model Representation
+The representation of 3D Gaussians poses challenges due
+to its unordered and unstructured nature, leading to diffi-
+culties in the continuous spread of gradients to neighboring
+points in space during backpropagation. This often results
+in convergence failure when Gaussians are randomly ini-
+tialized. On the other hand, surface-based representations
+such as mesh are just suitable for rough geometry learn-
+ing. A direct idea is to utilize an existing 3DMM, such as
+FLAME [14], as the initial position for the points in 3D
+Gaussian splatting [22]. However, this coarse initialization
+still fails to converge the positions of 3D points to the
+correct locations, as shown in Fig. 6. The network tends to
+alter the shape of the ellipsoid to achieve a suitable fitting
+result, leading to inaccurate geometry of the point cloud and
+blurriness in the rendered image.
+To address this problem, a more detailed initialization
+process is necessary for capturing the diverse head varia-
+tions using 3D Gaussian splatting. Specifically, we draw in-
+spiration from Gaussian Head Avatar [54] and leverage the
+implicit signed distance field (SDF) representation to train
+a guiding geometry model. This guiding geometry model
+serves as the initial value for the Gaussian model, providing
+a more effective starting point for the optimization process.
+We define the initial model as Guiding Geometry Model and
+the refined model as 3D Gaussian Parametric Head Model.
+In addition, setting a separate expression code for each
+frame of data to model dynamic motion like the preliminary
+version [27] will cause facial expressions to be coupled with
+body parts. And as more data is added, it becomes more
+difficult to optimize a large number of discrete latent codes.
+Therefore, we first use two separate latent codes: facial
+expression codes and non-face motion codes to control
+facial expressions and non-facial movements respectively.
+Furthermore, we introduce two additional motion encoders
+accordingly to avoid directly optimizing those latent codes.
+A face encoder extracts facial expression codes from face
+images, while a non-face encoder extracts non-face motion
+codes from non-face images. Moreover, the 2 encoders can
+be directly used to extract motion from driving images via
+a single forward pass in subsequent tasks.
+Guiding
+Geometry
+Model. The guiding geometry
+model receives an identity code zid, a face image Iface
+for expression condition and a non-face image Inonface for
+controlling non-face area as input, producing a mesh with
+vertices V , faces F, and per-vertex color C that aligns with
+the specified identity and expression. To achieve this, we use
+an MLP denoted as fmean(·) to implicitly model the SDF,
+which represents the mean geometry:
+s, γ = fmean(x),
+(1)
+where s denotes the SDF value, γ denotes the feature from
+the last layer and x denotes the input position. Then, we
+convert the implicit SDF through Deep Marching Tetrahedra
+(DMTet) [77] into an explicit mesh with vertices positions
+V0, per-vertex feature Γ and faces F. Next, we need to
+transform the mean shape into a neutral-expression shape
+on condition of the input identity code zid. To inject identity
+information into the vertices of the mesh, we first use an
+injection MLP finj(·), which takes the identity code zid and
+the per-vertex feature Γ as input and produces the identity-
+conditioned per-vertex feature vectors H = finj(zid, Γ).
+Subsequently, utilizing a tiny MLP fid(·), we predict the
+displacement δVid for each vertex. This displacement is used
+to transform the mean shape into the neutral-expression
+shape conditioned on the id code zid.
+δVid = fid(H).
+(2)
+After completing deformations related to identity, the
+next step is to capture the deformation induced by facial
+expressions and head pose. Here, the same as GHA [54],
+we define the human face area as the canonical reference
+system. In addition to facial expression changes, we need
+to consider the movement of non-face areas such as the
+neck and body relative to the head while the face is rigidly
+transformed. Specifically, we introduce 2 motion encoders
+Eexp(·) for face area, Enf(·) for non-face area, and 2 tiny
+MLPs fexp(·) for face area and fnf(·) for non-face area.
+The facial expression encoder takes the condition face image
+Iface as input and predict the facial expression code zexp.
+The non-face motion encoder takes the condition non-face
+image Inonface as input and predict the non-face motion
+code znf. Note, during training, the face image can be from
+any one view in the current frame or the synthesized expres-
+sion condition images. Then, fexp(·) takes the feature vec-
+tors H obtained in the previous step and the expression code
+zexp from the expression encoder as input, and outputs the
+displacement δVexp = fexp(H, zexp) for each vertex. fnf(·)
+takes the feature vectors H and a non-face motion code znf
+as input, and outputs the displacement δVnf = fnf(H, znf)
+for each vertex. Using this displacement, we update the
+vertex positions to Vcan. Additionally, we feed the same
+feature vectors H to a color MLP fcol(·), to predict the 32-
+channel color C for each vertex. The vertex positions to Vcan
+and 32-channel color C can be described as:
+Vcan = V0 + δVid + λexp(V0)δVexp + λnf(V0)δVnf,
+(3)
+C = fcol(H).
+(4)
+λexp(·) and λnf(·) respectively indicate whether the vertices
+belong to the face area, affected by the facial expression
+code, or belong to the non-face area, affected by the non-
+face motion code.
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+6
+Here, we assume that the vertices closer to the 3D
+landmarks are more affected by the expression code and
+less affected by the non-face motion code, while the oppo-
+site is true for the vertices far away. Specifically, The 3D
+landmarks P 0 of the canonical model are first estimated
+through the 3DMM model in the data preprocessing 3.1 and
+then optimized later. We calculate the above weight λexp(·)
+and λnf(·) as follows:
+λexp(x) =
+
+
+
+1,
+dist(x, P 0) < t1
+t2−dist(x,P 0)
+t2−t1
+,
+dist(x, P 0) ∈[t1, t2]
+0,
+dist(x, P 0) > t2
+with λnf(x) = 1−λexp(x). And x ∈V0 denotes the position
+of one vertex. dist(x, P 0) denotes the minimum distance
+from the point x to the 3D landmarks P 0. t1 = 0.1 and
+t2 = 0.12 are predefined hyperparameters when the length
+of the head is set to approximately 1.
+In practice, we find it difficult and unnecessary to learn
+expression-related color changes in a generalizable head
+model, as feeding the expression code to the color MLP
+may lead to the coupling of appearance and expression.
+Therefore, we do not consider expression-related color
+changes during the head model training stage, but model
+such changes in the downstream reconstruction task (see
+Section 3.5).
+Finally, we utilize the estimated head pose parameters
+R and T obtained during data preprocessing to transform
+the mesh from the canonical space to the world space
+V = R·Vcan +T. After generating the final vertex positions,
+colors, and faces {V, C, F} of the mesh, we render the mesh
+into a 512-resolution 32-channel feature map IF and a mask
+M through differentiable rasterization with a given the
+camera pose. Subsequently, the feature map is interpreted as
+a 512-resolution fine RGB Ifine image through a lightweight
+convolutional refine network Ψ(·), as shown in Fig. 2.
+3D Gaussian Parametric Head Model. The Gaussian
+model also takes an identity code zid, a face image Iface
+and a non-face image Inonface as input, producing the
+positions X, color C, scale S, rotation Q and opacity A of
+the 3D Gaussians. Similar to the guiding geometry model,
+we initially maintain an overall mean point cloud, with the
+mean positions X0. However, we no longer generate the
+per-vertex feature Γ through fmean(x). Instead, we directly
+bind it to the Gaussian per-point feature as optimizable
+variables Γ0. This is possible since the number of Gaussian
+points is fixed at this stage. Then we need to transform
+the mean point cloud into a neutral-expression point cloud,
+conditioned by the id code zid. To achieve this, we utilize
+the same injection MLP finj(·) and identity deformation
+MLP fid(·) defined in the guiding geometry model, which
+can generate feature vectors H = finj(zid, Γ0) that encode
+identity information for each point and predict the identity-
+related displacement δXid of each point. Then, we also need
+to predict the facial expression conditioned displacement
+δXexp, the non-face displacement δXnf, the resulting posi-
+tions Xcan and the 32-channel color C of each point, similar
+to the approach presented in the guiding geometry model.
+These can be described as:
+δXid =fid(H),
+(5)
+δXexp =fexp(H, Eexp(Iface)),
+(6)
+δXnf =fnf(H, Enf(Inonface)),
+(7)
+Xcan =X0 + δXid + λexp(X0)δXexp+
+(8)
+λnf(X0)δXnf,
+(9)
+C =fcol(H).
+(10)
+Unlike the representations of SDF and DMTet, Gaussians
+have additional attributes that need to be predicted. Here,
+we introduce a new MLP to predict Gaussian attributes in
+the canonical space, including the scale S, rotation Qcan,
+and opacity A. In order to ensure the stability of the gener-
+ated results, we refrain from directly predicting these values.
+Instead, we predict their offsets {δS, δQ, δA} relative to the
+overall mean values {S0, Q0, A0}:
+{S, Qcan, A} = {S0, Q0, A0} + fatt(H).
+(11)
+Also at this stage, we do not consider expression-related
+Gaussian attributes changes as color changes mentioned
+above.
+Following this, we utilize the estimated head pose pa-
+rameters R and T, obtained during data preprocessing,
+to transform the canonical space variables Xcan and Qcan
+into the world space: X = R · Xcan + T, Q = R · Qcan.
+For model rendering, we leverage differentiable render-
+ing [22] and neural rendering techniques to generate im-
+ages. The generated 3D Gaussian parameters, which include
+{X, C, S, Q, A}, are conditioned by the identity code zid,
+the face image Iface and the non-face image Inonface.
+Finally, we input this feature map into the same refine
+network Ψ(·) of the guiding geometry model to generate
+a 512-resolution RGB image.
+In the 3D Gaussian Parametric Head Model, we lever-
+age the previously trained guiding geometry model to
+initialize our variables and networks, rather than initiat-
+ing them randomly and training from scratch. Specifically,
+we initialize the Gaussian positions X0 using the vertex
+positions of the mean mesh V0. Meanwhile, we gener-
+ate the per-vertex feature Γ from fmean(x) at the begin-
+ning and bind it to the points as an optimizable variable
+Γ0 as described above. Additionally, all identity codes
+zid, 3D landmarks P 0 and the networks Eexp(·), Enf(·),
+{finj(·), fid(·), fexp(·), fnf(·), fcol(·), Ψ(·)} are directly
+inherited from the guiding geometry model. Note that, the
+attribute MLP fatt(·) is a newly introduced network, hence
+it is initialized randomly. Finally, the overall mean values of
+the Gaussian attributes {S0, Q0, A0} are initialized follow-
+ing the original 3D Gaussian Spatting [22].
+3.3
+Loss Functions
+To ensure the accurate convergence of the model, we employ
+various loss functions as constraints, including the basic
+photometric loss and silhouette loss, to enforce consistency
+with ground truth of both the rendered fine images Ifine
+and the rendered masks M:
+Lfine = ||Ifine −Igt||1,
+(12)
+Lsil = IOU(M, Mgt),
+(13)
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+7
+with Igt representing the ground truth RGB images, Mgt
+representing the ground truth masks. We further encourage
+the first three channels of the feature map Icoarse to closely
+match the ground-truth RGB image Igt by introducing an
+L1 loss:
+Lcoarse = ||Icoarse −Igt||1.
+(14)
+The geometric deformation caused by expressions is
+typically complex and cannot be learned through image
+supervision alone. Therefore, we provide additional coarse
+supervision for expression deformation learning using 3D
+landmarks. Specifically, we define the 3D landmarks P0 in
+the canonical space, and then predict their displacements
+and transform them to the world space as P just like the
+transformation of the original vertices V0 above. Then, we
+construct the landmark loss function:
+Llmk = ||P −Pgt||2,
+(15)
+with Pgt denoting the ground truth 3D landmarks, which
+are estimated by fitting a BFM model to the training data
+during preprocessing.
+Moreover, to guarantee the decoupling of identity defor-
+mations and motion deformations learned by the model and
+minimize redundancy, we introduce the following regular-
+ization loss function that aims to minimize the magnitude
+of motion deformations:
+Lreg = ||δVexp||2 + ||δVnf||2.
+(16)
+During the training of the Guiding Geometry Model,
+we also construct a Laplacian smooth term Llap to penalize
+surface noise or breaks. Overall, the total loss function is
+formulated as:
+L =Lfine + λsilLsil + λcoarseLcoarse+
+(17)
+λlmkLlmk + λregLreg + λlapLlap
+(18)
+with all the λ denoting the weights of each term. In practice,
+we set λsil = 0.1, λcoarse = 0.1, λlmk = 0.1, λreg = 0.001
+and λlap
+= 100. During training, we jointly optimize
+the bolded variables above: {zid, Eexp(·), Enf(·), finj(·),
+fmean(·), fid(·), fexp(·), fnf(·), fcol(·), Ψ(·), P0}. No-
+tably, the defined canonical 3D landmarks P0 are initialized
+by computing the average of the estimated 3D landmarks
+from the training dataset.
+During the training stage of the 3D Gaussian Parametric
+Head Model, we also calculate the perceptual loss [78] to
+encourage the model to learn more high-frequency details
+Lvgg = V GG(Ifine, Igt). Similar to training the guiding
+geometry model, we enforce the first three channels of
+the feature map to be RGB channels as Eqn. 14, introduce
+landmarks guidance terms as Eqn. 15 and the regular term
+for the displacement of points as Eqn. 16. Consequently, the
+overall loss function can be formulated as:
+L =Lfine + λvggLvgg + λcoarseLcoarse+
+(19)
+λlmkLlmk + λregLreg
+(20)
+with the weights λvgg = 0.1, λcoarse = 0.1, λlmk = 0.1 and
+λreg = 0.001. In this training stage, we also jointly optimize
+all the bolded variables and networks mentioned above,
+including the overall mean positions and attributes of the
+Gaussians and the 3D landmarks: {zid, Eexp(·), Enf(·),
+finj(·), fid(·), fexp(·), fnf(·), fcol(·), fatt(·), Ψ(·), X0,
+Γ0, S0, Q0, A0, P0}.
+3.4
+Training Details
+Before training starts, we first initialize the identity codes
+following NPHM [17]. For each different identity, we set a
+different identity code with a dimension of 512. In addition,
+we enforce a constraint to ensure that the norm of these
+codes remains below 1.
+Besides, we experimentally found that although it is
+not necessary, jointly optimizing the head pose during the
+training process can eliminate some minor errors generated
+during the BFM calibration process, promoting the consis-
+tency of the model as the codes change. Consequently, we
+optimize all the head poses with a very small learning rate
+1 × 10−5 throughout the entire training stage of the model.
+For the face image in the training process, we randomly
+select the image of another view of the current frame, or
+the synthesized image by LivePortrait [30] with the same
+expression as the input.
+Next, we give a brief description of the network struc-
+ture. The each of the 2 encoders Eexp(·), Enf(·) consists of
+4 convolution blocks plus an MLP. Each block contains a
+convolutional layer with stride 1 and a convolutional layer
+with stride 2. For the refine network Ψ(·), we adopt a very
+simple U-net [79] structure, with 2 convolutional layer for
+downsampling and 2 convolutional layers for upsampling.
+For the MLPs fmean(·), fid(·), fexp(·), fnf(·), fcol(·),
+fatt(·), we set the width to 512 with 4 hidden layers. And
+for the injection MLP finj(·), we set the width to 512 with
+8 hidden layers. The mesh and the Gaussians are both
+rendered as 512-resolution feature maps and transferred
+into 512-resolution RGB images through the refine network.
+During training the guiding geometry model, we use
+256-resolution tetrahedral grid for extracting the mesh via
+DMTet. For the optimization, we use an Adam [80] opti-
+mizer, and set the learning rate to 1 × 10−4 for the identity
+codes zid, 1 × 10−4 for all the networks Eexp(·), Enf(·),
+finj(·), fmean(·), fid(·), fexp(·), fnf(·), fcol(·), Ψ(·), and
+1 × 10−4 for the 3D landmarks P0. We use a batch size of 8,
+with each batch containing 4 images of a specific expression
+from a given identity. Training the guiding geometry model
+requires 8 RTX4090 graphics cards and approximately 1 day.
+While training the Gaussian model, we also use an Adam
+optimizer and set the learning rate: 1 × 10−5 for the identity
+codes zid, 1 × 10−4 for all the networks Eexp(·), Enf(·),
+fid(·), fexp(·), fnf(·), fcol(·), fatt(·), Ψ(·) and 1 × 10−4
+for the 3D landmarks P0. For the mean Gaussian attributes,
+we set the learning rates as: 1 × 10−5 for the positions
+X0, 1 × 10−5 for the per-vertex feature Γ0, 3 × 10−5 for
+the scale S0, 1 × 10−5 for the rotation Q0 and 1 × 10−4
+for the opacity A0. We use a batch size of 8, with each
+batch containing a single image. Following the training of
+the guiding geometry model, we transfer its parameters to
+the Gaussian model and continue training on 8 RTX4090
+graphics cards for 7 days until convergence is achieved.
+3.5
+Head Avatar from a Monocular Video
+Once we have trained the Gaussian Parametric Head Model,
+one of the main applications is fast reconstruction for 3D
+head avatars from monocular videos, or even from few-
+shot or single-image inputs. Previous methods [3]–[5], [28],
+[29] trained their model from scratch and used the 3DMM
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+8
+Fig. 4. The pipeline of head avatar reconstruction from monocular videos. First, we optimize the identity code zid to coarsely fit the GPHM model to
+the input video. Then we directly finetune the 3D Gaussian attributes and the motion-related networks in the GPHM for a fine-grained head avatar.
+The flame chart in the figure marks the parameters that need to be optimized.
+expression coefficients as the driving signal. Therefore,
+when training the model, sufficient data is required to
+ensure generalization and reconstruction quality, and the
+subsequent driving process requires tracking for the 3DMM
+expression of the source actor. In contrast, we utilize the
+well-learned generalizable prior model for both appearance
+and expression to model head avatars. Specifically, we first
+fit the GPHM to the input video to obtain a rough 3D
+Gaussian model in a few iterations. Further, we just slightly
+finetune the 3D Gaussian parameters and the refine network
+to reconstruct a fine-grained Gaussian model. Our pipeline
+achieves faster reconstruction and better rendering quality
+while requiring less training data. In addition, as our frame-
+work leverages a pretrained expression encoder for end-to-
+end expression control, the head avatar can be animated
+directly by a face image or video, without tracking for
+3DMM expression. In the experiment, we also verified that
+this expression control strategy shows better generalization
+ability.
+GPHM Fitting At this stage, we first optimize the iden-
+tity code to obtain a coarsely fitting GPHM model. Given a
+N frame monocular frontal portrait video, a set of few-shot
+images, or even a single image input {In}, n ∈{1, ..., N},
+we first remove the background of the images, then de-
+tect 2D landmarks for extracting face images {In
+face}, n ∈
+{1, ..., N}, non-face images {In
+nonface}, n ∈{1, ..., N} and
+estimating the head pose {Rn, Tn}, n ∈{1, ..., N} in the
+same way as the training data preprocessing described in
+Section 3.1. Then, we randomly initialize a global identity
+code zid and fit our GPHM to the input video by optimizing
+the identity code. Specifically, in each iteration, we sample
+one frame n and input the identity code zid, the face image
+In
+face and the non-face image In
+nonface to the GPHM to
+generate 3D Gaussians {Xn, Cn, Sn, Qn, An} as described
+above. We then render the feature map IF through ras-
+terization with the first three channels as the coarse RGB
+image Icoarse. Finally the feature map IF is transferred to
+fine image Ifine through the refine network Ψ. For the loss
+function, we use only photometric loss Lcoarse and Lfine
+defined in Eqn. 19. We totally optimize the identity code
+zid for 100 iterations with learning rate 1 × 10−3.
+Finetune 3D Gaussians In this stage, we further opti-
+mize the Gaussian attributes to reconstruct a high-fidelity
+identity-specific head avatar. First, we calculate the Gaus-
+sians positions Xid = X0 +δXid, the color and other Gaus-
+sian attributes Cid, Sid, Qid, Aid as Eqn. 10 and Eqn. 11
+using the identity code obtained in the GPHM fitting stage
+and set them as optimizable variables. As the computations
+are completed, we no longer need the networks finj(·),
+fid(·), fcol(·), fatt(·) and the identity code. So they are
+subsequently discarded for saving computational overhead.
+Then, we consider modeling some identity-specific dynamic
+details deriving from the color and Gaussian attributes
+varying with the expression. Referring to the approach in
+Gaussian Head Avatar [54], we introduce an additional tiny
+MLP fdyn(·), which takes the facial expression code zexp
+and the per-Gaussian feature γ as input and predicts the
+offset of the variables {δC, δS, δQ, δA}. Finally, the opti-
+mization process is the same as the GPHM Fitting stage.
+In each iteration, one frame n is sampled, the face image
+In
+face and the non-face image In
+nonface are input to the
+model and render the feature map IF which is transferred
+to the fine image Ifine later. Finally, we construct the same
+loss function as Eqn. 19. Typically, during finetuning, we
+optimize the identity-specific Gaussians Xid, Cid, Sid, Qid,
+Aid with learning rate 1 × 10−3 and the networks fexp(·),
+Ψ(·), fdyn(·) with learning rate 3×10−4 for 2000 iterations.
+But in the case of few-shot input, the optimization of the
+facial expression MLP fexp(·) and refine network Ψ(·) is
+optionally turned off to prevent overfitting and reduce the
+number of iterations appropriately according to the number
+of input images.
+Reenactment Once the identity-specific head avatar is
+reconstructed, we can use another portrait video for reenact-
+ment. Given a frame of the driving video, we first estimate
+the head pose and extract face image and non-face image
+as training data preprocessing 3.1. Then, we feed the face
+image to the facial expression encoder to generate the facial
+expression code for expression controlling. Similarly, we
+also feed the non-face image to the non-face motion encoder
+to generate non-face motion code to control the neck and
+shoulder motion when turning the head. Note, optionally
+the control of the neck and below could be ignored by fixing
+the non-face motion code as a sample in the training set.
+Finally, we input two motion codes to the finetuned model
+to generate 3D Gaussians, which is rendered into images.
+4
+EXPERIMENTS
+4.1
+Datasets
+NeRSemble dataset contains over 260 different identities,
+and collects 72fps multi-view videos from 16 synchronized
+cameras for each identity. The combined video frames
+for each identity range from approximately 6000 to 11000
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+9
+Fig. 5. We generate the head models with randomly sampled identity
+codes and expression codes as conditions. Each row corresponds to
+the same identity code, and each column corresponds to the same
+expression code.
+Fig. 6. We compare our initialization strategy with using the vertices of
+FLAME model. The left side shows the rendered image, and the right
+side shows the positions of the Gaussian points.
+frames. For each identity video, we selected about 800
+frames from all 16 views as training data.
+NPHM dataset contains 5200 3D human head scans.
+These scans come from 255 different identities, each with
+about 20 different expressions. Since our method utilizes 2D
+images as training supervision, we render each scan from 80
+different views to generate synthetic image data and record
+the camera parameters and the masks.
+FaceVerse dataset is an East Asian human head scan
+dataset. It contains 2310 scans from 110 different identities,
+and each identity contains 21 expressions. We selected 1620
+scan data of 80 identities for training. Similarly, for each
+scan, we render multi-view synthetic image data from 80
+different views and record the camera parameters and the
+masks.
+VFHQ dataset is a large-scale high-quality monocu-
+lar video dataset, containing interviews and speeches of
+various people, with a total of 15,000+ videos, each with
+hundreds of frames. We removed some clips with poor
+quality and poor background segmentation, and selected
+6,000 videos for training our model.
+4.2
+Evaluation for Gaussian Parametric Model.
+Disentanglement. We tested the performance of the 3D
+Gaussian Parametric Model under the control of different
+identity codes and different expression codes. We randomly
+sampled 2 identity codes and 5 expression codes to generate
+10 head models. Each horizontal row corresponds to the
+same identity code, and each column corresponds to the
+same expression code, as shown in Fig. 5. It can be observed
+that our model performs well in identity consistency and
+expression consistency, and the two components are fully
+disentangled.
+Ablation on Initialization. To evaluate the effectiveness
+of our initialization strategy with guiding geometry model
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+FLAME Initialization
+25.7
+0.82
+0.109
+Our Initialization
+28.0
+0.84
+0.085
+TABLE 1
+Quantitative evaluation results of our initialization strategy and naive
+FLAME initialization strategy.
+Fig. 7. The comparison of the different representations with super-
+resolution.
+outlined in Section 3, we compare it against a FLAME-
+based initialization strategy. To use FLAME model for the
+initialization, we first fit a FLAME model to overall mean 3D
+landmarks which are estimated during data preprocessing.
+Then, we sample 100,000 points near the surface of the
+FLAME mesh as an initialization of the mean Gaussian
+positions X0. For the per-vertex features bound to each
+point Γ, we just set them to zero. And for all the networks
+{finj(·), fid(·), fexp(·), fcol(·), Ψ(·)} and fatt(·) are ran-
+domly initialized as there is no available prior. The ini-
+tialization process for the Gaussian attributes {S0, Q0, A0}
+remains the same as in our strategy.
+We show the visualization results in Fig. 6, with the
+Gaussian model rendering image on the left and the Gaus-
+sian positions displayed as point clouds on the right. Our
+initialization strategy using the guiding geometry model
+can ensure that all the Gaussian points fall evenly on the
+actual surface of the model, thereby ensuring reconstruction
+quality. When using the FLAME model for the initialization,
+a large number of points wander inside or outside the actual
+surface of the model, causing noise or redundancy and
+leading the model to lose some high-frequency information
+and making it difficult to fully converge. We also perform
+a quantitative evaluation of different initialization strategies
+on the rendered images, as shown in Table 1, which shows
+that our method leads to better rendering results.
+Ablation on Representation and Super Resolution. We
+conduct the ablation study for the guiding mesh model, the
+Gaussian model, and the super-resolution network (abbre-
+viated as SR) as shown in Fig. 7. The corresponding PSNR
+metrics are: Mesh (15.7), Mesh+SR (17.3), Gaussian (27.0),
+Gaussian+SR (29.3). Compared to mesh, utilizing 3D Gaus-
+sian as the representation brings significant improvements
+(+12), while the super-resolution module adds some details,
+generating more realistic results.
+4.3
+Applications: Head Avatar from a Monocular Video.
+Self Reenactment. We conduct qualitative and quantita-
+tive rendering quality comparisons between our method
+and five other SOTA monocular head avatar reconstruction
+methods on self reenactment task. Among them, Avatar-
+MAV [3], NeRFBlendShape [4] and INSTA [5] utilize Voxel-
+based representation for NeRF head avatar training accel-
+eration. FlashAvatar [29] and SplattingAvatar [28] introduce
+
+
+SUBIMIT TO IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. XX, NO. XX, XX 2024
+10
+Fig. 8. Qualitative comparison of our method and 5 other state-of-the-art methods on self reenactment task. From left to right: AvatarMAV [3],
+NeRFBlendShape [4], INSTA [5], FlashAvatar [29], SplattingAvatar [28] and Ours.
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+AvatarMAV
+27.7
+0.92
+0.081
+NeRFBlendShape
+27.9
+0.92
+0.085
+INSTA
+27.5
+0.92
+0.076
+FlashAvatar
+28.8
+0.93
+0.051
+SplattingAvatar
+28.4
+0.93
+0.065
+Ours (wo FT motion)
+28.1
+0.93
+0.046
+Ours (wo fdyn)
+28.2
+0.93
+0.044
+Ours
+28.9
+0.94
+0.041
+TABLE 2
+Quantitative evaluation results on the task of self reenactment. We
+compare our method with other 5 SOTA methods: AvatarMAV [3],
+NeRFBlendShape [4], INSTA [5], FlashAvatar [29] and
+SplattingAvatar [28]. And we also include two ablation baselines: Ours
+(wo fdyn) in which we remove the dynamic generator fdyn, and Ours
+(wo FT motion) in which we only optimize the 3D Gaussians but the
+motion related networks.
+3D Gaussians and bind them to a FLAME template to model
+the head avatars. In the experiment, we input 1-minute
+videos as training data and use additional 20-second videos
+as evaluation data. And we train their models according
+to the time claimed by each method. The training time of
+our method is 5 minutes. The qualitative results are shown
+in the Fig. 8. Our method is significantly better than other
+methods in terms of rendering quality, expression transfer
+accuracy and robustness. Table. 2 shows the quantitative
+evaluation results. We evaluate these methods on three
+metrics: Peak Signal-to-Noise Ratio (PSNR), Structure Sim-
+ilarity Index (SSIM) and Learned Perceptual Image Patch
+Similarity (LPIPS). Our method achieves the best results on
+all the metrics and significantly outperforms other SOTA
+methods on the LPIPS metric.
+Cross-identity
+Reenactment. We also compare our
+method with these state-of-the-art methods on the cross-
+identity reenactment task. The qualitative results are shown
+in Fig. 9. Other methods suffer from shape and expression
+coupling because they use a 3DMM model to control their
+avatars or use the 3DMM expression coefficient as a condi-
+tion. As a result, the quality of the results is affected by the
+different shapes when applying cross-identity reenactment.
+Our method directly inputs the image into a well-decoupled
+expression encoder which is trained on large-scale datasets
+to extract latent expressions. Therefore, our method achieves
+better performance on cross-identity reenactment tasks.
+Ablation on Few-shot Input. Next, we conduct experi-
+ments under the setting of few-shot input. We limit the num-
+ber of input images to 100, 10, and 3 frames, and compare
+our method with the state-of-the-art methods mentioned
+above. The qualitative results are shown in Fig. 10. While
+other methods suffer from blurring, artifacts and signifi-
+cant quality degradation as the number of input images
+decreases, our method can achieve robust and high-quality
+avatar reconstruction. Even when inputting only one single
+image, our method can still guarantee robust and high-
+quality results as shown in Fig. 11.
+Ablation on Utilizing Synthesized Expression Condi-
+tion Images.
+As explained in Sec. 3.1 and Sec. 3.4, for the images input
+to the facial expression encoder, we utilize LivePortrait [30]
+to generate additional expression condition images. This
+strategy forces the encoder to learn only expression infor-
+mation from the input images, thereby achieving expression
+and appearance decoupling. We also construct an ablation
+baseline, in which we train the GPHM model using only
+the groundtruth images as the expression condition and the
+results are shown in Fig. 12. Without utilizing the additional
+expression condition images, the expression encoder leaks

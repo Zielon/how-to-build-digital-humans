@@ -1,0 +1,1206 @@
+Title: HairCUP: Hair Compositional Universal Prior for 3D Gaussian Avatars
+
+HairCUP: Hair Compositional Universal Prior for 3D Gaussian Avatars
+Byungjun Kim1,2*
+Shunsuke Saito2
+Giljoo Nam2
+Tomas Simon2
+Jason Saragih2
+Hanbyul Joo1†
+Junxuan Li2†
+1Seoul National University
+2Codec Avatars Lab, Meta
+https://bjkim95.github.io/haircup/
+Figure 1. HairCUP. HairCUP is a compositional universal avatar model that generates relightable Gaussian codec avatars for multiple
+subjects using a single model. It separately models hair and face, enabling seamless hairstyle transfer between avatars without requiring
+additional scale optimization or suffering from unnatural hair boundary artifacts.
+Abstract
+We present a universal prior model for 3D head avatars
+with explicit hair compositionality. Existing approaches to
+build generalizable priors for 3D head avatars often adopt a
+holistic modeling approach, treating the face and hair as an
+inseparable entity. This overlooks the inherent composition-
+ality of the human head, making it difficult for the model to
+naturally disentangle face and hair representations, espe-
+cially when the dataset is limited. Furthermore, such holis-
+tic models struggle to support applications like 3D face and
+hairstyle swapping in a flexible and controllable manner. To
+address these challenges, we introduce a prior model that
+explicitly accounts for the compositionality of face and hair,
+learning their latent spaces separately. A key enabler of this
+approach is our synthetic hairless data creation pipeline,
+which removes hair from studio-captured datasets using es-
+timated hairless geometry and texture derived from a diffu-
+sion prior. By leveraging a paired dataset of hair and hair-
+less captures, we train disentangled prior models for face
+*Work done during the internship at Codec Avatars Lab, Meta
+†Co-corresponding authors
+and hair, incorporating compositionality as an inductive
+bias to facilitate effective separation. Our model’s inherent
+compositionality enables seamless transfer of face and hair
+components between avatars while preserving identity. Ad-
+ditionally, we demonstrate that our model can be fine-tuned
+in a few-shot manner using monocular captures to create
+high-fidelity, hair-compositional 3D head avatars for un-
+seen subjects. These capabilities highlight the practical ap-
+plicability of our approach in real-world scenarios, paving
+the way for flexible and expressive 3D avatar generation.
+1. Introduction
+Hairstyles are a key aspect of personal identity, reflecting
+individual style and character. Today, people can adopt any
+hairstyle regardless of ethnicity or natural hair type, mak-
+ing hair one of the most easily transformable physical traits.
+Recent advances in image generation and editing enable
+people to explore different hairstyles in photos, driving in-
+terest in realistic and controllable hair synthesis.
+However, for 3D avatars, achieving comparable hairstyle
+transfer or editing remains challenging. Recent develop-
+1
+arXiv:2507.19481v1  [cs.CV]  25 Jul 2025
+
+
+ments in 3D avatar technology have brought substantial im-
+provements in visual quality, allowing for disentanglement
+and independent control over features like expression, view
+direction, and even lighting [6, 15, 30, 44, 50, 79]. Some
+studies have introduced generalizable prior models trained
+on capture data from multiple subjects [4, 26, 70, 71, 76] or
+synthetic data [51, 81], building a latent space of plausible
+3D head avatars. These models can then be fine-tuned to
+create personalized 3D avatars of new subjects, providing
+significant flexibility. Despite these advancements, many
+approaches still rely on holistic modeling that overlooks the
+inherent compositionality of the head and hair. This limi-
+tation makes tasks like hairstyle transfer particularly non-
+trivial. While some studies propose methods to reconstruct
+compositional 3D avatars from video [9, 10] or multi-view
+capture [59] using hybrid representation of parametric face
+meshes [27, 41] and neural volumetric field [35] or 3D
+Gaussians [18] for hair, these approaches rely on special-
+ized rendering schemes and require per-subject optimiza-
+tion, lacking a universal prior for scalable hairstyle transfer.
+One of the major challenges in learning a disentangled
+latent space of face and hair from visual data lies in the
+availability of paired datasets that capture individuals both
+with and without hair in multi-view setups. Without such
+data, it becomes difficult to separate hair from facial at-
+tributes, as the model lacks a reference for how each per-
+son appears without hair. These paired examples provide
+essential supervision for disentangling face and hair fea-
+tures. However, collecting them is inherently difficult. Par-
+ticipants are often unwilling to undergo hairless captures,
+which may require shaving their heads or wearing full hair-
+concealing caps [68]. As a result, it remains challenging to
+obtain diverse, high-quality data for disentanglement.
+To overcome these limitations, we propose a method to
+build a 3D hair-compositional prior model for 3D Gaussian
+head avatars, leveraging studio-captured multi-view data.
+To address the absence of paired captures with hair and
+without hair, we generate synthetic hairless data. To get
+multiview-consistent hairless data, we register a bald mesh
+for each subject and get hairless texture using a diffusion
+prior. During training, we mask out the hair region from
+images and render the bald mesh to synthesize hairless im-
+ages. We then extend the holistic prior model [26] to learn
+a compositional 3D prior that disentangles face and hair.
+Leveraging the synthetic paired dataset, our model learns
+disentangled latent spaces of face and hair in a data-efficient
+manner. This universal model enables face and hair transfer
+across training identities by conditioning each component
+on separate identities. Furthermore, it can be fine-tuned on
+unseen captures to generate personalized 3D avatars with
+independent control over face and hair components. In sum-
+mary, our contributions are:
+• A
+3D-consistent
+synthetic
+hairless
+data
+generation
+pipeline for creating paired datasets, enabling effective
+face-hair disentanglement.
+• A compositional universal model that independently rep-
+resents 3D hairless heads and hair, allowing explicit con-
+trol over facial appearance and hairstyles.
+• Using our universal avatar model as a prior, we adapt
+to novel identities through fine-tuning, enabling hairstyle
+transfer and dehairing on unseen subjects.
+2. Related Work
+2.1. 3D Animatable Head Avatar
+Recent advancements in 3D animatable head avatars have
+evolved from mesh-based parametric models [3, 5, 27, 58]
+to neural rendering techniques [57], which enhance realism
+by combining facial meshes with neural textures [6, 14, 19,
+32].
+Neural implicit representations [34, 35, 53] further
+revolutionized volumetric avatar synthesis, enabling high-
+quality novel view synthesis and expression-driven anima-
+tions [1, 11, 12, 77, 79, 80]. To address the high compu-
+tational costs of volumetric rendering, point-based meth-
+ods [78] and UV-anchored local fields [2, 30, 69] pro-
+vide efficient alternatives for real-time applications.
+Re-
+cently, 3D Gaussian representations [18] have emerged
+as a powerful alternative, demonstrating high-fidelity yet
+memory-efficient avatars [13, 44, 50, 66, 67]. Additionally,
+generalizable prior models trained on multi-subject cap-
+ture [4, 15, 26, 29, 70, 71, 76] or synthetic data [51, 81] en-
+able novel identity reconstruction without requiring exten-
+sive per-subject optimization. However, most approaches
+treat the face and hair as a unified entity. Our method builds
+a compositional prior for 3D Gaussian avatars, disentan-
+gling face and hair to facilitate tasks like hairstyle transfer.
+2.2. Compositional Human Modeling
+Compositional modeling decomposes human representa-
+tions into distinct elements such as face, hair, and cloth-
+ing, allowing independent control and flexible editing [7, 8,
+21, 25, 38, 52, 65]. This approach enables applications like
+hairstyle and garment transfer [9, 10, 20, 21, 28, 59]. Recent
+studies extend compositionality to 3D avatars. PEGASUS
+and PERSE [7, 8] introduce disentangled facial attributes
+for personalized avatar generation, while DELTA [10] and
+TECA [73] combine the SMPL-X [41] for body and face
+with volumetric rendering [35, 36] for clothing and hair.
+However, mesh-based methods inherently limit facial res-
+olution, and hair dynamics rely on linear blend skinning
+(LBS) deformations.
+MeGA [59] proposes a hybrid de-
+sign combining a face mesh with neural textures and 3D
+Gaussians for hair.
+While this design improves render-
+ing fidelity, it introduces additional training complexity due
+to a visibility test between hair Gaussians and the face
+mesh. Our model directly builds upon fully Gaussian-based
+2
+
+
+avatars [26, 44, 50, 66, 67], learning disentangled latent
+spaces for facial expressions and hair motion, which enables
+high-fidelity compositional avatars with enhanced realism.
+2.3. 3D Hair Modeling
+Hair is challenging to model due to its fine-scale geome-
+try and complex photometric behavior. Since parametric
+head models (e.g. FLAME [27]) omit hair, most approaches
+treat it as a separate component, represented by explicit
+strands [37, 39, 47, 55], neural volumetric fields [10, 49, 61,
+73], or 3D Gaussian primitives [31, 59, 72]. Strand-based
+methods remain prevalent due to their compatibility with
+standard rendering and simulation pipelines. These meth-
+ods typically estimate 3D strands by leveraging 2D hair
+orientation cues from multi-view images [37, 39, 47, 55].
+NeuralHaircut [55] improves strand reconstruction using a
+diffusion-based hairstyle prior [16], while HAAR [56] and
+DiffLocks [48] employ generative diffusion models to syn-
+thesize 3D strands from text or a single image. Gaussian-
+Hair [31] proposes aligning 3D Gaussians [18] along recon-
+structed strands for view-consistent, relightable rendering.
+Our method also adopts a Gaussian-based representation,
+but focuses on building a universal prior by anchoring 3D
+Gaussians on the UV map of a shared-topology facial mesh,
+enabling consistent hair parameterization across subjects.
+3. Method
+3.1. Preliminaries: Religtable 3D Gaussians
+Our approach builds on URAvatar [26], a universal 3D
+avatar model that extends person-specific relightable 3D
+Gaussian avatars [50] to multiple subjects. We first intro-
+duce its core component: relightable 3D Gaussians. More
+details of URAvatar are provided in the Supp. Mat.
+Given multi-view studio-captured images with time-
+multiplexed lighting and facial tracked meshes, Saito et al.
+[50] build a relightable 3D head avatar model. While fol-
+lowing the geometric parameterization of 3D Gaussians
+originally proposed by Kerbl et al. [18], they advance the
+appearance model based on learnable radiance transfer for
+relightability. The outgoing radiance of each Gaussian ck
+can be computed by summation of diffuse color cdiffuse
+k
+and
+specular reflection cspecular
+k
+, where each term can be effi-
+ciently evaluated. The diffuse color is computed as:
+cdiffuse
+k
+= ρk ⊙
+(n+1)2
+X
+i=1
+Li ⊙di
+k,
+(1)
+where ρk is a static albedo, Li and di
+k are the i-th element
+of n-th order spherical harmonics(SH) of the incident lights
+and learnable transfer function, respectively. The specular
+term is formulated based on Wang et al. [60]:
+cspecular
+k
+(ωo
+k) = vk(ωo
+k)
+Z
+S2 L(ω)Gs(ω; qk, σk) dω, (2)
+qk = 2(ωo
+k · nk)nk −ωo
+k,
+(3)
+where ωo
+k is a viewing direction at the Gaussian center,
+vk(ωo
+k) is view-dependent visibility, Gs(ω; qk, σk) is a
+spherical Gaussian [60] with the lobe axis qk and rough-
+ness σk, and nk denotes a view-dependent surface normal.
+3.2. Compositional Universal Avatar Model
+Our hair-compositional 3D head avatar model produces sep-
+arate sets of relightable 3D Gaussians for face and hair
+from input expression code and hair motion code from en-
+coders. To build a compositional universal prior model for
+3D head avatars, our model consists of a bald head geom-
+etry decoder, three sets of identity-conditioned hypernet-
+works [6, 26] and 3D Gaussian decoders for hair, face, and
+eyes respectively. Figure 2 shows an overview of our hair-
+compositional universal model for 3D Gaussian avatars.
+Expression/hair motion encoder.
+Our model employs
+separate encoders for facial expression and hair motion,
+learning their respective latent spaces.
+Following URA-
+vatar [26], the encoders take the delta of geometry maps,
+UV-mapped geometry of the tracked meshes, computed
+as ∆Gexp = Gexp −Gexp
+mean, where Gexp is the cur-
+rent frame’s geometry map and Gexp
+mean is the mean over
+all frames. To decouple expression from hair motion, we
+use predefined face and hair region masks, Mf and Mh =
+1 −Mf in UV space. The expression encoder Ef and hair
+motion encoder Eh process masked delta geometry and out-
+put the mean and covariance of their respective latent codes:
+µ{f,h}, σ{f,h} = E{f,h}(∆G{f,h}; Θ{f,h}),
+(4)
+where ∆G{f,g} = Muv
+{f,g} ⊙∆Gexp. Then, an expression
+code zf and hair motion code zh are sampled based on repa-
+rameterization trick [23]:
+z{f,h} = µ{f,h} + σ{f,h} · N(0, I),
+(5)
+where N(0, I) is a standard normal distribution. The ex-
+pression code and hair motion code are fed into the face
+Gaussian decoder and hair Gaussian decoder to produce 3D
+Gaussians based on the current state of the face and hair.
+Identity-conditioned hypernetworks.
+Building on the
+identity-conditioned hypernetwork [6, 26], which encodes
+identity information to guide avatar appearance, our model
+introduces separate hypernetworks E{fid,hid} for face and
+hair, with corresponding network parameters Φ{fid,hid}:
+Θfid
+vi , Θfid
+vd, {of
+k, ρf
+k}Nf
+k=1 = Efid(Tfid
+mean, Gfid
+mean; Φfid), (6)
+Θhid
+vi , Θhid
+vd , {oh
+k, ρh
+k}Nh
+k=1 = Ehid(Thid
+mean, Ghid
+mean; Φhid), (7)
+3
+
+
+⋯
+⋯
+(a) Identity-conditioned HyperNets
+⋯
+⋯
+⋯
+⋯
+Light
+(b) Compositional Avatar Model
+⋯
+⋯
+⋯
+⋯
+⋯
+⋯
+Hair bias maps
+View
+Eq.1 
+Eq.2
+⋯
+⋯
+⋯
+⋯
+Eq.1 
+Eq.2
+Gaze
+⋯
+⋯
+Expression data
+Hair ID data
+Face ID data
+⋯
+⋯
+⋯
+⋯
+⋯
+⋯
+Face bias maps
+Hair HyperNet
+Face HyperNet
+Figure 2. Model overview. HairCUP comprises ID-conditioned face/hair hypernetworks and a compositional avatar model. (a) The
+hypernetworks take UV-unwrapped mean albedo and geometry maps as input, generating multi-scale bias maps as ID conditions, added to
+each layer of the face/hair Gaussian decoders. (b) The compositional avatar model consists of a hair motion and face expression encoder
+E{f,h} and Gaussian decoders D{f,h}
+{vi,vd}. The encoders produce hair motion code zh and expression code zf from the delta geometry map
+∆Gexp, which the decoders use to generate Gaussians. During training, face/hair ID and expression data come from the same subject,
+forming a 3D avatar supervised by multi-view capture data (Lcomp
+rec
+). One-hot labels assigned to face/hair Gaussians are rendered into
+segmentation maps and supervised by face/hair masks for disentanglement (Lseg). Additionally, face Gaussians are separately rendered
+and supervised with synthetic bald data (Lface
+rec ). At test time, face/hair ID, and expression data can be mixed across subjects.
+where T{fid,hid}
+mean
+, G{fid,hid}
+mean
+are the mean albedo tex-
+ture map and mean geometry map for face and hair,
+Θ{fid,hid}
+vi
+, Θ{fid,hid}
+vd
+are the bias maps injected to face and
+hair Gaussian decoders, N{f,h} are the number of face
+and hair Gaussians, and o{f,h}
+k
+, ρ{f,h}
+k
+are the expression-
+agnostic opacity and albedo color of face and hair Gaus-
+sians following URAvatar [26]. These bias maps work as
+an identity conditioning mechanism for our universal model
+to serve as a person-specific avatar model based on the in-
+put mean albedo texture map T{fid,hid}
+mean
+and geometry map
+G{fid,hid}
+mean
+. We use the same eye hypernetwork from URA-
+vatar [26] to produce bias maps for the eye decoders.
+Bald geometry prediction.
+Unlike Saito et al. [50] and
+URAvatar [26], which have a per-frame geometry decoder,
+we have a separate encoder Eb and decoder Db which pre-
+dicts vertex positions of the static bald tracked mesh from
+the mean geometry map Gfid
+mean as follows:
+zb = Eb(Gfid
+mean; Θb),
+(8)
+ˆVb = Db(zb; Φb),
+(9)
+where zb is the bald geometry latent code and ˆVb is the
+predicted vertex positions based on the shared topology of
+tracked meshes. The unwrapped bald geometry map ˆGb
+and mean geometry map Gfid
+mean are combined to preserve
+the face region using the UV face region mask Muv
+face as
+Gb = Muv
+face ⊙Gfid
+mean + (1 −Muv
+face) ⊙ˆGb. The com-
+bined bald geometry map Gb anchors 3D Gaussian prim-
+itives, defining Gaussian translations relative to the mesh.
+Since hair originates from the scalp, modeling hair relative
+to the bald head geometry enables natural hairstyle transfer
+across avatars with varying head shapes and sizes.
+Face/hair Gaussian decoders.
+To generate 3D Gaussians
+for face and hair in a disentangled manner, we use separate
+decoders for each component, where the Gaussians are pa-
+rameterized on the UV map of the tracked mesh. Specifi-
+cally, we employ view-independent decoders D{f,h
+vi
+} for ge-
+ometric attributes and view-dependent decoders D{f,h}
+vd
+for
+appearance attributes, following URAvatar [26]. The de-
+coders D{f,h}
+vi
+predict:
+{δtf
+k, qf
+k, sf
+k, df
+k, σf
+k}Nf
+k=1 = Df
+vi(zf, e{l,r}; Θfid
+vi , Φf
+vi), (10)
+{δth
+k, qh
+k, sh
+k, dh
+k, σh
+k}Nh
+k=1 = Dh
+vi(zh; Θhid
+vi , Φh
+vi),
+(11)
+where δtk is the position offset relative to the bald mesh,
+and qk, sk, dk, σk denote the orientation, scale, SH coeffi-
+cients for color and monochrome components, and rough-
+ness parameter [50]. The decoders D{f,h}
+vd
+predict:
+{δnf
+k, vf
+k}Nf
+k=1 = Df
+vd(zf, e{l,r}, ωo; Θfid
+vd, Φf
+vd),
+(12)
+{δnh
+k, vh
+k}Nh
+k=1 = Dh
+vd(zh, ωo; Θhid
+vd , Φh
+vd),
+(13)
+where δnk is the view-dependent normal offset, and vk rep-
+resents the learned visibility term. Unlike the face decoder,
+the hair decoder does not take eye gaze direction e{l,r} as
+4
+
+
+(a) Capture image
+(b) Hair mask
+(c) Bald mesh
+(d) Composition
+Figure 3. Synthetic bald image. We get synthetic bald images
+by compositing (a) the original capture with (c) the rendered bald
+mesh. Hair masks (b) remove the hair region, allowing the bald
+mesh to be rendered into (d) the final composited image.
+input, as it does not influence the hair state. The predicted
+delta translations δt{f,h}
+k
+are then added to the correspond-
+ing texel tb
+k of the bald geometry map Gb:
+t{f,h}
+k
+= tb
+k + δt{f,h}
+k
+.
+(14)
+The face Gaussian’s delta normal δnf
+k is added to the mesh
+normal nb
+k derived from the bald geometry map Gb, while
+the hair Gaussian’s delta normal δnh
+k is added to nhid
+k
+from
+the mean geometry map Ghid
+mean, which offers a more con-
+sistent geometric reference for hair Gaussians:
+nf
+k = tb
+k + δtf
+k
+(15)
+nh
+k = nhid
+k
++ δnh
+k.
+(16)
+For eye Gaussian decoders, we follow URAvatar [26] ex-
+cept the unified specular visibility decoder for simplicity:
+{qe
+k, se
+k, oe
+k, de
+k, σe
+k}Ne
+k=1 = De
+vi(e{l,r}; Θe
+vi, Φe
+vi),
+(17)
+{ρe
+k, ve
+k}Ne
+k=1 = De
+vd(e{l,r}, ωo; Θe
+vd, Φe
+vd),
+(18)
+where De
+vi, De
+vd are view-independent and view-dependent
+Gaussian decoders with parameters Φe
+vi and Φe
+vd, Θe
+vi and
+Θe
+vd are bias maps from the eye hypernetwork Eeye. Given
+the incident light L and the Gaussian attributes of the hair,
+face, and eyes, we compute the outgoing radiance of each
+Gaussian through Eqs. (1) and (2). Then, these Gaussians
+can be rendered with a standard Gaussian rasterizer [18].
+3.3. Synthetic Bald Image Generation
+Unlike previous work that performs per-image dehairing [7,
+64, 75] or estimates the scalp region using an average skin
+color [10], we process a face tracking mesh from a neutral
+expression frame to obtain a bald counterpart with the same
+topology. We then optimize a UV texture map of the bald
+mesh using a color reconstruction loss for the visible face
+region and a Score Distillation Sampling (SDS) loss [43]
+to complete the occluded scalp region with diffusion pri-
+ors [21, 24, 62, 63]. To generate paired haired and hairless
+images across different expressions, we remove hair regions
+from haired images using segmentation masks and render
+the bald mesh onto the masked regions, as shown in Fig. 3.
+Texture map parameterization.
+We model the UV tex-
+ture of the bald mesh with a coordinate-based MLP [54]
+that takes UV coordinates and view directions as inputs
+to capture view-dependent texture variations.
+The view-
+dependent texture map Tbald ∈RH×W ×3 is computed as:
+Tbald(i, j) = fθ((γ(u, v), γSH(d))),
+(19)
+where (i, j) ∈[0, H −1]×[0, W −1] are texture map pixel
+coordinates, u, v ∈[0, 1] are normalized UV coordinates,
+d ∈R3 is the view direction, and γ(·), γSH(·) denote posi-
+tional and spherical harmonics encodings.
+Bald texture optimization.
+We optimize the texture MLP
+using: (1) Reconstruction loss from multi-view images of
+the bald mesh’s registered frame and (2) SDS loss [43] to
+hallucinate the occluded scalp region with diffusion prior:
+Lbald = λrec
+baldLrec
+bald + λsds
+baldLsds
+bald,
+(20)
+where Lrec
+bald is L1 loss over the face region ˆMface, and
+Lsds
+bald is SDS loss. The weights λrec
+bald and λsds
+bald balance
+their contributions.
+We define the face region mask as
+ˆMface = (1−ˆMhair)⊙Mface, where ˆMhair is a dilated hair
+mask that excludes areas near the hairline, removing shad-
+ows and ensuring a smooth transition between the face and
+bald texture. To build a diffusion prior from dome-captured
+human images [33], we train an image-to-image inpainting
+latent diffusion model [45] with ControlNet [74]. The dif-
+fusion model takes an image prompt, while ControlNet re-
+ceives a masked input to guide inpainting. For each capture
+view, we generate a bald image prompt Icond using a pre-
+trained text-to-image inpainting model [45] and apply SDS
+loss:
+∇θLsds
+bald(zt, Icond, Imasked, t)
+= E
+h
+ω(t)
+ ˆϵϕ(zt; Icond, Imasked, t) −ϵ
+∂zt
+∂x
+∂x
+∂θ
+i
+,
+(21)
+where Icond is the bald image prompt, Imasked is the
+hair-masked input image for ControlNet, t is a diffusion
+timestep, and ω(t) is the diffusion scheduler weight [16].
+Bald image composition
+Optimizing a bald texture MLP
+for every frame is impractical. Instead, we optimize the
+MLP for a single neutral expression frame and blend the
+original image with the rendered bald mesh to generate syn-
+thetic bald images across expressions. Following HairMap-
+per [64], we dilate and blur the hair mask to remove shad-
+ows and smooth transitions between the haired image Iorig
+and the rendered bald mesh Mbald, yielding the processed
+mask ˜Mhair. The final synthetic bald image is obtained as:
+Ibald = ˜Mhair ⊙Iorig + (1 −˜Mhair) ⊙R (Mbald) , (22)
+where R is a mesh renderer [42].
+5
+
+
+3.4. Training
+We train our compositional universal avatar model using
+multi-view video captures of people with known point light
+patterns, following URAvatar [26].
+We modify the loss
+function from prior work [26, 50] as follows:
+L = Lrec + Lseg + Lreg + Lkl.
+(23)
+Lrec ensures image and bald geometry reconstruction, Lseg
+promotes separation of face and hair Gaussians, Lreg con-
+strains Gaussian attributes, and Lkl applies KL-divergence
+loss [23] on expression and hair motion codes from Eq. (5).
+Reconstruction loss.
+To build compositional avatars with
+separate face and hair Gaussians, we render the avatars
+in two ways: face-only rendering, which uses only face
+and eye Gaussians, and compositional rendering, which in-
+cludes all Gaussians. L1 and SSIM losses are applied to
+both renderings.
+Face-only rendering compares the ren-
+dered output ˆIface with the synthetic bald images Ibald
+(Eq. (22)), ensuring that face Gaussians reconstruct the full
+facial appearance, including occluded scalp regions. Com-
+positional rendering compares the rendered output ˆIcomp
+with the studio-captured images Iorig, ensuring that face
+and hair Gaussians together reconstruct the full avatar ap-
+pearance with a natural transition between components. For
+bald geometry reconstruction, we apply an L2 loss be-
+tween the predicted bald mesh vertices ˆVb (Eq. (9)) and
+the groundtruth bald tracked mesh vertices Vb.
+Boundary-free segmentation loss.
+The rendering losses
+alone are insufficient to disentangle face and hair Gaussians.
+We incorporate a Gaussian segmentation loss inspired by
+GALA [21], assigning one-hot labels [1, 0] and [0, 1] to hair
+and face Gaussians and splatting them into a segmentation
+map ˆS ∈RH×W ×2. The loss is computed as the L1 loss
+between ˆS and the groundtruth segmentation mask S. To
+avoid sharp segmentation boundaries, we stop applying the
+segmentation loss near the face-hair boundary after a certain
+number of iterations. This excluded region is determined by
+expanding both the hair and face masks and identifying the
+overlap. This allows a natural blending between face and
+hair regions, enabling a seamless composition.
+3.5. Applications
+Our compositional universal avatar model serves as a uni-
+fied model for training subjects, similar to URAvatar [26].
+Beyond unification, its compositional nature enables flexi-
+ble hairstyle swapping, functioning as a Gaussian-based 3D
+hair salon [17], where hairstyles can seamlessly transfer be-
+tween avatars. Additionally, our model serves as a powerful
+prior for few-shot fine-tuning, enabling hair-compositional
+avatars for novel identities. It maintains independent control
+over face and hair, supporting bidirectional hairstyle trans-
+fer from the training subjects to the novel identity and vice
+versa, offering greater flexibility in avatar customization.
+Hairstyle transfer.
+Trained on a large corpus of multi-
+view human images, our model enables compositional
+avatar generation with independently controllable face and
+hair. During training, the same identity is used for both face
+and hair hypernetworks, as subjects are captured with their
+own hairstyle. At test time, face and hair identity data can
+differ, allowing flexible composition. Hair Gaussians are
+defined relative to the head and adapt automatically to the
+target’s shape via the bald mesh anchor (Eq. (14)), enabling
+seamless transfer without scaling or alignment [59].
+Few-shot personalization.
+Our model serves as a strong
+prior for creating personalized avatars with few-shot fine-
+tuning. Unlike pretraining, we bypass the need for synthetic
+bald images (Sec. 3.3) by applying the face-only rendering
+loss only to visible regions, as the prior keeps face Gaus-
+sians plausible even under occlusions. The compositional
+rendering loss remains unchanged, using the full image,
+while gradients from face Gaussians are detached to pre-
+vent them from reconstructing hair regions. To leverage the
+prior, we only update the last layer of the hypernetworks.
+4. Experiments
+Dataset.
+We utilize a capture system inspired by prior
+work on creating relightable 3D avatars [26, 50]. The sys-
+tem captures calibrated and synchronized multi-view im-
+ages at a resolution of 4096 × 2668, using 110 cameras
+and 460 white LED lights operating at 90 Hz. Each subject
+performs a predefined sequence of facial expressions dur-
+ing the capture process. To collect diverse illumination pat-
+terns, we employ time-multiplexed lighting, where grouped
+or random sets of 5 lights are activated per frame, inter-
+leaved with fully-lit frames every 3 frames to ensure stable
+facial mesh tracking. Fully-lit frames are processed using
+topologically consistent coarse mesh tracking [50], while
+partially lit frames use interpolated tracked meshes, head
+poses, UV texture maps, and gaze data from adjacent fully-
+lit frames. We capture 260 subjects in total, and 252 sub-
+jects out of them are used for the pretraining stage, and 8
+subjects are used for evaluation of the fine-tuning stage.
+Training details.
+We adopt the architecture of URA-
+vatar [26] for both the face and hair hypernetworks and
+decoders. The hypernetworks utilize a UNet-based archi-
+tecture [46], where multi-level feature maps are produced
+and added to the outputs of each layer in the decoder. For
+the bald geometry predictor, we use a convolutional encoder
+and an MLP-based decoder to predict the vertex positions.
+6
+
+
+(a) Ours
+(b) DELTA
+(c) GT
+(d) Zoom-in
+Figure 4. Qualitative comparison with DELTA [10]. The com-
+positional avatar generated by finetuning our universal model with
+monocular capture of novel identity shows more realistic face and
+hair details than DELTA. Best viewed on a digital display.
+For training the compositional prior model, we use the
+Adam optimizer [22] with a learning rate of 5 × 10−4. The
+training process involves 64 NVIDIA A100 GPUs with a
+per-GPU batch size of 1 for 250k iterations, taking approx-
+imately 7 days. During the fine-tuning stage for personal-
+ization, the learning rate is set to 10−5, and we use a single
+NVIDIA A100 GPU with a batch size of 1 for 2k iterations.
+To ensure accurate reconstruction, only the face hypernet-
+work is trained for the first 400 iterations, while the hair hy-
+pernetwork is trained for the remaining iterations to prevent
+hair Gaussians from reconstructing facial regions. The fine-
+tuning process takes approximately 1 hour. For the ablation
+study, we train on 16 subjects to isolate key component ef-
+fects while keeping computation manageable.
+4.1. Comparison
+Compositional avatar personalization.
+We evaluate our
+model’s effectiveness as a prior for compositional avatar
+personalization by comparison with DELTA [10], a monoc-
+ular video-based method. Using fully-lit, front-view head
+rotation sequences from 8 unseen identities, we fine-tune
+our model per subject for a fair comparison. Since DELTA
+is a single-subject avatar model, we compute average scores
+across all subjects using L1 loss, PSNR, SSIM, and LPIPS.
+Table 1 presents quantitative results demonstrating that
+avatars generated by fine-tuning our model achieve supe-
+rior performance across all metrics compared to DELTA.
+Specifically, our method surpasses DELTA in both facial
+and hair details, as shown qualitatively in Fig. 4. DELTA
+L1 ↓
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+DELTA [10]
+0.0344
+23.775
+0.790
+0.0241
+Ours
+0.0223
+27.040
+0.817
+0.0131
+Table 1. Quantitative comparison with DELTA [10].
+(a) Hair subject
+(b) Face subject
+(c) DELTA
+(d) Ours
+Figure 5. Qualitative comparison of hairstyle transfer. Our
+method achieves more natural hairstyle transfer with seamless
+face-hair blending, while DELTA creates a rigid boundary. Ad-
+ditionally, our results offer greater visual fidelity in face and hair.
+exhibits limitations in facial quality due to the restricted ex-
+pressiveness of its parametric face model, showing blocky
+artifacts. Furthermore, its reliance on an LBS-based defor-
+mation model for hair degrades the fine details.
+In addition, Fig. 5 highlights the hair-swapping results
+between different avatars.
+Our method achieves this by
+combining the face hypernetwork of one finetuned avatar
+with the hair hypernetwork of another, whereas DELTA per-
+forms swapping by pairing the face mesh of one avatar with
+the hair NeRF of another. However, DELTA’s reliance on
+segmentation masks enforces rigid face-hair boundaries, re-
+sulting in unnatural transitions at the boundary. In contrast,
+our approach utilizes a boundary-free segmentation loss,
+enabling smooth and natural hair transfer between avatars.
+Interpolation.
+To evaluate compositional modeling in
+learning the manifold of 3D head avatars, we compare inter-
+polation results with URAvatar, a holistic 3D avatar model.
+As shown in Fig. 6, we interpolate between two avatars
+by blending bias maps from hypernetworks and the anchor
+geometry. URAvatar struggles with interpolation between
+subjects with long and short hair, causing ears to morph
+into hair and distort facial structure. In contrast, our method
+yields smooth transitions in both face and hair, as evident in
+face-only interpolation. This demonstrates effective disen-
+tanglement of face and hair manifolds, enabling better se-
+mantic correspondence and smoother transitions across sub-
+jects, while holistic modeling suffers from entangled repre-
+sentations that obscure facial structure.
+7
+
+
+(a) URAvatar
+(b) Ours
+(c) Ours face-only
+(d) Ours hair-only
+Figure 6. Comparison of avatar interpolation. URAvatar, which
+models the face and hair holistically, exhibits unnatural transitions
+from hair to ear during interpolation, leading to broken ears (a).
+In contrast, HairCUP achieves more natural interpolation by dis-
+entangling face and hair modeling (b). (c) and (d) present separate
+interpolation results of HairCUP for the face and hair, respectively.
+4.2. Ablation Study
+Effect of hair offset modeling.
+We anchor hair Gaus-
+sians on the UV geometry map of the neutral bald mesh
+(Eq. (14)). Figure 7 compares hair-swapping results using a
+haired tracked mesh anchor versus a bald tracked mesh an-
+chor. While the haired tracked mesh anchor, used in prior
+works [26, 44, 50], performs well for original hair, it of-
+ten misaligns when swapping hair, causing unnatural trans-
+fers. In contrast, anchoring Gaussians to the bald tracked
+mesh ensures hair placement relative to the scalp, maintain-
+ing compatibility with the target avatar’s head. This enables
+smooth and natural hair transfer, adapting seamlessly to di-
+verse head shapes and sizes (Fig. 1).
+Segmentation loss.
+To evaluate the effect of boundary-
+free segmentation loss, we compare two settings in Fig. 8:
+applying segmentation loss throughout training versus dis-
+abling it near the face-hair boundary midway. Defining this
+boundary is inherently difficult, as the transition between
+face and hair is often gradual, whereas segmentation masks
+enforce hard-edged supervision. As a result, applying the
+loss across the entire region can produce unnaturally sharp
+face-hair boundaries. In contrast, relaxing the loss near the
+boundary leads to smoother transitions and more natural,
+seamless hairstyle transfer.
+Figure 7. Ablation on anchor geometry. Anchoring 3D Gaus-
+sians to a haired mesh leads to unnatural transfers due to mis-
+aligned source geometry. Using a bald mesh enables more natural
+hairstyle transfer by providing a consistent scalp anchor.
+Full segmentation loss
+Boundary-free segmentation loss
+(a) Original hair
+(b) Swapped hair
+(c) Swapped hair zoom
+(d) Hair-only zoom
+Figure 8. Ablation study on boundary-free segmentation loss.
+Boundary-free segmentation loss yields smoother face-hair transi-
+tions, while full-region loss creates sharp boundaries.
+5. Conclusion
+We introduced a compositional universal avatar model that
+independently represents face and hair, addressing limi-
+tations of holistic approaches.
+By leveraging synthetic
+bald image generation, the model learns disentangled latent
+spaces, enabling realistic hair transfer and few-shot avatar
+personalization. Experiments demonstrate effective separa-
+tion and transfer of face and hair with high fidelity, support-
+ing flexible and realistic avatar customization.
+Limitations. Our method doesn’t account for large hair dy-
+namics, as the training data mostly contains stable motion.
+Synthetic bald images may introduce color discrepancies, as
+the bald texture is optimized from a single fully-lit frame.
+Additionally, Gaussians anchored on a fixed UV map can
+lead to quality variations across different hairstyles. Finally,
+the occluded scalp remains hard to relight due to limited su-
+pervision under partial lighting.
+8
+
+
+Acknowledgments
+The
+work
+of
+Kim
+and
+Joo
+is
+supported
+in
+part
+by
+NRF
+grant
+funded
+by
+the
+Korean
+government
+(MSIT)
+(No.
+RS-2022-NR070498),
+and
+IITP
+grant
+funded
+by
+the
+Korea
+government
+(MSIT)
+[No.
+RS-2024-00439854
+and
+RS-2021-II211343].
+References
+[1] Ziqian Bai, Feitong Tan, Zeng Huang, Kripasindhu Sarkar,
+Danhang Tang, Di Qiu, Abhimitra Meka, Ruofei Du, Ming-
+song Dou, Sergio Orts-Escolano, et al. Learning personal-
+ized high quality volumetric head avatars from monocular
+rgb videos. In Proc. CVPR, 2023. 2
+[2] Ziqian Bai, Feitong Tan, Sean Fanello, Rohit Pandey, Ming-
+song Dou, Shichen Liu, Ping Tan, and Yinda Zhang. Effi-
+cient 3d implicit head avatar with mesh-anchored hash table
+blendshapes. In Proc. CVPR, 2024. 2
+[3] Volker Blanz and Thomas Vetter. A morphable model for the
+synthesis of 3d faces. In Proc. ACM SIGGRAPH, 1999. 2
+[4] Marcel C B¨uhler,
+Kripasindhu Sarkar,
+Tanmay Shah,
+Gengyan Li, Daoye Wang, Leonhard Helminger, Ser-
+gio Orts-Escolano, Dmitry Lagun, Otmar Hilliges, Thabo
+Beeler, et al. Preface: A data-driven volumetric prior for
+few-shot ultra high-resolution face synthesis. In Proc. ICCV,
+2023. 2
+[5] Chen Cao, Yanlin Weng, Shun Zhou, Yiying Tong, and Kun
+Zhou. Facewarehouse: A 3d facial expression database for
+visual computing. IEEE Trans. Vis. Comput. Graph., 20(3):
+413–425, 2013. 2
+[6] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz,
+Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi,
+Shih-En Wei, Danielle Belko, Shoou-I Yu, Yaser Sheikh, and
+Jason Saragih. Authentic volumetric avatars from a phone
+scan. ACM Trans. Graph., 41(4), 2022. 2, 3, 12, 14
+[7] Hyunsoo Cha, Byungjun Kim, and Hanbyul Joo.
+Pega-
+sus: Personalized generative 3d avatars with composable at-
+tributes. In Proc. CVPR, 2024. 2, 5
+[8] Hyunsoo Cha, Inhee Lee, and Hanbyul Joo. Perse: Person-
+alized 3d generative avatars from a single portrait.
+arXiv
+preprint arXiv:2412.21206, 2024. 2
+[9] Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black,
+and Timo Bolkart.
+Capturing and animation of body and
+clothing from monocular video. In Proc. ACM SIGGRAPH
+Asia, 2022. 2
+[10] Yao Feng, Weiyang Liu, Timo Bolkart, Jinlong Yang, Marc
+Pollefeys, and Michael J Black.
+Learning disentangled
+avatars with hybrid 3d representations.
+arXiv preprint
+arXiv:2309.06441, 2023. 2, 3, 5, 7
+[11] Guy Gafni, Justus Thies, Michael Zollh¨ofer, and Matthias
+Nießner. Dynamic neural radiance fields for monocular 4d
+facial avatar reconstruction. In Proc. CVPR, 2021. 2
+[12] Xuan Gao, Chenglai Zhong, Jun Xiang, Yang Hong, Yudong
+Guo, and Juyong Zhang. Reconstructing personalized se-
+mantic facial nerf models from monocular video.
+ACM
+Trans. Graph., 41(6):1–12, 2022. 2
+[13] Simon Giebenhain, Tobias Kirschstein, Martin R¨unz, Lour-
+des Agapito, and Matthias Nießner. Npga: Neural parametric
+gaussian avatars. In Proc. ACM SIGGRAPH Asia, 2024. 2
+[14] Philip-William Grassal,
+Malte Prinzler,
+Titus Leistner,
+Carsten Rother, Matthias Nießner, and Justus Thies. Neu-
+ral head avatars from monocular rgb videos. In Proc. CVPR,
+2022. 2
+[15] Chen Guo, Junxuan Li, Yash Kant, Yaser Sheikh, Shunsuke
+Saito, and Chen Cao. Vid2avatar-pro: Authentic avatar from
+videos in the wild via universal prior. In Proc. CVPR, 2025.
+2
+[16] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffu-
+sion probabilistic models. NeurIPS, 2020. 3, 5
+[17] Liwen Hu, Chongyang Ma, Linjie Luo, and Hao Li. Single-
+view hair modeling using a hairstyle database. ACM Trans.
+Graph., 34(4):1–9, 2015. 6
+[18] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Trans. Graph., 42(4):139–1,
+2023. 2, 3, 5, 12
+[19] Taras Khakhulin, Vanessa Sklyarova, Victor Lempitsky, and
+Egor Zakharov. Realistic one-shot mesh-based head avatars.
+In Proc. ECCV, 2022. 2
+[20] Taeksoo Kim, Shunsuke Saito, and Hanbyul Joo. Ncho: Un-
+supervised learning for neural 3d composition of humans and
+objects. In Proc. ICCV, 2023. 2
+[21] Taeksoo Kim, Byungjun Kim, Shunsuke Saito, and Hanbyul
+Joo. Gala: Generating animatable layered assets from a sin-
+gle scan. In Proc. CVPR, 2024. 2, 5, 6
+[22] Diederik P Kingma. Adam: A method for stochastic opti-
+mization. arXiv preprint arXiv:1412.6980, 2014. 7
+[23] Diederik P. Kingma and Max Welling. Auto-encoding vari-
+ational bayes. In Proc. ICLR, 2014. 3, 6, 12
+[24] Inhee Lee, Byungjun Kim, and Hanbyul Joo.
+Guess the
+unseen: Dynamic 3d scene reconstruction from partial 2d
+glimpses. In Proc. CVPR, 2024. 5
+[25] Junxuan Li, Shunsuke Saito, Tomas Simon, Stephen Lom-
+bardi, Hongdong Li, and Jason Saragih. Megane: Morphable
+eyeglass and avatar network. In Proc. CVPR, 2023. 2
+[26] Junxuan Li, Chen Cao, Gabriel Schwartz, Rawal Khirodkar,
+Christian Richardt, Tomas Simon, Yaser Sheikh, and Shun-
+suke Saito. Uravatar: Universal relightable gaussian codec
+avatars. In Proc. ACM SIGGRAPH Asia, 2024. 2, 3, 4, 5, 6,
+8, 12, 14
+[27] Tianye Li, Timo Bolkart, Michael J. Black, Hao Li, and
+Javier Romero. Learning a model of facial shape and ex-
+pression from 4d scans. ACM Trans. Graph., 36(6), 2017. 2,
+3
+[28] Siyou Lin, Zhe Li, Zhaoqi Su, Zerong Zheng, Hongwen
+Zhang, and Yebin Liu.
+Layga: Layered gaussian avatars
+for animatable clothing transfer. In Proc. ACM SIGGRAPH,
+2024. 2
+[29] Di Liu, Teng Deng, Giljoo Nam, Yu Rong, Stanislav Pid-
+horskyi, Junxuan Li, Jason Saragih, Dimitris N Metaxas, and
+Chen Cao. Lucas: Layered universal codec avatars. In Proc.
+CVPR, 2025. 2
+9
+
+
+[30] Stephen Lombardi,
+Tomas Simon,
+Gabriel Schwartz,
+Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. Mix-
+ture of volumetric primitives for efficient neural rendering.
+ACM Trans. Graph., 40(4):1–13, 2021. 2
+[31] Haimin Luo, Min Ouyang, Zijun Zhao, Suyi Jiang, Longwen
+Zhang, Qixuan Zhang, Wei Yang, Lan Xu, and Jingyi Yu.
+Gaussianhair: Hair modeling and rendering with light-aware
+gaussians. arXiv preprint arXiv:2402.10483, 2024. 3
+[32] Shugao Ma, Tomas Simon, Jason Saragih, Dawei Wang,
+Yuecheng Li, Fernando De La Torre, and Yaser Sheikh. Pixel
+codec avatars. In Proc. CVPR, 2021. 2
+[33] Julieta Martinez, Emily Kim, Javier Romero, Timur Bagaut-
+dinov, Shunsuke Saito, Shoou-I Yu, Stuart Anderson,
+Michael Zollh¨ofer, Te-Li Wang, Shaojie Bai, Chenghui Li,
+Shih-En Wei, Rohan Joshi, Wyatt Borsos, Tomas Simon,
+Jason Saragih, Paul Theodosis, Alexander Greene, Anjani
+Josyula, Silvio Mano Maeta, Andrew I. Jewett, Simon Ven-
+shtain, Christopher Heilman, Yueh-Tung Chen, Sidi Fu, Mo-
+hamed Ezzeldin A. Elshaer, Tingfang Du, Longhua Wu,
+Shen-Chi Chen, Kai Kang, Michael Wu, Youssef Emad,
+Steven Longay, Ashley Brewer, Hitesh Shah, James Booth,
+Taylor Koska, Kayla Haidle, Matt Andromalos, Joanna Hsu,
+Thomas Dauer, Peter Selednik, Tim Godisart, Scott Ardis-
+son, Matthew Cipperly, Ben Humberston, Lon Farr, Bob
+Hansen, Peihong Guo, Dave Braun, Steven Krenn, He Wen,
+Lucas Evans, Natalia Fadeeva, Matthew Stewart, Gabriel
+Schwartz, Divam Gupta, Gyeongsik Moon, Kaiwen Guo,
+Yuan Dong, Yichen Xu, Takaaki Shiratori, Fabian Prada,
+Bernardo R. Pires, Bo Peng, Julia Buffalini, Autumn Trim-
+ble, Kevyn McPhail, Melissa Schoeller, and Yaser Sheikh.
+Codec Avatar Studio: Paired Human Captures for Complete,
+Driveable, and Generalizable Avatars.
+NeurIPS Track on
+Datasets and Benchmarks, 2024. 5, 12
+[34] Lars Mescheder, Michael Oechsle, Michael Niemeyer, Se-
+bastian Nowozin, and Andreas Geiger.
+Occupancy net-
+works: Learning 3d reconstruction in function space.
+In
+Proc. CVPR, 2019. 2
+[35] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik,
+Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis. In Proc. ECCV, 2020. 2
+[36] Thomas M¨uller, Alex Evans, Christoph Schied, and Alexan-
+der Keller. Instant neural graphics primitives with a mul-
+tiresolution hash encoding. ACM Trans. Graph., 41(4):1–15,
+2022. 2
+[37] Giljoo Nam, Chenglei Wu, Min H Kim, and Yaser Sheikh.
+Strand-accurate multi-view hair capture.
+In Proc. CVPR,
+2019. 3
+[38] Ryota Natsume, Tatsuya Yatagawa, and Shigeo Morishima.
+Rsgan: face swapping and editing using face and hair repre-
+sentation in latent spaces. In Proc. ACM SIGGRAPH, 2018.
+2
+[39] Sylvain Paris, Hector M Briceno, and Franc¸ois X Sillion.
+Capture of hair geometry from multiple images. ACM Trans.
+Graph., 23(3):712–719, 2004. 3
+[40] Jeong Joon Park, Peter Florence, Julian Straub, Richard
+Newcombe, and Steven Lovegrove. Deepsdf: Learning con-
+tinuous signed distance functions for shape representation.
+In Proc. CVPR, 2019. 14
+[41] Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani,
+Timo Bolkart, Ahmed A. A. Osman, Dimitrios Tzionas, and
+Michael J. Black. Expressive body capture: 3D hands, face,
+and body from a single image. In Proc. CVPR, 2019. 2
+[42] Stanislav Pidhorskyi, Tomas Simon, Gabriel Schwartz, He
+Wen, Yaser Sheikh, and Jason Saragih.
+Rasterized edge
+gradients: Handling discontinuities differentiably. In Proc.
+ECCV, 2024. 5
+[43] Ben Poole, Ajay Jain, Jonathan T. Barron, and Ben Milden-
+hall. Dreamfusion: Text-to-3d using 2d diffusion. In Proc.
+ICLR, 2023. 5, 12
+[44] Shenhan Qian, Tobias Kirschstein, Liam Schoneveld, Davide
+Davoli, Simon Giebenhain, and Matthias Nießner.
+Gaus-
+sianavatars: Photorealistic head avatars with rigged 3d gaus-
+sians. In Proc. CVPR, 2024. 2, 3, 8
+[45] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+Patrick Esser, and Bj¨orn Ommer. High-resolution image syn-
+thesis with latent diffusion models. In Proc. CVPR, 2022. 5,
+13
+[46] O. Ronneberger, P.Fischer, and T. Brox. U-net: Convolu-
+tional networks for biomedical image segmentation. In Proc.
+MICCAI, 2015. 6
+[47] Radu Alexandru Rosu, Shunsuke Saito, Ziyan Wang, Chen-
+glei Wu, Sven Behnke, and Giljoo Nam.
+Neural strands:
+Learning hair geometry and appearance from multi-view im-
+ages. In Proc. ECCV, 2022. 3
+[48] Radu Alexandru Rosu, Keyu Wu, Yao Feng, Youyi Zheng,
+and Michael J. Black. DiffLocks: Generating 3d hair from a
+single image using diffusion models. In Proc. CVPR, 2025.
+3
+[49] Shunsuke Saito,
+Liwen Hu,
+Chongyang Ma,
+Hikaru
+Ibayashi, Linjie Luo, and Hao Li. 3d hair synthesis using
+volumetric variational autoencoders. ACM Trans. Graph.,
+37(6):1–12, 2018. 3
+[50] Shunsuke Saito, Gabriel Schwartz, Tomas Simon, Junxuan
+Li, and Giljoo Nam. Relightable gaussian codec avatars. In
+Proc. CVPR, 2024. 2, 3, 4, 6, 8, 12, 14
+[51] Jack Saunders, Charlie Hewitt, Yanan Jian, Marek Kowal-
+ski, Tadas Baltruˇsaitis, Yiye Chen, Darren Cosker, Virginia
+Estellers, Nicholas Gyde, Vinay P. Namboodiri, and Ben-
+jamin E Lundell.
+GASP: Gaussian avatars with synthetic
+priors, 2024. 2
+[52] Yichun Shi, Xiao Yang, Yangyue Wan, and Xiaohui Shen.
+Semanticstylegan: Learning compositional generative priors
+for controllable image synthesis and editing. In Proc. CVPR,
+2022. 2
+[53] Vincent Sitzmann, Justus Thies, Felix Heide, Matthias
+Nießner, Gordon Wetzstein, and Michael Zollhofer. Deep-
+voxels: Learning persistent 3d feature embeddings. In Proc.
+CVPR, 2019. 2
+[54] Vincent Sitzmann,
+Julien N.P. Martel,
+Alexander W.
+Bergman, David B. Lindell, and Gordon Wetzstein. Implicit
+neural representations with periodic activation functions. In
+NeurIPS, 2020. 5
+10

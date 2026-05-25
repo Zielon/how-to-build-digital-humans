@@ -1,0 +1,1164 @@
+Title: Cloth and skin deformation with a triangle mesh based convolutional neural network
+
+ACM SIGGRAPH / Eurographics Symposium on Computer Animation 2020
+J. Bender and T. Popa
+(Guest Editors)
+Volume 39 (2020), Number 8
+Cloth and Skin Deformation with a Triangle Mesh Based
+Convolutional Neural Network
+Nuttapong Chentanez1,2, Miles Macklin1,3, Matthias Müller1, Stefan Jeschke1 and Tae-Yong Kim1
+1NVIDIA
+2Department of Computer Engineering, Faculty of Engineering, Chulalongkorn University
+3University of Copenhagen
+Figure 1: Results of our upsampling networks for blouse-symmetric, tshirt, vest, and dress. For each case, left is low resolution simulation
+input, middle is the ground truth high resolution simulation and right is the output of our networks.
+Abstract
+We introduce a triangle mesh based convolutional neural network. The proposed network structure can be used for problems
+where input and/or output are deﬁned on a manifold triangle mesh with or without boundary. We demonstrate its applications
+in cloth upsampling, adding back details to Principal Component Analysis (PCA) compressed cloth, regressing clothing defor-
+mation from character poses, and regressing hand skin deformation from bones’ joint angles. The data used for training in this
+work are generated from high resolution extended position based dynamics (XPBD) physics simulations with small time steps
+and high iteration counts and from an ofﬂine FEM simulator, but it can come from other sources. The inference time of our
+prototype implementation, depending on the mesh resolution and the network size, can provide between 4 to 134 times faster
+than a GPU based simulator. The inference also only needs to be done for meshes currently visible by the camera.
+CCS Concepts
+• Computing methodologies →Physical simulation; Neural networks;
+1. Introduction
+Cloth and deformable body simulation has been used successfully
+in many games and movies. However, the cost of simulation goes
+up as the resolution and the number of objects increase. Simula-
+tion also needs to be done regardless of whether the objects are
+currently visible from the camera or not. One may also want to
+make the simulation details scale with the computation resource
+available, while maintaining overall long-term consistency across
+all level of details. A way to achieve this is by running simulations
+at a low resolution and upsampling the result to a desired level of
+detail. Another possibility, when cloth or deformable objects are
+driven mostly by low dimensional inputs, is to avoid the simula-
+tion altogether and infer the deformation from the inputs directly.
+An example is clothing on a character that mostly depends on the
+characters body parts’ poses and velocities. Another example is
+cloth simulation that is compressed with PCA, where the current
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John
+Wiley & Sons Ltd. Published by John Wiley & Sons Ltd.
+DOI: 10.1111/cgf.14107
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+cloth shape is determined by a handful of PCA coefﬁcients. Yet an-
+other example is skin, which is driven by ﬂesh deformation which
+in turn is mainly driven by the underlying bones. In this work, we
+are mainly interested in these problems, namely, cloth/deformable
+object up-resolution and cloth/deformable object regression from
+low dimensional inputs.
+Recently, Deep Learning (DL) has become an invaluable tool
+in many ﬁelds. Its use in physics simulation has increased signiﬁ-
+cantly in recent years. However, one main issue that limits its us-
+age is that the most common types of DL are either fully connected
+(FCN) or convolutional on a regular grid (CNN). FCN requires at
+least O(NM) weights, where N is the size of input and M is the
+size of output which limits the scalability of the approach. Most
+CNNs operate on grids, whereas most cloth and deformable bodies
+are represented by manifold triangle meshes. To allow image based
+CNN to operate on a triangle mesh, one will need a parameteriza-
+tion, which can be cumbersome to obtain and can have problems
+with distortion. Recently, graph based CNNs have started to ﬁnd
+applications in this area, but they are designed to work on general
+graphs and not speciﬁcally on triangle meshes.
+In this work, we propose a novel triangle mesh based CNN that
+can be used for cloth and deformable body upsampling and regres-
+sion applications. Our network is designed speciﬁcally for mani-
+fold triangle meshes, potentially with an open boundary. It takes
+advantage of the fact that the topology of the mesh does not change
+during training and at inferencing time.
+The main contributions of our work are as followed:
+• A novel convolutional network that operates on manifold triangle
+meshes, where the same learned weights can be used for meshes
+with different topologies
+• Novel convolution operators for triangle meshes that operate on
+vertices
+• Novel triangle mesh based average and max pooling and unpool-
+ing operator construction
+• Applications of the network on several problems including cloth
+upsampling, pose to cloth regressions, PCA coefﬁcients to cloth
+deformation and joint angles to hand skin deformation
+2. Related Work
+There have been a number of works that consider the problem of
+enriching cloth simulation details. A ﬁrst type of approach are pro-
+cedural methods. They typically use an underlying buckling model
+and solve it on the ﬁne mesh [HBVMT99, KCCL01, LC04, KL07,
+RPC∗10]. A simpliﬁed quasi-static GPU based solver was used to
+add wrinkles in [MC10].
+Enhancing cloth detail by using data generated with high reso-
+lution simulation has been considered in a number of works. Feng
+et al. [FYK10] used a number of techniques to match low and high
+resolution simulations for creating a non-linear upsampling opera-
+tor. Kavan et al. [KGBS11] constrained the low resolution simula-
+tion to match the high resolution at low frequencies and trained a
+linear upsampling operator, optionally with oscillatory modes. Dur-
+ing run-time Seiler et al. [SSH12] computed non-linear weights to
+blend the differences between pre-computed examples of low and
+high resolution. In computer vision, Lähner et al. [LCT18] uses a
+Pix2Pix [IZZE17] network to learn to upsample the normal map
+image of a coarse simulation to real-world captured cloth wrinkles.
+Chen et al. [CYJ∗18] trained a CNN akin to image super resolu-
+tion to upsample low resolution cloth to high resolution in texture
+space. Oh et al. [OLL18] train fully connected networks (FCNs)
+for subdividing a triangle into 4 triangles and upsampling the cloth
+simulation. They average the outputs of the edge vertices predicted
+by the network on adjacent triangles. The authors later improved
+the result by using a grid instead of triangles and take input from
+past frames into account as well in [LOL19].
+A number of works attempt to generate clothing deforma-
+tion directly from character poses without simulation. Kim et
+al. [KKN∗13] generate a large motion graph by simulating clothing
+resulting from a large number of character poses and compress the
+data to a small size, which can be queried quickly during runtime.
+Bailey et al. [BODO18] use multiple FCNs to learn the difference
+between the deformation resulting from complex character rigs and
+linear skinned blending. Jin et al. [JZGF18] uses CNNs to learn
+regressing from joint rotation matrices to cloth displacements in
+patches which are then merged together by projecting to PCA coef-
+ﬁcients and reconstruct the ﬁnal mesh. Santesteban et al. [SOC19]
+uses FCNs to ﬁt garment onto human shapes and poses represented
+by SMPL [LMR∗15].
+A number of works use machine learning to try to replace
+physics simulation. Fulton et al. [FMD∗19] use PCA to compute
+a low dimensional embedding of a deformable mesh and train an
+auto-encoder FCN to reduce dimension even further and use L-
+BFGS [BNS94] to solve for physics in the latent space. Holden et
+al. [HDDN19] also uses PCA and train FCN to learn the temporal
+evolution of the PCA coefﬁcients. Tan et al. [TPGM19] uses Graph
+based CNN to train an auto-encoder for cloth simulation data. They
+train FCN to learn temporal evolution of the latent space value and
+the decoder to obtain the output mesh.
+All the deep learning works for cloth deformation thus far use
+either FCN or image based CNN for function approximation, with
+the exception of [TPGM19], where only simple rectangular cloths
+are demonstrated. FCN limit the number of inputs and outputs that
+can be used efﬁciently. Using image based CNN for these appli-
+cations requires a reasonable mesh parameterization [HPS08] and,
+for practical garment, where seams cannot be avoided, handling the
+jump in parameterization will be required. Moreover, computation
+will also need to be spent on pixels that do not correspond to ver-
+tices. Our work address these problems by utilizing a triangle mesh
+based CNN.
+A number of works perform CNN on triangle meshes. GCNN
+[MBBV15] deﬁne convolutions on patches based on geodesic po-
+lar coordinates around each vertex for a shape retrieval task. ACNN
+[BMRB16] proposed an anisotropic convolution operator based on
+the heat kernel. Poulenard and Ovsjanikov [PO18] proposes multi-
+direction convolution on triangle mesh and demonstrate it on classi-
+ﬁcation, shape segmentation and shape matching problems. MoNet
+[MBM∗16] uses a Gaussian mixture model with learnable kernel
+weights around vertices to deﬁne convolution. Lim et al. [LDCK19]
+propose a spiral convolution operator on LSTM, where the ﬁrst
+vertex of the spiral are chosen randomly. Recently, Bouritsas et
+al. [BBP∗19] propose to consistently choose the ﬁrst vertex of the
+spiral that is closest geodesically to a vertex and also use mesh
+simpliﬁcation to generate lower resolution meshes. They then use
+barycentric interpolation to transfer data between mesh resolutions
+and deﬁne an auto encoder network for a ﬁxed triangle mesh. They
+applied it to shape reconstruction problems. Gong et al. [GCBZ19]
+used a similar spiral convolution but pooling is done by a mesh
+simpliﬁcation matrix and unpooling is done with barycentric inter-
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+124
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+polation from the closest triangle. They demonstrated the network
+on dense shape correspondences, 3D facial expression classiﬁca-
+tion and 3D shape reconstruction. In contrast to some networks in
+this work, each network in [BBP∗19] and [GCBZ19] are for one
+speciﬁc triangle mesh only and they also do not consider physics
+related problems. Hanocka et al. [HHF∗19] deﬁne edge based con-
+volution on a triangle mesh and perform pooling/unpooling during
+training and inferencing via edge collapses based on the activation
+on edges. While this allows for the edge collapse to be task depen-
+dent, the training and inferencing cost is high as the edge collapse
+needs to be performed during runtime. Moreover, the input and out-
+puts are speciﬁed on edges, which are not directly applicable for
+problems where input or outputs naturally lie on vertices.
+A number of works map the triangle mesh onto a 2D image be-
+fore performing convolution. Maron et al. [MGA∗17] construct a
+torus from four copies of the mesh and map it to a ﬂat torus. Haim
+et al. [HSBH∗19] construct a branch covering map and ﬂatten it to
+a toric surface. Ezuz et al. [ESKBC17] map the mesh onto an im-
+age by minimizing a differentiable distortion metric, which allows
+the mapping to be done in a DL framework. While these methods
+try to reduce the amount distortion introduced by the mapping, the
+distortion is inherently not always avoidable.
+3. Method
+Our networks are built using three basic building blocks, namely
+Convolution, Pooling and Unpooling operators that operate directly
+on a manifold triangle mesh. They are connected together to cre-
+ate DownConv and UpConv blocks, shown in Figure 5, which are
+then connected together to form our encoder-decoder network with
+skip connection and the decoder network shown in Figure 6 and
+7 respectively. For the ease of reading, abbreviations used in this
+section are summarized in Table 1.
+Abbrev
+Description
+L
+Length of convolution ﬁlter
+SP
+Spiral convolution without dilation of [BBP∗19]
+SPD
+Spiral convolution with dilation of [BBP∗19]
+Rs
+List of sampled one-ring curve
+Es
+List of sampled best ﬁt ellipse
+RC
+Convolution based on the one-ring curve (our method)
+EC
+Convolution based on the best ﬁt ellipse (our method)
+Table 1: Abbreviations used throughout the method section.
+3.1. Convolution
+Unlike images, where the connectivity between pixels is regular,
+manifold triangle mesh vertices are connected irregularly. Hence, it
+is not straightforward to deﬁne a convolution operator for them.
+Recently, impressive work that deﬁnes CNNs on triangle meshes
+was published [BBP∗19,GCBZ19]. They utilize a vertex based spi-
+ral convolution. The convolution is deﬁned as weighted sums of
+vertices in the spiral sequence starting from the center vertex. The
+spiral sequence spirals out in a counter-clockwise direction, where
+the ﬁrst vertex is chosen to be the one that is closest geodesically to
+a ﬁxed vertex. The spiral sequence can be dilated by a factor of k by
+including a vertex and skip the next k −1 vertices in the sequence,
+where k ∈1,2 were used in the paper. The length of the sequence is
+then truncated to a ﬁxed number L. Inspired by the elegance of the
+method, we came up with a novel family of triangle mesh convo-
+lution operators that result in lower errors in many cases compared
+to the spiral convolution.
+We ﬁrst made several observations about the spiral convolution
+operator. The spiral sequences of different vertices do not have a
+perfect spatial or semantic relationship with each other, as each ver-
+tex can have a different number of neighbors. For example, the jth
+vertex in the spiral sequence of a vertex a can be from a one-ring
+neighbor, but for vertex b, it can be from a two-ring neighbor and
+they can be in different relative position in material space with re-
+spect to vertex a and b. From a physics simulation point of view,
+they likely have quite different inﬂuences on vertex a and b. How-
+ever, in the spiral convolution operator, they use the same weight.
+Nevertheless, based on our tests, the spiral convolution can still pro-
+duce good deep learning models. This information gives us insight
+that vertices involved in the convolution that share the weights do
+not have to have a perfect correspondence.
+Another observation we made is that the spiral convolution (SP)
+without dilation is biased toward including only the ﬁrst few ver-
+tices in the two-ring neighbors that just happen to be in the spiral
+sequence, as typically L is not large enough to include the whole
+two-ring neighbors. Therefore, the information from the two ring
+neighbors tend to concentrate on a small fraction of directions as
+shown in Figure 2, SP. For the spiral convolution with dilation
+(SPD), while its receptive ﬁeld is large, it skips some vertices near
+the center vertex which likely contain useful information, as seen
+in Figure 2, SPD.
+Based on these observations, we propose novel ways to deﬁne
+mesh convolution operators that yield lower error than the spiral
+convolutions in most cases. For each vertex, we enumerate its one-
+ring neighbors in a counter-clockwise order. As the mesh is man-
+ifold, the one-ring neighbors are well-deﬁned. We then treat the
+one-ring as a piecewise linear curve and sample it uniformly, based
+on length, with L −1 samples and store them in a list Rs. The ﬁrst
+sample of the list is placed at the neighbor closest geodesically to a
+ﬁxed vertex. Let’s say the center vertex is v and the one-ring neigh-
+bors are v0, v1, ..., vn−1. We ﬁrst compute
+l =
+n−1
+∑
+i=0
+||vi −v(i+1) mod n||2,
+(1)
+we then create uniform sampled points along the piecewise lin-
+ear curve with spacing l/(L −1). We will refer to the convolution
+constructed with these sampled points as Ring-based Convolution
+(RC). An example of the sampled points are shown in Figure 2, RC,
+as hollow blue circles.
+For a boundary vertex of a manifold mesh, where the one-ring
+neighborhood is topologically equivalent to a half disk, we pad a
+dummy vertex to complete the ring before sampling. The dummy
+vertex position is placed in the mid way, angular-wise and distance-
+wise, to the two ends of the one-ring, when oriented consistently
+with the normal of the center vertex. Figure 3 left illustrates the
+placement of this vertex. The dummy vertex is included in the curve
+for generating the L −1 samples. The dummy vertex allows us to
+have a closed curve for sampling, and later on, it will indicate the
+boundary for zero-padding the convolution operator.
+Another way of constructing the samples we considered is by
+least squares ﬁtting an ellipse [OZM04] of the projected one-ring
+neighbors, along with the padded dummy vertex, if any, onto the
+plane deﬁned by the center vertex position and its normal. We then
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+125
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+RC
+EC
+SP
+SPD
+Figure 2: RC, EC show our one-ring based and ellipse based convolutions respectively. SP and SPD show spiral convolution of [BBP∗19]
+and [GCBZ19] without and with dilation respectively. The center vertex is shown as green dot. Blue dots indicate vertices in the convolution
+ﬁlter, where the numbers specify the indices. The red polygon/ellipse shows the curve we used for sampling. The hollow circles indicate the
+RC and EC uniform samples, and the dashed lines indicate the minimum sum distance assignment. In all cases, vertex 1 is the geodesically
+closest vertex to the ﬁxed vertex.
+Figure 3: Left, Middle, Right are one-ring, two-ring and three-ring
+neighbors and their dummy vertices.
+use the ellipse to generate the uniform length samples, starting from
+the point on the ellipse closest to the neighbor that is geodesi-
+cally closest to the ﬁxed vertex. We will refer to the convolution
+constructed with the sampled ellipse as Ellipse-based Convolution
+(EC). An example of the ellipse is shown in Figure 2, EC, where
+the red ellipse is the best ﬁt ellipse and the hollow blue circles indi-
+cate the samples. The rationale behind this choice is that, while we
+prefer the convolution to respect the shape of the local neighbors, it
+may be irregular. The least square ﬁt ellipse provides anisotropicity
+while being somewhat regular.
+We then enumerate the two-ring and three-ring neighbors in a
+counter-clockwise ordering. We also add a dummy vertex in the
+same manner as we did for the one-ring if the two-ring or three-ring
+neighbors cross a boundary, as shown in Figure 3 middle and right.
+We then collect all the one-ring, two-ring and three-ring neighbors
+along with the dummy vertices, ie. all dark and light blue vertices in
+Figure 3, and add them into a list, Lc. We now compute a |Rs|×|Lc|
+Euclidean distance matrix. We then solve a rectangular assignment
+problem [Kuh55], where for each sample in Rs, we pick a vertex in
+Lc, such that no vertex in Lc is chosen more than once and the sum
+of the distance is minimized. Examples of such assignments are
+shown in Figure 2 RC and EC as dashed lines. We use an O(|Lc|3)
+algorithm [JV88]. Note though that this needs only be done once
+at pre-processing time and it does not add signiﬁcant overhead to
+our pooling and unpooling operators constructions to be discussed
+in the next sections. Now, each sample in this list Rs has a corre-
+sponding unique vertex in the mesh, some of which may be the
+dummy vertices, which will indicate zero-padding for the bound-
+ary. We use these |Rs| = L−1 vertices in the weighted sum for the
+convolution, where the dummy vertices are replaced with 0 index
+which will always have zero value. Our convolution operators tend
+to include all the one-ring neighbors and some two or three ring
+neighbors sampled from directions where it was under sampled by
+the one-ring neighbors.
+For each mesh, we consistently choose the ﬁxed vertex for
+geodesic distance to be the one where its position in the material
+c
+b
+d
+e
+f
+a
+g
+h
+i
+j
+k
+l
+m
+r
+n
+o
+p
+q
+s
+t
+u
+a
+b
+c
+d
+e
+f
+g
+h
+i
+k
+j
+a=0.5a+0.5c
+b=0.5b+0.5f
+c=0.5d+0.5e
+e=0.5h+0.5i
+f=0.5j+0.5k
+j=p
+i=0.5n+0.5o
+d=0.5g+0.5m
+h=0.5r+0.5s
+k=0.5t+0.5u
+g=0.5l+0.5q
+a=max(a,c)
+b=max(b,f)
+c=max(d,e)
+e=max(h,i)
+f=max(j,k)
+j=p
+i=max(n,o)
+d=max(g,m)
+h=max(r,s)
+k=max(t,u)
+g=max(l,q)
+a=c=a
+b=f=b
+d=e=c
+h=i=e
+j=k=f
+p=j
+n=o=i
+g=m=d
+r=s=h
+t=u=k
+l=q=g
+Average Pooling
+Max Pooling
+Unpooling
+Figure 4: Meshes before (black) and after (red) a step of indepen-
+dent edge collapses. We use the edge collapses to deﬁne our novel
+pooling and unpooling operators. Average pooling, max pooling
+and unpooling operations are shown in the boxes.
+space is closest to
+(maxx +minx
+2
+,maxy, maxz +minz
+2
+),
+(2)
+where (minx,miny,minz),(maxx,maxy,maxz) is the bounding box
+of the mesh in material space. The y-axis is the vertical axis. The
+rationale is that the ﬁxed vertex should be chosen so that the con-
+volution ﬁlter orients somewhat consistently in material space. In
+this case, it orients such that the ﬁrst vertex tends to point upward.
+This choice of the ﬁxed vertex also makes the convolution operator
+more consistent across different meshes.
+3.2. Pooling and Unpooling
+In addition to the previously deﬁned convolutional operators, our
+novel pooling and unpooling operators are deﬁned using paral-
+lel independent edge collapses and their reverse, as demonstrated
+in Figure 4. To decide which edges to collapse, we use a variant
+of [GH97] which maintains a priority queue of edges based on a
+quadric error. The edge that has the lowest quadric error, when
+the two endpoint vertices are replaced by the mid-point, is cho-
+sen to be collapsed. We then mark the edges sharing a vertex with
+the collapsed edge not be collapsible in the current pooling pass.
+We also disallow collapsing edges that will yield a non-manifold
+mesh. We continue to collapse edges until no more edge can be
+collapsed, or until the quadric error is higher than a threshold and
+the number of vertices is less than 60% the number of vertices at
+the start. The edges chosen in this manner can be collapsed inde-
+pendently in parallel without data dependency and we will end up
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+126
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+Figure 5: DownConv block (left) performs a convolution on In fol-
+lowed by instance normalization, leaky ReLU and Pooling. It out-
+puts features on the original resolution and the lower resolution
+meshes as Out and Outskip respectively. UpConv (right) does con-
+volution on In followed by Unpooling and then concatenate with
+Inskip, which is Outskip from the corresponding DownConv block,
+followed by another convolution, instance normalization and leaky
+ReLU.
+with between 50% to 60% the number of vertices, unless there are
+too many non-collapsible edges, which only can happen when the
+mesh is very coarse. The edges that are collapsed deﬁne our pool-
+ing operator. The vertices that remain either come from one or two
+original vertices. For a vertex that comes from one original vertex,
+we simply copy the features from the original vertex. For a vertex
+that comes from two original vertices, we either use the componen-
+twise average or max of the features of the two original vertices.
+Our pooling operator guarantees that the features at all ﬁne vertices
+are used in computing the features of coarse vertices. This is in
+contrast to the pooling operators based on barycentric interpolation
+used in [GCBZ19, BBP∗19] where some ﬁne vertices may never
+be used in computing any coarse vertex. MeshCNN [HHF∗19] also
+does pooling by averaging features, but they operate on edges and
+their pooling cannot be done in parallel as the edges to be collapsed
+are chosen sequentially during training and inferencing.
+Our unpooling operator is deﬁned using the same set of edge
+collapses used for pooling, albeit in a reverse way. We simply copy
+the value of an input vertex to either one or two output vertices,
+depending on whether it comes from edge collapse or not. Our un-
+pooling operator is hence akin to nearest neighbor upsampling.
+3.3. DownConv and UpConv Blocks
+We deﬁne our down convolution block, shown in Figure 5 left, in a
+similar manner to [HHF∗19], ie. convolution followed by instance
+normalization [UVL16] followed by a leaky-ReLU and then pool-
+ing. We store the features before pooling for later use in UpConv.
+Our up convolution block, shown in Figure 5 right is deﬁned
+in a similar manner to [HHF∗19], ie. convolution followed by un-
+pooling and optionally concatenated with features from the Down-
+Conv block followed by convolution then instance normalization
+and leaky ReLU.
+3.4. Encoder-Decoder Network
+For regression problems in which the input is speciﬁed on the mesh
+vertices, we use an encoder-decoder architecture with skip connec-
+tion in the similar manner to U-net architecture [RPB15]. The skip
+connection does not suffer from information bottleneck unlike the
+encoder-decoder without skip connection. The network consists of
+k DownConv blocks followed by k UpConv blocks followed by two
+Convs, as shown in Figure 6.
+For our choice of edge collapse, we will have between 0.5k to
+0.6k the number of vertices in the innermost level of our network.
+For k = 10, which we used in all of our experiments, it corresponds
+to between 1/1024 and 1/165. Note that when the number of ver-
+tices is very small, the condition that we disallow edge collapse
+causing non-manifold meshes will prevent the number of vertices
+to reduce further, i.e. the pooling and unpooling will simply be an
+identity operator. Note that this network is fully convolutional and
+hence can be applied to arbitrary manifold triangle meshes regard-
+less of the number of vertices and topology.
+We also found that in most cases, for the same number of learn-
+able parameters, it is beneﬁcial to make the network wider but shal-
+lower. In this case, some DownConv blocks are replaced with pool-
+ing operators and some UpConv blocks are replaced with unpooling
+operators. We will discuss this in the results section.
+3.5. Decoder Network
+For the regression problems in which the input is not naturally on
+the mesh vertices, we use a fully connected network that outputs the
+features of the coarsest vertices followed by the decoder without
+skip connection. An example of this is shown in Figure 7.
+3.6. Loss Functions
+Having the network directly produce the output on vertices makes
+it easy for us to employ various loss terms. The loss terms we
+have experimented with are L1, L2, and face normal difference.
+Throughout this section, let the superscript g denote the ground
+truth quantity and the superscript ∗denotes the output produced by
+the network. Let xi be the vertex position of the ith vertex, n j be the
+normal of the jth face. Suppose the jth face consists of vertices x0,
+x1, x2 in counter-clockwise order, then
+n j = normalize((x1 −x0)×(x2 −x0)).
+(3)
+We deﬁne our L1 vertex position error as
+L1 = mean
+||xg
+i −x∗
+i ||1
+3
+
+,
+(4)
+L2 vertex position error as
+L2 =
+q
+mean
+ ||xg
+i −x∗
+i ||2
+2
+
+(5)
+and the L1 normal error as
+Ln = mean
+||ng
+i −n∗
+i ||1
+3
+
+.
+(6)
+Our total loss function is hence
+Ltotal = αL1 +βL2 +γLn.
+(7)
+For some meshes, simply minimizing L1 yields virtually indistin-
+guishable results from the ground truth already, nonetheless, we
+found that for meshes with large low curvature area, having the Ln
+term improves visual quality. Also, for the decoder network, we
+observe that sometimes error is concentrated at certain vertices, in-
+stead of distributing throughout. Having the L2 term helps in this
+case. We have also experimented with edge dihedral angle loss, but
+this did not improve visual quality noticeably. Temporal coherence
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+127
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+Figure 6: The encoder-decoder Network is used when both the input and the output are deﬁned on the vertices of a triangle mesh. The input
+is passed through a series of DownConv blocks to aggregate features on ever coarser meshes until reaching the coarsest mesh. The features
+are then passed through UpConv blocks to scatter information on ever ﬁner meshes until reaching the original resolution. The DownConv
+blocks’ Outskip are connected to the corresponding UpConv blocks’ Inskip for skip connection. In practice, some of the DownConv and
+UpConv blocks are replaced with Pooling and Unpooling to reduce the number of learnable parameters.
+Figure 7: The decoder network is used when the input is a vec-
+tor of real numbers but the output is deﬁned on the vertices of the
+mesh. The input is passed through fully connected layers to trans-
+form it to the per-vertex features of the coarsest mesh. It is then
+passed through a series of UpConv blocks, where the Inskip’s are
+not used, so no concatenation is done. In practice, some of the Up-
+Conv blocks are replaced with Unpooling to reduce the number of
+learnable parameters.
+loss as in [LCT18] could also be used, but we found that the tem-
+poral incoherency is small enough to not be visually noticeable in
+our examples.
+4. Results
+We implement our network in PyTorch and use Adam [KB14] as
+the optimizer with the default parameters ie. lr = 10−3,betas =
+[0.9,0.999],eps = 10−8, leaky-ReLU with a negative slope of 0.01,
+instance normalization with eps = 10−5 and batch size of 3 in all
+experiments. Videos, sample codes and data will be available at
+https://github.com/nchentanez/TriMeshCNN to aid future research.
+The bounding box of the meshes used in our experiment has a
+length between 0.7 and 2.0 units. All timing experiments are done
+on a PC with NVIDIA RTX2080 Ti and 3.4 GHz Intel Core i7-
+6700 with 64GB of RAM. We demonstrate the application of our
+networks in several regression problems in this work as follows:
+1. Upsampling low-res cloth simulation to high-res cloth simula-
+tion (Cloth Upsampling)
+2. Regress the poses and velocities of the body parts of a man-
+nequin to cloth vertex positions (Pose to Cloth)
+3. Regress cloth simulation reconstructed with only a few principal
+component analysis (PCA) bases to the original full space (PCA
+Details Recovery)
+Problem
+Input
+Predictor
+Target Output
+Cloth
+Upsampling
+Loop-subdivided low resolution cloth
+vertices position relative to torso
+Input
+High res cloth vertices
+pos relative to torso
+Pose to Cloth Position, quaternion, linear vel and angular
+vel of each body parts (208 scalars)
+LBS of rest cloth
+relative to torso
+High res cloth vertices
+pos relative to torso
+PCA Details
+Recovery
+PCA coefﬁcients (16 or 32 or 64 scalars)
+LBS of rest cloth
+relative to torso
+High res cloth vertices
+pos relative to torso
+Joint Angles
+to Hand
+Joint angles of the bones in the hand (18
+scalars)
+LBS of hand in
+world space
+High res hand vetices
+pos in world space
+Table 2: Summary of the input, the predictor and the output of the
+networks in our examples. LBS stands for linear blend skinning.
+4. Regress hand and ﬁnger joint angles to high resolution wrinkles
+of the hand skin resulting from a high resolution 3D ﬂesh simu-
+lation (Joint Angles to Hand)
+In all of the problems we consider, the networks do not directly
+predict the world space position of all vertices. They only need to
+predict the displacement of vertices from easy-to-compute predic-
+tors that already contain reasonable low frequency components of
+the output meshes. The input, the predictor and the target output for
+each problem are summarized in Table 2.
+For the Cloth Upsampling, PCA Details Recovery, Pose to Cloth
+problems, we generate ground truth simulation data using a GPU
+accelerated XPBD Solver [MMC16] with dynamic triangle colli-
+sion detection and handling. The simulations are run with a time
+step of 1/60s using 8 sub-steps each with 75 iterations. The cloth-
+ing and mannequin animations are from UC Berkeley Garment Li-
+brary [dJNO∗12]. We subdivide the coarse meshes to have all edge
+lengths under 0.08 units and use this as our low resolution mesh.
+The high resolution mesh comes from subdividing the low reso-
+lution mesh with Loop subdivision twice, resulting in roughly 16
+times the number of vertices. For the Cloth Upsampling problem,
+we use a spring that allows compression up to 75% to facilitate
+wrinkle formation as suggested in [JLGF17]. We add a hard XPBD
+constraint (compliance zero), to make the low frequency compo-
+nents of the high resolution to match with those of low resolution
+using the harmonic test functions described in [KGBS11]. For a
+mesh with V vertices, we use V/40 ﬁrst lowest frequency test func-
+tions.
+For the Joint Angles to Hand problem, we use a quasi-static CPU
+based FEM solver with Neo-Hookean material model. The hand
+skin is embedded in a volumetric tetrahedral mesh, which in turn
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+128
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+is driven by the underlying bones. Wrinkle Meshes [MC10] is used
+to add additional wrinkles to the hand.
+5. Comparison and ablation study
+Throughout this section, we use the following notation. Let Dh
+k and
+Uh
+k denote a DownConv block and a UpConv block respectively,
+where the output has h channels, where if h is absent, it indicates
+simple Pooling and Unpooling and k refers to how many times the
+same block is repeated (k is omitted if it is 1). For example D128
+3
+is
+the same as D128D128D128. If the network is an encoder-decoder,
+we only specify the DownConv layers and it is understood that the
+symmetric UpConv layers are added with appropriate skip connec-
+tions. We abbreviate low resolution vertex count (lv) and high res-
+olution vertex count (hv).
+5.1. Upsampling
+We ﬁrst compare our proposed convolution operators and the non-
+dilated and dilated spiral convolution. We use α = 1,β = 0,γ = 0
+for these experiments, so that objective is to minimize L1 posi-
+tional error, which is easy to interpret. Based on some initial tests,
+an encoder-decoder architecture of the form DxD2xD4xD5D4x pro-
+duces a good quality result, so we use it for testing the various
+convolutions for a medium mesh, pants (265 lv, 4063 hv), and a
+large mesh, tank-female (969 lv, 14634 hv). We use frames from
+the dance animation (4233 frames) for these experiments. Through-
+out this section, we use the following abbreviations: RCs and ECs
+denotes our assignment problem based convolution with the ﬁlter
+size of s using uniform sampling of the one-ring neighbors and the
+best ﬁt ellipse respectively, MeshCNN refers to using the network
+of [HHF∗19], Spiral++ refers to using the network of [GCBZ19].
+The details about MeshCNN and Spiral++ are given in the supple-
+mentary material. We also experimented with using our encoder-
+decoder network architecture with our proposed pooling and un-
+pooling operators, but replacing our proposed convolution oper-
+ators with several alternatives as follows: V4 denotes a baseline
+vertex based convolution adapted from [HHF∗19] as explained in
+the Appendix, SPs and SPDs are the spiral convolution operators
+[BBP∗19,GCBZ19] without and with dilation of 2 respectively. We
+split training and testing as 90% and 10% respectively and report
+the error after training for 200 episodes as shown in our supplemen-
+tary material, Table 1. Note that we cannot run MeshCNN on the
+tank-female mesh as it runs out of memory on our 16GB GPUs.
+From the table, we can see that our proposed networks (RC, EC)
+yield signiﬁcantly lower errors compared to MeshCNN and Spi-
+ral++ in all cases. RC and EC also outperform V4 in all cases and
+outperform SP and SPD in most cases. This suggests that our pro-
+posed network architecture, pooling and unpooling operators and
+convolution operators all contribute to lowering the errors. RC/EC
+yield lowest training/testing errors in 34 cases, while SP/SPD yield
+lowest errors in 14 cases. One can notice that despite the fact that
+the tank-female mesh has roughly 4 times the number of vertices
+compared to the pants mesh, the error for tank-female mesh is not
+larger than the pants mesh, for a network with the same number
+of learnable weights. As V4, MeshCNN, Spiral++ do not yield the
+lowest error in any of these cases, we exclude them from further
+consideration.
+We then proceed to experiment with RC13,EC13,SP13,SPD13 for
+various architectures as well as experimenting with using a max op-
+erator for pooling as shown in our supplementary material, Table 2.
+For each architecture, we ﬁnd x such that it has the number of learn-
+able weights as close as possible to that of D80D160D320D5D320,
+which is 7.8M. RC13/EC13 produce the lowest error in 37 cases,
+while SP13/SPD13 produces the lowest error in only 1 case. Max
+produces the lowest error in 28 cases, while average produces the
+lowest error in 18 cases. Hence in practice, max pooling is worth
+considering. The architecture that yields the lowest training and test
+error is D62D124D248DD248D3D248 with RCmax
+13
+and hence we use
+it for all remaining experiments that use encoder-decoder architec-
+ture, unless otherwise speciﬁed.
+We next experiment with training a network using multiple
+meshes with different topology but share the same weights. This
+case was not considered in [BBP∗19] and [GCBZ19]. We sort
+the meshes from the Garment Library by the number of vertices
+in ascending order and choose the ﬁrst 10 meshes (lv, hv) as
+follows: blouse-asymmetric (158, 2198), blouse-symmetric (161,
+2210), blouse-symmetric-loose(174,2382), skirt(193,2794), dress-
+asymmetric(204,2970),
+shorts(235,3559),
+tank-male(249,3666),
+pants(265,4063), dress-victor(327,4827) and dress2(329,4922).
+The result is shown in our supplementary material, Table 3. As ex-
+pected, the error tends to increase as the number of meshes used
+for training grows, but they still remain relatively low. The result
+shows that our network architecture allows for the possibility of
+upsampling multiple meshes with a single network, when needed.
+5.2. Pose to Cloth
+We now consider the decoder network for regressing from pose to
+cloth displacement. We consider various architectures and choose
+x so that the number of learnable weights is as close as possible to
+that of D80D160D320D5D320, which is 7.2M. We choose the fully
+connected part to simply be a linear layer followed with instance
+normalization and a leaky-ReLU. The result for the dress2 mesh
+is shown in our supplementary material, Table 4. In this case, our
+RC13/EC13 produces lowest errors in 23 cases, while SP13/SPD13
+yield lowest error in 7 cases. We note though that RC, EC, SP
+and SPD can be interchanged easily. The inference phase need not
+be changed at all, and in practice one can test to see which one
+yields the lowest error for a given problem and use it. As RC13 with
+U208UU208UU208UU208U104U52U3 provides the lowest training
+error and also a small test error, we use it in the rest of our decoder
+network experiments, unless otherwise speciﬁed.
+We now turn to the visual quality of various choices of loss func-
+tions. For most experiments, having L1 error alone produces a visu-
+ally smooth surface already, nonetheless, in some cases, the surface
+can be slightly bumpy. Therefore, we include the surface normal
+loss, Ln, which improves the smoothness of the surface. Moreover,
+for some decoder experiments, we also found that with just L1 er-
+ror alone, in some rare cases the network produces a small error
+in most vertices but a large error in a few vertices manifesting as
+small spikes. Adding L2 loss removes these artifacts. We include
+L2 loss with weights of 1 for all the visual results with the decoder
+network. This is demonstrated in Figure 8, where one can notice
+that the L1 alone produces a bumpy surface in some places, while
+having the Ln loss with γ = 0.02 helps improving the visual quality
+and adding L2 loss with β = 1 does not reduce the visual quality.
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+129
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+Figure 8: From left to right, LBS, ground truth, L1 only,
+L1+0.02Ln,L1+0.02Ln + L2. One can see that L1 only results in a
+bumpy surface in some places, while L1+0.02Ln and L1+0.02Ln +
+L2 are visually comparable.
+5.3. Visual Results
+For visual results, we let each network train for 200 episodes using
+randomly selected 90% of the frames from both the dance (4233
+frames) the karate-smooth (4155 frames) animations before saving
+the network out for inference. The network training takes between
+4 to 20 hrs for training depending on the mesh size and the network
+size. We also experimented with reduced network sizes simply by
+changing the ﬁlter size from 13 to 9, reduce x to a half and a quar-
+ter for some selected cases and report the timing and the errors for
+them below. From all experiments we run, our networks with be-
+tween 5M to 8M learnable parameters are able to produce training
+output that are largely visually indistinguishable from the ground
+truth. For inference timing, we save out the network and run the
+inference in C++, using cuBLAS for dense matrix multiplications,
+cuDNN for 2D convolutions and our own unoptimized CUDA ker-
+nels for sparse matrix operations, pooling, unpooling, leaky-ReLU
+and instance normalization.
+Figure 1 shows still frames from animations of various meshes
+for the encoder-decoder network for cloth upsampling. We report
+the timing information and speed up gain of this use case for sev-
+eral meshes in Table 3. For simulation, we report the time required
+for the low resolution simulation alone and the high resolution sim-
+ulation alone, without the constraints to match the low resolution.
+For the upsampling problem, we report the speed up gain over GPU
+physics simulation, if we were to run low res simulation with 8, 2
+and 1 substeps and up-resolution it with our network for rendering
+at 60Hz compared to running high resolution physics simulation at
+8 substeps. Using fewer substeps for the low resolution simulation
+is possible because the low resolution simulation alone does not
+need as many substeps as high resolution. Also, our network only
+needs to be run for the frame we render and only for the mesh vis-
+ible by the camera. We believe the most common use case would
+be to run the low res simulation with 1 substep and use DL to up-
+resolution to high res result as if it were simulated with 8 substeps,
+in which case, the speedup expected would be between 4.4X to
+10.3X over the high res sim.
+Figure 9 shows frames from animations of the decoder network
+used for the Pose to Cloth problem. In this case, the network can
+operate without the use of a physics simulator, when the cloth is
+driven entirely by the character. The timing, errors and the speedup
+compared to high resolution GPU physics simulation for several
+meshes is reported in Table 4. Depending on the mesh and the size
+of the network used, the speedup is between 10X to 65X with vary-
+ing degrees of visual quality / speed tradeoff.
+Figure 9: Result of our Pose to Cloth deformation networks for
+dress2, skirt, blouse-symmetric, blouse-asymmetric, shorts, tank-
+male respectively. For each case, left is linear blend skinning, mid-
+dle is the ground truth high resolution simulation and right is the
+output of our networks. Clothing meshes come from UC Berkeley
+Garment Library.
+Figure 10: Ground truth, PCA compressed cape and output of our
+network whose inputs are the PCA cofﬁcients and output are the
+displacement from PCA to ground truth for 16, 32 and 64 PCA
+bases respectively. Notice how our network is able to closely match
+the ground truth. Clothing meshes come from UC Berkeley Gar-
+ment Library.
+Figure 10 shows the result of our decoder network for adding
+back details of PCA reduced order simulation for the cape (369 lv,
+5746 hv) mesh. These networks receive 16, 32 or 64 PCA coef-
+ﬁcients as input and produce displacements from the PCA recon-
+struction to the high resolution simulation. The timing and the error
+is reported in Table 4. This gives a possibility that our network can
+be used for enhancing the quality of the reduced order simulation or
+DL based simulation methods such as [FMD∗19] and [HDDN19],
+when the cloth or the deformable objects are in a close-up view.
+Figure 11 shows frames from the Joint Angles to Hand experi-
+ment. This hand mesh consists of a large number of vertices (33k)
+and is simulated with a volumetric FEM simulation and a pose pro-
+cessing, the data set consists of 5000 frames. Our network is able
+to regress from 18 joint angles to the hand deformation with good
+visual acuity. The timing information and the errors can be found
+in Table 4. The speedup over CPU simulation is between 25X to
+134X. This demonstrates a possibility of using our network for re-
+gressing a complex non-linear system that results in a high reso-
+lution triangle mesh deformation with a large potential speed-up
+gain.
+5.4. Large Dataset
+We also experimented with training our network on a large dataset
+consisting of animations from the CMU mocap database [cmu]. We
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+130
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+Figure 11: First row: LBS of the hand mesh skinned to the cur-
+rent bone transform. Second row) Ground truth of hand skin driven
+by an ofﬂine FEM Neo-Hookean Material Model Simulator. Third
+row) Output of our network. Fourth and ﬁfth rows) Image differ-
+ences of the ground truth and LBS and DL respectively, with bright-
+ness ampliﬁed by 150%. This shows that FEM generates substan-
+tial deformation at both small and large scales, which DL is able
+to capture well. Please zoom in to see more details.
+Figure 12: A small network (RC9, x/4) is trained with frames from
+animations from CMU mocap database. The ﬁgure shows frames
+from an animation not used for training. Left is input, middle is
+ground truth, right is the DL upsampled result. It demonstrates the
+ability for our network to generalize to unseen data.
+rescale the length of the limbs to match with that of Berkeley’s gar-
+ment database manequin. We then put the garment onto the start
+frame of each animation by gradually blending in the joint angles
+of the poses at the ﬁrst frame of the dance animation to the poses at
+the ﬁrst frame of each CMU mocap, all while the cloth simulation
+is running. We then pause the animation for 100 frames to let the
+clothing settle before starting the animation. We discard animations
+that result in limbs’ intersection or tangled simulation. We also omit
+10 randomly selected animations for testing and use the remaining
+animation as our dataset. We ended up with the remaining 2340 an-
+imations consisting of 486720 frames of animation. We then train
+a small Cloth Upsampling network (RC9, x/4) using tshirt2 mesh
+for 200 epochs, where we sample 10% of the frames of the training
+set for training in each epoch. The inference time of the network is
+3.4ms. Results of our networks running on an animation not trained
+are shown in Figure 12 and the accompanying video, demonstrat-
+ing the ability of our network to generalize to unseen data, when a
+sufﬁciently large dataset is used for training.
+6. Discussion
+We propose a triangle mesh convolutional neural network that uti-
+lizes novel convolutions, pooling and unpooling operators as build-
+ing blocks. We demonstrate its applications on cloth upsampling,
+cloth regression from character poses, cloth regression from PCA
+coefﬁcients, and hand skin deformation from bone joint angles. The
+network can produce high visual accuracy at small inference time
+and its size can be chosen as needed to provide various quality vs.
+performance trade-offs.
+a)
+b)
+c)
+d)
+e)
+Figure 13: A frame of pants animation not used for training. a)
+Low-res input. b) High-res ground truth. c) DL trained with 90%
+of random frames. d) DL trained with one every ﬁfth frame. e) DL
+trained with one every tenth frame. The DL outputs are almost iden-
+tical to the ground truth.
+The method however is not without drawbacks. As with most
+neural network problems, the quality of the result greatly depends
+on the amount and the quality of data used for training. The time re-
+quired for generating large amount training data is signiﬁcant.The
+network also can only be expected to provide good quality infer-
+ence for data that is similar to the training set. Figure 13d,e shows a
+frame from the result when we train the network with one of every
+5 frames and one of every 10 frames respectively. In these cases, it
+still manages to produce results that match visually well with the
+ground truth. However, if the input data lies completely outside of
+the training data, the network may not be able to produce as good
+quality results. The output of our network also does not guarantee
+collision free deformations. If desired, a collision post processing
+such as those employed in [SOC19] could be applied. We currently
+do not use it in our experiments. When training on the CMU mo-
+cap dabase, our network sometimes does not produce as much high
+frequency details in some area as in the ground truth. We speculate
+that details are somewhat smoothed out due to the minimization of
+L1 and L2 on large data set. Using generative adversarial network
+(GANs) and its variants [GPAM∗14, GAA∗17, WSW19] may im-
+prove the quality as reported in [LCT18]. We leave this as a future
+work.
+Figure 14: A frame of tshirt2, pants and tank-female mesh. Left is
+the input low res simulated with 1 substep, right is the output of our
+RC9 max networks. The low res sim at 1 substep differs greatly from
+the 8 substeps used for training the network. Hence, the network
+has to extrapolate far outside the training set with varying degrees
+of quality.
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+131
+
+
+N. Chentanez, M. Macklin, M. Müller, S. Jeschke, T. Kim / Title
+For the upsampling problem, we currently use the data generated
+by a low resolution simulation using 8 substeps. In this case, the
+networks have never seen the input of the low res simulation using 1
+substep during training and hence the visual quality is not optimal,
+as shown in Figure 14. One would likely get a much higher quality
+result if the training data was generated such that the input was a
+low res simulation with 1 substep and the output is the high res
+simulation with 8 substeps, constrained to match the interpolated
+low res sim at low frequencies.
+We also have not attempted a parameter search to ﬁnd the best
+network given a preferred number of learnable weights for the
+smaller networks. Table 2 and 4 in the supplementary material sug-
+gest that for a given problem, the error can vary greatly with the
+choice of architectures. We believe the error could have been signif-
+icantly lowered if this had been searched. As our network assumes
+constant mesh topology, it is not suitable for applications that re-
+quire frequent mesh topology changes such as interactive mesh de-
+sign and editing.
+We believe our network is useful for the applications we con-
+sider in this paper and we think it can be used for other applications
+where the input and/or output are triangle meshes as well. Poten-
+tially interesting future applications of this network include regres-
+sion from rig control parameters to mesh deformation [BODO18],
+generating triangle meshes with texture from images by combin-
+ing it with image network and differentiable rendering [CLG∗19],
+and predicting the results of geometric mesh optimizations such as
+curvature ﬂows.
+7. Acknowledgements
+We thanks reviewers of Symposium on Computer Animation 2020
+for their helpful comments and suggestions. We thanks members of
+NVIDIA GameWorks team for their valuable feedback. Some data
+used in this project was obtained from mocap.cs.cmu.edu which
+was created with funding from NSF EIA-0196217. Mannequin,
+clothing meshes, dance and karate-smooth animations are from
+Berkeley Garment Database.
+References
+[BBP∗19]
+BOURITSAS G., BOKHNYAK S., PLOUMPIS S., BRONSTEIN
+M., ZAFEIRIOU S.: Neural 3d morphable models: Spiral convolutional
+networks for 3d shape representation learning and generation. In The
+IEEE International Conference on Computer Vision (ICCV) (2019). 2,
+3, 4, 5, 7
+[BMRB16]
+BOSCAINI D., MASCI J., RODOIÀ E., BRONSTEIN M.:
+Learning shape correspondence with anisotropic convolutional neural
+networks. In Proceedings of the 30th International Conference on Neu-
+ral Information Processing Systems (USA, 2016), NIPS’16, Curran As-
+sociates Inc., pp. 3197–3205. 2
+[BNS94]
+BYRD R. H., NOCEDAL J., SCHNABEL R. B.: Representa-
+tions of quasi-newton matrices and their use in limited memory methods.
+Mathematical Programming 63, 1 (Jan 1994), 129–156. 2
+[BODO18]
+BAILEY S. W., OTTE D., DILORENZO P., O’BRIEN J. F.:
+Fast and deep deformation approximations.
+ACM Transactions on
+Graphics 37, 4 (Aug. 2018), 119:1–12. Presented at SIGGRAPH 2018,
+Los Angeles. 2, 10
+[CLG∗19]
+CHEN W., LING H., GAO J., SMITH E., LEHTINEN J.,
+JACOBSON A., FIDLER S.:
+Learning to predict 3d objects with an
+interpolation-based differentiable renderer. In Advances in Neural Infor-
+mation Processing Systems 32, Wallach H., Larochelle H., Beygelzimer
+A., dAlché-Buc F., Fox E., Garnett R., (Eds.). Curran Associates, Inc.,
+2019, pp. 9605–9616. 10
+[cmu]
+Cmu motion capture database.
+http://mocap.cs.cmu.
+edu/. 8
+[CYJ∗18]
+CHEN L., YE J., JIANG L., MA C., CHENG Z., ZHANG X.:
+Synthesizing cloth wrinkles by cnn-based geometry image superresolu-
+tion. Computer Animation and Virtual Worlds 29, 3-4 (2018), e1810.
+e1810 cav.1810. 2
+[dJNO∗12]
+DE JOYA M. J., NARAIN R., O’BRIEN J. F., SAMII A.,
+ZORDAN V.:
+Berkeley garment library.
+http://graphics.
+berkeley.edu/resources/GarmentLibrary/, 2012. 6
+[ESKBC17]
+EZUZ D., SOLOMON J., KIM V. G., BEN-CHEN M.:
+Gwcnn: A metric alignment layer for deep shape analysis. Computer
+Graphics Forum 36, 5 (2017), 49–57. 3
+[FMD∗19]
+FULTON L., MODI V., DUVENAUD D., LEVIN D. I. W., JA-
+COBSON A.: Latent-space dynamics for reduced deformable simulation.
+Computer Graphics Forum (2019). 2, 8
+[FYK10]
+FENG W.-W., YU Y., KIM B.-U.: A deformation transformer
+for real-time cloth animation. ACM Trans. Graph. 29, 4 (July 2010),
+108:1–108:9. 2
+[GAA∗17]
+GULRAJANI I., AHMED F., ARJOVSKY M., DUMOULIN V.,
+COURVILLE A. C.: Improved training of wasserstein gans. In Advances
+in Neural Information Processing Systems 30, Guyon I., Luxburg U. V.,
+Bengio S., Wallach H., Fergus R., Vishwanathan S., Garnett R., (Eds.).
+Curran Associates, Inc., 2017, pp. 5767–5777. 9
+[GCBZ19]
+GONG S., CHEN L., BRONSTEIN M. M., ZAFEIRIOU S.:
+Spiralnet++: A fast and highly efﬁcient mesh convolution operator. In
+The IEEE International Conference on Computer Vision (ICCV) (2019).
+2, 3, 4, 5, 7
+[GH97]
+GARLAND M., HECKBERT P. S.: Surface simpliﬁcation using
+quadric error metrics. In Proceedings of the 24th Annual Conference on
+Computer Graphics and Interactive Techniques (New York, NY, USA,
+1997), SIGGRAPH ’97, ACM Press/Addison-Wesley Publishing Co.,
+pp. 209–216. 4
+[GPAM∗14]
+GOODFELLOW I., POUGET-ABADIE J., MIRZA M., XU
+B., WARDE-FARLEY D., OZAIR S., COURVILLE A., BENGIO Y.: Gen-
+erative adversarial nets. In Advances in Neural Information Processing
+Systems 27, Ghahramani Z., Welling M., Cortes C., Lawrence N. D.,
+Weinberger K. Q., (Eds.). Curran Associates, Inc., 2014, pp. 2672–2680.
+9
+[HBVMT99]
+HADAP S., BANGERTER E., VOLINO P., MAGNENAT-
+THALMANN N.: Animating wrinkles on clothes. In Proceedings of the
+Conference on Visualization ’99: Celebrating Ten Years (Los Alamitos,
+CA, USA, 1999), VIS ’99, IEEE Computer Society Press, pp. 175–182.
+2
+[HDDN19]
+HOLDEN
+D.,
+DUONG
+B.
+C.,
+DATTA
+S.,
+NOWROUZEZAHRAI D.:
+Subspace neural physics: Fast data-driven
+interactive simulation. In Proceedings of the 18th Annual ACM SIG-
+GRAPH/Eurographics Symposium on Computer Animation (New York,
+NY, USA, 2019), SCA ’19, ACM, pp. 6:1–6:12. 2, 8, 11
+[HHF∗19]
+HANOCKA R., HERTZ A., FISH N., GIRYES R., FLEISH-
+MAN S., COHEN-OR D.: Meshcnn: A network with an edge. ACM
+Trans. Graph. 38, 4 (July 2019), 90:1–90:12. 3, 5, 7
+[HPS08]
+HORMANN K., POLTHIER K., SHEFFER A.: Mesh parameter-
+ization: Theory and practice. In ACM SIGGRAPH ASIA 2008 Courses
+(New York, NY, USA, 2008), SIGGRAPH Asia ’08, ACM, pp. 12:1–
+12:87. 2
+[HSBH∗19]
+HAIM N., SEGOL N., BEN-HAMU H., MARON H., LIP-
+MAN Y.: Surface networks via general covers. 2019 IEEE/CVF Interna-
+tional Conference on Computer Vision (ICCV) (Oct 2019). 3
+[IZZE17]
+ISOLA P., ZHU J., ZHOU T., EFROS A. A.: Image-to-image
+translation with conditional adversarial networks. In 2017 IEEE Confer-
+ence on Computer Vision and Pattern Recognition (CVPR) (July 2017),
+pp. 5967–5976. 2
+[JLGF17]
+JIN N., LU W., GENG Z., FEDKIW R. P.: Inequality cloth.
+In Proceedings of the ACM SIGGRAPH / Eurographics Symposium on
+Computer Animation (New York, NY, USA, 2017), SCA ’17, ACM,
+pp. 16:1–16:10. 6
+c
+⃝2020 The Author(s)
+Computer Graphics Forum c
+⃝2020 The Eurographics Association and John Wiley & Sons Ltd.
+132

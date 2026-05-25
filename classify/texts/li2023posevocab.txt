@@ -1,0 +1,1203 @@
+Title: Posevocab: Learning joint-structured pose embeddings for human avatar modeling
+
+PoseVocab: Learning Joint-structured Pose Embeddings for
+Human Avatar Modeling
+Zhe Li
+Tsinghua University
+Beijing, China
+liz19@mails.tsinghua.edu.cn
+Zerong Zheng
+Tsinghua University & NNKosmos
+Technology
+Beijing, China
+zzr18@mails.tsinghua.edu.cn
+Yuxiao Liu
+Tsinghua University
+Shenzhen, China
+liuyuxia22@mails.tsinghua.edu.cn
+Boyao Zhou
+Tsinghua University
+Beijing, China
+bzhou22@mail.tsinghua.edu.cn
+Yebin Liu
+Tsinghua University
+Beijing, China
+liuyebin@mail.tsinghua.edu.cn
+Figure 1: Our method can create animatable avatars with realistic pose-dependent details from multi-view RGB videos.
+ABSTRACT
+Creating pose-driven human avatars is about modeling the mapping
+from the low-frequency driving pose to high-frequency dynamic
+human appearances, so an effective pose encoding method that can
+encode high-fidelity human details is essential to human avatar
+modeling. To this end, we present PoseVocab, a novel pose encoding
+method that encourages the network to discover the optimal pose
+embeddings for learning the dynamic human appearance. Given
+multi-view RGB videos of a character, PoseVocab constructs key
+poses and latent embeddings based on the training poses. To achieve
+pose generalization and temporal consistency, we sample key ro-
+tations in 𝑠𝑜(3) of each joint rather than the global pose vectors,
+and assign a pose embedding to each sampled key rotation. These
+joint-structured pose embeddings not only encode the dynamic
+appearances under different key poses, but also factorize the global
+pose embedding into joint-structured ones to better learn the ap-
+pearance variation related to the motion of each joint. To improve
+the representation ability of the pose embedding while maintain-
+ing memory efficiency, we introduce feature lines, a compact yet
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+© 2023 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-0159-7/23/08.
+https://doi.org/10.1145/3588432.3591490
+effective 3D representation, to model more fine-grained details of
+human appearances. Furthermore, given a query pose and a spatial
+position, a hierarchical query strategy is introduced to interpolate
+pose embeddings and acquire the conditional pose feature for dy-
+namic human synthesis. Overall, PoseVocab effectively encodes the
+dynamic details of human appearance and enables realistic and
+generalized animation under novel poses. Experiments show that
+our method outperforms other state-of-the-art baselines both qual-
+itatively and quantitatively in terms of synthesis quality. Code is
+available at https://github.com/lizhe00/PoseVocab.
+CCS CONCEPTS
+• Computing methodologies →Shape modeling.
+KEYWORDS
+Animatable avatar, human modeling, human synthesis
+ACM Reference Format:
+Zhe Li, Zerong Zheng, Yuxiao Liu, Boyao Zhou, and Yebin Liu. 2023. Po-
+seVocab: Learning Joint-structured Pose Embeddings for Human Avatar
+Modeling. In Special Interest Group on Computer Graphics and Interactive
+Techniques Conference Conference Proceedings (SIGGRAPH ’23 Conference
+Proceedings), August 6–10, 2023, Los Angeles, CA, USA. ACM, New York, NY,
+USA, 12 pages. https://doi.org/10.1145/3588432.3591490
+arXiv:2304.13006v2  [cs.CV]  14 May 2023
+
+
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+Li, Z. et al
+1
+INTRODUCTION
+Human avatar modeling, due to its potential value in holographic
+conferences, Metaverse, game and movie industries, has been a pop-
+ular topic in computer graphics and vision for decades. Animatable
+human avatars usually take the skeletal pose as the driving signal
+and output realistic human models with pose-dependent dynamic
+details. Many human avatar techniques [Bagautdinov et al. 2021;
+Liu et al. 2021; Peng et al. 2021a; Zheng et al. 2022] utilize neural
+networks to model the mapping from the pose input to the dynamic
+human appearance. However, how to effectively encode the pose
+input into the network still remains a challenging problem.
+Many previous works take SMPL-derived [Loper et al. 2015]
+attributes like pose vectors [Li et al. 2022a; Saito et al. 2021; Zheng
+et al. 2022] or SMPL positional maps [Ma et al. 2021b] as the con-
+ditional pose features. Then a neural network, usually an MLP, is
+trained to map 3D positions and the corresponding pose features
+to a 3D representation, e.g., mesh, point cloud, signed distance
+field (SDF), and radiance field (NeRF) [Mildenhall et al. 2020], to
+model the dynamic human appearance. Unfortunately, the change
+of the driving signal, i.e., SMPL-derived attributes, is low-frequency,
+while the human appearance varies at a much higher frequency.
+Therefore, it is challenging for MLPs to model the mapping due to
+the low-frequency bias of MLPs [Tancik et al. 2020], thus yielding
+blurry appearances without fine-grained garment wrinkles.
+Previous works [Chen et al. 2022; Müller et al. 2022; Yu et al.
+2021] demonstrate that learnable latent embeddings at NeRF input
+end can encode much more high-frequency details for static scene
+rendering. To extend such embeddings to dynamic human mod-
+eling, inspired by word embeddings in word2vec [Mikolov et al.
+2013a,b], we propose PoseVocab that consists of pairs of key poses
+and learnable pose embeddings, to encourage the network to dis-
+cover the optimal embeddings for encoding high-frequency human
+appearances under various poses. However, naively constructing
+pairs of global poses and global latent codes like [Peng et al. 2021a]
+yields poor generalization to unseen poses because the global pose
+vector entangles the information from all the joints. What’s worse,
+these global codes fail to encode fine-grained details of human ap-
+pearances due to their limited representation capacity. Therefore,
+we propose joint-structured pose embeddings by sampling key rota-
+tions in 𝑠𝑜(3) of each joint and assigning them the corresponding
+latent embeddings. These joint-structured pose embeddings are
+distributed in the rotation domain of each joint, and serve as the
+discrete samples of the continuous pose feature space for interpola-
+tion. Furthermore, to guarantee both spatial capacity and memory
+efficiency, each pose embedding is defined as three feature lines
+along 𝑥, 𝑦and 𝑧axes. Similar to EG3D [Chan et al. 2022] and Ten-
+soRF [Chen et al. 2022], the feature lines decompose a 3D volume
+into three axes via orthogonal projections. Compared with a global
+latent code, feature lines demonstrate a more powerful capacity for
+encoding fine-grained dynamic details while maintaining memory
+efficiency.
+Based on the constructed PoseVocab, a hierarchical query strategy
+is introduced for avatar animation. Our hierarchical query includes
+three levels: the joint level, the key rotation level and and the spatial
+level. Specifically, given a query body pose, we first decompose the
+global pose vector into rotations of each joint. For each query joint
+rotation, we search for K nearest neighbors (KNN) key rotations and
+interpolate the corresponding pose embeddings, i.e., feature lines. In
+the spatial level, the pose feature of a query 3D position is sampled
+by orthogonal projections on the interpolated feature lines. Finally,
+the 3D position and the corresponding pose feature are fed into an
+MLP to decode a neural radiance field (NeRF) [Mildenhall et al. 2020]
+that represents the dynamic 3D character. The hierarchical query
+in PoseVocab not only decomposes the effects of each joint rotation
+on the dynamic appearance for better generalization to novel poses,
+but also guarantees the temporally consistent animation benefiting
+from the smooth KNN interpolation.
+In summary, our technical contributions are below:
+• Joint-structured pose embeddings that not only disentangle the
+effects of different joints on the dynamic appearance, but also
+encode high-frequency details for realistic avatar modeling.
+• Feature lines, a new compact yet effective 3D representation that
+improves the representation ability of pose embeddings while
+maintaining memory efficiency.
+• A hierarchical query strategy in PoseVocab that interpolates joint-
+structured pose embeddings in the joint, key-rotation and spatial
+levels for generalized and temporally consistent animation.
+Compared with other pose encoding methods, PoseVocab not
+only has the ability to encode the high-frequency human dynamic
+appearance, but also generalizes well to novel poses. Overall, our
+method can automatically create a realistic animatable avatar rep-
+resented by a pose-conditioned NeRF from multi-view videos, and
+experiments show that our method outperforms other state-of-the-
+art approaches both qualitatively and quantitatively.
+2
+RELATED WORK
+Human avatar modeling is a popular research topic in the last
+few years, and many methods have been proposed to reconstruct
+animation-ready avatars from short videos [Alldieck et al. 2018,
+2019; Feng et al. 2022; Jiang et al. 2022b,a,c; Peng et al. 2022a; Su et al.
+2021; Te et al. 2022] or single images [He et al. 2021; Huang et al.
+2022, 2020]. Unfortunately, they cannot synthesize pose-dependent
+appearances like dynamic cloth wrinkles. In this paper, we aim
+to model these pose-dependent appearance details, so we mainly
+review the related methods that are able to achieve similar goals.
+2.1
+Pose Encoding in Avatar Modeling
+Human pose encoding is widely explored, and many representa-
+tions including pose vectors, 6D representations [Zhou et al. 2019]
+and latent codes [Pavlakos et al. 2019] are proposed for pose priors
+[Pavlakos et al. 2019; Tiwari et al. 2022] and motion generation
+[Guo et al. 2022; Tevet et al. 2022]. How to effectively encode the
+pose input into the network is also one of the core problems in
+avatar modeling. Many works take SMPL-derived [Loper et al. 2015]
+attributes to encode the pose input. In the geometric avatar model-
+ing, given 3D scans or depth sequences of a character, SCANimate
+[Saito et al. 2021], SNARF [Chen et al. 2021], Neural-GIF [Tiwari
+et al. 2021], NASA [Deng et al. 2020], LEAP [Mihajlovic et al. 2021],
+DSFN [Burov et al. 2021], PINA [Dong et al. 2022b] and Lapla-
+cianFusion [Kim et al. 2022] adopted SMPL pose vectors or joint
+rotations as the pose condition to learn the pose-dependent implicit
+
+
+PoseVocab: Learning Joint-structured Pose Embeddings for Human Avatar Modeling
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+surfaces or displacement fields. MetaAvatar [Wang et al. 2021] pro-
+posed to learn an avatar from only a few depth images with the
+meta-learned network as the initialization. SCALE [Ma et al. 2021a],
+GeoTexAvatar [Li et al. 2022b], FITE [Lin et al. 2022] and CLoSET
+[Zhang et al. 2023] took UV or rendered positional maps of posed
+SMPL models as the pose condition to regress the pose-dependent
+warping field. COAP [Mihajlovic et al. 2022] proposed a part-aware
+neural network to condition the body shape on local SMPL point
+clouds.
+On the other hand, given RGB videos of a character under vari-
+ous poses, many textured avatar modeling methods also adopted
+similar SMPL-derived attributes as the pose feature to represent the
+dynamic human appearance. Specifically, [Zheng et al. 2022, 2023]
+defined a set of local radiance fields attached to sampled SMPL
+nodes, and learned the mapping from SMPL pose vectors to the
+node residual and varying details of the human appearance. TAVA
+[Li et al. 2022a] proposed to jointly model the non-rigid warping
+field and shading effects directly conditioned on the pose vectors.
+Besides, pose vector-based encoding is also adopted in animatable
+hand modeling [Corona et al. 2022]. [Yoon et al. 2022] utilized SMPL
+normal maps and velocities as pose conditions and took SMPL as a
+3D proxy for deferred neural rendering [Thies et al. 2019]. DANBO
+[Su et al. 2022] regressed human appearances from 6D representa-
+tions [Zhou et al. 2019] of skeletal poses via GNN [Kipf and Welling
+2016]. However, the above low-frequency SMPL-derived attributes
+have a poor capacity to represent the high-fidelity dynamic hu-
+man appearance, thus essentially limiting the synthesis quality of
+avatars. Neural Actor [Liu et al. 2021] regressed texture maps from
+normal maps by image-to-image translation with adversarial loss in
+SMPL UV space, but such an encoding strategy constrains the per-
+former to wear tight clothes for topological consistency with SMPL.
+On the other end of the spectrum, Neural Body [Peng et al. 2021b],
+Animatble NeRF [Peng et al. 2021a, 2022b], ARAH [Wang et al.
+2022] and TotalSelfScan [Dong et al. 2022a] assigned a global latent
+code for each training frame to compensate for the time-varying
+dynamic appearance and learned these codes in an auto-decoding
+fashion [Park et al. 2019]. Although these codes “offload” the net-
+work representation power to themselves to encode varying details,
+they fail to encode fine-grained appearance details due to their
+limited representation capacity. Furthermore, global latent codes
+entangle the information from all the body joints, exacerbating
+their generalization capability to novel poses.
+2.2
+Avatars with Reconstruction, Tracking, or
+Simulation
+Many works aimed to combine hybrid technologies like dense re-
+construction, non-rigid tracking, and cloth simulation for creating
+more realistic avatars from multi-view videos. [Bagautdinov et al.
+2021], [Xiang et al. 2021] and [Halimi et al. 2022] first reconstructed
+and tracked 3D meshes of the whole body or garments, and then
+learned the deformation and varying appearances with the dense
+correspondences as a strong prior. [Xu et al. 2011] and [Habermann
+et al. 2021] relied on a template mesh for blending textures from
+the database or learning the deformation and textures, respectively.
+Dressing Avatars [Xiang et al. 2022] utilized high-fidelity tracking
+of dense geometry in the training stage, whereas in the animation
+this method applied a cloth simulator to generate more realistic
+cloth dynamics. [Remelli et al. 2022] extended the driving signal
+from skeletal poses to sparse images, and leveraged texel-aligned
+features to synthesize more realistic details. Compared with these
+hybrid methods, our method does not rely on any preprocessing
+steps like reconstruction, tracking or simulation, and can be trained
+in an end-to-end manner given the RGB videos and SMPL registra-
+tions.
+3
+METHOD
+Given multi-view RGB videos of a character with𝑇frames captured
+by 𝑁cameras, we denote the RGB sequences as {I𝑡𝑛| 1 ≤𝑛≤𝑁, 1 ≤
+𝑡≤𝑇}. We assume that the body pose of each frame is known,
+and denoted as Θ𝑡∈R3×𝐽, where 𝐽is the joint number of the
+human body. The human avatar modeling problem is to model the
+mapping from the body pose Θ𝑡to the dynamic human appearance
+described by the corresponding RGB images.
+Similar to other avatar representations [Liu et al. 2021; Peng et al.
+2021a], we first factor out the rigid skeletal motions by deforming
+the 3D human from the posed space to the canonical one using linear
+blend skinning (LBS). Then we represent the canonical 3D human
+as a pose-conditioned neural radiance field (NeRF) [Mildenhall et al.
+2020] that takes a canonical 3D position v𝑐, a view direction d and
+the pose feature f(Θ𝑡, v𝑐) as input and returns a tuple of color c
+and SDF 𝑠, i.e.,
+𝑔: (v𝑐, d, f(Θ𝑡, v𝑐)) →(c,𝑠).
+(1)
+In our method, we follow VolSDF [Yariv et al. 2021] to convert SDF
+to density for SDF-based volume rendering.
+The pose feature f(Θ𝑡, v𝑐) in Eq. 1 plays an important role in
+modeling detailed dynamic human appearance. Previous methods
+usually represent the pose feature as low-frequency SMPL-derived
+attributes (like pose vectors [Zheng et al. 2022] or SMPL positional
+maps [Ma et al. 2021b]). However, it is difficult for the network
+to map these low-frequency driving signals to high-frequency hu-
+man appearances. To overcome this challenge, we propose Pose-
+Vocab, a novel pose encoding method for realistic human avatar
+modeling. Inspired by word embeddings [Mikolov et al. 2013a],
+we construct a pose vocabulary, dubbed PoseVocab, which con-
+sists of joint-structured key rotations and their corresponding pose
+embeddings. PoseVoab encourages the network to discover the
+optimal pose embeddings to encode the high-frequency dynamic
+appearance of the character. Fig. 2 demonstrates an overview of the
+representation of PoseVocab. Given the multi-view RGB videos of a
+character under various poses, we first construct PoseVocab based
+on the training poses. The constructed PoseVocab consists of key
+rotation samples in 𝑠𝑜(3) of each joint and the corresponding pose
+embeddings. The joint-structured pose embeddings are designed
+to disentangle the effects of different joints on the pose-dependent
+dynamic details for better generalization to novel poses. Given a
+query pose vector, we first decompose it into rotations of each joint.
+For each query joint rotation, we interpolate joint-structured pose
+embeddings represented by feature lines through KNN searching
+and blending. Finally, the pose-dependent feature of a 3D position
+is acquired by sampling on the interpolated feature lines for avatar
+rendering. Next, we will introduce PoseVocab in detail.
+
+
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+Li, Z. et al
+Figure 2: Overview of the representation of PoseVocab. PoseVocab is constructed based on the training poses by sampling
+the key rotations in 𝑠𝑜(3) of each joint and assigning a pose embedding for each key rotation. These joint-structured pose
+embeddings encode the dynamic appearance of the character under various poses. Given a query pose and 3D position, we
+hierarchically interpolate pose embeddings in joint, key-rotation and spatial levels to acquire the conditional pose feature,
+which is fed into an MLP to decode the radiance field, eventually synthesizing the high-fidelity human avatar via volume
+rendering.
+3.1
+Joint-structured Pose Embeddings
+The desirable properties of a pose encoding method are effective-
+ness and generalization. To this end, we propose joint-structured
+pose embeddings to disentangle the effects of different joints on the
+dynamic human appearance. In other words, we sample key rota-
+tions and assign pose embeddings for each joint. To be more specific,
+given the training poses (rotations) {𝜽𝑡
+𝑗|𝜽𝑡
+𝑗∈𝑠𝑜(3), 1 ≤𝑡≤𝑇} of
+the 𝑗-th joint, we first sample 𝑀key rotations via farthest point
+sampling. The distance metric between two rotations is calculated
+as [Huynh 2009; Tiwari et al. 2022]:
+𝑑(𝜽1, 𝜽2) = 1 −
+q(𝜽1)⊤q(𝜽2)
+ ∈[0, 1],
+(2)
+where q(·) is a function that maps an axis-angle vector to a unit
+quaternion, and 𝜽1 and 𝜽2 are two axis-angle vectors. The sampled
+key rotations {^𝜽𝑚
+𝑗|1 ≤𝑚≤𝑀} cover most of the seen poses in the
+training dataset. Then we assign a learnable pose embedding for
+each key rotation.
+To improve the representation ability of the pose embedding, a
+possible solution is to represent each pose embedding as volumes
+[Fridovich-Keil et al. 2022; Müller et al. 2022] or tri-planes [Chan
+et al. 2022] (Fig. 3 (a, b)). Unfortunately, the memory usage will be
+unaffordable because the number of pose embeddings is over 5000
+in total. To balance the spatial capacity and memory efficiency, our
+pose embedding is represented as three feature lines on the 𝑥, 𝑦
+and 𝑧axes. The structure of feature lines is illustrated in Fig. 3 (c),
+and three feature lines are denoted as
+F𝑚
+𝑗,𝑥∈R𝑅𝑥×𝐷, F𝑚
+𝑗,𝑦∈R𝑅𝑦×𝐷, F𝑚
+𝑗,𝑧∈R𝑅𝑧×𝐷,
+(3)
+where 𝑅𝑥, 𝑅𝑦and 𝑅𝑧are the resolutions of 𝑥, 𝑦and 𝑧feature lines,
+respectively, and 𝐷is the feature dimension. Similar to tri-planes
+[Chan et al. 2022], the fetched feature of a 3D point v𝑐= (𝑥𝑐,𝑦𝑐,𝑧𝑐)
+is the concatenation of the projected features on the three lines:
+h
+
+v𝑐; 𝐹𝑚
+𝑗,𝑥, 𝐹𝑚
+𝑗,𝑦, 𝐹𝑚
+𝑗,𝑧
+
+= ⊕
+
+Lerp(𝑥𝑐; F𝑚
+𝑗,𝑥), Lerp(𝑦𝑐; F𝑚
+𝑗,𝑦), Lerp(𝑧𝑐; F𝑚
+𝑗,𝑧)
+
+,
+(4)
+where ⊕is the concatenation operation, and Lerp(·) represents
+linear interpolation on the feature line given a 1D query coordinate.
+So far, for each joint, we have constructed 𝑀key-value pairs, i.e.,
+key rotations and corresponding pose embeddings, based on the
+training poses. These joint-structured pose embeddings assemble
+the PoseVocab, and serve as discrete samples in the continuous pose
+feature space for the following query in PoseVocab.
+3.2
+Hierarchical Query in PoseVocab
+Based on the constructed PoseVocab that consists of joint-structured
+key rotations {^𝜽𝑚
+𝑗} and pose embeddings {F𝑚
+𝑗,𝑥}, {F𝑚
+𝑗,𝑦}, {F𝑚
+𝑗,𝑧},
+we can interpolate these embeddings to acquire the pose feature
+given an arbitrary pose 𝚯= [𝜽⊤
+1 , ..., 𝜽⊤
+𝐽]⊤(𝐽is the joint number)
+and a 3D position. The query procedure includes three hierarchical
+levels: joint, key-rotation and spatial levels as shown in Fig. 2.
+Joint Level. Specifically, given a query pose vector 𝚯= [𝜽⊤
+1 , ..., 𝜽⊤
+𝐽]⊤,
+we first split it into rotations of each joint {𝜽𝑗|1 ≤𝑗≤𝐽}.
+
+
+PoseVocab: Learning Joint-structured Pose Embeddings for Human Avatar Modeling
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+Figure 3: Illustrations of volume (a), tri-planes (b) and fea-
+ture lines (c). Given a query coordinate (𝑥,𝑦,𝑧), the volume
+directly returns the feature voxel, tri-planes return the con-
+catenation of three projected features on (𝑥,𝑦), (𝑦,𝑧) and
+(𝑧,𝑥) planes, and feature lines return the concatenation of
+three projected features on 𝑥, 𝑦and 𝑧axes.
+Key-rotation Level. For the query rotation of the 𝑗-th joint, 𝜽𝑗,
+we search for the 𝐾nearest key rotations {^𝜽𝑘
+𝑗}𝐾
+𝑘=1 using Eq. 2 as the
+distance metric, and interpolate corresponding pose embeddings
+(i.e., feature lines) as a weighted sum:
+F𝑗,𝑥=
+Í𝐾
+𝑘=1 𝑤(𝜽𝑗, ^𝜽𝑘
+𝑗)F𝑘
+𝑗,𝑥
+Í𝐾
+𝑘=1 𝑤(𝜽𝑗, ^𝜽𝑘
+𝑗)
+,
+(5)
+where 𝑤(𝜽𝑗, ^𝜽𝑘
+𝑗) = 1 −𝑑(𝜽𝑗, ^𝜽𝑘
+𝑗) is the blending weight. F𝑗,𝑦and
+F𝑗,𝑧are similarly calculated as Eq. 5.
+Spatial Level. Given a canonical 3D position v𝑐, we linearly sam-
+ple its pose feature h(v𝑐; F𝑗,𝑥, F𝑗,𝑦, F𝑗,𝑧) by Eq. 4 on the interpo-
+lated pose embeddings, i.e., three feature lines F𝑗,𝑥, F𝑗,𝑦and F𝑗,𝑧.
+Moreover, following SCANimate [Saito et al. 2021], we also ap-
+ply a skinning weight awared attention scheme on the feature of
+each joint to limit the effects of irrelevant joints to reduce spurious
+correlations.
+Finally, we concatenate the features queried by all the joint
+rotations together as the whole pose feature:
+f(Θ, v𝑐) =
+𝐽
+Ê
+𝑗=1
+ 𝜔(v𝑐, 𝑗) · h(v𝑐; F𝑗,𝑥, F𝑗,𝑦, F𝑗,𝑧) ,
+(6)
+where 𝜔(v𝑐, 𝑗) is the predefined influence weight of the 𝑗-th joint
+on v𝑐[Saito et al. 2021]. Eventually, the canonical 3D position and
+its corresponding pose feature are fed into Eq. 1 to decode NeRF
+for avatar rendering.
+3.3
+Discussion on PoseVocab Designs
+Our PoseVocab representation is designed for effective and general-
+ized pose encoding based on the following insights:
+First of all, it remains difficult for many previous methods [Li et al.
+2022a; Zheng et al. 2022] to directly map SMPL-derived attributes
+like pose vectors to high-frequency dynamic human appearances
+using MLPs because of the low-frequency variation of driving poses
+and low-frequency bias of MLPs [Tancik et al. 2020]. In contrast,
+in our method, the low-frequency pose only plays roles of queries
+and keys, while the conditional pose feature is the learnable pose
+embedding. We promote the network to discover these pose em-
+beddings to encode high-frequency dynamic human appearances
+under various poses, and then input these embeddings containing
+appearance information into the conditional NeRF MLP.
+Secondly, if we naively construct pairs of global training poses
+and latent embeddings like [Peng et al. 2021a; Wang et al. 2022], it
+still remains difficult to model fine-grained details and generalize to
+novel poses as shown in Fig. 6, because the global pose vector entan-
+gles the control of all the joints on the dynamic human appearance.
+So we propose joint-structured pose embeddings to disentangle the
+effects of different body joints for modeling fine-grained details
+and generalization ability to novel poses.
+Thirdly, representing each pose embedding as a global latent code
+yields low-quality avatar appearances without fine-grained patterns
+of garments as shown in Fig. 5, so we introduce features lines, an
+effective and compact 3D representation for both representation
+ability and memory efficiency.
+Finally, the hierarchical query in PoseVocab interpolates joint-
+structured pose embeddings successively in the joint, key-rotation
+and spatial levels. The joint level decomposes the control of different
+joint motions on the dynamic appearance for better generalization
+to novel poses. The key-rotation level guarantees temporally consis-
+tent animation via the smooth KNN blending. Last but not least, the
+spatial level provides the spatial distinction of different positions
+to encode more fine-grained details.
+3.4
+Training
+The learnable variables of our network include the joint-structure
+pose embeddings {F𝑚
+𝑗,𝑥}, {F𝑚
+𝑗,𝑦}, {F𝑚
+𝑗,𝑧} and the parameters of the
+NeRF MLP in Eq. 1. The training losses include a color loss, a
+perceptual loss, a mask loss, the Eikonal loss [Gropp et al. 2020]
+and a total variation loss on feature lines:
+L = 𝜆colorLcolor + 𝜆perceptualLperceptual
++ 𝜆maskLmask + 𝜆eikonalLeikonal + 𝜆TVLTV,
+(7)
+where 𝜆s are loss weights.
+Color Loss. The color loss is an L1 loss between the volume-
+rendered [Yariv et al. 2021] color image and the ground truth:
+Lcolor =
+∑︁
+r∈R
+C(r) −C∗(r)
+
+1 ,
+(8)
+where R is the set of sampled rays from the rendered view, and
+C(r) and C∗(r) are the rendered and true pixel colors, respectively.
+Perceptual Loss. The perceptual loss [Zhang et al. 2018] is con-
+ducted on a local patch of rendered and ground-truth images, and
+penalizes them to be close in the feature map level. We choose VGG
+as the backbone to compute the learned perceptual image patch
+similarity (LPIPS):
+Lperceptual =
+∑︁
+p∈P
+VGG(C(p)) −VGG(C∗(p))
+2
+2 ,
+(9)
+where P is the set of sampled patches from the rendered view, and
+C(p) and C∗(p) are the rendered and true patches, respectively.
+The perceptual loss has been widely used in the NeRF training [Gao
+et al. 2022; Weng et al. 2022] to improve the reconstructed details.
+
+
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+Li, Z. et al
+Mask Loss. The mask loss constrains the rendered mask to be
+consistent with the ground truth:
+Lmask =
+∑︁
+r∈R
+𝑀(r) −𝑀∗(r)
+
+1 ,
+(10)
+where 𝑀(r) and 𝑀∗(r) are volume-rendered and ground-truth mask
+values, respectively. The mask loss enforces the modeled human
+geometry to be consistent with the 2D body mask.
+Eikonal Loss. The Eikonal loss [Gropp et al. 2020] is an implicit
+geometric regularization that enforces the norm of the gradient of
+the SDF field equal to 1:
+Leikonal = E
+
+∥∇v𝑠(v, f(Θ, v))∥2
+2 −1
+
+,
+(11)
+where 𝑠(·) is the MLP-based function that maps a 3D position v
+and its conditional pose feature f(Θ, v) to the SDF value.
+Total Variation Loss. The total variation (TV) loss regularizes the
+continuity of the feature lines along the spatial dimension:
+LTV =
+∑︁
+𝑗,𝑚
+∑︁
+𝑖
+F𝑚
+𝑗,𝑥(𝑖+ 1) −F𝑚
+𝑗,𝑥(𝑖)
+
+2
+2 +
+F𝑚
+𝑗,𝑦(𝑖+ 1) −F𝑚
+𝑗,𝑦(𝑖)
+
+2
+2
++
+F𝑚
+𝑗,𝑧(𝑖+ 1) −F𝑚
+𝑗,𝑧(𝑖)
+
+2
+2
+
+,
+(12)
+where 𝑖is the index on the spatial dimension of feature lines.
+4
+EXPERIMENTS
+Dataset. We use 5 multi-view sequences for the experiments:
+3 sequences with 24 views from THuman4.0 dataset [Zheng et al.
+2022], 1 sequence with 11 views from DeepCap dataset [Habermann
+et al. 2020] and 1 sequence with 23 views from ZJU-MoCap dataset
+[Peng et al. 2021b]. All the sequences provide SMPL [Loper et al.
+2015] or SMPL-X [Pavlakos et al. 2019] registrations of the character.
+We split each sequence into two continuous chunks for training and
+testing, and the training chunk accounts for 50% ∼80%. Novel
+poses are from the testing chunk or another sequence.
+Metric. We utilize Peak Signal-to-Noise Ratio (PSNR), Structure
+Similarity Index Measure (SSIM) [Wang et al. 2004], Learned Per-
+ceptual Image Patch Similarity (LPIPS) [Zhang et al. 2018] and
+Frechet Inception Distance (FID) [Heusel et al. 2017] as metrics for
+quantitative comparisons and evaluations.
+4.1
+Results
+We train the avatar network for each subject individually and
+demonstrate results animated by novel poses in Fig. 1 and Fig. 9.
+Our results show realistic dynamic details varying with the driving
+pose. Please refer to the supplemental video for more visualization
+of the animatable avatars.
+4.2
+Comparison
+We mainly compare our method against 5 state-of-the-art approaches
+including Structured Local NeRF (SLRF) [Zheng et al. 2022], TAVA
+[Li et al. 2022a], ARAH [Wang et al. 2022], Animatable NeRF (Ani-
+NeRF) [Peng et al. 2021a] and Neural Actor (NA) [Liu et al. 2021]
+on the quality of animated avatars.
+Table 1: Quantitative comparison against SLRF, Ani-NeRF,
+TAVA and ARAH on “subject00” sequence of THuman4.0
+dataset. Metrics are computed on both training and testing
+poses.
+Pose
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+FID ↓
+Training
+Ours
+34.226
+0.986
+0.014
+23.957
+SLRF
+25.270
+0.971
+0.024
+44.492
+Ani-NeRF
+23.188
+0.966
+0.033
+85.449
+TAVA
+23.934
+0.967
+0.029
+75.464
+ARAH
+22.017
+0.963
+0.033
+74.308
+Novel
+Ours
+30.972
+0.977
+0.017
+37.239
+SLRF
+26.152
+0.969
+0.024
+110.651
+Ani-NeRF
+22.532
+0.964
+0.034
+102.233
+TAVA
+26.607
+0.968
+0.032
+99.947
+ARAH
+21.769
+0.958
+0.037
+77.840
+Table 2: Quantitative comparison against Neural Actor on
+“S2” sequence of DeepCap dataset. Metrics are computed on
+the testing sequence in the same cropped manner as [Liu
+et al. 2021].
+Method
+PSNR ↑
+LPIPS ↓
+FID ↓
+Our
+25.836
+0.061
+15.228
+Neural Actor
+23.531
+0.066
+19.714
+SLRF, TAVA, ARAH and Ani-NeRF. Fig. 12 shows qualitative com-
+parisons against SLRF, TAVA and ARAH on DeepCap [Habermann
+et al. 2020] and THuman4.0 [Zheng et al. 2022] datasets. We also
+compare our method against Ani-NeRF on ZJU-MoCap dataset
+[Peng et al. 2021b] in Fig. 10. The animated results by SLRF, TAVA,
+ARAH and Ani-NeRF are blurry especially in the red circles, whereas
+our method not only reconstructs more details in terms of gar-
+ment wrinkles under the training poses, but also generates more
+fine-grained and realistic dynamic appearance given novel poses.
+Although SLRF represents the avatar as a set of local radiance fields
+to improve the network capacity, it still suffers from the bottleneck
+of its pose encoding, i.e., the low-frequency pose vector. Moreover,
+neither the learned pose-dependent shading in TAVA nor per-frame
+latent codes in Ani-NeRF and ARAH are able to model detailed
+dynamic human appearance. Tab. 1 reports the numerical compari-
+son on the animation accuracy. Overall, our method outperforms
+these four approaches both qualitatively and quantitatively benefit-
+ing from the proposed pose encoding method, PoseVocab, which
+has a powerful ability to encode high-frequency dynamic human
+appearance.
+Neural Actor (NA). We compare our method with NA both quali-
+tatively and quantitatively on “S2” sequence of DeepCap dataset in
+Fig. 11 and Tab. 2, respectively. We follow the same training/testing
+splits and metric computation as NA, and the visualized and quan-
+titative results are borrowed from [Liu et al. 2021]. On the whole,
+NA outperforms the other four SOTA methods (SLRF, TAVA, etc),
+and the possible reason is that it transforms the 3D human surface
+into 2D SMPL UV to utilize a powerful 2D image-to-image trans-
+lation network with adversarial training to predict texture maps
+
+
+PoseVocab: Learning Joint-structured Pose Embeddings for Human Avatar Modeling
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+Figure 4: Qualitative evaluation on pose encoding methods.
+We show ground-truth images (a), and synthesized avatars
+by PoseVocab (b), pose vectors (c) and SMPL positional (d)
+and normal (e) maps, respectively.
+from normal maps. Without deep 2D convolutions, our method
+can produce comparable or even better results than NA as shown
+in Fig. 11. Moreover, the SMPL UV parameterization in NA con-
+strains the character to wear tight clothes, while PoseVocab is a
+basic pose encoding method that can be combined with other avatar
+representations for modeling loose clothes as discussed in Sec. 5.
+4.3
+Evaluation
+We conduct evaluations on the core designs of our method to demon-
+strate the improvement brought by our contributions.
+Pose Encoding Methods. To prove the effectiveness of our pose
+encoding method, PoseVocab, we compare it against 3 baseline
+methods, i.e., pose vectors [Zheng et al. 2022], SMPL positional maps
+[Ma et al. 2021b] and SMPL normal maps [Yoon et al. 2022]. Specifi-
+cally, the three baseline methods respectively take the pose vector,
+convolutional SMPL positional or normal feature as the pose condi-
+tion to decode the dynamic details of the character. Note that since
+all the points in the canonical 3D space require corresponding pose
+features, we sample them by orthographic projection on rendered
+maps as in [Li et al. 2022b; Lin et al. 2022]. Fig. 4 shows that the pro-
+posed PoseVocab not only encodes more fine-grained details under
+the training poses, but also generates more realistic appearances
+in novel poses than the other three pose encoding methods. Tab. 3
+shows that our method can produce more accurate results on both
+novel view and novel pose synthesis.
+Ablation Study on Feature Lines. In our method, we propose to
+represent each pose embedding as three feature lines on 𝑥, 𝑦and 𝑧
+axes to improve the spatial capacity. We evaluate the capacity of
+feature lines by replacing them with global latent codes, i.e., all the
+3D points in the canonical space share the same pose embedding.
+Fig. 5 shows the rendering results with global latent codes and
+Table 3: Quantitative evaluation on pose encoding methods.
+Numerical results on both training and novel poses by Po-
+seVocab (ours), pose vectors, SMPL positional and normal
+maps, respectively.
+Pose
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+FID ↓
+Training
+Ours
+27.958
+0.980
+0.016
+45.486
+Pose Vector
+25.848
+0.974
+0.024
+48.965
+Pos. Map
+24.931
+0.971
+0.027
+71.121
+Norm. Map
+25.330
+0.971
+0.027
+67.417
+Novel
+Ours
+27.464
+0.979
+0.014
+64.396
+Pose Vector
+25.384
+0.977
+0.020
+79.256
+Pos. Map
+23.201
+0.973
+0.025
+85.226
+Norm. Map
+25.323
+0.977
+0.021
+80.389
+Figure 5: Qualitative ablation study on Feature lines. Render-
+ing results of joint-structured pose embeddings represented
+by global codes and feature lines, respectively.
+Figure 6: Qualitative ablation study on the joint level of the
+hierarchical query. (a)(d) Ground truth, (b)(e) results with
+the joint level, (c)(f) results without the joint level.
+feature lines, respectively. It demonstrates that the proposed feature
+lines have a more powerful ability to preserve fine-grained details
+of human appearances, especially patterns and logos on the clothes.
+On the other hand, the model sizes of networks with feature lines
+and global codes are 194.0 and 6.9 MB, respectively, and are both
+
+
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+Li, Z. et al
+affordable for commercial GPUs. However, representing each pose
+embedding as tri-planes [Chan et al. 2022] or volumes by hash tables
+[Müller et al. 2022] is unaffordable since the embedding number is
+very large (over 5000). Overall, the proposed feature lines are both
+effective and memory-efficient.
+Ablation Study on Joint Level in Hierarchical Query. The hierar-
+chical query in PoseVocab includes joint, key-rotation and spatial
+levels. We attempt to eliminate the joint level and redivide the query
+procedure into key-pose and spatial levels, i.e., we sample key global
+pose vectors (key poses) rather than key rotations of each joint,
+and then assign a pose embedding for each key pose. In this setting,
+given a query pose, we directly search for 𝐾nearest key poses and
+interpolate corresponding embeddings to acquire the pose feature.
+We show animated results with and without the joint level in Fig. 6,
+and it demonstrates that the joint level not only reconstructs more
+fine-grained details under the training pose, but also improves the
+generalization ability to novel poses by disentangling the effects of
+different joints on the dynamic human appearance.
+Pose Generalization. We evaluate the pose generalization of Pose-
+Vocab using driving poses with different pose similarities from the
+testing chunk and AIST++ dataset [Li et al. 2021]. We also evaluate
+the results of a baseline method that replaces PoseVocab with con-
+tinuous MLPs to model the mapping from driving poses to latent
+embeddings. Fig. 13 shows that PoseVocab outperforms the baseline
+method on pose generalization and avatar quality. The reason for
+our superiority may be that PoseVocab implicitly projects the novel
+driving pose to the pose space spanned by seen poses instead of
+extrapolating by a learned MLP-based function.
+5
+DISCUSSION
+Conclusion. In this paper, we present PoseVocab, a novel pose
+encoding method for human avatar modeling. We propose joint-
+structured pose embeddings to encode the dynamic human appear-
+ance under various body poses. Compared with previous methods
+that directly map the low-frequency SMPL-derived attributes like
+pose vectors [Li et al. 2022a; Zheng et al. 2022] to the high-frequency
+dynamic human appearances, our approach promotes the network
+to discover the optimal pose embeddings to encode the high-fidelity
+varying details of the avatar. Furthermore, we introduce feature
+lines to improve the representation ability of the pose embedding
+while maintaining memory efficiency. Last but not least, a hierarchi-
+cal query strategy in PoseVocab is designed for disentangling the
+control of different joints on the dynamic human appearance and
+for generalized and temporally consistent avatar animation. Over-
+all, our approach outperforms other state-of-the-art methods both
+qualitatively and quantitatively, and we believe that the proposed
+new pose encoding method will make progress towards realistic
+animatable human avatar modeling.
+Limitation. So far, our method cannot handle the character wear-
+ing loose clothes like long dresses, because our avatar represen-
+tation relies on the inverse skinning by SMPL skeletons. But the
+proposed PoseVocab is a general pose encoding method, and we
+believe that it can be applied to other avatar representations, e.g,
+DDC [Habermann et al. 2021] and SLRF [Zheng et al. 2022], to
+model the character wearing loose clothes.
+Social Impact. Our method can automatically create animatable
+human avatars, and may be combined with Deep Fakes to generate
+fake videos. This should be addressed carefully before deploying
+the technology.
+ACKNOWLEDGMENTS
+This paper is supported by National Key R&D Program of China
+(2022YFF0902200), the NSFC project No.62125107.
+In this supplementary material, we will introduce the implemen-
+tation, training, and animation details.
+A
+IMPLEMENTATION DETAILS
+We implement the network by PyTorch [Paszke et al. 2019]. To
+improve the spatial continuity, we construct PoseVocab on multiple
+spatial scales like Instant-NGP [Müller et al. 2022], and concate-
+nate the embeddings queried on each scale together. The hyper-
+parameters of PoseVocab are listed in Tab. 4. The NeRF [Mildenhall
+et al. 2020] module is instantiated as an MLP. The whole network
+architecture is illustrated in Fig. 7. The frequency of positional en-
+coding [Tancik et al. 2020] for the position and view direction is 6
+and 3, respectively. The pose vector is represented as quaternions of
+21 SMPL joints except for the root and hand joints, since the global
+rotation should not affect the avatar appearance in most situations
+and we do not focus on modeling the hands. The pose vector is also
+concatenated with queried embeddings and fed into the MLP.
+B
+TRAINING DETAILS
+We train the network using the Adam [Kingma and Ba 2015] op-
+timizer with a batch size of 1 for 50 epochs. The initial learning
+rate is 5 × 10−4 and decays by multiplying 0.8 every 100K itera-
+tions. The training procedure takes about 1.5 ∼2 days on one RTX
+3090 card. The training procedure contains three stages. In the first
+stage, we set 𝜆color = 1, 𝜆perceptual = 0, 𝜆mask = 1, 𝜆eikonal = 0.1
+and 𝜆TV = 10 during the first 5 epochs. We randomly sample 1024
+rays on the training views and sample 64 points on each ray within
+the SMPL bounding box. Under the supervision of the mask and
+color losses, a plausible geometry for each training frame can be
+learned after 5 epochs. Then we extract 3D meshes using Marching
+Cubes [Lorensen and Cline 1987] for all the training frames by
+querying the SDF value of each voxel in a coarse 3D volume that
+contains the posed character, and then render depth maps to all the
+training views. In the following training procedure, we only sample
+32 points within 5 cm near the surface based on the rendered depth
+map. The depth-guided sampling strategy encourages the network
+to focus on modeling the dynamic appearance of valid regions. In
+the second stage, we disable the Eikonal loss for faster training from
+the 5th to the 30th epoch. In the third stage, we sample patches
+with a resolution of 64 × 64 on the training view, and enable the
+perceptual loss with 𝜆perceptual set to 0.1 until convergence at the
+50th epoch.
+C
+ANIMATION DETAILS
+Given a testing pose from the testing chunk or another dataset,
+we first obtain the SMPL model and allocate a sparse volume with
+a resolution of 128 × 128 × 128 that contains the posed SMPL.
+Then we predict SDF values of voxels near the SMPL surface to
+
+
+PoseVocab: Learning Joint-structured Pose Embeddings for Human Avatar Modeling
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+Table 4: Hyper-parameters of PoseVocab module. We imple-
+ment the PoseVocab module on 4 multiple spatial scales, and
+report its hyper-parameters on each scale, respectively.
+Parameter
+Value
+𝑀(Number of Key Rotations)
+(256, 256, 256, 256)
+𝑅𝑥, 𝑅𝑦, 𝑅𝑧in Eq. 3 (Spatial Resolution)
+(256, 128, 32, 8)
+𝐷in Eq. 3 (Feature Channels)
+(4, 4, 4, 4)
+𝐾in Eq. 5 (KNN Number)
+(8, 8, 8, 8)
+Figure 7: Network architecture.
+extract the geometric avatar using Marching Cubes [Lorensen and
+Cline 1987]. With the geometric model on hand, we can render
+it to the camera view to obtain a depth map. In the next volume
+rendering, we only need to evaluate the colors of pixels inside the
+body mask on the depth map. Besides, we can sample points near
+the geometric surface based on the depth map in volume rendering
+for clearer texture. But the depth may be inaccurate on boundaries
+of self-occluded regions, producing background colors (e.g., black
+or white). So we reevaluate these pixels by sampling points within
+the balls generated by SMPL vertices like [Liu et al. 2021]. Such a
+rendering strategy improves the inference speed so that it can take
+about 3 secs to render the neural avatar at a resolution of 512×512.
+In sequential animation, a sliding window of length 5 is introduced
+to jointly consider embeddings of adjacent frames for more stable
+temporal consistency.
+D
+GEOMETRIC RESULTS
+Benefiting from SDF-based geometric representation [Yariv et al.
+2021] and the effectiveness of PoseVocab, our method can also
+produce detailed geometric avatars as shown in Fig. 8. As mentioned
+in Sec. B and Sec. C, the geometry serves as a prior to sample points
+near the surface in volume rendering.
+REFERENCES
+Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian Theobalt, and Gerard Pons-
+Moll. 2018. Video based reconstruction of 3d people models. In CVPR. 8387–8397.
+Thiemo Alldieck, Gerard Pons-Moll, Christian Theobalt, and Marcus Magnor. 2019.
+Tex2shape: Detailed full human body geometry from a single image. In ICCV.
+2293–2303.
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabian Prada, Takaaki Shiratori,
+Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih. 2021. Driving-signal
+aware full-body avatars. TOG 40, 4 (2021), 1–17.
+Andrei Burov, Matthias Nießner, and Justus Thies. 2021. Dynamic surface function
+networks for clothed human bodies. In ICCV. 10754–10764.
+Eric R Chan, Connor Z Lin, Matthew A Chan, Koki Nagano, Boxiao Pan, Shalini
+De Mello, Orazio Gallo, Leonidas J Guibas, Jonathan Tremblay, Sameh Khamis,
+et al. 2022. Efficient geometry-aware 3D generative adversarial networks. In CVPR.
+Figure 8: Example geometric avatars.
+16123–16133.
+Anpei Chen, Zexiang Xu, Andreas Geiger, Jingyi Yu, and Hao Su. 2022. TensoRF:
+Tensorial Radiance Fields. In ECCV.
+Xu Chen, Yufeng Zheng, Michael J Black, Otmar Hilliges, and Andreas Geiger. 2021.
+SNARF: Differentiable forward skinning for animating non-rigid neural implicit
+shapes. In ICCV. 11594–11604.
+Enric Corona, Tomas Hodan, Minh Vo, Francesc Moreno-Noguer, Chris Sweeney,
+Richard Newcombe, and Lingni Ma. 2022. LISA: Learning implicit shape and
+appearance of hands. In CVPR. 20533–20543.
+Boyang Deng, John P Lewis, Timothy Jeruzalski, Gerard Pons-Moll, Geoffrey Hinton,
+Mohammad Norouzi, and Andrea Tagliasacchi. 2020. NASA neural articulated
+shape approximation. In ECCV. Springer, 612–628.
+Junting Dong, Qi Fang, Yudong Guo, Sida Peng, Qing Shuai, Xiaowei Zhou, and Hujun
+Bao. 2022a. TotalSelfScan: Learning Full-body Avatars from Self-Portrait Videos of
+Faces, Hands, and Bodies. In NeurIPS.
+Zijian Dong, Chen Guo, Jie Song, Xu Chen, Andreas Geiger, and Otmar Hilliges. 2022b.
+PINA: Learning a Personalized Implicit Neural Avatar from a Single RGB-D Video
+Sequence. In CVPR.
+Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black, and Timo Bolkart. 2022. Cap-
+turing and Animation of Body and Clothing from Monocular Video. In SIGGRAPH
+Asia 2022 Conference Proceedings (Daegu, Republic of Korea) (SA ’22). Article 45,
+9 pages.
+Sara Fridovich-Keil, Alex Yu, Matthew Tancik, Qinhong Chen, Benjamin Recht, and
+Angjoo Kanazawa. 2022. Plenoxels: Radiance Fields Without Neural Networks. In
+CVPR. 5501–5510.
+Xuan Gao, Chenglai Zhong, Jun Xiang, Yang Hong, Yudong Guo, and Juyong Zhang.
+2022. Reconstructing personalized semantic facial nerf models from monocular
+video. ACM Transactions on Graphics (TOG) 41, 6 (2022), 1–12.
+Amos Gropp, Lior Yariv, Niv Haim, Matan Atzmon, and Yaron Lipman. 2020. Implicit
+Geometric Regularization for Learning Shapes. In ICML. PMLR, 3789–3799.
+Chuan Guo, Shihao Zou, Xinxin Zuo, Sen Wang, Wei Ji, Xingyu Li, and Li Cheng. 2022.
+Generating diverse and natural 3d human motions from text. In CVPR. 5152–5161.
+Marc Habermann, Lingjie Liu, Weipeng Xu, Michael Zollhoefer, Gerard Pons-Moll,
+and Christian Theobalt. 2021. Real-time deep dynamic characters. TOG 40, 4 (2021),
+1–16.
+Marc Habermann, Weipeng Xu, Michael Zollhofer, Gerard Pons-Moll, and Christian
+Theobalt. 2020. Deepcap: Monocular human performance capture using weak
+supervision. In CVPR. 5052–5063.
+Oshri Halimi, Tuur Stuyck, Donglai Xiang, Timur Bagautdinov, He Wen, Ron Kimmel,
+Takaaki Shiratori, Chenglei Wu, Yaser Sheikh, and Fabian Prada. 2022. Pattern-
+Based Cloth Registration and Sparse-View Animation. ACM Transactions on Graph-
+ics (TOG) 41, 6 (2022), 1–17.
+Tong He, Yuanlu Xu, Shunsuke Saito, Stefano Soatto, and Tony Tung. 2021. ARCH++:
+Animation-ready clothed human reconstruction revisited. In ICCV. 11046–11056.
+Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp
+Hochreiter. 2017. Gans trained by a two time-scale update rule converge to a local
+nash equilibrium. NeurIPS 30 (2017).
+Yangyi Huang, Hongwei Yi, Weiyang Liu, Haofan Wang, Boxi Wu, Wenxiao Wang,
+Binbin Lin, Debing Zhang, and Deng Cai. 2022. One-shot Implicit Animatable
+Avatars with Model-based Priors. arXiv preprint arXiv:2212.02469 (2022).
+
+
+SIGGRAPH ’23 Conference Proceedings, August 6–10, 2023, Los Angeles, CA, USA
+Li, Z. et al
+Zeng Huang, Yuanlu Xu, Christoph Lassner, Hao Li, and Tony Tung. 2020. Arch:
+Animatable reconstruction of clothed humans. In CVPR. 3093–3102.
+Du Q Huynh. 2009. Metrics for 3D rotations: Comparison and analysis. Journal of
+Mathematical Imaging and Vision 35, 2 (2009), 155–164.
+Boyi Jiang, Yang Hong, Hujun Bao, and Juyong Zhang. 2022b. SelfRecon: Self Recon-
+struction Your Digital Avatar from Monocular Video. In CVPR. 5605–5615.
+Tianjian Jiang, Xu Chen, Jie Song, and Otmar Hilliges. 2022a. InstantAvatar: Learning
+Avatars from Monocular Video in 60 Seconds. arXiv preprint arXiv:2212.10550
+(2022).
+Wei Jiang, Kwang Moo Yi, Golnoosh Samei, Oncel Tuzel, and Anurag Ranjan. 2022c.
+Neuman: Neural human radiance field from a single video. In ECCV. Springer,
+402–418.
+Hyomin Kim, Hyeonseo Nam, Jungeon Kim, Jaesik Park, and Seungyong Lee. 2022.
+LaplacianFusion: Detailed 3D Clothed-Human Body Reconstruction. ACM Transac-
+tions on Graphics (TOG) 41, 6 (2022), 1–14.
+Diederik P Kingma and Jimmy Ba. 2015. Adam: A method for stochastic optimization.
+In ICLR.
+Thomas N Kipf and Max Welling. 2016. Semi-supervised classification with graph
+convolutional networks. arXiv preprint arXiv:1609.02907 (2016).
+Ruilong Li, Julian Tanke, Minh Vo, Michael Zollhöfer, Jürgen Gall, Angjoo Kanazawa,
+and Christoph Lassner. 2022a. Tava: Template-free animatable volumetric actors.
+In ECCV. Springer, 419–436.
+Ruilong Li, Shan Yang, David A Ross, and Angjoo Kanazawa. 2021. Ai choreographer:
+Music conditioned 3d dance generation with aist++. In ICCV. 13401–13412.
+Zhe Li, Zerong Zheng, Hongwen Zhang, Chaonan Ji, and Yebin Liu. 2022b. AvatarCap:
+Animatable Avatar Conditioned Monocular Human Volumetric Capture. In ECCV.
+Springer, 322–341.
+Siyou Lin, Hongwen Zhang, Zerong Zheng, Ruizhi Shao, and Yebin Liu. 2022. Learning
+implicit templates for point-based clothed human modeling. In ECCV. Springer,
+210–228.
+Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu Sarkar, Jiatao Gu, and
+Christian Theobalt. 2021. Neural actor: Neural free-view synthesis of human actors
+with pose control. TOG 40, 6 (2021), 1–16.
+Matthew Loper, Naureen Mahmood, Javier Romero, Gerard Pons-Moll, and Michael J
+Black. 2015. SMPL: A skinned multi-person linear model. TOG 34, 6 (2015), 1–16.
+William E Lorensen and Harvey E Cline. 1987. Marching cubes: A high resolution 3D
+surface construction algorithm. TOG 21, 4 (1987), 163–169.
+Qianli Ma, Shunsuke Saito, Jinlong Yang, Siyu Tang, and Michael J Black. 2021a. SCALE:
+Modeling clothed humans with a surface codec of articulated local elements. In
+CVPR. 16082–16093.
+Qianli Ma, Jinlong Yang, Siyu Tang, and Michael J Black. 2021b. The power of points
+for modeling humans in clothing. In ICCV. 10974–10984.
+Marko Mihajlovic, Shunsuke Saito, Aayush Bansal, Michael Zollhoefer, and Siyu Tang.
+2022. COAP: Compositional articulated occupancy of people. In CVPR. 13201–
+13210.
+Marko Mihajlovic, Yan Zhang, Michael J Black, and Siyu Tang. 2021. LEAP: Learning
+articulated occupancy of people. In CVPR. 10461–10471.
+Tomas Mikolov, Kai Chen, Greg Corrado, and Jeffrey Dean. 2013a. Efficient estimation
+of word representations in vector space. arXiv preprint arXiv:1301.3781 (2013).
+Tomas Mikolov, Ilya Sutskever, Kai Chen, Greg S Corrado, and Jeff Dean. 2013b. Dis-
+tributed representations of words and phrases and their compositionality. NeurIPS
+26 (2013).
+Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ra-
+mamoorthi, and Ren Ng. 2020. Nerf: Representing scenes as neural radiance fields
+for view synthesis. In ECCV. Springer, 405–421.
+Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller. 2022.
+In-
+stant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM
+Transactions on Graphics (TOG) 41, 4, Article 102 (jul 2022), 15 pages.
+https:
+//doi.org/10.1145/3528223.3530127
+Jeong Joon Park, Peter Florence, Julian Straub, Richard Newcombe, and Steven Love-
+grove. 2019. Deepsdf: Learning continuous signed distance functions for shape
+representation. In CVPR. 165–174.
+Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory
+Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. 2019.
+Pytorch: An imperative style, high-performance deep learning library. NeurIPS 32
+(2019).
+Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani, Timo Bolkart, Ahmed A. A.
+Osman, Dimitrios Tzionas, and Michael J. Black. 2019. Expressive Body Capture:
+3D Hands, Face, and Body from a Single Image. In CVPR.
+Bo Peng, Jun Hu, Jingtao Zhou, and Juyong Zhang. 2022a. SelfNeRF: Fast Training NeRF
+for Human from Monocular Self-rotating Video. arXiv preprint arXiv:2210.01651
+(2022).
+Sida Peng, Junting Dong, Qianqian Wang, Shangzhan Zhang, Qing Shuai, Xiaowei
+Zhou, and Hujun Bao. 2021a. Animatable neural radiance fields for modeling
+dynamic human bodies. In ICCV. 14314–14323.
+Sida Peng, Shangzhan Zhang, Zhen Xu, Chen Geng, Boyi Jiang, Hujun Bao, and Xiaowei
+Zhou. 2022b. Animatable Neural Implicit Surfaces for Creating Avatars from Videos.
+arXiv preprint arXiv:2203.08133 (2022).
+Sida Peng, Yuanqing Zhang, Yinghao Xu, Qianqian Wang, Qing Shuai, Hujun Bao, and
+Xiaowei Zhou. 2021b. Neural body: Implicit neural representations with structured
+latent codes for novel view synthesis of dynamic humans. In CVPR. 9054–9063.
+Edoardo Remelli, Timur Bagautdinov, Shunsuke Saito, Chenglei Wu, Tomas Simon,
+Shih-En Wei, Kaiwen Guo, Zhe Cao, Fabian Prada, Jason Saragih, et al. 2022. Driv-
+able volumetric avatars using texel-aligned features. In ACM SIGGRAPH 2022 Con-
+ference Proceedings. 1–9.
+Shunsuke Saito, Jinlong Yang, Qianli Ma, and Michael J Black. 2021. SCANimate:
+Weakly supervised learning of skinned clothed avatar networks. In CVPR. 2886–
+2897.
+Shih-Yang Su, Timur Bagautdinov, and Helge Rhodin. 2022. Danbo: Disentangled artic-
+ulated neural body representations via graph neural networks. In ECCV. Springer,
+107–124.
+Shih-Yang Su, Frank Yu, Michael Zollhöfer, and Helge Rhodin. 2021. A-nerf: Articulated
+neural radiance fields for learning human shape, appearance, and pose. NeurIPS 34
+(2021), 12278–12291.
+Matthew Tancik, Pratul Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Nithin Ragha-
+van, Utkarsh Singhal, Ravi Ramamoorthi, Jonathan Barron, and Ren Ng. 2020.
+Fourier features let networks learn high frequency functions in low dimensional
+domains. NeurIPS 33 (2020), 7537–7547.
+Gusi Te, Xiu Li, Xiao Li, Jinglu Wang, Wei Hu, and Yan Lu. 2022. Neural Capture of
+Animatable 3D Human from Monocular Video. In ECCV. Springer, 275–291.
+Guy Tevet, Brian Gordon, Amir Hertz, Amit H Bermano, and Daniel Cohen-Or. 2022.
+Motionclip: Exposing human motion generation to clip space. In ECCV. Springer,
+358–374.
+Justus Thies, Michael Zollhöfer, and Matthias Nießner. 2019. Deferred neural rendering:
+Image synthesis using neural textures. Acm Transactions on Graphics (TOG) 38, 4
+(2019), 1–12.
+Garvita Tiwari, Dimitrije Antić, Jan Eric Lenssen, Nikolaos Sarafianos, Tony Tung, and
+Gerard Pons-Moll. 2022. Pose-ndf: Modeling human pose manifolds with neural
+distance fields. In ECCV. Springer, 572–589.
+Garvita Tiwari, Nikolaos Sarafianos, Tony Tung, and Gerard Pons-Moll. 2021. Neural-
+GIF: Neural generalized implicit functions for animating people in clothing. In
+ICCV. 11708–11718.
+Shaofei Wang, Marko Mihajlovic, Qianli Ma, Andreas Geiger, and Siyu Tang. 2021.
+Metaavatar: Learning animatable clothed human models from few depth images.
+NeurIPS 34 (2021).
+Shaofei Wang, Katja Schwarz, Andreas Geiger, and Siyu Tang. 2022. Arah: Animatable
+volume rendering of articulated human sdfs. In ECCV. Springer, 1–19.
+Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. 2004. Image quality
+assessment: from error visibility to structural similarity. IEEE transactions on image
+processing 13, 4 (2004), 600–612.
+Chung-Yi Weng, Brian Curless, Pratul P Srinivasan, Jonathan T Barron, and Ira
+Kemelmacher-Shlizerman. 2022. Humannerf: Free-viewpoint rendering of moving
+people from monocular video. In CVPR. 16210–16220.
+Donglai Xiang, Timur Bagautdinov, Tuur Stuyck, Fabian Prada, Javier Romero, Weipeng
+Xu, Shunsuke Saito, Jingfan Guo, Breannan Smith, Takaaki Shiratori, et al. 2022.
+Dressing Avatars: Deep Photorealistic Appearance for Physically Simulated Cloth-
+ing. ACM Transactions on Graphics (TOG) 41, 6 (2022), 1–15.
+Donglai Xiang, Fabian Prada, Timur Bagautdinov, Weipeng Xu, Yuan Dong, He Wen,
+Jessica Hodgins, and Chenglei Wu. 2021. Modeling clothing as a separate layer for
+an animatable human avatar. TOG 40, 6 (2021), 1–15.
+Feng Xu, Yebin Liu, Carsten Stoll, James Tompkin, Gaurav Bharaj, Qionghai Dai, Hans-
+Peter Seidel, Jan Kautz, and Christian Theobalt. 2011. Video-based characters:
+creating new human performances from a multi-view video database. TOG 30, 4
+(2011), 1–10.
+Lior Yariv, Jiatao Gu, Yoni Kasten, and Yaron Lipman. 2021. Volume rendering of neural
+implicit surfaces. NeurIPS 34 (2021), 4805–4815.
+Jae Shin Yoon, Duygu Ceylan, Tuanfeng Y Wang, Jingwan Lu, Jimei Yang, Zhixin Shu,
+and Hyun Soo Park. 2022. Learning motion-dependent appearance for high-fidelity
+rendering of dynamic humans from a single camera. In CVPR. 3407–3417.
+Alex Yu, Ruilong Li, Matthew Tancik, Hao Li, Ren Ng, and Angjoo Kanazawa. 2021.
+Plenoctrees for real-time rendering of neural radiance fields. In ICCV. 5752–5761.
+Hongwen Zhang, Siyou Lin, Ruizhi Shao, Yuxiang Zhang, Zerong Zheng, Han Huang,
+Yandong Guo, and Yebin Liu. 2023. CloSET: Modeling Clothed Humans on Contin-
+uous Surface with Explicit Template Decomposition. In CVPR.
+Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. 2018.
+The unreasonable effectiveness of deep features as a perceptual metric. In CVPR.
+586–595.
+Zerong Zheng, Han Huang, Tao Yu, Hongwen Zhang, Yandong Guo, and Yebin Liu.
+2022. Structured local radiance fields for human avatar modeling. In CVPR. 15893–
+15903.
+Zerong Zheng, Xiaochen Zhao, Hongwen Zhang, Boning Liu, and Yebin Liu. 2023.
+AvatarReX: Real-time Expressive Full-body Avatars. ACM Transactions on Graphics
+(TOG) 42, 4 (2023). https://doi.org/10.1145/3592101
+Yi Zhou, Connelly Barnes, Jingwan Lu, Jimei Yang, and Hao Li. 2019. On the continuity
+of rotation representations in neural networks. In CVPR. 5745–5753.

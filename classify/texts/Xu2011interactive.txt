@@ -1,0 +1,1494 @@
+Title: Interactive Hair Rendering and Appearance Editing under Environment Lighting
+
+Interactive Hair Rendering and Appearance Editing under Environment Lighting
+Kun Xu1
+Li-Qian Ma1
+Bo Ren1
+Rui Wang2
+Shi-Min Hu1
+1 TNList, Department of Computer Science and Technology, Tsinghua University, Beijing
+2 Department of Computer Science, University of Massachusetts, Amherst
+Figure 1: Our algorithm achieves interactive hair rendering and appearance editing under environment lighting, including both single and
+multiple scattering effects. In this example, the user directly paints onto the hair to edit the spatially-varying scattering parameters. This
+results in a dynamic simulation of hair coloring. From left to right, the hair is dyed with a progressively more vivid color. The environment
+map is represented by 40 SRBF lights, and our algorithm runs at 8.3 fps on an NVIDIA GTX 580.
+Abstract
+We present an interactive algorithm for hair rendering and ap-
+pearance editing under complex environment lighting represented
+as spherical radial basis functions (SRBFs). Our main contribu-
+tion is to derive a compact 1D circular Gaussian representation
+that can accurately model the hair scattering function introduced
+by [Marschner et al. 2003]. The primary beneﬁt of this represen-
+tation is that it enables us to evaluate, at run-time, closed-form in-
+tegrals of the scattering function with each SRBF light, resulting
+in efﬁcient computation of both single and multiple scatterings. In
+contrast to previous work, our algorithm computes the rendering
+integrals entirely on the ﬂy and does not depend on expensive pre-
+computation. Thus we allow the user to dynamically change the
+hair scattering parameters, which can vary spatially. Analyses show
+that our 1D circular Gaussian representation is both accurate and
+concise. In addition, our algorithm incorporates the eccentricity of
+the hair. We implement our algorithm on the GPU, achieving in-
+teractive hair rendering and simultaneous appearance editing under
+complex environment maps for the ﬁrst time.
+Keywords: Hair rendering, environment lighting, appearance edit-
+ing, SRBFs, circular Gaussian, single and multiple scattering, GPU.
+Links:
+DL
+PDF
+WEB
+1
+Introduction
+In hair rendering, it is often desirable to support the dynamic chang-
+ing of hair’s scattering properties. This enables artists and designers
+to edit hair appearance at will, and receive realistic rendering feed-
+backs at interactive speed. Existing methods already support such
+capability under simple lighting, such as a few point or directional
+lights [Zinke et al. 2008; Yuksel and Keyser 2008; Shinya et al.
+2010; Sadeghi et al. 2010]. However, it remains a challenge to ren-
+der and simultaneously edit hair appearance under complex light-
+ing such as environment maps [Debevec and Malik 1997]. Such
+lighting is important to convey the rich look of the hair in natural
+illumination conditions.
+The main difﬁculty with environment lighting is the large number of
+directional lights that must be considered. An effective solution is
+to approximate the environment map as a set of spherical radial ba-
+sis functions (SRBFs), yielding a low-dimensional representation.
+This approach has been studied in the context of precomputed light
+transport and BRDF aprpoximation [Tsai and Shih 2006; Green
+et al. 2007; Wang et al. 2009]. For hair rendering, Ren et al. [2010]
+proposed to integrate the hair scattering function with each SRBF
+light to produce realistic rendering effects. Their method incorpo-
+rates both single and multiple scatterings. Unfortunately, as they
+precompute the integrals of the scattering function with sampled
+SRBF lights into 4D tables, their method requires ﬁxing hair scat-
+tering parameters at precomputation time, disabling online editing.
+In this paper, our goal is to enable realistic rendering and simulta-
+neous editing of hair appearance under complex environment light-
+ing. Similar to previous work, we represent an environment map
+using SRBF lights. Our main contribution is to derive a compact 1D
+circular Gaussian representation that can accurately model the hair
+scattering function introduced by [Marschner et al. 2003]. Analyses
+show that our representation is both concise and accurate. Exploit-
+ing the properties of Gaussian functions, the primary beneﬁt of this
+representation is that it enables the run-time evaluation of closed-
+form integrals of the scattering function with SRBF lights. This
+results in efﬁcient computation of both single and multiple scatter-
+ings, without the need of expensive precomputation. By using this
+approach, our algorithm evaluates the rendering integrals entirely
+on the ﬂy, allowing the user to dynamically change hair scattering
+parameters at will. Our approach can be seen as an accurate model
+of the scattering function that is particularly suitable for integration
+
+
+with SRBF lights. In addition, our algorithm successfully incorpo-
+rates the eccentricity of the hair, which is important for capturing
+the hair’s rich look.
+We provide a GPU implementation that achieves interactive rates
+for rendering and editing of spatially-varying hair appearance un-
+der environment maps. We believe the ability to dynamically adjust
+the hair appearance under natural lighting provides artists a conve-
+nient way for designing hairs. Our method is the ﬁrst to achieve
+such capability, including the editing of spatially-varying hair pa-
+rameters and hair eccentricity effects. Figure 1 shows an example
+of our results captured at run-time.
+2
+Related works
+Hair Rendering has attracted signiﬁcant research attention over the
+years. A comprehensive survey can be found in [Ward et al. 2007].
+Some of the early work focused on studying how a single hair ﬁber
+reﬂects the light, which can be described by a hair scattering func-
+tion. Kajiya and Kay [1989] proposed the ﬁrst hair scattering func-
+tion, which has been a simple and popular model in many appli-
+cations. Marschner et al. [2003] proposed a more accurate model,
+inspired by the measurements of real human hair ﬁbers. Under dis-
+tant lighting, they model each hair ﬁber as a dielectric cylinder and
+derive a scattering function that consists of three light paths: R,
+TT, and TRT (see Fig 2(b)). Zinke and Weber [2007] proposed a
+more general model that allows for near-ﬁeld lighting. A number
+of recent papers have also studied how to estimate hair scattering
+parameters and geometry from a single photograph [Zinke et al.
+2009; Bonneel et al. 2009] or from real hairs using a sophisticated
+capturing device [Paris et al. 2008; Jakob et al. 2009].
+For interactive hair rendering, many existing methods have success-
+fully addressed the issue of self-shadowing in a large number of
+hair ﬁbers. Some representative techniques include deep shadow
+maps [Lokovic and Veach 2000], density clustering [Mertens et al.
+2004], opacity shadow maps [Kim and Neumann 2001; Sintorn and
+Assarsson 2008], deep opacity maps [Yuksel and Keyser 2008], and
+occupancy maps [Sintorn and Assarsson 2009].
+As light can bounce many times inside the hair, realistic hair render-
+ing requires the accurate simulation of multiple scattering effects,
+which are particularly important for light colored hair. Standard
+path tracing is too expensive for computing multiple scattering, thus
+researchers have exploited photon mapping [Moon and Marschner
+2006; Zinke and Weber 2006] and spherical harmonics approxima-
+tion [Moon et al. 2008] to greatly improve ofﬂine rendering speed.
+In [2008], Zinke et al. introduced a dual scattering approximation
+that achieves real-time rendering of multiple scattering. Using this
+model, Ren et al. [2010] proposed a technique to support interac-
+tive hair rendering under environment lighting represented as SRBF
+lights. This produces rich hair appearance under natural illumina-
+tion. However, their technique requires ﬁxing scattering parameters
+ofﬂine and ignores the eccentricity of the hair. An alternative way
+to compute multiple scattering effects is by using a plane-parallel
+model, as proposed by [Shinya et al. 2010]. While this method is
+fast under simple lighting, it is still very expensive for rendering
+under area or environment lights.
+Recently, Sadeghi et al. [2010] proposed an artist-friendly control
+(AFC) model for intuitive editing of hair parameters. Their method
+assumes simple lighting conditions. As their model is fundamen-
+tally based on Marschner’s physically-based scattering function,
+and the dual scattering approximation, it can be combined with
+our method in order to provide an intuitive hair editing framework.
+d’Eon et al. [2011] proposed an energy-conserving hair scatter-
+ing model by considering higher order light paths and using non-
+Gaussian longitudinal lobes.
+SRBF approximates a function deﬁned on the sphere using spheri-
+cal Gaussians. Compared to other bases such as spherical harmon-
+ics and wavelets, SRBF provide excellent local support as well as
+closed-form solutions for computing product integrals. Therefore it
+proves to be an excellent choice for representing environment maps
+and BRDFs [Tsai and Shih 2006; Green et al. 2007; Wang et al.
+2009]. Our work uses the circular Gaussian, which is a 1D version
+of SRBF and thus shares the same beneﬁts. Additionally, it allows
+us to formulate the integration involving hair scattering functions
+as 1D integrals, enabling fast and accurate computation.
+Material Editing under Environment Maps, such as BRDF edit-
+ing [Ben-Artzi et al. 2006; Sun et al. 2007; Wang et al. 2009], re-
+fractive material editing [Sun et al. 2008], translucent material edit-
+ing [Xu et al. 2007; Wang et al. 2008] and dynamic participating
+media [Navarro et al. 2009], has drawn a lot of attention in recent
+years. As an addition to them, ours is the ﬁrst to enable hair material
+editing under environment maps.
+3
+Background
+Terminology.
+For notations and symbols we follow [Marschner
+et al. 2003] and [Ren et al. 2010]. Fig 2(a) shows the local geometry
+of a hair ﬁber. We use ωi = (θi,φi) to denote the lighting direction,
+and ωo = (θo,φo) to denote the viewing direction. All directions
+and angles are expressed in the local frame of the hair ﬁber. Table 1
+lists the set of symbols that we use throughout the paper.
+Lighting Approximation.
+As in [Ren et al. 2010] and [Tsai and
+Shih 2006], an environment map L is approximated as the sum of a
+set of SRBFs. Using j as the index of an SRBF light:
+L(ωi) ≈∑j L j G(ωi;ω j,λ j)
+(1)
+where Lj is the coefﬁcient, G(ωi;ω j,λj) = exp(2(ωi ·ω j −1)/λ 2
+j )
+is an SRBF centered at ω j with bandwidth λj. In the following we
+simply write it as G j(ωi). Note that the bandwidth λ j is deﬁned
+equivalently but expressed differently from [Ren et al. 2010]. The
+purpose is to make it consistent with 1D circular Gaussians, which
+we will use later to approximate the hair’s scattering function.
+Single Scattering. Following [Ren et al. 2010], the single scatter-
+ing radiance viewed from direction ωo under a set of SRBF lights
+can be approximated as:
+L(ωo) ≈D ∑j Lj eT(ω j,λj)
+Z
+ΩG j(ωi)S(ωi,ωo) cosθi dωi
+(2)
+where D is the hair ﬁber’s diameter, S(ωi,ωo) is the bidirectional
+scattering function, and eT(ω j,λj) is the effective transmittance, es-
+timated using a summed area table (SAT) built from a convolution
+optimal depth map. Essentially eT measures the average attenuation
+of an SRBF light j due to transmission of the light through the hair.
+Multiple Scattering.
+Using a dual scattering model [Zinke et al.
+2008], Ren et al. [2010] approximate the multiple scattering radi-
+ance (denoted as LD) under environment lighting as:
+LD(ωo) ≈D ∑j Lj Tf (ω j)
+Z
+Ωψ f (·) SD(ωi,ωo) cosθi dωi
+(3)
+where Tf (ω j) is the forward scattering transmittance along the
+shadow path of light j, and SD(ωi,ωo) is the Bidirectional Curves
+Scattering Distribution Function (BCSDF). The main idea of dual
+scattering is to estimate SD as the sum of a global scattering com-
+ponent and a local scattering component, thus:
+SD(ωi,ωo) = S(ωi,ωo)+db Sback(ωi,ωo)
+(4)
+
+
+v
+w
+u
+i
+
+o
+
+normal plane
+i
+i
+o
+o
+
+h
+(
+0)
+R p 
+(
+1)
+TT p 
+(
+2)
+TRT p 
+Hair fiber 
+cross section
+
+
+
+(a)
+(b)
+Figure 2: Illustration of (a) notations, and (b) scattering paths.
+where S is the bidirectional scattering function and Sback is the
+backward scattering function accounting for local scattering. db is
+a constant set between 0.6−0.8. Back to Eq 3, ψ f (·) is the spread
+function that approximates the ﬁnal angular distribution of the front
+scattered radiance, and is computed as:
+ψ f (·) = ˜s f (φ j,φi)gu(θi; θ j,σ f (ω j,λ j))/cosθj
+(5)
+where θj, φ j are the inclination and azimuth angles of ω j; ˜sf (φ j,φi)
+is deﬁned as 1/π for forwarding scattering and 0 for backward scat-
+tering; and gu(θi; θ j,σf ) is a normalized 1D Gaussian function of
+θi centered at θ j with bandwidth σ f . Here σ f = √[λ 2
+j + ¯σ2
+f (ω j)],
+where ¯σ2
+f (ω j) is the average forward scattering spread.
+Summary of [Ren et al. 2010]. As the integrals involved in Eq. 2
+and 3 are independent of hair geometry, they can be precomputed
+into 4D tables by sampling all possible SRBFs ofﬂine. At run-time,
+the effective transmittance eT (in single scattering) is approximated
+by convolution optical depth maps; the forward scattering trans-
+mittance Tf and spread σ f (in multiple scattering) are evaluated
+by interpolation from sparse samples; and then the two integrals in
+Eq. 2 and 3 can be estimated by querying the precomputed 4D ta-
+bles. This allows for interactive hair rendering with 30 ∼60 SRBF
+lights. Unfortunately, as the hair scattering coefﬁcients are baked
+into the precomputed tables, which take hours to compute, dynamic
+editing of these coefﬁcients is not possible. In addition, it’s unclear
+how to incorporate the hair eccentricity into their approach.
+4
+Algorithm Details
+Overview.
+This section describes our algorithms. We ﬁrst review
+the hair scattering model by Marschner et al. [2003], then derive
+a compact 1D circular Gaussian representation to approximate the
+model. We discuss the algorithms for rendering single scattering
+and multiple scattering separately in Section 4.2 and 4.3.
+Key idea.
+On a high level, our key idea is that an SRBF (i.e. the
+lighting basis) can be separated into the product of two 1D circu-
+lar Gaussians in the two spherical coordinates θ and φ (Eq. 11).
+This matches the formulation of the hair scattering model, which
+is also written as the product of a longitudinal (θ) function and an
+azimuthal (φ) function (Eq. 6). The separation into 1D functions
+allows us to quickly compute the rendering integral on the ﬂy, by
+using the analytic properties of Gaussians and the smoothness of
+several run-time evaluated terms. Speciﬁcally, we exploit the prop-
+erty that the product of two Gaussians is still a Gaussian, and we
+introduce a simple 1D quadrature method to evaluate the integral
+of a Gaussian with a smooth function (see Section 4.2.2). Finally,
+the 1D representation also allows us to precompute certain integrals
+into small 2D tables, which are used for run-time lookups.
+4.1
+Hair Scattering Model
+Derived in [Marschner et al. 2003], the hair scattering func-
+tion S(ωi,ωo) is the sum of three modes: SR (reﬂection), STT
+(transmission-transmission), and STRT
+(transmission-reﬂection-
+transmission). Thus S(ωi,ωo) = ∑t St(ωi,ωo), where the mode in-
+dex t ∈{R,TT,TRT}. Each term St is further represented as the
+product of a longitudinal function Mt and an azimuthal function Nt:
+St(ωi,ωo) = Mt(θh)Nt(η,θd,φ)/cos2 θd
+(6)
+where θh, θd and φ are the half and difference angles, and η is the
+index of refraction. The longitudinal function Mt is deﬁned by:
+Mt(θh) = gu(θh; αt,βt) = 2gu(θi; 2αt −θo,2βt)
+(7)
+which is a normalized 1D Gaussian of θi centered at 2αt −θo with
+bandwidth 2βt. Here αt and βt are the longitudinal shift and band-
+width of each mode, caused by the tilting of the hair scales.
+The azimuthal function Nt is derived by examining the scattering
+paths through a circular cross proﬁle, shown in Figure 2(b). First,
+an analysis of reﬂections and refractions of a ray through the cir-
+cle reveals that the azimuthal difference angle φ = φo −φi can be
+expressed as a function of the incident direction offset h:
+φ(p,h) = 2psin−1(h/η′(η,θd))−2sin−1(h)+ pπ
+(8)
+where η′ is the effective index of refraction (see Table 1), p is the
+number of internal reﬂections. It is 0 for the R mode, 1 for the TT
+mode and 2 for the TRT mode. This allows the azimuthal scattering
+function Nt to be deﬁned as:
+Nt(η,θd,φ) = ∑
+h
+1
+2
+
+dφ
+dh
+
+−1
+At(θd,h)
+(9)
+which sums over all h’s satisfying φ(p,h) = φ. Here At is given as:
+AR(θd,h) = F(η,θd,h)
+ATT (θd,h) = (1−F(η,θd,h))2T(σ′
+a(θd),h)
+(10)
+ATRT (θd,h) = (1−F(η,θd,h))2F(η,θd,h)T 2(σ′
+a(θd),h)
+where F is the Fresnel reﬂection term, σ′a is the effective absorp-
+tion coefﬁcient (see Table 1), T is an attenuation factor due to ab-
+sorption on the internal paths, and is computed by T(σ′a(θd),h) =
+exp(−2σ′a
+q
+1−h2
+η′2 ).
+4.2
+Computing Single Scattering
+Substitute the scattering mode function deﬁned in Eq 6 to the single
+scattering integral in Eq 2, and deﬁne the result as Mt, we have:
+Mt(ω j,λj) =
+Z
+ΩG j(ωi)St(ωi,ωo) cosθi dωi
+=
+Z
+ΩG j(ωi)Mt(θh)Nt(θd,φ) cosθi/cos2 θd dωi
+By expressing the SRBF G j in spherical coordinates θ and φ, we
+can decompose it into the product of two 1D circular Gaussians (re-
+fer to Appendix), and expand the integral over Ωto double integrals
+over θi and φi:
+Mt(ω j,λ j) =
+Z Z
+(gc
+j(θi)gc
+j(φi))Mt(θh)Nt(θd,φ) cos2 θi
+cos2 θd
+dφi dθi
+=
+Z
+gc
+j(θi)Mt(θh) cos2 θi
+cos2 θd
+Z
+gc
+j(φi)Nt(θd,φ)dφi
+
+dθi
+≈
+Z
+g j(θi)Mt(θh) cos2 θi
+cos2 θd
+Nt(λ ′
+j,φo −φ j,θd)dθi
+(11)
+
+
+0
+π
+2π
+0
+0.2
+0.4
+ 
+ 
+θd=0→
+θd=π/6→
+θd=π/3→
+NTT
+−→φ
+ground truth
+approx.
+−2/3π
+0
+2/3π
+0
+0.05
+0.1
+ 
+ 
+θd=0→
+θd=π/6→
+θd=π/3→
+NTRT
+−→φ
+ground truth
+approx.
+0
+1
+0
+0.5
+1
+ 
+ 
+σa=0.2
+σa=0.6
+σa=1.0
+T
+−→h
+ground truth
+approx.
+−1/2π
+0
+1/2π
+0
+0.01
+0.02
+0.03
+0.04
+← φo− φj = 0 
+φo− φj = π →
+φo− φj = π →
+φo− φj = 0 →
+ 
+ 
+−→θi
+R
+TT
+TRT
+(a) Approximation of NTT
+(b) Approximation of NTRT
+(c) Approximation of T(σ′a(θd),h)
+(d) Plot of Nt cos2 θi/cos2 θd
+Figure 3: (a): approximating NTT using a single circular Gaussian (Eq 16); (b): approximating NTRT using the sum of three circular Gaus-
+sians (Eq 20); (c): approximating T(σ′a(θd),h) using 4-th order Taylor expansion (Eq 18); (d): Plot of Nt cos2 θi/cos2 θd, t ∈(R,TT,TRT).
+η,σa
+index of refraction, and absorption coefﬁcient
+αR, αTT , αTRT
+longitudinal shift for R,TT,TRT lobes
+βR, βTT , βTRT
+longitudinal width for R,TT,TRT lobes
+a,wc
+eccentricity, and azimuthal width of TRT lobes
+θ,φ
+longitudinal and azimuthal angles
+ωi,ωo
+incoming and viewing directions
+ω j,λj
+center and bandwidth of an SRBF light j
+θd = (θo −θi)/2; θh = (θo +θi)/2; φ = φo −φi; φh = (φo +φi)/2
+h ∈(−1,1)
+incident direction offset
+η′ = √[η2 −sin2 θd]/cosθd
+effective index of refraction
+λ ′
+j = λ j/√[cosθi cosθj]
+effective Gaussian bandwidth
+σ′a = σa/√[1−sin2 θd/η2]
+effective absorption coefﬁcient
+g(x;µ,λ) = exp[−(x−µ)2/λ 2]
+1D Gaussian
+gu(x;µ,λ) = g(x;µ,λ)/(√πλ)
+normalized 1D Gaussian
+gc(x;µ,λ) = exp[ 2(cos(x−µ)−1)
+λ 2
+]
+1D circular Gaussian
+G(ω;ω j,λ) = exp[ 2(ω·ωj−1)
+λ 2
+]
+SRBF
+Table 1: List of symbols and notations used in this paper.
+where gc
+j(θi) = gc(θi; θ j,λj) = exp[2(cos(θi −θ j) −1)/λ 2
+j ] and
+gc
+j(φi) = gc(φi; φ j,λ ′
+j) = exp[2(cos(φi −φj)−1)/λ ′2
+j ] are two 1D
+circular Gaussians whose product equals Gj(ωi). Here the effective
+azimuthal Gaussian bandwidth λ ′
+j = λj/pcosθi cosθ j. Note that
+the last step of Eq 11 uses Nt to denote the inner integral over
+dφi; also, it uses the fact that the 1D circular Gaussian gc
+j(θi) is
+well approximated by a 1D Gaussian gj(θi) = g(θi; θ j,λj) (proof
+is shown in Section 1 of the supplemental document). By changing
+the integral variable from φi to φ′
+i = φi −φj, Nt can be rewritten as:
+Nt(λ ′
+j,φo −φ j,θd) =
+Z
+gc(φ′
+i ;0,λ ′
+j)Nt(θd,φo −φj −φ′
+i )dφ′
+i (12)
+Essentially Eq 11 has turned the original rendering integral to two
+1D integrals: the inner integral Nt and the outer integral Mt. In the
+following we will explain how to evaluate these two integrals for
+the three scattering modes t ∈R,TT,TRT respectively.
+4.2.1
+Approximating the R Mode
+In the R Mode (p = 0), the relationship of φ and h (Eq 8) is φ =
+−2sin−1 h, and hence h = −sin(φ/2). Given this, the azimuthal
+scattering function (Eq 9) can be written as:
+NR(η,θd,φ) = 1
+4 |cos(φ/2)|F(η,θd,−sin(φ/2))
+The Fresnel term is deﬁned using Schlick’s approximation [1994]:
+F(η,θd,h) ≈F0 +(1−F0)(1−cosθd
+√
+1−h2)5, where F0 = (1−
+η)2/(1+η)2 is the Fresnel value at 0 incident angle. Now NR can
+be rewritten as a polynomial of cos(φ/2) up to degree 6:
+NR(η,θd,φ) ≈∑0≤k≤6Ck(θd,η)|cosk(φ/2)|
+(13)
+where each coefﬁcient Ck(θd,η) is simply a polynomial of cosθd.
+Substituting NR (Eq 13) to the inner integral (Eq 12) yields:
+NR ≈∑k Ck(θd,η)
+Z π
+−π
+cosk(φo −φ j −φ′
+i
+2
+)
+gc(φ′
+i ;0,λ ′
+j)dφ′
+i
+= ∑k Ck(θd,η)Ck(λ ′
+j, φo −φj)
+(14)
+where Ck is the product integral of the k-th power cosine function
+with a circular Gaussian gc. Since it only depends on λ ′
+j and (φo −
+φ j), and not on any scattering coefﬁcient, it can be precomputed as
+a 2D table and accessed online through table lookups. If the user
+changes scattering parameters such as η, the coefﬁcients Ck(θd,η)
+will be updated, but this is very fast to evaluate on the ﬂy.
+Now, let’s look back at Eq 11 to see how to calculate the outer inte-
+gral MR. First, note that in that equation, the longitudinal function
+Mt is a 1D Gaussian given by Eq 7, thus its product with another 1D
+Gaussian gj(θi) is still a Gaussian (proof is given in Section 2 of
+the supplemental document). Next, the remaining factor in the in-
+tegral, cos2 θi/cos2 θd NR(λ ′
+j,φo −φj,θd), is smooth as a function
+of θi. This can be veriﬁed from our experiments in Fig 3(d). Thus
+its product integral with a 1D Gaussian can be accurately estimated
+using a numerical quadrature as detailed in the section below. In
+general, the numerical integration only requires a few samplings of
+NR at run-time, which can be quickly evaluated using Eq 14.
+4.2.2
+Product Integral with 1D Gaussian
+Given a 1D Gaussian g(x; µ,λ) and an arbitrary function f(x), their
+product integral over the range [r0, r1] is deﬁned as:
+Z r1
+r0
+g(x; µ,λ)· f(x)dx
+In general, this integral has no analytic solution. However, if f(x)
+is smooth, it can be numerically estimated using a piecewise linear
+approximation of f(x). To do so, consider taking m+1 samples xs,
+s ∈[0,m] and approximate f(x) on each segment [xs,xs+1] as f(x) ≈
+bs x+cs, where bs and cs are the linear coefﬁcients calculated from
+f(xs) and f(xs+1). We can now rewrite the product integral as:
+∑0≤s<m
+Z xs+1
+xs
+g(x; µ,λ)·(bs x+cs)dx
+which can be easily computed because the product integral of a
+1D Gaussian with any polynomial function has an analytic solution
+(this property is proved in Section 3 of the supplemental document).
+Clearly the number of samples m + 1 affects the accuracy of
+this approximation. In our case, since we always integrate over
+[−π/2,π/2], we simply compute m + 1 samples by picking the
+ﬁrst m −1 samples uniformly in the range (µ −(m −2)λ/2) to
+(µ +(m−2)λ/2), plus the two endpoints −π/2 and π/2. We have
+found that choosing m = 4 is usually sufﬁcient for the hair scat-
+tering function. Fig 5 provides a comparison when using different
+number of samples. If desired, higher accuracy can be achieved by
+
+
+increasing the number of samples, or using a higher order polyno-
+mial approximation.
+4.2.3
+Approximating the TT Mode
+In the TT mode (p = 1), the relationship of φ and h in Eq 8 is:
+φ = 2sin−1 (h/η′)−2sin−1 h+π. From Eq 10 and Eq 9, we have:
+NTT (η,θd,σa,φ) = 1
+2
+
+dφ
+dh
+
+−1
+(1−F(θd,h))2 T(σa,θd,h)
+(15)
+Our experiments in Fig 3(a) show that in practice the function NTT
+can be very well approximated using a single circular Gaussian cen-
+tered at φ = π, with coefﬁcient btt and bandwidth λtt. Thus:
+NTT (η,θd,σa,φ) ≈btt (η,θd,σa)gc(φ; π,λtt(η,θd,σa))
+(16)
+For btt, we set it directly as the value of NTT at φ = π. To set the
+bandwidth λtt, note that
+R π
+−π gc(φ,π,λtt)dφ ≈√πλtt (see Section 4
+of the supplemental document), thus we estimate λtt by preserving
+the energy of NTT :
+λtt =
+1
+√π btt
+Z π
+−π NTT (η,θd,σa,φ)dφ
+(17)
+To estimate
+R π
+−π NTT , observe that in Eq 15 the attenuation function
+T depends on h. Because this function is typically smooth, we can
+use a 4-th order Taylor expansion to factor out its dependency on h:
+T(σa,θd,h) ≈∑k∈{0,2,4} ak(θd,σa)hk
+(18)
+where each ak(θd,σa) is a Taylor expansion coefﬁcient and has an
+analytic expression. Fig 3(c) shows the error caused by using the
+Taylor expansion. From the ﬁgure, we can see that the approxima-
+tion error is generally very small. Combining Eq 18 and 15, we can
+evaluate
+R π
+−π NTT as (note that in the following derivation, we have
+changed the integral variable from dφ to dh):
+1
+2
+Z 1
+−1(1−F(η,θd,h))2 
+∑k∈{0,2,4} ak(θd,σa)hk
+dh
+= 1
+2 ∑k∈{0,2,4} ak(θd,σa)
+Z 1
+−1(1−F(η,θd,h))2 hk dh
+(19)
+We denote the integral
+R 1
+−1(1 −F(η,θd,h))2 hk dh in the above
+equation as H TT
+k
+(η,θd). Note that each H TT
+k
+(k = 0,2,4) can
+be precomputed and stored as a 2D table of η and θd.
+While we could also estimate λtt by sampling NTT at a few places,
+we found our energy-preserving estimation (Eq 17) is more accu-
+rate and in fact cheaper to compute on the ﬂy. Now that function
+NTT is approximated by a single circular Gaussian (Eq 16), we can
+substitute NTT to Eq 12 to evaluate NTT . Since the product of two
+circular Gaussians is still a circular Gaussian (see Section 5 of the
+supplemental document), the integral can be easily computed us-
+ing an analytic solution. Thus we have completed the evaluation of
+NTT .
+The outer integral MTT (Eq 11) is a product integral between a
+Gaussian gj(θi) and function NTT cos2 θi/cos2 θd, which is typi-
+cally smooth. This is in the same form with MR discussed in Sec-
+tion 4.2.1, therefore it can be evaluated in the same way as MR.
+4.2.4
+Approximating the TRT Mode
+In the TRT mode, the azimuthal function NTRT is more complex.
+As described by [Marschner et al. 2003], it is symmetric around
+φ = 0 and contains two peaks when η′ < 2. The two peaks will
+gradually merge into one single peak centered at φ = 0 when η′
+increases beyond 2. When η′ < 2, directly using Eq 9 will result
+in inﬁnite values at the two peaks. Since the hair surface is typ-
+ically rough, Marschner et al. proposed to replace the two peaks
+with ﬁnite-valued Gaussian functions centered at the peak loca-
+tions. Fig 3(b) plots NTRT under different θd (hence η′) values.
+Our method employs a similar way to remove the inﬁnite values.
+As in [Marschner et al. 2003], when η′ < 2, we use two Gaussians
+centered at the peak locations; however, we use an additional Gaus-
+sian centered at φ = 0 to approximate the residue, resulting in a
+3-Gaussian approximation. Detailed are discussed below.
+When η′ < 2. NTRT is approximated as the sum of 3 Gaussians:
+NTRT ≈b1(gc(φ; φ∗,λ1)+gc(φ; −φ∗,λ1))+b2 gc(φ; 0,φ∗) (20)
+where φ∗is the peak location calculated as in [Marschner et al.
+2003]: φ∗= φ(h∗) = φ(
+p
+(4−η′2)/3); λ1 = wc is the width of
+peak, which is a user adjustable parameter to control the surface
+roughness. The coefﬁcient b2 is set as the residue value at φ = 0:
+b2 = NTRT (0)(1−gc(0;φ∗,wc))2
+(21)
+We observe that b2 quickly decreases to zero as η′ increases to-
+wards 2. For the coefﬁcient b1, [Marschner et al. 2003] proposed
+to estimate b1 using the local curvature d2φ/dh2. Here we propose
+a different estimation by preserving the energy of NTRT , which is
+more physically accurate. Speciﬁcally, we estimate b1 as:
+R π
+−π NTRT (φ)dφ −
+R π
+−π b2 gc(φ)dφ
+2∗(
+R π
+−π gc(φ; φ∗,wc)dφ)
+≈
+R π
+−π NTRT (φ)dφ −b2
+√π φ∗
+2√πwc
+where the
+R π
+−π NTRT term is evaluated at run-time using a similar
+technique as described in Section 4.2.3. To do so, we ﬁrst use a
+4-th order Taylor expansion of the T 2(σ′a(θd),h) term (Eq 10) to
+factor out its dependency on h:
+T 2(σ′
+a(θd),h) ≈∑k∈{0,2,4} ck(θd,σa)hk
+(22)
+where each ck(θd,σa) is a Taylor expansion coefﬁcient that has an
+analytic expression. Next, the integration of NTRT over variable φ
+from −π to π can be changed to integrating over variable h from
+−1 to 1, which allows us to rewrite
+R π
+−π NTRT as:
+Z π
+−π NTRT (φ)dφ ≈1
+2 ∑k∈{0,2,4} ck(θd,σa)H TRT
+k
+(η,θd)
+(23)
+where H TRT
+k
+(η,θd) =
+R 1
+−1(1−F(η,θd,h))2 F(η,θd,h)hk dh (k =
+0,2,4) is precomputed into a 2D table and accessed on the ﬂy.
+When η′ > 2.
+NTRT is approximated using a single Gaussian:
+NTRT ≈b3 gc(φ; 0,λ3), where the coefﬁcient b3 is directly set as
+the value of NTRT at φ = 0, and λ3 is determined by preserving the
+energy similar to the η′ < 2 case. However, this may lead to discon-
+tinuity in the representation when η′ changes across 2. For exam-
+ple, when η′ < 2, the Gaussian bandwidth is wc; and when η′ > 2,
+the bandwidth is λ3. To solve this issue, we follow [Marschner
+et al. 2003] to use a modiﬁed bandwidth that smoothly interpolates
+between wc and λ3 over a small range ∆η′, whose value is typi-
+cally between 0.2 and 0.4. Speciﬁcally, the interpolated bandwidth
+λ ′
+3 = interp(wc,λ3,smoothstep(2,2 + η′,η′)). We also modify b3
+to b3 λ3/λ ′
+3 to preserve the energy of the lobe.
+
+
+Summary.
+When η′ < 2 , we approximate NTRT using 3 circu-
+lar Gaussians; when η′ > 2, we approximate it using one circular
+Gaussian. The coefﬁcients and centers of the Gaussians are calcu-
+lated through either analytic functions or query into precomputed
+2D tables (H TRT
+k
+). Once NTRT is represented as circular Gaus-
+sian(s), we can proceed to compute NTRT (Eq 12) as before, using
+the fact that the product of two circular Gaussians is still a circular
+Gaussian. Finally, the outer integral MTRT is evaluated using the
+linear quadrature described in Section 4.2.2.
+4.2.5
+Handling Eccentricity in the TRT Mode
+Normally the refractive index η of the hair ﬁber is set to 1.55. To
+achieve eccentricity effects due to the elliptical cross sections of real
+hairs, [Marschner et al. 2003] proposed to use a varying refraction
+index η∗that depends on the azimuthal half angle φh:
+η∗
+1 = 2(η −1)a2 −η +2,
+η∗
+2 = 2(η −1)a−2 −η +2,
+η∗(φh) = ((η∗
+1 +η∗
+2)+cos(2φh)(η∗
+1 −η∗
+2))/2
+(24)
+where a is the eccentricity parameter typically ranging from 0.8 −
+1.25. To incorporate eccentricity, we update and approximate the
+integral NTRT (Eq 12 for the TRT mode) as:
+NTRT =
+Z
+gc(φ′
+i ;0,λ ′
+j)NTRT (η∗(φh),θd,φo −φj −φ′
+i )dφ′
+i
+≈
+Z
+gc(φ′
+i ;0,λ ′
+j)NTRT (η∗,θd,φo −φ j −φ′
+i )dφ′
+i
+(25)
+where in the last step, we have substituted η∗(φh) by its average
+value η∗, computed as:
+η∗=
+Z
+gc(φ′
+i ; 0,λ ′
+j)η∗(φh)dφ′
+i
+
+/
+Z
+gc(φ′
+i ; 0,λ ′
+j)dφ′
+i
+
+(26)
+which is efﬁciently computed on the ﬂy by re-using the precom-
+puted cosine-Gaussian integral tables Ck prepared for the R mode
+(see Eq 14). Speciﬁcally, using the cosine’s double-angle formula,
+we have cos(2φh) = 2 cos2(φh) −1 = 2 cos2( φ ′
+i +φ j+φo
+2
+) −1. Thus
+we only need to access C0 and C2 to compute η∗.
+The purpose of the η∗substitution is to remove the dependency of
+η∗(φh) on the integral variable φ′
+i , which makes it hard to model
+NTRT as a Gaussian representation. By using the average value η∗,
+we are able to reproduce convincing eccentricity effects while in-
+curring little modiﬁcation to our existing algorithm. Fig 4 provides
+a comparison of our method to the ground truth.
+4.3
+Computing Multiple Scattering
+In this subsection we discuss how to compute multiple scattering.
+Physically, multiple scattering is more complex than single scatter-
+ing; however, using the dual scattering approximation [Zinke et al.
+2008], multiple scattering is formulated as the sum of a global com-
+ponent and a local component, both of which can be incorporated
+into our algorithm similarly to single scattering. The key idea is
+again to exploit the 1D circular Gaussian representations we de-
+rived in Section 4.2 for the three scattering modes.
+4.3.1
+Global Multiple Scattering
+According to Eq 3, 4 and 5, the global multiple scattering M G
+t
+for
+each SRBF light j and each scattering mode t is computed as:
+M G
+t
+=
+R ψ f (·) St(ωi,ωo) cosθi dωi
+=
+1
+cosθ j
+Z
+˜s f (φ j,φi)gu(θi; θj,σ f )Mt(θh)Nt(θd,φ) cosθi dωi
+=
+1
+cosθ j
+Z
+gu(θi; θ j,σf )Mt(θh) cos2 θi
+cos2 θd
+N G
+t (φo −φ j,θd)dθi(27)
+where the last step expands the integral over dωi to double integrals
+similar to Section 4.2; and the inner integral is denoted as N G
+t :
+N G
+t (φo −φj,θd) =
+Z
+Nt(θd,φ) ˜s f (φj,φi)dφi
+= 1
+π
+Z φ j+π/2
+φj−π/2 Nt(θd,φo −φi)dφi
+(28)
+In other words, N G
+t
+is just an integral of Nt from (φ j −π/2) to
+(φj + π/2). This is similar to the single scattering Nt deﬁned in
+Eq 12, but is simpler as the gc term does not appear in the integral.
+Thus to compute N G
+t
+for each of the R, TT, TRT modes, we can
+directly use our derivations of Nt from Section 4.2. Speciﬁcally: 1)
+NR can be expressed as a sum of polynomials of cosφ (Eq 13); 2)
+NTT can be approximated by a single circular Gaussian centered at
+φ = π (Eq 16); 3) NTRT can be approximated by either one circu-
+lar Gaussian (when η′ > 2) or the sum of three circular Gaussians
+(Eq 20, when η′ < 2). Using these approximations, all of NR, NTT
+and NTRT have closed form integration formulas, so N G
+t
+can be
+evaluated on the ﬂy.
+To evaluate the outer integral M G
+t , we observe that the product of
+gu(θi; θ j,σ f ) and Mt is still a Gaussian. Therefore we can apply the
+same method described in Section 4.2.2 to evaluate the quadrature
+of cos2 θi/cos2 θdN G
+t . As this function is quite smooth, we found
+the approximation works very well in practice.
+4.3.2
+Local Multiple Scattering
+The local multiple scattering M Lt is computed as:
+M L
+t =
+1
+cosθj
+Z
+˜sf (φ j,φi)gu(θi; θ j,σ f )Sback(ωi,ωo) cosθi dωi
+Here the backward scattering function Sback is [Zinke et al. 2008]:
+Sback(ωi,ωo) =
+2
+cos2 θd Ab(θd)sb(φi,φo)gu(θi+θo; ∆b(θd),σb(θd))
+where sb(φi,φo) is 1/π for backward scattering directions (i.e.
+cos(φi −φo) > 0), and 0 for forward scattering directions (i.e.
+cos(φi −φo) < 0). Ab(θd), ∆b(θd), σb(θd) are the average back-
+ward attenuation, longitudinal shift and variance respectively. They
+are all 1D functions of the incident angle θd.
+Combining the above two equations, we can rewrite M Lt as:
+M L
+t =
+2
+cosθ j
+Z
+˜s f (φ j,φi)sb(φi,φo)dφi
+
+·
+(29)
+Z
+gu(θi; θ j,σf )gu(θi; ∆b(θd)−θo,σb(θd))Ab(θd) cos2 θi
+cos2 θd
+dθi
+
+In other words, it is the product of two 1D integrals. The ﬁrst inte-
+gral, which is over dφi, can be easily derived analytically:
+Z
+˜s f (φj,φi)sb(φi,φo)dφi =
+ π −
+φ j −φi
+
+/π2
+(30)
+The second integral, which is over dθi, is more complex. We eval-
+uate it as follows. First, the function gu(θi; ∆b(θd) −θo,σb(θd))
+
+
+is strictly not a Gaussian, because its parameters (center and band-
+width) depend on θd, which in turn depends on the variable θi. To
+remove this dependency, our solution is to substitute ∆b(θd) and
+σb(θd) by their mean values computed over θi ∈[θj −σ f ,θj +σ f ]:
+e∆b =
+R θ j+σf
+θj−σ f ∆b( θi−θo
+2
+)dθi
+2σf
+, eσb =
+R θ j+σf
+θ j−σf σb( θi−θo
+2
+)dθi
+2σf
+(31)
+Note that the integration range is essentially the support of the
+gu(θi; θ j,σ f ) function in Eq 29. These integrals can be efﬁciently
+computed by using 1D SATs of ∆b(θd) and σb(θd) built on the ﬂy.
+The two mean values above allow us to deﬁne a real Gaussian func-
+tion gu(θi; e∆b(θd) −θo, eσb(θd)), which will be further multiplied
+with gu(θi; θj,σ f ) in Eq 29. This results in a new Gaussian, whose
+product integral with the remaining factor Ab(θd) cos2 θi/cos2 θd
+can be quickly evaluated using the linear quadrature method de-
+scribed in Section 4.2.2.
+Next, we describe how to evaluate the terms Ab(θd), ∆b(θd), and
+σb(θd)) in Eq 29. According to [Zinke et al. 2008], these terms
+are all deﬁned as functions of af (θd), ab(θd), α f (θd), αb(θd),
+β f (θd), β b(θd), where a,α,β stand for the average scattering at-
+tenuation, shift, and variance; and the subscripts f/b indicate the
+forward/backward scattering respectively. These deﬁnitions can be
+found in Section 6 of the supplemental document. Using forward
+scattering as an example: the average forward attenuation af is
+computed by integrating the hair’s scattering function S over φd as
+well as ωo:
+af (θd) = 1
+π
+Z
+Ωf
+Z π/2
+−π/2 S(θd,φd,ωo) cosθd dφd dωo
+(32)
+Note that S is the sum of three scattering modes. For each mode t,
+we expand the above integral by converting the outer integral (over
+Ωf ) to double integrals over φo and θo:
+af,t = 1
+π
+Z
+π
+2
+−π
+2
+Z
+3π
+2
+π
+2
+Z
+π
+2
+−π
+2
+Mt((θd +θo)/2)Nt((θd −θo)/2,φo −φd)·
+(cosθo cosθd)/cos2((θd −θo)/2)dφd dφo dθo
+Noting that scattering occurs at θo = −θi, we can substitute (θd −
+θo)/2 by θd, allowing us to separate the triple integral to:
+af,t ≈1
+π
+Z
+π
+2
+−π
+2
+Mt((θd +θo)/2)
+cosθo cosθd
+cos2((θd−θo)/2) dθo
+
+·
+ Z
+3π
+2
+π
+2
+Z
+π
+2
+−π
+2
+Nt(θd,φo −φd)dφd dφo
+!
+(33)
+In the above, the 1D integral involving Mt can be evaluated using
+our linear quadrature (Section 4.2.2). The 2D integral involving Nt
+is equal to 2
+Z π
+0 φ Nt(θd,φ)dφ, the proof of which can be found
+in Section 7 of the supplemental document. Note that this integral
+can be analytically computed, again because we have previously
+modeled Nt either as a sum of polynomials of cosφ (R mode) or
+circular Gaussians (TT and TRT modes), whose product integrals
+with φ all have analytic solutions.
+Finally, the average forward scattering shift α f is calculated as a
+weighted sum of the longitudinal shifts αR, αTT , and αTRT using
+their corresponding attenuation af,t as weights; and the average for-
+ward scattering variance β
+2
+f is the weighted sum of the longitudinal
+widths βR, βTT , and βTRT using the same weights. The backward
+scattering terms (e.g. ab,t) are similarly computed as in Eq 33, ex-
+cept for integrating ωo over the backward scattering directions.
+(a)
+(b)
+(c)
+Figure 4: Result of eccentricity approximation. (a) shows circular
+hair (eccentricity a = 1); (b) shows our approximation with eccen-
+tricity a = 0.9; (c) show a reference with the same eccentricity.
+5
+Implementation
+Preprocessing. In preprocessing, we follow [Ren et al. 2010] to ﬁt
+SRBF lights for each environment map. Next, we need to precom-
+pute several 2D tables, including Ck(λ ′
+j, φo −φj) (0 ≤k ≤6) for the
+R mode (Eq 14); H TT
+k
+(η,θd) (k=0,2,4) for the TT mode (Eq 19);
+and H TRT
+k
+(η,θd) (k=0,2,4) for the TRT mode (Eq 23). For these
+tables, we use a resolution of 128 for the parameters λ ′
+j and η,
+which are sampled logarithmicly from the range λ ′
+j ∈[0.001,10]
+and η ∈[1,10] respectively. For (φo −φ j) and θd we use a resolu-
+tion of 64. The 3 tables of H TT
+k
+(η,θd) (k=0,2,4) are stored as a
+single 2D texture utilizing the three color channels, so that only one
+texture lookup is needed to obtain all 3 values. The H TRT
+k
+(η,θd)
+tables are stored similarly. The 7 tables of Ck(λ ′
+j, φo −φj) (0 ≤
+k ≤6) are also stored as a single 2D texture, by placing the values
+corresponding to k=1,3,5 and k=0,2,4,6 in adjacent texels. By uti-
+lizing hardware texture interpolation, evaluating NR only requires
+one texture lookup. Note that all these tables are computed only
+once globally, and do not need to be updated when the user changes
+hair scattering parameters on the ﬂy.
+Runtime Rendering. Our rendering algorithm is implemented us-
+ing OpenGL shaders with multi-pass rendering. Each pass renders
+the result of a subset of 16 SRBF lights, and accumulates contribu-
+tions from other passes through blending. Hair ﬁbers are rendered
+as line primitives. For single scattering, the speciﬁc steps are:
+1. The effective transmittance eT(ω j,λ j) (Eq 2) is obtained using
+an SAT of the convolution optimal depth map [Ren et al. 2010];
+2. For the R mode, the inner integral NR is evaluated by texture
+lookups into Ck(λ ′
+j, φo −φ j) (Eq 14);
+3. For the TT and TRT modes, the ﬁtted circular Gaussian param-
+eters are ﬁrst estimated from the two energy terms
+R π
+−π NTT
+and
+R π
+−π NTRT , which are evaluated via texture lookups into
+H TT
+k
+(η,θd) and H TRT
+k
+(η,θd) (Eq 19 and 23). Following this,
+each inner integral NTT and NTRT is computed as the product
+of two circular Gaussians using the analytic formula. To account
+for eccentricity in the TRT mode, a modiﬁed index of refraction
+η∗is calculated via texture lookups into Ck(λ ′
+j, φo−φ j) (Eq 26),
+and is used when evaluating NTRT ;
+4. Finally, we employ the linear quadrature method (Section 4.2.2)
+to evaluate the outer integrals Mt (Eq 11). Depending on the
+number of samples m + 1, this requires multiple evaluations of
+NR, NTT , and NTRT , which are obtained in steps 2-3.
+To compute multiple scattering, we ﬁrst obtain the forward scat-
+tering transmittance Tf (ω j) and spread ¯σ2
+f (ω j) (Eq 3 and 5) us-
+ing a sparse sampling approach proposed in [Ren et al. 2010]. We
+then compute the global and local multiple scattering components
+
+
+Result images
+Differences ×8
+(a) reference
+(b) m = 6
+(c) m = 4
+(d) m = 2
+(e) m = 4
+(f) m = 2
+Figure 5: Results of our linear quadrature method described in Section 4.2.2. (a) is computed using our method with a large number of
+segments m=200, which we treat as a reference; (b,c,d) show the results using a much smaller number of segments: m = 6,4,2 respectively;
+(e) and (f) show the magniﬁed difference images of the m = 4 and 2 cases with the reference. Note that at m = 2, our result has subtle but
+observable differences compared to the reference; and at m = 4, our result is almost indistinguishable from the reference.
+(a) our S.S
+(b) S.S. by Ren et al.
+(c) our S.S.+M.S.
+(d) S.S.+M.S. by Ren et al.
+(e) reference
+Figure 6: Comparison of our method to [Ren et al. 2010] and reference. (a) and (b) compare the single scattering (S.S.) effect; (c) and (d)
+compare the full single + multiple scattering (S.S.+M.S.) effect; (e) is a reference image including both single and multiple scattering effects
+generated using a photon mapping approach [Moon and Marschner 2006]. In both our method and [Ren et al. 2010], the environment light
+is approximated by 41 SRBF lights. Note that the images match well visually and the differences are subtle.
+separately. Computing the global multiple scattering integral M G
+t
+(Eq 27) is very similar to computing the single scattering integral,
+thus they share largely the same steps as described above.
+To compute local multiple scattering M Lt
+(Eq 29), we ﬁrst sam-
+ple the average terms Ab(θd), ∆b(θd), σb(θd) into a 1D texture
+of resolution 128, and compute the SATs of ∆b(θd) and σb(θd).
+These then allow us to obtain the mean values e∆b and eσb via tex-
+ture lookups. Finally we use the linear quadrature again to evaluate
+M Lt . Note that the 1D textures are computed and updated on the
+ﬂy whenever the hair scattering parameters are modiﬁed. The total
+computation overhead is very small.
+In sum, as we choose m = 4 piecewise linear segments, for each
+SRBF light, computing single scattering at any shading point re-
+quires a total of 14 texture lookups, and multiple scattering requires
+11 texture lookups. Currently, we do not incorporate the view trans-
+parency effect, which can be easily added using techniques such as
+occupancy maps [Sintorn and Assarsson 2009].
+6
+Comparisons and Results
+In this section we present results of our method and comparisons
+to previous work. Many hair geometry models are courtesy of Cem
+Yuksel et al. [2008], Zinke et al. [2008], and Selle et al. [2008]. Our
+parameters and units are set by following [Marschner et al. 2003].
+Accuracy.
+To verify the accuracy of our method, we ﬁrst math-
+ematically analyze the proposed 1D circular Gaussian representa-
+tion. In Fig 3 (a,b) we compare our approximated NTT and NTRT
+functions to the ground truth computed at three different incident
+angles θd = 0,π/6 and π/3. In (c) we compare the 4-th order Tay-
+lor expansion of the attenuation factor T to the ground truth com-
+(a) (-0.05, 0.16)
+(b) (-0.05, 0.09)
+(c) (-0.34, 0.09)
+Figure 7: Editing the longitudinal shift and width (αR, βR). Note
+the resulting change in the hair’s highlights.
+puted with three difference absorption coefﬁcients σa = 0.2,0.6 and
+1.0. Note that in all examples, our approximations match the refer-
+ences very well. We do not plot the NR function because it does not
+involve a circular Gaussian approximation.
+Next, we examine the linear quadrature method described in Sec-
+tion 4.2.2.
+Recall that we use it to compute all product inte-
+grals of 1D Gaussian with a function in the form of Nt(λ ′
+j,φo −
+φ j,θd)cos2 θi/cos2 θd, where t ∈(R,TT,TRT). Examples of these
+functions, at parameter settings λ ′
+j = 0.5 and φo −φ j = 0 or π, are
+plotted in Fig 3(d). The cases of NTT at φo −φj = 0 and NTRT at
+φo −φ j = π are omitted because they are almost zero. As illus-
+trated, these functions are quite smooth, requiring only a few sam-
+ples (segments) to accurately evaluate their integrals with a Gaus-
+sian. Additional plots of these functions are provided in Section 9
+of the supplemental document. Fig 5 shows the rendering results
+computed using our method with different number of segments m,
+and a comparison to ground truth. Observe that at the default choice
+of m = 4, our result is almost indistinguishable from the reference.
+
+
+(a) (0.03, 0.37)
+(b) (-0.26, 0.37)
+(c) (-0.26, 0.7)
+Figure 8: Editing the longitudinal shift and width (αR, βR).
+(a)
+(b)
+(c)
+Figure 9: Editing index of refraction η and the azimuthal width
+wc for the TRT caustic. (a) η = 1.54, wc = 0.06; (b) η = 1.65,
+wc = 0.06; (c) η = 1.65, wc = 0.20.
+In Fig 4 we evaluate the approximated eccentricity described in
+Section 4.2.5. Our approximation produces visually matching re-
+sult to the reference, which is computed by using the accurate ec-
+centricity factor and summing up 1536 directional lights in a brute-
+force way. By accounting for eccentricity, we allow the user to dy-
+namically edit this parameter, resulting in realistic and interesting
+variations in the hair appearance [Marschner et al. 2003].
+Finally, in Fig 6, we compare our rendering results to the method
+presented by [Ren et al. 2010] and the reference generated by pho-
+ton mapping [Moon and Marschner 2006]. Note that for both single
+and multiple scattering, the results look qualitatively the same and
+the differences are subtle. However, our method allows for the dy-
+namic editing of all scattering parameters in the Marschner model,
+while Ren et al. require ﬁxing these parameters at precomputation
+time. Section 10 in the supplemental document provides additional
+comparisons between our method and [Ren et al. 2010] under a
+single SRBF light at different bandwidth and comparisons between
+renderings computed with directional lights vs. SRBF lights.
+Performance.
+All results are obtained on a PC with Intel Core 2
+Duo 3.00 GHz CPU, 6 GB RAM and an NVIDIA GTX 580 GPU.
+The image resolution is 720 × 480. The rendering frame rates are
+reported in Table 2. The rendering cost is roughly proportional to
+the piecewise linear segments m, which we set to 4 by default. In
+all examples we are able to achieve interactive frame rates.
+Parameter editing.
+We show several examples of editing the
+hair scattering parameters on the ﬂy. All parameters deﬁned in
+the Marschner model can be modiﬁed. In Fig 1 we show that the
+user paints directly onto the hair model to edit the spatially-varying
+absorption coefﬁcients. This results in a dynamic simulation of
+hair coloring computed on the ﬂy. In Fig 7, we edit longitudinal
+shift αR and width βR, and the other parameters αTT = −αR/2,
+αTRT = −3αR/2, βTT = βR/2, βTRT = 2βR are updated accord-
+ingly. This simulates changing the tilting angle the hair scales. In
+particular, in Fig 7(b), the longitudinal width βR is reduced, re-
+sulting in sharper specular highlights. In Fig 7(c), the longitudinal
+shift αR is reduced, causing the specular highlights shift downward.
+Fig 8 gives another example of editing longitudinal shift and width.
+Fig 9 shows the editing of the index of refraction and the azimuthal
+(a)
+(b)
+(c)
+(d)
+(e)
+Figure 10:
+Editing the absorption coefﬁcient σa.
+(a) σa =
+(0.36,0.36,0.36); (b) σa = (0.55,0.55,0.55); (c) σa = (1,1,1); (d)
+σa = (0.27,0.39,0.65); (e) σa = (0.23,0.42,0.42). Note the change
+in colors and back lighting effects due to the TT component.
+data
+#ﬁbers
+#points
+#SRBFs
+FPS
+animation (Fig 1)
+10k
+270k
+40
+8.3
+straight (Fig 6)
+50k
+1.25M
+41
+5.9
+natural (Fig 7)
+10k
+1.5M
+40
+5.8
+bob cut (Fig 8)
+10k
+350k
+30
+10.6
+dark (Fig 9)
+15k
+1.0M
+36
+6.2
+ponytail (Fig 10)
+6k
+100k
+42
+8.9
+Table 2: Performance of examples demonstrated in our paper. The
+timing includes both single and multiple scattering computations.
+width wc for the TRT caustic. Observe that 1) increasing η in (b) re-
+sults in a brighter reﬂection due to the larger Fresnel reﬂection term;
+and 2) increasing wc in (c) results in smoother specular highlights.
+Finally, Fig 10 shows the editing of the absorption coefﬁcient, re-
+sulting in color changes and back lighting effects caused by the TT
+component. Please refer to the paper video for additional results.
+7
+Conclusions
+To summarize, we have presented a new method for interactive hair
+rendering and appearance editing under environment lighting rep-
+resented as SRBF lights. We derive a compact 1D circular Gaussian
+representation for the hair scattering function, allowing us to com-
+pute their closed-form integrals with SRBF lights at run-time. We
+provide a GPU implementation that achieves interactive rendering
+and editing rates for spatially-varying hair parameters and arbitrary
+environment maps. Such capability is important for design and pro-
+totyping applications, and has not been achieved by previous work.
+There are several directions for future work. First, we would like to
+incorporate the artist-friendly model by [Sadeghi et al. 2010]. Since
+this model is fundamentally based on Marschner’s model, the dual
+scattering approximation, and the use cosine/Gaussian functions to
+approximate the R, TT, TRT azimuthal functions, it can be directly
+combined with SRBF lighting using our proposed method. Sec-
+ond, we would like to extend our work to near-ﬁeld light sources in
+a global illumination environment, and are also interested in han-
+dling furs represented by texture layers [Silva et al. 2010]. Finally,
+our 1D circular Gaussian representation is not limited to real-time
+applications – they can also beneﬁt high-quality ofﬂine renderings,
+as they provide a concise and accurate substitute for the original
+hair scattering function.
+Acknowledgments. We thank SIGGRAPH anonymous reviewers
+for their comments and suggestions. This work was supported by
+the National Basic Research Project of China (2011CB302205), the
+Natural Science Foundation of China (61120106007), and the Na-
+tional Science Foundation of the United States (CCF-0746577).
+References
+BEN-ARTZI, A., OVERBECK, R., AND RAMAMOORTHI, R. 2006.
+Real-time BRDF editing in complex lighting.
+ACM Trans.
+Graph. 25, 3, 945–954.
+
+
+BONNEEL, N., PARIS, S., VAN DE PANNE, M., DURAND, F.,
+AND DRETTAKIS, G. 2009. Single photo estimation of hair
+appearance. Computer Graphics Forum 28, 4, 1171C–1180.
+DEBEVEC, P. E., AND MALIK, J. 1997. Recovering high dynamic
+range radiance maps from photographs. In Proc. of ACM SIG-
+GRAPH, 369–378.
+D’EON, E., FRANCOIS, G., HILL, M., LETTERI, J., AND AUBRY,
+J.-M. 2011. An energy-conserving hair reﬂectance model. Com-
+puter Graphics Forum 30, 4, 1181–1187.
+GREEN, P., KAUTZ, J., AND DURAND, F. 2007. Efﬁcient re-
+ﬂectance and visibility approximations for environment map ren-
+dering. Computer Graphics Forum 26, 3, 495–502.
+JAKOB, W., MOON, J. T., AND MARSCHNER, S. 2009. Capturing
+hair assemblies ﬁber by ﬁber. ACM Trans. Graph. 28, 5, 164.
+KAJIYA, J. T., AND KAY, T. L. 1989. Rendering fur with three
+dimensional textures. In Proc. of ACM SIGGRAPH, 271–280.
+KIM, T.-Y., AND NEUMANN, U. 2001. Opacity shadow maps. In
+Proc. of Eurographics Rendering Workshop, 177–182.
+LOKOVIC, T., AND VEACH, E. 2000. Deep shadow maps. In Proc.
+of ACM SIGGRAPH, 385–392.
+MARSCHNER, S. R., JENSEN, H. W., CAMMARANO, M., WOR-
+LEY, S., AND HANRAHAN, P. 2003. Light scattering from hu-
+man hair ﬁbers. ACM Trans. Graph. 22, 3, 780–791.
+MERTENS, T., KAUTZ, J., BEKAERT, P., AND VAN REETH, F.
+2004. A self-shadow algorithm for dynamic hair using density
+clustering. In SIGGRAPH 2004 Sketches, 44.
+MOON, J. T., AND MARSCHNER, S. R. 2006. Simulating multiple
+scattering in hair using a photon mapping approach. ACM Trans.
+Graph. 25, 3, 1067–1074.
+MOON, J. T., WALTER, B., AND MARSCHNER, S. 2008. Efﬁ-
+cient multiple scattering in hair using spherical harmonics. ACM
+Trans. Graph. 27, 3, 31:1–31:7.
+NAVARRO, F., GUTIERREZ, D., AND SERN, F. 2009. Interactive
+hdr lighting of dynamic participating media. The Visual Com-
+puter 25, 4, 339–347.
+PARIS, S., CHANG, W., KOZHUSHNYAN, O. I., JAROSZ, W.,
+MATUSIK, W., ZWICKER, M.,
+AND DURAND, F.
+2008.
+Hair Photobooth: geometric and photometric acquisition of real
+hairstyles. ACM Trans. Graph. 27, 3, 30:1–30:9.
+REN, Z., ZHOU, K., LI, T., HUA, W., AND GUO, B. 2010. In-
+teractive hair rendering under environment lighting. ACM Trans.
+Graph. 29, 4, 55:1–55:8.
+SADEGHI, I., PRITCHETT, H., JENSEN, H. W., AND TAMSTORF,
+R. 2010. An artist friendly hair shading system. ACM Trans.
+Graph. 29, 4, 56:1–56:10.
+SCHLICK, C. 1994. An inexpensive BRDF model for physically-
+based rendering. Computer Graphics Forum 13, 3, 233–246.
+SELLE, A., LENTINE, M., AND FEDKIW, R. 2008. A mass spring
+model for hair simulation. ACM Trans. Graph. 27, 3, 64.
+SHINYA, M., SHIRAISHI, M., DOBASHI, Y., IWASAKI, K., AND
+NISHITA, T. 2010. A simpliﬁed plane-parallel scattering model
+and its application to hair rendering. Paciﬁc Conference on Com-
+puter Graphics and Applications, 85–92.
+SILVA, P., BANDO, Y., CHEN, B.-Y., AND NISHITA, T. 2010.
+Curling and clumping fur represented by texture layers. The Vi-
+sual Computer 26, 6, 659–667.
+SINTORN, E., AND ASSARSSON, U. 2008. Real-time approximate
+sorting for self shadowing and transparency in hair rendering. In
+Proc. of I3D, 157–162.
+SINTORN, E., AND ASSARSSON, U. 2009. Hair self shadowing
+and transparency depth ordering using occupancy maps. In Proc.
+of I3D, 67–74.
+SUN, X., ZHOU, K., CHEN, Y., LIN, S., SHI, J., AND GUO, B.
+2007. Interactive relighting with dynamic BRDFs. ACM Trans.
+Graph. 26, 3.
+SUN, X., ZHOU, K., STOLLNITZ, E., SHI, J., AND GUO, B. 2008.
+Interactive relighting of dynamic refractive objects. ACM Trans.
+Graph. 27, 3, 1–9.
+TSAI, Y.-T., AND SHIH, Z.-C. 2006. All-frequency precomputed
+radiance transfer using spherical radial basis functions and clus-
+tered tensor approximation. ACM Trans. Graph. 25, 3, 967–976.
+WANG, R., CHESLACK-POSTAVA, E., WANG, R., LUEBKE, D.,
+CHEN, Q., HUA, W., PENG, Q., AND BAO, H. 2008. Real-time
+editing and relighting of homogeneous translucent materials. Vis.
+Comput. 24, 7, 565–575.
+WANG, J., REN, P., GONG, M., SNYDER, J., AND GUO, B.
+2009. All-frequency rendering of dynamic, spatially-varying re-
+ﬂectance. ACM Trans. Graph. 28, 5, 133:1–133:10.
+WARD, K., BERTAILS, F., KIM, T.-Y., MARSCHNER, S. R.,
+CANI, M.-P., AND LIN, M. C. 2007. A survey on hair model-
+ing: Styling, simulation, and rendering. IEEE Transactions on
+Visualization and Computer Graphics 13, 2, 213–234.
+XU, K., GAO, Y., LI, Y., JU, T., AND HU, S.-M. 2007. Real-time
+homogenous translucent material editing. Computer Graphics
+Forum 26, 3, 545–552.
+YUKSEL, C., AND KEYSER, J. 2008. Deep opacity maps. Com-
+puter Graphics Forum 27, 2, 675–680.
+ZINKE, A., AND WEBER, A. 2006. Global illumination for ﬁber
+based geometries. In SIACG 2006.
+ZINKE, A., AND WEBER, A.
+2007.
+Light scattering from ﬁl-
+aments.
+IEEE Transactions on Visualization and Computer
+Graphics 13, 2, 342–356.
+ZINKE, A., YUKSEL, C., WEBER, A., AND KEYSER, J. 2008.
+Dual scattering approximation for fast multiple scattering in hair.
+ACM Trans. Graph. 27, 3, 32:1–32:10.
+ZINKE, A., RUMP, M., LAY, T., WEBER, A., ANDRIYENKO, A.,
+AND KLEIN, R. 2009. A practical approach for photometric
+acquisition of hair color. ACM Trans. Graph. 28, 5, 165:1–165:9.
+Appendix
+Explanation of Eq 11. (Separation of SRBF G j into two 1D cir-
+cular Gaussian). First, let’s express the directions ωi and ω j in
+Euclidean coordinates:
+ωi = [sinθi, cosθi cosφi, cosθi sinφi ]
+ω j = [sinθ j, cosθ j cosφ j, cosθ j sinφ j]
+Then, the dot product of ωi and ω j can be written as (using product-
+to-sum rules in trigonometry):
+ωi ·ω j −1 = [cos(θi −θ j)−1]+cosθi cosθj [cos(φi −φj)−1]
+Now divide both sides by λ 2
+j /2, and apply the exponential function:
+G(ωi;ω j,λ j) = gc(θi;θj,λ j)·gc 
+φi;φ j,λj/
+q
+cos(θi) cos(θ j)
+
+. □

@@ -1,0 +1,1119 @@
+Title: DiffLocks: Generating 3D Hair from a Single Image using Diffusion Models
+
+DiffLocks: Generating 3D Hair
+from a Single Image using Diffusion Models
+Radu Alexandru Rosu1,*
+Keyu Wu2,∗,†
+Yao Feng1,3
+Youyi Zheng2
+Michael J. Black4
+1Meshcapade
+2Zhejiang University
+3Stanford University
+4Max Planck Institute for Intelligent Systems
+Abstract
+We address the task of generating 3D hair geometry from
+a single image, which is challenging due to the diver-
+sity of hairstyles and the lack of paired image-to-3D hair
+data. Previous methods are primarily trained on synthetic
+data and cope with the limited amount of such data by
+using low-dimensional intermediate representations, such
+as guide strands and scalp-level embeddings, that require
+post-processing to decode, upsample, and add realism.
+These approaches fail to reconstruct detailed hair, strug-
+gle with curly hair, or are limited to handling only a
+few hairstyles.
+To overcome these limitations, we pro-
+pose DiffLocks, a novel framework that enables detailed
+reconstruction of a wide variety of hairstyles directly from
+a single image.
+First, we address the lack of 3D hair
+data by automating the creation of the largest synthetic
+hair dataset to date, containing 40K hairstyles. Second,
+we leverage the synthetic hair dataset to learn an image-
+conditioned diffusion-transfomer model that generates ac-
+curate 3D strands from a single frontal image. By using
+a pretrained image backbone, our method generalizes to
+in-the-wild images despite being trained only on synthetic
+data. Our diffusion model predicts a scalp texture map in
+which any point in the map contains the latent code for an
+individual hair strand. These codes are directly decoded
+to 3D strands without post-processing techniques.
+Rep-
+resenting individual strands, instead of guide strands, en-
+ables the transformer to model the detailed spatial struc-
+ture of complex hairstyles. With this, DiffLocks can recover
+highly curled hair, like afro hairstyles, from a single image
+for the first time. Data and code is available at https:
+//radualexandru.github.io/difflocks/.
+1. Introduction
+Realistic 3D hair is a crucial component of digital humans
+[1, 2, 8, 12, 18, 39, 46], which have wide applications in
+*Joint first author
+†Work done during an internship at Meshcapade
+Synthetic hair dataset
+Real image
+3D hair
+3 seconds
+Figure 1. Given a single RGB image DiffLocks generates accu-
+rate 3D strands using a diffusion model. The model is trained on
+a novel synthetic hair dataset containing RGB images and corre-
+sponding 3D strands.
+games, media and entertainment. Accurate hair represen-
+tation greatly enhances the character’s realism and overall
+visual quality. Unfortunately, both generating realistic hair
+and reconstructing it from an image are challenging due to
+the complex 3D geometry and the wide variety of hairstyles.
+Since the release of the first 3D synthetic hair dataset
+[11], numerous methods for hair reconstruction have been
+proposed. Multi-view capture methods [17, 29, 31, 55, 58]
+and video-based approaches [24, 42, 50] are able to recon-
+struct high-fidelity 3D hair but are time-intensive and chal-
+lenging to deploy due to their reliance on expensive capture
+equipment or strict capture conditions.
+In contrast, single-view methods [3, 38, 49, 52, 56],
+which reconstruct 3D hair from a single image, are faster,
+more accessible, and user-friendly. These methods, how-
+ever, often produce low-detail hair and handle only a re-
+stricted range of hairstyles.
+Furthermore, these methods
+struggle to handle male-pattern baldness and very curly hair
+such as afro-like hairstyles, which have a complex geomet-
+ric structure (see [48]). Previous methods suffer from a lack
+of diverse and comprehensive hairstyle training datasets.
+To increase training set diversity, GroomGen [57], HAAR
+[43] and Fake It Till You Make It [47] use artist-created
+hairstyles together with data augmentation techniques to
+train their methods.
+However, their datasets are not re-
+leased, do not have paired RGB images, or the creation pro-
+1
+arXiv:2505.06166v1  [cs.CV]  9 May 2025
+
+
+cess requires significant manual effort.
+To cope with limited training data, previous approaches
+rely on several intermediate representations to simplify the
+problem.
+Most prior methods rely on oriented filters to
+capture the structure of hair in images. They also do not
+model hair strands directly but, instead, use a smaller num-
+ber of guide strands and then upsample these to generate a
+hairstyle. Additionally, several methods use variational au-
+toencoding to compress the guide strands across the scalp
+into a low-dimensional representation.
+All of these ap-
+proaches are designed to cope with limtied training data but
+have two effects: (1) they limit the ability to model the com-
+plex spatial relationships between individual strands, and
+(2) they limit realism by working with low-dimensional rep-
+resentations. Effectively, they work in a compressed low-
+dimensional space and then need to upsample the results
+and post-process them to increase realism.
+We take a different approach and focus on creating a suf-
+ficient amount of training data that we can remove the sim-
+plifying assumptions of previous methods. To that end, we
+present a novel 3D synthetic hair dataset consisting of 40K
+samples covering a wide variety of hairstyles; see Fig. 3.
+Each sample consists of 3D hair strands and a realistic
+RGB image rendered in Blender through path-tracing. We
+achieve this by automating the creation of the data using a
+variety of artist-inpsired techniques. Traditional approaches
+are designed to create a single hairstyle using a small ge-
+ometry node network tailored-made for that hairstyle. In
+contrast, we design a large and very general geometry node
+network in Blender that allows us to automatically create a
+large number of realistic hairstyles by changing the differ-
+ent parameters.
+We then leverage our dataset to train a novel hair diffu-
+sion framework, called DiffLocks, that is optionally condi-
+tioned on single RGB image in order to create highly de-
+tailed 3D strands; see Fig. 1. Specifically, we use Hourglass
+Diffusion Transformers (HDiT) [6] as a diffusion architec-
+ture and exploit features from a pretrained DINOv2 [30]
+model as a conditioning input to guide and control the
+generated results; see Fig. 2.
+The DINOv2 features are
+richer than the oriented filters used in many previous meth-
+ods. Note that we directly regress the latent code for indi-
+vidual hair strands (instead of guide strands) enabling the
+transformer to learn detailed spatial relationships between
+strands across the scalp. With sufficient training data, there
+is no longer a need to first embed the hairstyle in a low-
+D scalp representation. We also model a density map that
+defines the probability of a strand being generated at each
+location on the scalp. All of these changes lead to increased
+realism, particularly for curly and balding hairstyles. Fi-
+nally, our strand-based hair can be directly used in real-time
+game engines like Unreal Engine (Fig. 6) without additional
+heuristics to densify the hair or add fine-grained detail.
+A key takeaway from our work is that, with sufficient
+training data, many of the key components of previous
+methods are no longer needed. For example, in contrast to
+the 32 × 32 scalp map used by HAAR, our diffusion model
+predicts a scalp texture of size 256 × 256 (each pixel con-
+taining a latent code for a single strand) from which Dif-
+fLocks directly decodes 3D strands. No post-processing
+is needed, such as hair upsampling or the addition of ran-
+dom noise (cf. [57]). The dataset already contains realis-
+tic hairstyles with flyaway strands, so the diffusion model
+learns to create them.
+In summary, our main contributions are:
+• a novel 3D hair dataset containing 40K diverse and real-
+istic 3D hairstyles with corresponding RGB images. We
+make the dataset public in order to support future research
+in hair modeling and synthesis,
+• an improved scalp representation that facilitates the re-
+construction of hair styles with different hair density (bald
+spots, male pattern baldness, etc.),
+• a novel conditional scalp diffusion framework for ro-
+bustly generating 3D hair directly from a single RGB im-
+age, bypassing a 2D orientation map. This framework
+can effectively create a variety of challenging hairstyles,
+while achieving the state-of-the-art performance and en-
+able, for the first time, reconstruction of afro-like and bald
+hairstyles. The model will be available for research.
+2. Related Works
+3D Hair Reconstruction. The pioneering hair reconstruc-
+tion work of Paris et al. [31] set the stage for numerous
+multi-view-based hair reconstruction methods. Since then,
+various methods [17, 25, 26, 29, 58] reconstruct the 3D geo-
+metric features of hair constrained by a 2D orientation map.
+In many cases this requires specialized hardware or multi-
+camera rigs. In contrast, monocular video based methods
+[24, 42, 45, 50] sacrifice some accuracy to avoid expensive
+and specialized equipment. While achieving impressive re-
+sults, such methods still require carefully captured data.
+To relax the capture conditions, single-view-based methods
+[3, 38, 49, 52, 54, 54] employ deep neural networks to infer
+volumetric fields by exploiting data priors learned from 3D
+synthetic datasets. Such methods enable rapid 3D hair re-
+construction but typically generate low fidelity hair and can
+handle only a limited range of hairstyles due to the signif-
+icant lack of diversity in existing 3D hair datasets. Similar
+to these methods, our approach also reconstructs hair from a
+single image. However, our work focuses on fast and robust
+reconstruction of diverse hairstyles, including challenging
+types such as balding and tightly curled (afro-like) styles;
+such hairstyles have received relatively little attention.
+3D Hair Generation. In addition to hair reconstruction,
+hair generation is another challenge, which, if solved, could
+2
+
+
+RGB input
+DINOv2
+CLS token
+Time
+Global Cond
+Diffusion Model
+Scalp Texture
++Density
+64
+z
+Strand
+Decoder
+G()
+Single
+Strand
+3D hair strands
+Cross-attention
+UV-mapping
+×100K
+RGB conditioning
+Scalp Diffusion
+Strand Decoding
+Figure 2. Method. Given a single RGB image, we use a pretrained DINOv2 model to extract local and global features, which are used
+to guide a scalp diffusion model. The scalp diffusion model denoises a density map and a scalp texture containing latent codes for strand
+geometry. Finally, we probabilistically sample texels from the scalp texture and decode the latent code z into strands of 256 points.
+Decoding in parallel 100K strands yields the final hairstyle.
+provide synthetic data for learning high-quality hair recon-
+struction.
+Ren et al. [35] propose a heuristic example-
+based hair generation method that is significantly limited
+by the reference hair models. Saito et al. [38] encode a 3D
+hair dataset with a Variational autoencoder (VAE), enabling
+them to generate plausible yet overly smooth hairstyles. To
+achieve high-quality and diverse hairstyles, Perm [9] lever-
+ages existing public 3D datasets, disentangling the global
+shape and local details of hair strands. Despite progress,
+the scale and diversity of synthetic 3D hair datasets is still
+far from what is needed. GroomGen [57] and HAAR [43]
+incorporate parametrized variations based on high-quality
+hairstyles crafted by artists, further enhancing the diversity
+of 3D hair datasets. They also train generative models to
+produce 3D hairstyles from noisy inputs or text prompts.
+Recently, Curly-Cue [48] focuses on the principles behind
+curly, afro-style, hair and provides tools for animators to
+create realistic hairstyles. In our work, we propose a low-
+cost synthetic 3D hair generation pipeline and use it to con-
+struct a new dataset that is more diverse than previous ones,
+containing 40K 3D synthetic hairstyles. Additionally, we
+use this dataset to train a generative hair model that is con-
+ditioned on a single input image.
+Image-To-3D via Diffusion Models. Early work on neu-
+ral reconstruction of 3D objects from images [7, 28, 51]
+distills information from pretrained 2D diffusion models,
+such as Stable Diffusion [36], using techniques like Score
+Distillation Sampling (SDS) [33].
+However, these pre-
+trained models lack the multi-view information essential
+for accurate 3D reconstruction. To address this, later ap-
+proaches [20, 21, 41] train custom 2D diffusion models to
+generate multi-view images from a given input, enabling
+more accurate 3D object reconstruction by integrating this
+multi-view data [13, 23]. While effective, this approach can
+be time-intensive due to the sampling and reconstruction
+processes, which has led to an alternative line of research
+focused on training diffusion models to generate 3D repre-
+sentations directly, such as meshes [22] or triplane repre-
+sentations [4]. However, these methods often demand sig-
+nificant computational resources for 3D processing. In con-
+trast, our method produces a 2D representation that con-
+tains 3D hair information, enabling direct decoding into 3D
+hair without the need for extensive multi-view generation or
+resource-intensive training of 3D diffusion models.
+3. Method
+In this section, we present our pipeline for 3D hair re-
+construction from a single image, consisting of three key
+stages: 1) A data generation pipeline using Blender’s ge-
+ometry nodes to create a large, diverse, image-3D paired
+synthetic hair dataset (Sec. 3.1); 2) Parameterization of hair
+strands and hairstyles into a canonical scalp space to ob-
+tain scalp textures (Sec. 3.2); And 3) training a conditional
+diffusion model, DiffLocks, using the generated synthetic
+images and the scalp textures as shown in Fig. 2.
+3.1. Data Generation
+A key bottleneck in the field of 3D hair reconstruction is
+the limited availability of public datasets, with only 343
+hairstyles for USC-HairSalon [11] and 10 for CT2Hair
+[40]. Additionally, these datasets lack corresponding 2D
+images, which limits their usability. Thus, here we propose
+a novel data generation pipeline, which uses Blender ge-
+ometry nodes to add variation to a small set of manually
+defined guide strands as shown in Fig. 4. Next, we will de-
+scribe the main steps of the pipeline.
+Scalp creation. The first step in creating the new dataset
+is defining a scalp mesh onto which to build the hairstyles.
+Due to its wide applicability in the human-reconstruction
+field, we use the SMPL-X model [32] to define our scalp.
+We create a SMPL-X neutral body with mean body shape
+from which we manually select the vertices correspond-
+ing to the scalp and extract a mesh of 513 vertices as
+seen in Fig. 2.
+The scalp mesh is then UV-unwrapped
+into a single chart using an As-Rigid-As-Possible (ARAP)
+parametrization [44] in order to minimize distortions. This
+3
+
+
+Figure 3. Synthetic data. Sample RGB images from our synthetic hair dataset. Each sample from the dataset contains an image at
+768 × 768 resolution together with the corresponding 3D strand geometry of ≈100K strands.
+Base
+Randomizations
+Figure 4. Base hairstyles. Starting from a coarse set of guide
+strands, our Blender pipeline is able to generate a wide variety
+of hairstyles, covering different lengths, curliness and density pat-
+terns. Best viewed zoomed in.
+operation is done only once and need not be repeated for
+each subject since they all share the same SMPL-X body
+topology.
+Base hairstyle creation. The scalp mesh is imported into
+Blender and a series of hairstyles is manually created in
+the form of coarsely defined guide strands (Fig. 4). The
+base hairstyles define a starting point for the randomization
+process and therefore do not need to contain fine details,
+rather defining just the overall shape and direction of the
+hair. We manually create 75 base hairstyles, each repre-
+sented by ≈50 strands. We note that this is not a labour
+intensive process, as each base hairstyle takes only a few
+minutes to create.
+Randomization pipeline.
+The guide strands are passed
+through a series of transformations defined as geometry
+nodes in Blender that gradually add more detail to the hair.
+The guide strands are first interpolated to 100K strands, af-
+ter which clumping, curling and noise are applied. These
+operations are repeated multiple times with various inten-
+sities. Special attention must be given to prevent the hair
+from penetrating the scalp or intersecting with the body for
+which we apply shrinkwrap modifiers at various stages in
+the pipeline. In total the pipeline consists of 58 geome-
+try nodes that transform the hair together with 349 auxil-
+iary nodes that help feed parameters into the main nodes.
+We also define a hair BSDF using the Chiang model [5] for
+the strands material. Lastly we apply physics simulation to
+the strands using Blender’s cloth simulation and randomize
+wind direction and gravity strength. A total of 110 parame-
+ters govern the whole Blender generation pipeline (geome-
+try+material) and we select them at random with minimum
+and maximum ranges chosen empirically.
+Scene setup. In order to render realistic images, it is cru-
+cial to match the lighting of real scenes. For this, we use
+255 HDRIs from Poly Haven1 and randomize their expo-
+sure and azimuthal angle. Additionally, we randomly select
+albedo, normal and roughness textures for the bodies from
+a library of artist-created SMPL-X textures. Furthermore,
+we also randomly change the face expression coefficients
+within the range [−1, 1]. We keep the jaw closed since we
+observed it can cause issues with strands physics. To train
+our network for robustness to different camera parameters,
+we also randomize camera position (maintaining the look-
+at direction towards the head) and focal length in the range
+40 mm to 150 mm. For a study on network robustness to
+camera parameters please refer to the SupMat.
+Full dataset. The full dataset contains 40K samples each
+containing 3D strands with ≈100K strands and a cor-
+responding RGB image rendered through path tracing at
+768 × 768 resolution. We additionally save a density map
+that defines the probability of a strand being generated at
+each texel of the scalp as shown in Fig. 5. The density map
+is especially useful for modelling hairstyles with balding
+patterns.
+3.2. Hairstyle Parameterization
+Strand Parameterization.
+Formally, we represent a 3D
+strand as a set of L 3D points S = {p1, p2, · · · , pL}, where
+L = 256. A full hairstyle consists of a set of ≈100K strands
+H = {Sj}100K
+0
+. Similar to Neural Strands [37], we train a
+strand VAE to compress individual strands into a compact
+latent code z ∈R64. The encoder of the VAE denoted by
+E() is modeled as a series of 1D convolutions and the de-
+coder denoted by G() is a modulated SIREN [27] that maps
+the latent code z back to a series of 3D points S.
+In addition to the position and direction loss proposed by
+Neural Strands [37], we incorporate a curvature loss Lcur.
+This is motivated by the observation that, for highly coiled
+1https://polyhaven.com/hdris
+4
+
+
+hair, it is more perceptually impactful to match the curva-
+ture of the strand rather than matching the position of ev-
+ery point along the strand (i.e., as long as the strand looks
+curvy, it is acceptable to commit errors in per-point posi-
+tion). For an evaluation of this observation please refer to
+the SupMat. We define the local curvature as the instanta-
+neous change in direction: κi = di+1 −di where the direc-
+tion is defined as the change in position: di = pi+1 −pi.
+Therefore, the new curvature loss is defined as the L1 dis-
+tance between the ground-truth and the prediction: Lcur =
+PL
+0|κi −˜κi|, where ˆκi is the curvature of the predicted
+strand.
+The final training loss of our strands VAE is a weighted
+combination of a data term consisting of positional, direc-
+tional and curvature losses together with a KL regulariza-
+tion term:
+Ldata =
+L
+X
+0
+|pi −˜pi| + λ1|di −˜di| + λ2|κi −˜κi|
+(1)
+LVAE = Ldata + λKLLKL.
+(2)
+For more details on the hyperparameters please refer to
+the SupMat.
+Neural Scalp Texture.
+Each 3D hairstyle generated from
+the Blender pipeline is parametrized onto the scalp surface
+using a regular 2D texture. Specifically, each strand S is
+encoded to a latent code z by the strand encoder z = E(S)
+and directly assigned to the texel corresponding to the root
+of the strand.
+If two strands are so close together that
+they are assigned the same texel on the scalp, one of them
+is chosen at random.
+This produces a raw scalp texture
+Traw ∈R256×256×64, as shown in Fig. 5c where each texel
+contains a latent strand code. Since not all regions of the
+scalp have an equal hair density, we introduce a density map
+D ∈R256×256×1 with values in the range [0, 1] that defines
+the probability of a strand being present at each texel. For
+more discussion on the properties of the density map please
+refer to the SupMat.
+The aforementioned creation of the scalp texture can cre-
+ate sparse regions with no latent codes since not every texel
+will correspond to a strand. This sparsity is particularly ev-
+ident for hairstyles with balding patterns and can cause is-
+sues when decoding the texture back to 3D since sampling
+a texel with no assigned latent code would yield undefined
+strand geometry.
+To avoid this issue, we interpolate the
+sparsely assigned latent codes by using a push-pull algo-
+rithm [16] that ensures that every texel on the scalp has a
+valid strand latent code as shown in Fig. 5d.
+With the interpolated scalp texture T, we can sample at
+UV-positions according to the density D, and produce a full
+hairstyle H by decoding each latent code:
+H = G(Sample(T, D)),
+(3)
+where Sample(·) performs probabilistic sampling in UV
+space such that regions with high density are sampled more
+often, allowing us to represent hairstyles with varying den-
+sity of hair. To create a full hairstyle we sample 100K po-
+sitions on the scalp and extract strand latent codes z using
+bilinear interpolation.
+3.3. Conditional Scalp Diffusion
+Diffusion framework.
+Similar to previous methods [43,
+57] we train a generative model of scalp textures T to learn
+the prior distribution over hairstyles. Furthermore, we con-
+dition the model on image data, enabling high-quality 3D
+hair generation from a single image. Specifically, we train
+a denoiser model Dθ using a Hourglass Diffusion Trans-
+former [6] architecture, which is particularly efficient for
+pixel-space diffusion tasks. We denote the clean training
+sample for the diffusion as the concatenation of scalp tex-
+ture and density map: y = [T, D] and the noised input
+x = y + n as a combination of the clean data y and noise
+n ∼N(0, σ2I) with noise level σ. Following EDM [14],
+we parametrize the denoiser to allow it to predict y or n, or
+something in between:
+Dθ(x; σ) = cskip(σ)x + cout(σ)Fθ
+ cin(σ)x; cnoise(σ)
+
+(4)
+where Fθ is the network to train, cskip is as a skip connection
+modulator, cin and cout scale the input and output magnitude,
+and cnoise is the time condition of the network. Please refer
+to the EDM paper [14] for more details.
+The training loss for each spatial element and each noise
+level is defined as:
+L(Dθ, y, n, σ) = ∥Dθ(y + n; σ) −y∥2
+2.
+(5)
+Loss scaling.
+The denoising network outputs a clean
+scalp texture T and a density map D. However, we observe
+that not all channels of the scalp texture are equally sig-
+nificant, some encode relevant information such as length
+or curliness, while others are noisy and have little impact
+on the decoded strand.
+We propose to down-weight the
+loss of the channels of the scalp textures based on their
+perceptual change to the strand shape. Since we have no
+direct metric to evaluate perceptual change, we reuse the
+data term from the loss Ldata used to train the StrandVAE.
+More specifically, we first define the mean strand predicted
+by the VAE as S0 = G(z0) by decoding from a zero latent
+vector z0 = [0]64. Following that, we individually perturb
+each dimension of the latent code, decode a strand, and cal-
+culate the distance to the mean strand as measured by the
+loss. This can be seen as a metric that quantifies perceptual
+changes as a result of individual changes to the latent code
+dimensions. Therefore, the weight associated with each di-
+mension of the latent code is:
+wi = Lstrand(S0, G(z0 + ϵ · ji)),
+(6)
+5
+
+
+where ji is vector of zeros with a 1 at the i-th position and ϵ
+is the perturbation strength which we empirically set to 0.8.
+We obtain a final weight vector by normalizing:
+w =
+wi
+P64
+0 wi
+.
+(7)
+For an evaluation and discussion of the proposed weighting
+scheme, please see SupMat.
+In addition, we also incorporate a weighting term in or-
+der to equalize the error contribution across noise levels by
+taking the approach of EDM2 [15], which treats denoising
+as a form of multi-task learning and lets the network predict
+a log-variance of the uncertainty u(σ) for a certain noise
+level. Combining the per-channel weighting with the per-
+noise level weighting we obtain our final formulation for
+the diffusion loss as an expectation over noise levels and
+spatial dimensions:
+L(Dθ, u) = Ey,n,σ
+h
+w
+eu(σ) L(Dθ, y, n, σ) + u(σ)
+i
+.
+(8)
+RGB conditioning.
+Previous approaches have primarily
+relied on 2D orientation maps [31, 56] extracted using Ga-
+bor filters in order to align the generated strands with the
+image.
+However, orientation maps cannot infer the hair
+growth direction and tend to be noisy for heavily occluded
+hairstyles. In our work, we forego the need to compute
+orientation maps and instead condition our diffusion net-
+work using robust DINOv2 [30] features extracted from the
+image. Specifically, we use the pre-trained DINOv2-large
+model to encode the RGB image into a feature map Fmap ∈
+R55×55×1024 and a global CLS token Fcls ∈R1024. Addi-
+tionally, our rendered images are sufficiently realistic such
+that the network trained only on synthetic data, can gener-
+alize to in-the-wild images.
+Since the scalp texture and the RGB image are not spa-
+tially aligned, we add cross-attention layers before each
+downsampling layer of the denoiser and let the network
+learn which regions of the feature map Fmap it should at-
+tend to. The CLS token Fcls is used to globally condition
+the network similar to the time condition σ as described in
+HDiT [6].
+Furthermore, in order to use the same network both con-
+ditionally and unconditionally, we train the denoiser using
+Classifier-Free Guidance [10] by randomly dropping the
+conditioning signal with 10% probability (Fig. 8).
+For experiments on conditioning using DINOv2 features
+vs orientation maps, please refer to SupMat.
+4. Experiments
+We evaluate DiffLocks using both synthetic data and in-the-
+wild images. We also perform ablation studies to assess
+the importance of the different components of our method
+(a) Synthetic
+Image
+(b) Scalp density
+(c) Raw scalp
+texture
+(d) Interpolated
+texture
+Figure 5. Scalp interpolation. Embedding each strand onto a the
+scalp texture can leave gaps where no strand is present. In order to
+enable probabilistic sampling of strands, we interpolate the sparse
+strand embeddings to achieve a smooth scalp texture that can be
+sampled at any position according to the density.
+RGB Input
+Blender
+offline(40 s)
+Unreal Engine
+real-time(16 ms)
+Figure 6. Rendering/Simulation. Our generated hair can be di-
+rectly imported into Blender or Unreal Engine as an Alembic file.
+In Unreal Engine, the hair can be rendered in real-time with high-
+quality physics simulation (see Supplemental Video).
+(Sec. 4.4). For implementation details and additional exper-
+iments, please refer to SupMat.
+We compare our method with Hairstep [56] and Neu-
+ralHDHair [49] as they are both state-of-the-art methods
+for reconstructing 3D hair from a single image. We also
+compare with the conditional 3D hair generation method of
+HAAR [43] although it is mainly designed for text-to-hair.
+4.1. Qualitative
+The qualitative comparison with Hairstep, NeuralHDHair
+and HAAR is shown in Fig. 7. NeuralHDHair and HairStep
+tend to create hair that matches the overall shape from the
+image but that lacks fine-grained detail and curls, recon-
+structing strands that run parallel to each other. Further-
+more, they cannot correctly reconstruct balding and afro-
+like hairstyles.
+In contrast, our method produces high-
+quality and realistic hair strands for a wide variety of im-
+ages.
+Despite being a method designed for text-to-hair,
+we also compare with HAAR since they have released a
+pipeline for image-to-hairstyle by leveraging LLaVA to ob-
+tain text descriptions. We observe that their method often
+cannot match the hairstyle in the image.
+4.2. Quantitative
+Quantitative evaluation is performed using the synthetic
+dataset of Yuksel et al. [53] from which we use two
+medium-length hairstyles: straight and curly.
+To render
+RGB images of the dataset we use Unreal Engine instead of
+Blender in order to remove possible bias our method might
+6
+
+
+RGB input
+Ours
+HairStep
+NeuralHDHair
+HAAR
+(img →text →3D)
+Figure 7. Qualitative comparison. We compare our method with HairStep [56], NeuralHDHair [49] and HAAR [43] on real images. Our
+method can robustly reconstruct a large variety of hairstyles with significantly more detail than previous approaches. We note that HAAR
+was designed to reconstruct hair given text captions, so we use LLaVA [19] to obtain text description of hair, followed by applying their
+text-to-3D method.
+have towards the path-traced images. The accuracy and pre-
+cision results are reported in Tab. 1.
+Additionally, we note that current synthetic datasets do
+not contain enough variety of hairstyles and propose a new
+synthetic dataset containing 10 representative hairstyles cre-
+ated by our Blender pipeline. We also evaluate our method
+and the baselines on this dataset and report the results
+in Tab. 2 although we recognize that our method has an ad-
+vantage because it is trained on data created by the same
+Blender pipeline.
+Across the two datasets we observe that our method can
+reconstruct the backside of the hair more faithfully, rein-
+forcing the importance of varied data from which to learn a
+powerful prior. For the backside reconstruction, robustness
+to viewpoint, and more visualizations see SupMat.
+4.3. Runtime Performance
+We evaluate the runtime performance in Tab. 3 by first di-
+viding the hair reconstruction pipeline into three parts, 1)
+extraction of RGB features (DINOv2 features or in the case
+of the baseline methods: orientation maps, hair segmenta-
+tion, etc.), 2) generation of the hair model, which in our
+7
+
+
+Figure 8.
+Unconditional generation.
+We train our diffusion
+model with Classifier-free Guidance [10] so that the same model
+can be evaluated both conditionally and unconditionally. Here we
+show unconditionally generated results where we observe a range
+of high-quality and diverse hairstyles.
+Model:
+Condition:
+RGB Input
+VAE
+Global+Local
+Diffusion
+Global
+Diffusion
+Global+Local
+Figure 9. Ablation of conditioning signal and model architec-
+ture. Removing the local conditioning in the form of feature map
+Fmap and relying only on the global CLS token severely affects
+the ability to reconstruct hair. Also generating scalp textures using
+a VAE yields overly smooth reconstructions. The combination of
+diffusion and local+global conditioning captures the most detail.
+case is the scalp texture while baseline methods create a
+3D orientation field, 3) strand generation, which is the fi-
+nal step to either decode or grow the strands. All results
+are obtained on an NVIDIA H100 GPU. We observe that
+our method is overall the fastest as we do not need pre- or
+post-processing steps like head fitting, hair segmentation or
+hair growth and refinement. Note that our generated hair
+can be directly imported into Unreal Engine and rendered
+in real-time (60FPS) as shown in Fig. 6; see Supplemental
+Video.
+4.4. Ablation Study
+We perform an ablation study on the architecture and the
+importance of the conditioning signal in Fig. 9. Chang-
+ing the scalp generation model to a VAE model similar to
+GroomGen [57] causes the hair to be overly smooth and
+lack local detail. Our proposed diffusion model conditioned
+with global and local features in the form of Fmap and Fcls
+manages to capture the most detail. However, the local fea-
+ture map is crucial and removing it causes the generated hair
+to deviate significantly from the input image.
+Thresholds: mm / degrees
+Method
+2/20
+3/30
+4/40
+2/20
+3/30
+4/40
+2/20
+3/30
+4/40
+Precision(↑)
+Recall(↑)
+F-score(↑)
+NeuralHDHair [49]
+47.91
+65.07
+73.76
+31.59
+51.10
+64.63
+38.00
+57.12
+68.73
+HairStep[56]
+40.88
+55.99
+64.07
+32.16
+44.96
+53.15
+35.50
+49.06
+57.20
+Ours
+43.60
+68.30
+81.79
+34.97
+58.27
+71.79
+38.35
+62.41
+76.20
+Table 1. Quantitative comparison with [49, 56] on [53]. It includes
+straight and curly hairstyles, please refer to the SupMat for more
+visualizations.
+Thresholds: mm / degrees
+Method
+2/20
+3/30
+4/40
+2/20
+3/30
+4/40
+2/20
+3/30
+4/40
+Precision(↑)
+Recall(↑)
+F-score(↑)
+NeuralHDHair [49]
+18.65
+36.21
+49.46
+19.26
+37.33
+51.60
+18.55
+35.76
+49.30
+HairStep[56]
+20.22
+35.54
+45.73
+20.80
+38.53
+52.82
+19.42
+34.38
+45.48
+Ours
+63.06
+84.16
+92.78
+57.91
+79.71
+89.81
+60.13
+81.68
+91.17
+Table 2. Quantitative comparison with [49, 56] on the DiffLocks
+evaluation set. Our results show substantial improvement over the
+baseline, particularly when reconstructing the backside of the hair
+due to our model’s ability to learn a powerful prior over hairstyles.
+HairStep
+NeuralHDHair
+Ours
+RGB features (↓)
+3.17
+4.86
+0.10
+hair model (↓)
+0.45
+4.99
+1.83
+strand creation (↓)
+49.78
+8.47
+0.40
+total (s) (↓)
+53.40
+18.32
+2.33
+Table 3. Timing. Comparison of the time in seconds needed for
+each part of the hair creation pipeline.
+5. Limitations and future work
+Despite the large amount of data, there are still gaps in the
+synthetic dataset; e.g. it lacks hairstyles with braids, acces-
+sories, ponytails, and buns. However, we believe that fur-
+ther improvements to the pipeline will allow such details to
+be created. Furthermore, the generation pipeline can also
+be easily extended to beards and eyebrows.
+We also note that DiffLocks prioritizes local hair details
+over perfect image alignment. However, for many tasks,
+generation or reconstruction is just the first step. When hair
+is animated with physics, the precise initial strand align-
+ment is not critical, as the dynamic nature of hair makes the
+initial configuration transient.
+6. Conclusion
+We proposed a novel approach for generating 3D hair
+strands from a single image by first creating the largest
+dataset to date of synthetic hair paired with RGB im-
+ages, and then by proposing an image-conditioned diffu-
+sion model based on scalp textures. Our method can create
+highly intricate 3D strands, surpassing previous methods
+and without requiring heuristic-based methods to increase
+the realism.
+Acknowledgments and Disclosures. We give thanks to
+Nathan Bajandas for all the Unreal images and videos.
+While MJB is a co-founder and Chief Scientist at
+Meshcapade, his research in this project was performed
+solely at, and funded solely by, the Max Planck Society.
+8
+
+
+References
+[1] Menglei Chai, Changxi Zheng, and Kun Zhou. A reduced
+model for interactive hairs. ACM Transactions on Graphics
+(TOG), 33(4):1–11, 2014. 1
+[2] Menglei Chai, Linjie Luo, Kalyan Sunkavalli, Nathan Carr,
+Sunil Hadap, and Kun Zhou.
+High-quality hair modeling
+from a single portrait photo. ACM Trans. Graph., 34(6):204–
+1, 2015. 1
+[3] Menglei Chai, Tianjia Shao, Hongzhi Wu, Yanlin Weng, and
+Kun Zhou. Autohair: Fully automatic hair modeling from a
+single image. ACM Transactions on Graphics, 35(4), 2016.
+1, 2
+[4] Eric R Chan, Connor Z Lin, Matthew A Chan, Koki Nagano,
+Boxiao Pan, Shalini De Mello, Orazio Gallo, Leonidas J
+Guibas, Jonathan Tremblay, Sameh Khamis, et al. Efficient
+geometry-aware 3d generative adversarial networks. In Pro-
+ceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, pages 16123–16133, 2022. 3
+[5] Matt Jen-Yuan Chiang, Benedikt Bitterli, Chuck Tappan, and
+Brent Burley. A practical and controllable hair and fur model
+for production path tracing. In ACM SIGGRAPH 2015 Talks,
+pages 1–1. 2015. 4
+[6] Katherine Crowson, Stefan Andreas Baumann, Alex Birch,
+Tanishq Mathew Abraham, Daniel Z Kaplan, and Enrico
+Shippole. Scalable high-resolution pixel-space image syn-
+thesis with hourglass diffusion transformers. In Forty-first
+International Conference on Machine Learning, 2024. 2, 5,
+6, 12
+[7] Congyue Deng, Chiyu Jiang, Charles R Qi, Xinchen Yan,
+Yin Zhou, Leonidas Guibas, Dragomir Anguelov, et al.
+Nerdi:
+Single-view nerf synthesis with language-guided
+diffusion as general image priors.
+In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, pages 20637–20647, 2023. 3
+[8] Sunil Hadap, Marie-Paule Cani, Ming Lin, Tae-Yong Kim,
+Florence Bertails, Steve Marschner, Kelly Ward, and Zoran
+Kaˇci´c-Alesi´c. Strands and hair: modeling, animation, and
+rendering. In ACM SIGGRAPH 2007 courses, pages 1–150.
+2007. 1
+[9] Chengan He, Xin Sun, Zhixin Shu, Fujun Luan, S¨oren Pirk,
+Jorge Alejandro Amador Herrera, Dominik L Michels, Tuan-
+feng Y Wang, Meng Zhang, Holly E Rushmeier, et al. Perm:
+A parametric representation for multi-style 3d hair modeling.
+CoRR, 2024. 3
+[10] Jonathan Ho and Tim Salimans.
+Classifier-free diffusion
+guidance. arXiv preprint arXiv:2207.12598, 2022. 6, 8
+[11] Liwen Hu, Chongyang Ma, Linjie Luo, and Hao Li. Single-
+view hair modeling using a hairstyle database. ACM Trans-
+actions on Graphics (ToG), 34(4):1–9, 2015. 1, 3, 13
+[12] Liwen Hu, Shunsuke Saito, Lingyu Wei, Koki Nagano, Jae-
+woo Seo, Jens Fursund, Iman Sadeghi, Carrie Sun, Yen-
+Chun Chen, and Hao Li. Avatar digitization from a single
+image for real-time rendering. ACM Transactions on Graph-
+ics (ToG), 36(6):1–14, 2017. 1
+[13] Zhipeng Hu, Minda Zhao, Chaoyi Zhao, Xinyue Liang,
+Lincheng Li, Zeng Zhao, Changjie Fan, Xiaowei Zhou, and
+Xin Yu. Efficientdreamer: High-fidelity and robust 3d cre-
+ation via orthogonal-view diffusion priors. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 4949–4958, 2024. 3
+[14] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine.
+Elucidating the design space of diffusion-based generative
+models. Advances in neural information processing systems,
+35:26565–26577, 2022. 5
+[15] Tero Karras, Miika Aittala, Jaakko Lehtinen, Janne Hellsten,
+Timo Aila, and Samuli Laine. Analyzing and improving the
+training dynamics of diffusion models. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 24174–24184, 2024. 6
+[16] Martin Kraus. The pull-push algorithm revisited. Proceed-
+ings GRAPP, 2:3, 2009. 5
+[17] Zhiyi Kuang, Yiyang Chen, Hongbo Fu, Kun Zhou, and
+Youyi Zheng.
+Deepmvshair:
+Deep hair modeling from
+sparse views. In SIGGRAPH Asia 2022 Conference Papers,
+pages 1–8, 2022. 1, 2
+[18] Hao Li, Laura Trutoiu, Kyle Olszewski, Lingyu Wei, Tristan
+Trutna, Pei-Lun Hsieh, Aaron Nicholls, and Chongyang Ma.
+Facial performance sensing head-mounted display.
+ACM
+Transactions on Graphics (ToG), 34(4):1–9, 2015. 1
+[19] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee.
+Improved baselines with visual instruction tuning. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 26296–26306, 2024. 7
+[20] Minghua Liu, Chao Xu, Haian Jin, Linghao Chen, Mukund
+Varma T, Zexiang Xu, and Hao Su. One-2-3-45: Any single
+image to 3d mesh in 45 seconds without per-shape optimiza-
+tion. Advances in Neural Information Processing Systems,
+36, 2024. 3
+[21] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tok-
+makov, Sergey Zakharov, and Carl Vondrick.
+Zero-1-to-
+3: Zero-shot one image to 3d object.
+In Proceedings of
+the IEEE/CVF international conference on computer vision,
+pages 9298–9309, 2023. 3
+[22] Zhen
+Liu,
+Yao
+Feng,
+Michael
+J
+Black,
+Derek
+Nowrouzezahrai, Liam Paull, and Weiyang Liu. Meshdif-
+fusion: Score-based generative 3d mesh modeling.
+arXiv
+preprint arXiv:2303.08133, 2023. 3
+[23] Xiaoxiao Long, Yuan-Chen Guo, Cheng Lin, Yuan Liu,
+Zhiyang Dou, Lingjie Liu, Yuexin Ma, Song-Hai Zhang,
+Marc Habermann, Christian Theobalt, et al. Wonder3d: Sin-
+gle image to 3d using cross-domain diffusion. In Proceed-
+ings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 9970–9980, 2024. 3
+[24] Haimin Luo, Min Ouyang, Zijun Zhao, Suyi Jiang, Longwen
+Zhang, Qixuan Zhang, Wei Yang, Lan Xu, and Jingyi Yu.
+Gaussianhair: Hair modeling and rendering with light-aware
+gaussians. arXiv preprint arXiv:2402.10483, 2024. 1, 2
+[25] Linjie Luo, Hao Li, Sylvain Paris, Thibaut Weise, Mark
+Pauly, and Szymon Rusinkiewicz. Multi-view hair capture
+using orientation fields. In 2012 IEEE Conference on Com-
+puter Vision and Pattern Recognition, pages 1490–1497.
+IEEE, 2012. 2
+9
+
+
+[26] Linjie Luo, Hao Li, and Szymon Rusinkiewicz. Structure-
+aware hair capture. ACM Transactions on Graphics (TOG),
+32(4):1–12, 2013. 2
+[27] Ishit Mehta, Micha¨el Gharbi, Connelly Barnes, Eli Shecht-
+man, Ravi Ramamoorthi, and Manmohan Chandraker. Mod-
+ulated periodic activations for generalizable local functional
+representations.
+In Proceedings of the IEEE/CVF Inter-
+national Conference on Computer Vision (ICCV), pages
+14214–14223, 2021. 4
+[28] Luke Melas-Kyriazi, Iro Laina, Christian Rupprecht, and
+Andrea Vedaldi. Realfusion: 360deg reconstruction of any
+object from a single image. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition,
+pages 8446–8455, 2023. 3
+[29] Giljoo Nam, Chenglei Wu, Min H Kim, and Yaser Sheikh.
+Strand-accurate multi-view hair capture. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 155–164, 2019. 1, 2
+[30] Maxime Oquab, Timoth´ee Darcet, Th´eo Moutakanni, Huy
+Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez,
+Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al.
+Dinov2: Learning robust visual features without supervision.
+arXiv preprint arXiv:2304.07193, 2023. 2, 6
+[31] Sylvain Paris, Hector M Briceno, and Franc¸ois X Sillion.
+Capture of hair geometry from multiple images. ACM trans-
+actions on graphics (TOG), 23(3):712–719, 2004. 1, 2, 6,
+13
+[32] Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani,
+Timo Bolkart, Ahmed AA Osman, Dimitrios Tzionas, and
+Michael J Black.
+Expressive body capture:
+3d hands,
+face, and body from a single image.
+In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, pages 10975–10985, 2019. 3
+[33] Ben Poole, Ajay Jain, Jonathan T. Barron, and Ben Milden-
+hall.
+Dreamfusion: Text-to-3d using 2d diffusion.
+arXiv
+preprint arXiv:2209.14988, 2022. 3
+[34] Eduard Ramon, Gil Triginer, Janna Escur, Albert Pumarola,
+Jaime Garcia, Xavier Giro-i Nieto, and Francesc Moreno-
+Noguer. H3d-net: Few-shot high-fidelity 3d head reconstruc-
+tion. In Proceedings of the IEEE/CVF International Confer-
+ence on Computer Vision, pages 5620–5629, 2021. 12
+[35] Qiaomu Ren, Haikun Wei, and Yangang Wang. Hair salon:
+A geometric example-based method to generate 3d hair data.
+In International Conference on Image and Graphics, pages
+533–544. Springer, 2021. 3
+[36] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+Patrick Esser, and Bj¨orn Ommer. High-resolution image syn-
+thesis with latent diffusion models, 2022. 3
+[37] Radu Alexandru Rosu, Shunsuke Saito, Ziyan Wang, Chen-
+glei Wu, Sven Behnke, and Giljoo Nam.
+Neural strands:
+Learning hair geometry and appearance from multi-view im-
+ages. In European Conference on Computer Vision, pages
+73–89. Springer, 2022. 4
+[38] Shunsuke Saito,
+Liwen Hu,
+Chongyang Ma,
+Hikaru
+Ibayashi, Linjie Luo, and Hao Li. 3d hair synthesis using
+volumetric variational autoencoders. ACM Transactions on
+Graphics (TOG), 37(6):1–12, 2018. 1, 2, 3
+[39] Shunsuke Saito, Gabriel Schwartz, Tomas Simon, Junxuan
+Li, and Giljoo Nam. Relightable gaussian codec avatars. In
+Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition, pages 130–141, 2024. 1
+[40] Yuefan Shen, Shunsuke Saito, Ziyan Wang, Olivier Maury,
+Chenglei Wu, Jessica Hodgins, Youyi Zheng, and Giljoo
+Nam. Ct2hair: High-fidelity 3d hair modeling using com-
+puted tomography. ACM Transactions on Graphics (TOG),
+42(4):1–13, 2023. 3
+[41] Ruoxi Shi, Hansheng Chen, Zhuoyang Zhang, Minghua Liu,
+Chao Xu, Xinyue Wei, Linghao Chen, Chong Zeng, and Hao
+Su. Zero123++: a single image to consistent multi-view dif-
+fusion base model. arXiv preprint arXiv:2310.15110, 2023.
+3
+[42] Vanessa Sklyarova, Jenya Chelishev, Andreea Dogaru, Igor
+Medvedev, Victor Lempitsky, and Egor Zakharov. Neural
+haircut: Prior-guided strand-based hair reconstruction.
+In
+ICCV, 2023. 1, 2, 13
+[43] Vanessa
+Sklyarova,
+Egor
+Zakharov,
+Otmar
+Hilliges,
+Michael J Black, and Justus Thies. Haar: Text-conditioned
+generative model of 3d strand-based human hairstyles. arXiv
+preprint arXiv:2312.11666, 2023. 1, 3, 5, 6, 7
+[44] Olga Sorkine and Marc Alexa. As-rigid-as-possible surface
+modeling.
+In Symposium on Geometry processing, pages
+109–116. Citeseer, 2007. 3
+[45] Yusuke Takimoto, Hikari Takehara, Hiroyuki Sato, Zihao
+Zhu, and Bo Zheng.
+Dr. hair:
+Reconstructing scalp-
+connected hair strands without pre-training via differentiable
+rendering of line segments. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 20601–20611, 2024. 2
+[46] Ziyan Wang, Giljoo Nam, Tuur Stuyck, Stephen Lombardi,
+Chen Cao, Jason Saragih, Michael Zollh¨ofer, Jessica Hod-
+gins, and Christoph Lassner. Neuwigs: A neural dynamic
+model for volumetric hair capture and animation. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 8641–8651, 2023. 1
+[47] Erroll Wood, Tadas Baltruˇsaitis, Charlie Hewitt, Sebastian
+Dziadzio, Thomas J Cashman, and Jamie Shotton. Fake it
+till you make it: face analysis in the wild using synthetic
+data alone. In Proceedings of the IEEE/CVF international
+conference on computer vision, pages 3681–3691, 2021. 1
+[48] Haomiao Wu, Alvin Shi, A. M. Darke, and Theodore Kim.
+Curly-cue: Geometric methods for highly coiled hair.
+In
+ACM SIGGRAPH Asia 2024 Conference Proceedings. As-
+sociation for Computing Machinery, 2024. 1, 3
+[49] Keyu Wu, Yifan Ye, Lingchen Yang, Hongbo Fu, Kun Zhou,
+and Youyi Zheng.
+Neuralhdhair: Automatic high-fidelity
+hair modeling from a single image using implicit neural rep-
+resentations. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 1526–
+1535, 2022. 1, 2, 6, 7, 8, 13, 15, 16
+[50] Keyu Wu, Lingchen Yang, Zhiyi Kuang, Yao Feng, Xutao
+Han, Yuefan Shen, Hongbo Fu, Kun Zhou, and Youyi Zheng.
+Monohair: High-fidelity hair modeling from a monocular
+video. In Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition, pages 24164–24173,
+2024. 1, 2, 13
+10

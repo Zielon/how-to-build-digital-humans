@@ -1,0 +1,1195 @@
+Title: Neuraltailor: Reconstructing sewing pattern structures from 3d point clouds of garments
+
+NeuralTailor: Reconstructing Sewing Pattern Structures from 3D Point
+Clouds of Garments
+MARIA KOROSTELEVA, KAIST, South Korea
+SUNG-HEE LEE, KAIST, South Korea
+
+Load in 3D 
+and drape
+Encoder
+Attention
+Panel
+LSTM
+MLP
+Panel
+LSTM
+MLP
+
+Stitch Module
+Stitch Module
+Stitch Module
+Stitch Module
+Stitch Module
+Stitch Module
+
+
+Fig. 1. We introduce NeuralTailor – a deep neural network-based framework that recovers structured representation of garment sewing patterns and stitching
+information from point clouds.
+The fields of SocialVR, performance capture, and virtual try-on are often
+faced with a need to faithfully reproduce real garments in the virtual world.
+One critical task is the disentanglement of the intrinsic garment shape from
+deformations due to fabric properties, physical forces, and contact with the
+body. We propose to use a garment sewing pattern, a realistic and compact
+garment descriptor, to facilitate the intrinsic garment shape estimation.
+Another major challenge is a high diversity of shapes and designs in the
+domain. The most common approach for Deep Learning on 3D garments is to
+build specialized models for individual garments or garment types. We argue
+that building a unified model for various garment designs has the benefit
+of generalization to novel garment types, hence covering a larger design
+domain than individual models would. We introduce NeuralTailor, a novel
+architecture based on point-level attention for set regression with variable
+cardinality, and apply it to the task of reconstructing 2D garment sewing
+patterns from the 3D point cloud garment models. Our experiments show
+that NeuralTailor successfully reconstructs sewing patterns and generalizes
+to garment types with pattern topologies unseen during training.
+CCS Concepts: • Computing methodologies →Reconstruction; Shape
+representations; Shape inference; Shape analysis.
+Additional Key Words and Phrases: Garment Reconstruction, Sewing Pat-
+terns, Structured Deep Learning
+ACM Reference Format:
+Maria Korosteleva and Sung-Hee Lee. 2022. NeuralTailor: Reconstructing
+Sewing Pattern Structures from 3D Point Clouds of Garments. ACM Trans.
+Graph. 41, 4, Article 1 (July 2022), 16 pages. https://doi.org/10.1145/3528223.
+3530179
+Authors’ addresses: Maria Korosteleva, KAIST, South Korea, mariako@kaist.ac.kr;
+Sung-Hee Lee, KAIST, South Korea, sunghee.lee@kaist.ac.kr.
+© 2022 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+This is the author’s version of the work. It is posted here for your personal use. Not for
+redistribution. The definitive Version of Record was published in ACM Transactions on
+Graphics, https://doi.org/10.1145/3528223.3530179.
+1
+INTRODUCTION
+Computer graphics has a long history of 3D garments research,
+from modeling to the physics simulation. In this paper, we tackle
+the problem of estimating the underlying rest shape of a garment for
+which a deformed 3D shape is available. Such a 3D garment shape
+could be a draping result from a physics simulation or a 3D scan
+of a real-world garment. By rest shape, we mean a representation
+of a garment shape disentangled from deformation due to external
+physical forces, collisions, and fabric properties. Understanding
+such garment structure allows shaping the same garment in novel
+conditions like draping it on new body shapes or poses or enables
+the ability to adjust a captured garment’s design. These abilities
+are highly desirable for virtual try-on, garment design, or avatar
+creation.
+Building upon advances in Deep Learning research for shape
+analysis, we use a learning-based approach to tackle the problem in
+this work. To the best of our knowledge, ours is the first work to
+explore a learning-based solution for estimating garment rest shapes,
+with previous work either relying on fitting one of the pre-defined
+templates [Hasler et al. 2007; Jeong et al. 2015; Yang et al. 2018],
+optimizing rest shape directly from a good initial guess [Bartle et al.
+2016; Brouet et al. 2012; Wang 2018], surface flattening [Bang et al.
+2021; Liu et al. 2018; Meng et al. 2012; Wang et al. 2009], or inverting
+physics deformations analytically [Ly et al. 2018] (see Sec. 2 for
+more detailed review). Learning-based methods have the advantage
+of scalability to acquire knowledge from large garment databases
+and cover the space of garment designs better than methods based
+on template fitting while allowing fast processing at inference time,
+unlike optimization-based solutions.
+One of our key ideas is to use a garment sewing pattern as a base
+representation for a garment rest shape. We assume a sewing pattern
+to be a collection of the 2D pieces of fabric (panels) with a known
+placement of each panel around the human body and information
+on how the panels are stitched together to form the final garment.
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+arXiv:2201.13063v2  [cs.CV]  28 Jun 2022
+
+
+1:2
+•
+Korosteleva and Lee
+We model a panel to be a closed piece-wise curve with every piece
+(edge) being either a straight line or a Bezier spline. Such a sewing
+pattern is a close approximation of how most real-world garments
+are constructed and thus serves as a strong prior for disentangling
+rest shape from physical deformation or the imperfections of the
+data acquisition process. At the same time, sewing patterns allow
+describing a variety of garment types and designs uniformly, unlike
+the approaches based on parametric templates as in [Wang et al.
+2018a]. Our problem formulation can also be viewed as a case of
+learning-based structure recovery for deformable objects. To the
+best of our knowledge, our work is one of the first of this kind, as
+most studies in the structure learning domain use datasets of rigid
+objects.
+Reconstruction of a sewing pattern as a structure with a deep
+neural network (DNN) presents multiple challenges. It requires
+predicting a set (of panels) with variable cardinality across garment
+types. Every set element is a structured object itself and may exhibit
+significant shape variations, and stitches being cross-connections
+between individual edges of panels complicate the structure even
+more. We propose a NeuralTailor framework that recovers panel
+structure through a combination of 3D point-wise attention for a
+high-level decision on topology and an RNN module for predicting
+panel details. Stitching information is regressed using a separate
+stitch connection module implemented as a classifier on edge pairs.
+We also present a strong baseline model based on the RNN hierarchy
+to highlight the key features that enable NeuralTailor generalization
+properties. Our experiments show that NeuralTailor successfully
+reconstructs sewing patterns for various garment designs, including
+novel garments with sewing pattern structures not seen during
+training.
+To summarise, our contributions are as follows:
+• A new problem of learning-based recovery of a structured
+representation of garment sewing pattern.
+• A strong baseline and an upgraded solution for the first deep
+learning framework that predicts a structural representation
+of a sewing pattern from a 3D garment shape and generalizes
+to novel garment types.
+Code and pre-trained models for NeuralTailor framework are
+available at GitHub1.
+2
+RELATED WORK
+This section reviews previous studies related to our work. Specifi-
+cally, we discuss research on estimating the rest shape of the gar-
+ment, review other approaches to reconstructing controllable gar-
+ments with DNNs, and approaches to representing structured ob-
+jects in general.
+2.1
+Garment Rest Shape Estimation
+Several approaches have been proposed to estimate the rest shape
+of garments.
+Fitting garment templates. The first approach is to rely on a
+set of garment templates and choose a template and its parameters
+to replicate an input garment as closely as possible. A notable work
+1https://github.com/maria-korosteleva/Garment-Pattern-Estimation
+of [Chen et al. 2015] performs a search in the database of 3D gar-
+ment parts (skirts, sleeves, collars, etc.) and stitches them together to
+form the final garment. While having the advantage of consistently
+producing plausible garments, this approach requires an extensive
+database to deal with the high diversity of garments, which poten-
+tially leads to high computational costs. Several studies [Hasler et al.
+2007; Jeong et al. 2015; Yang et al. 2018] utilize sets of parametric
+sewing patterns, described in terms of numerical values such as
+sleeve length, waist width, etc., and perform optimization in the
+parameter space so that a chosen pattern matches an input garment
+when simulated on top of a body model. Wang et al. [2018a] takes
+one step further and trains a DL-model for each parametric garment
+template (defined similarly as in the studies mentioned above) to
+predict the template-specific parameters from an input garment
+sketch. Parametric templates reduce the storage demand and al-
+low smooth exploration of the design space, unlike the databases
+of individual examples. However, different garment types would
+require different sets of parameters, forcing the usage of different
+models for each garment type and preventing knowledge sharing
+across types. To solve this, we propose using a sewing pattern as
+shape parametrization, a typical structure for most garment types.
+Our approach allows for generalization beyond the garment types
+present in the training set, as demonstrated by our experiments in
+Sec. 7.
+Surface flattening. Another way to get a garment’s intrinsic
+structure is directly cutting a 3D surface of an input garment into
+developable 3D parts and then flattening every piece into 2D panels
+with, for example, ARAP technique [Igarashi et al. 2005] or Varia-
+tional Surface Cutting [Sharp and Crane 2018]. The flattening-based
+approach works well in a controlled environment where an input
+3D garment is not heavily deformed, the full, uncorrupted geometry
+is available, and when the initial cutting strategy is provided by
+a user or other means. For its simplicity and speed, this approach
+is popular in solutions for garment design where a high degree of
+manual control is acceptable [Daanen and Hong 2008; Decaudin
+et al. 2006; Liu et al. 2018; Meng et al. 2012; Wang et al. 2003, 2005,
+2009; Yunchu and Weiyuan 2007]. More recent studies adopt this
+approach to allow automatic processing by employing cuts guided
+by heuristic considerations [Bang et al. 2021] or by trained Deep
+Learning model [Goto and Umetani 2021]. These works produce
+plausible sewing patterns for various garment types but lack pattern
+quality and rely on the quality of original geometry a lot. Another
+recent work [Wolff et al. 2021] relies on having direct access to the
+garment rest shape, which allows producing working patterns for
+arbitrary garment designs with a general technique of Variational
+Surface Cutting. On the other hand, our learning-based approach
+neither requires uncorrupted, unsimulated geometry as input nor
+additional pre-processing and is capable of producing clean panel
+shapes.
+Pattern geometry optimization. Much success in estimating
+garment structure in terms of sensitivity to details was achieved
+by optimization-based methods where some base geometric repre-
+sentation is deformed to achieve a target. The formulation of the
+target could be quite flexible, from some desired design features to a
+3D garment model. Brouet et al. [2012] demonstrated this approach
+to adapting garments to different body shapes while preserving
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+
+
+NeuralTailor
+•
+1:3
+the overall style. Bartle et al. [2016] proposed a garment editing
+pipeline for users to create new garments directly in 3D by editing
+and combining existing garments while ensuring correct sewing
+patterns. Wang [2018] developed a method to adjust a standard
+sewing pattern for a better fit on an input body shape, while Li
+et al. [2018] enabled the creation of garments with desired folds’
+design by simple sketching over the initial model. More recently,
+Montes et al. [2020] used optimization of sewing pattern geometry
+to find optimal fit and pressure distribution for tight clothing. These
+methods require a good initial guess of the garment sewing pattern,
+which is often unavailable. Our approach follows a more loose as-
+sumption that the input belongs to a distribution modeled by the
+training data and even makes successful predictions on garment
+types outside the training domain. This assumption will become
+even less demanding as more data becomes available.
+Inverting Physics. The work of [Ly et al. 2018] explores an
+interesting direction of performing a physics inversion by jointly
+estimating the rest shape and the physical forces acting on an input
+object conditioned on material properties provided by the user. This
+approach applies to any shell-like objects, including garments, and
+is not limited by the representational power of datasets. On the
+other hand, the proposed method is computationally demanding
+and has trouble handling the folds and wrinkles due to contacts,
+which is typical for garments draped on humans. On the contrary,
+our approach successfully processes folds and wrinkles and can
+perform fast once trained.
+2.2
+Learning-based reconstruction of controllable
+garments
+We see a potential for our approach of predicting sewing patterns
+to be used for reconstructing controllable 3D garments from 3D
+scans or images of people. A number of works in recent years ad-
+dress this problem for learning-based retargeting [Bertiche et al.
+2020; Lal Bhatnagar et al. 2019; Ma et al. 2020; Patel et al. 2020;
+Santesteban et al. 2019; Wang et al. 2018a; Zakharkin et al. 2021], an-
+imation [Jiang et al. 2020; Ma et al. 2021; Patel et al. 2020; Santesteban
+et al. 2021; Wang and Inc 2019; Zakharkin et al. 2021], or garment
+style adjustment [Corona et al. 2021; Su et al. 2020; Tiwari et al. 2020;
+Wang et al. 2018a]. Some of the works rely on meshes of known
+topologies and thus require their models to be trained per-garment
+or per-garment type [Jiang et al. 2020; Patel et al. 2020; Santesteban
+et al. 2019; Tiwari et al. 2020; Wang et al. 2018a; Wang and Inc 2019].
+Usage of displacements [Bertiche et al. 2020; Lal Bhatnagar et al.
+2019; Ma et al. 2020], UV-maps [Su et al. 2020], point clouds [Ma
+et al. 2021; Zakharkin et al. 2021], and implicit functions [Corona
+et al. 2021] enabled representation of different garment styles within
+the same model and even showed the ability to reconstruct unseen
+outfits [Ma et al. 2021], but the garments are reconstructed with
+design, material properties and deformations fused together.
+We believe that reconstructing disentangled garment represen-
+tations will eventually lead to better quality, control, and general-
+ization. Shen et al. [2020] demonstrate a garment model generator
+conditioned on sewing patterns with capabilities to generalize to
+novel designs. In our work, we show that using sewing pattern as a
+natural structured representation of design when inferring it from
+raw inputs allows not only for generalization to unseen garment
+examples as in [Ma et al. 2021], but unseen garment types. More-
+over, sewing patterns are retargetable by design and, when coupled
+with a physics simulator, produce physically accurate 3D recon-
+structions with guaranteed developability, which geometry-based
+learned reconstructions cannot do yet.
+2.3
+Structural Deep Learning
+The problem of representing sewing patterns in DNN is highly re-
+lated to a more general problem of representing the structure of the
+objects composed of simpler components in DNN. Studies on this
+problem often experiment with 3D furniture as an example of such
+structured objects. Our work builds upon the ideas of hierarchical
+and sequential modeling of part relationships of GRASS [Chaudhuri
+et al. 2017], StructureNet [Mo et al. 2019], SAGNet [Wu et al. 2019],
+LSD-StructureNet [Roberts et al. 2021], and several works in vector
+graphics generation [Carlier et al. 2020; Ha and Eck 2018; Wang and
+Lian 2021]. On top of that, we attempt to generalize beyond the com-
+ponent collections presented in the training set. Hence, we introduce
+a novel attention module and connectivity classification module for
+stitch prediction. A recent work of Shape Part Slot Machine [Wang
+et al. 2021] demonstrated a similar generalization ability by focusing
+on connections between components rather than the global shape.
+In our work, we come to a similar conclusion as [Wang et al. 2021] –
+that focusing on the local context allows for both prediction quality
+and structural generalization capabilities.
+3
+DATASET
+In this work we use Dataset of 3D garments with sewing pat-
+terns [Korosteleva and Lee 2021a] as introduced in [Korosteleva and
+Lee 2021b]. It covers a variety of garment designs, including varia-
+tions of t-shirts, jackets, pants, skirts, jumpsuits, and dresses, with
+22,000 garments sampled from 19 base types in total. Each garment
+sample contains a garment 3D model as draped on SMPL [Loper
+et al. 2015] average woman body shape in T-pose, a corresponding
+sewing pattern represented as a structure, and a corrupted 3D model
+imitating some of the 3D scanning artifacts. The dataset is limited
+in representing human poses and shapes but provides a good range
+of garment designs. Hence, it provides a good starting point for
+tackling the problem of sewing pattern recovery from 3D models.
+Panel classes and panel vectors. The original dataset does not guar-
+antee that similar panels from different garment types, e.g., pant
+panels in pants and jumpsuits, have the same labels. Hence, we
+introduce classes of panels that we use to group panels by role and
+location around the body across garment types. For example, panels
+covering the front of the trunk from T-Shirts, dresses, jumpsuits,
+etc., are grouped in the "front panels" class. The labeling for panels
+of base templates is included with the published code.
+Additional sample filtering. The original dataset contains garment
+samples with overlapping designs – these samples have different
+sewing pattern topologies and may belong to different garment
+types but produce similar shapes in 3D, as shown in Fig. 2. Such
+cases are common in real-world garments, but they significantly
+complicate an already difficult problem. In this work, we assume
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+
+
+1:4
+•
+Korosteleva and Lee
+Fig. 2. Garments with design overlap. Two different sewing patterns produce
+similar 3D shapes when draped.
+that design overlap in the data is minimal to focus our attention on
+developing a base solution for sewing pattern reconstruction and
+topology generalization. We manually analyzed parameter spaces
+of the dataset base templates and filtered them to contain mostly
+non-overlapping examples.
+Dataset split. We use the train/test group split of garment types as
+introduced in the dataset [Korosteleva and Lee 2021a]. Garment
+samples from the seven types of the test group remain unseen to
+the NeuralTailor during training and are only used for evaluation,
+as shown in Sec. 7. We additionally designate 100 examples of each
+train group type as a validation set for model selection and 100
+examples of each type as a test set to compare performance on seen
+and unseen types. This split leaves 19236 garment samples in the full
+training set. The number of training samples when sample filtering
+is applied is 9678.
+4
+OVERVIEW
+Our work explores several directions to approach the task at hand.
+We designed an original thought-through baseline model that can
+successfully represent the sewing pattern structures and learn to re-
+construct them (Sec. 5). It is based on extracting a latent space vector
+from an input point cloud and then decoding it into a sewing pattern
+through a two-step hierarchy of RNNs, with stitching information
+represented as a property of individual panel edges.
+We then updated the baseline with several new ideas (Sec. 6).
+Firstly, we introduce a point-level attention mechanism that eval-
+uates latent codes for individual panels based on local rather than
+global context. Secondly, we separate stitch prediction into an inde-
+pendent module that performs edge pairs classification into being
+connected or not.
+As shown in Sec. 7, these improvements make the overall frame-
+work generalize to sewing pattern topologies unseen during training.
+The achieved generalization feature is critical for a diverse domain
+like garments. Gathering a fully representative dataset of garments
+is genuinely hard, and it is nearly impossible to achieve design
+generalization by training specialized per-type models, which is a
+common approach in Deep Learning for 3D garments.
+5
+BASELINE MODEL
+5.1
+Point Features Encoder
+Deep learning-based processing of point clouds is a challenging
+problem of its own and has seen rapid development in recent years.
+In this work, we employ EdgeConv [Wang et al. 2018b] as a base
+block for the encoder for its simplicity and performance on par
+with other state-of-the-art point cloud-based network architectures,
+according to [Guo et al. 2020]. The main advantage of EdgeConv
+is its ability to aggregate information in feature space rather than
+spatially by dynamically re-building a connectivity graph on every
+EdgeConv layer. Our encoder consists of two EdgeConv layers, as
+shown in Fig. 3, with a skip-connection from the input 3D point
+cloud to the output of the last EdgeConv layer. Final per-point
+features are then aggregated into a single feature vector by average
+pooling.
+5.2
+LSTM for Panel Encodings
+In the next stage, the model reconstructs latent codes for each panel
+in a sewing pattern given the global latent code. Having no particular
+order with respect to each other, panels represent a set whose cardi-
+nality (number of panels) varies across garments. One of the simpler
+solutions to represent such a structure is to define an arbitrary order
+on set elements and then employ a sequence-based model to predict
+the elements of the formed sequences, as was done for structured
+predictions in [Wu et al. 2019]. OrderlessRNN [Oguz Yazici et al.
+2020] takes the set-as-sequence approach even further by allowing
+an RNN-based network to output set elements in any order instead
+of following a pre-defined one by a clever loss function construction,
+which helps improve the performance of their target task.
+Following this line of work, we design panel encoding prediction
+as an LSTM [Hochreiter and Schmidhuber 1997] module for our
+baseline model for its capability to model sets of variable cardinality.
+This LSTM module takes in a garment global latent code and outputs
+a sequence of latent vectors of panels, which are then processed
+by Panel Decoder as described below. We experiment with both
+pre-defined order and orderless losses approach, as shown in Sec. 7.
+5.3
+Panel Decoder
+Each panel latent vector predicted in the previous step is processed
+by the panel decoder to recover the panel shape and stitching infor-
+mation. The panel decoder consists of an LSTM module and a linear
+module. The LSTM converts a panel encoding into a sequence of
+edge features comprising the panel, and an additional linear module
+regresses the 3D placement of the panel. The details of edge and
+placement representations are discussed below.
+5.3.1
+Panel representation. We model a panel as a sequence of edges
+– smooth segments of a closed piece-wise curve – with every edge
+being either a straight line or a quadratic Bezier spline, similarly
+to their representation in the dataset. Using splines to represent
+curvy edges instead of discretization is more compact, prevents
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+
+
+NeuralTailor
+•
+1:5
+Pattern
+LSTM
+Panel
+LSTM
+MLP
+
+
+EdgeConv
+
+Avg Pool
+6D Placement
+
+EdgeConv
+
+
+Panel
+LSTM
+MLP
+6D Placement
+
+Lin
+
+Edge Feature
+Stitch Feature
+Edge Feature
+Stitch Feature
+Edge Feature
+Stitch Feature
+Edge Feature
+Stitch Feature
+
+Edge Feature
+Stitch Feature
+Edge Feature
+Stitch Feature
+Edge Feature
+Stitch Feature
+Edge Feature
+Stitch Feature
+Fig. 3. Overview of Baseline architecture for sewing pattern recovery. The input point cloud of 𝑁points gets processed by two EdgceConv [Wang et al. 2018b]
+layers outputting per-point features that are then aggregated by average pooling to form the latent garment code. This latent representation is then decoded
+into the predicted sewing pattern by hierarchically organized LSTM blocks. Pattern-level LSTM unfolds the latent code into the list of encodings of individual
+panels. Each panel encoding is processed by another LSTM cell to produce a sequence of edge features (including stitching information) and 6D placement of
+the panel. The same Panel LSTMs and MLP models are applied to each panel encoding.
+resolution-related artifacts, and ensures simple stitch definition as a
+1-to-1 edge connection.
+5.3.2
+Edge features. We use the following idea to construct a mean-
+ingful sequential representation of panel edges. Panel decoder out-
+puts every edge as a 2D vector, from the edge starting point to its
+endpoint as follows:
+®𝑒𝑖𝑗= 𝑣𝑗−𝑣𝑖,
+where 𝑣𝑖and 𝑣𝑗are the 2D local coordinates of vertices 𝑖and 𝑗
+connected by 𝑒𝑖𝑗. Since every panel is a closed piece-wise curve,
+these edge vectors form a loop when ordered and traced sequentially.
+2D coordinates of any panel vertex can be obtained by adding a
+corresponding edge vector to the 2D coordinates of a previous vertex
+in the panel. The first vertex of the loop is always assumed to
+be at the origin of the panel local space. The dataset guarantees
+consistency in the choice of edge loop first vertex and the direction
+of loop traversal across panels by design, so we simply use the edge
+loop order as given in the data when evaluating losses.
+Since edges are not necessarily straight lines, we use curvature
+coordinates as an additional edge vector feature. Curvature coor-
+dinates are the 2D coordinates (𝑐𝑥,𝑐𝑦) of quadratic Bezier spline
+control point and are defined in the local space of an edge. In this
+coordinate system (0, 0) and (1, 0) indicate the positions of edge
+vertex. Hence, 𝑐𝑥indicates the position along the edge, roughly
+corresponding to the location of the curvature peak, and 𝑐𝑦con-
+trols the depth of the curvature. If an edge is straight, its curvature
+coordinates are marked as (0, 0). The edge feature will then look
+like this:
+(𝑒𝑥,𝑒𝑦,𝑐𝑥,𝑐𝑦),
+where (𝑒𝑥,𝑒𝑦) = ®𝑒𝑖𝑗are 2D edge vector coordinates and (𝑐𝑥,𝑐𝑦) are
+curvature coordinates.
+Since different panels have different numbers of edges, the edge
+sequences are padded with zero feature vectors to the length (14
+in our experiment) that is equal to or larger than the maximum
+number of edges found in the training set.
+5.3.3
+Stitch Tags for stitching information prediction. Stitches are
+cross-connections of the edges in the network output hence pre-
+dicting them represents a challenge for a feed-forward style of
+network architecture. Our first idea is to include stitching informa-
+tion directly into the edge features. We define per-edge stitching
+information as the following feature vector:
+(𝑓0/1,𝑠1,𝑠2,𝑠3),
+where 𝑓0/1 is a binary class of whether an edge is free or belongs
+to any of the stitches, and (𝑠1,𝑠2,𝑠3) is a learned vector called a
+stitch tag that is designed to identify the edges that are connected.
+The definitive property of stitch tags is as follows: tags of edges
+from the same stitch are expected to be similar, but edges from
+different stitches should have tags that are different by a margin.
+We use Euclidean distance between tags as a similarity measure.
+The connectivity reconstruction then comes down to filtering out
+free and connected edges and comparing stitch tags of the pairs
+of connected edges. Note that the edges classified as “free” are not
+expected to have meaningful stitch tags.
+This idea enables a compact representation of pattern connec-
+tivity that does not depend on the number of stitches or the total
+number of edges in a pattern and avoids explicitly referencing edge
+IDs, allowing the encoding of different sewing pattern topologies.
+The network learns to provide suitable values of the stitch tags by
+following the loss function that enforces the correct behavior during
+training, as described in Sec. 5.4.
+5.3.4
+Panel 3D placement representation. The following feature
+vector represents the panel placement in the world space:
+(𝑞1,𝑞2,𝑞3,𝑞4,𝑡1,𝑡2,𝑡3),
+where (𝑞1,𝑞2,𝑞3,𝑞4) is a quaternion that reflect panel rotation.
+Panel translation (𝑡1,𝑡2,𝑡3) is represented as 3D translation of the
+top mid-point of the panel’s 2D bounding box when the panel is
+viewed in 3D. We found that in most cases, this point corresponds to
+body features (e.g., neck, waist) important for panel placement and
+thus exhibits stability across particular stylistic choices (e.g., skirt
+length). This translation formulation showed a more accurate 3D
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+
+
+1:6
+•
+Korosteleva and Lee
+placement prediction than using panel local origin as the reference
+point in our tests.
+5.4
+Loss functions
+The full loss for training the panel shape and placement prediction
+module is as follows:
+𝐿𝑡𝑜𝑡𝑎𝑙= 𝐿𝑒𝑑𝑔𝑒+ 𝐿𝑙𝑜𝑜𝑝+ 𝐿𝑝𝑙𝑎𝑐𝑒𝑚𝑒𝑛𝑡+ 𝐿𝑠𝑡𝑖𝑡𝑐ℎ𝑒𝑠
+(1)
+5.4.1
+Edge loss. The edge loss 𝐿𝑒𝑑𝑔𝑒evaluates the quality of panel
+geometry prediction. Ground truth panel representation is con-
+verted to the sequential format of 2D edge vectors as described
+above. Then, 𝐿𝑒𝑑𝑔𝑒is computed as an MSE loss on edge vectors
+and curvature coordinates between the ground truth and the corre-
+sponding edge features from NeuralTailor output.
+5.4.2
+Loop loss. The loop loss 𝐿𝑙𝑜𝑜𝑝is added to additionally enforce
+the loop closure property of panel representation. It evaluates the
+𝐿2 norm of the distance between the origin and final point of the
+panel edge sequence.
+5.4.3
+Placement loss. The placement loss 𝐿𝑝𝑙𝑎𝑐𝑒𝑚𝑒𝑛𝑡is an MSE loss
+on corresponding rotation and translation representations converted
+from ground truth placement information to match the network
+output specification.
+5.4.4
+Losses for stitch prediction. Training loss for predicting stitch-
+ing information consists of the following two terms:
+𝐿𝑠𝑡𝑖𝑡𝑐ℎ𝑒𝑠= 𝐿𝑐𝑙𝑎𝑠𝑠+ 𝐿𝑡𝑎𝑔𝑠.
+(2)
+The class loss 𝐿𝑐𝑙𝑎𝑠𝑠encourages learning proper edge class, mod-
+eled as a binary cross-entropy loss for edges classification into free
+and non-free. The tag loss 𝐿𝑡𝑎𝑔𝑠enforces the definition of the stitch
+tags (Sec. 5.3.3) by referencing a list of stitches from the data. Its for-
+mulation is a variation of the triplet loss [Schultz and Joachims 2003]
+and consists of two components – similarity and separation losses.
+𝐿𝑠𝑖𝑚𝑖𝑙𝑎𝑟𝑖𝑡𝑦encourages the stitch tags of a pair of edges that are
+stitched together to be close to each other, and 𝐿𝑠𝑒𝑝𝑎𝑟𝑎𝑡𝑖𝑜𝑛pushes
+all the stitch tags from different stitches apart by a predefined margin
+𝛿as follows:
+𝐿𝑡𝑎𝑔𝑠= 𝐿𝑠𝑖𝑚𝑖𝑙𝑎𝑟𝑖𝑡𝑦+ 𝐿𝑠𝑒𝑝𝑎𝑟𝑎𝑡𝑖𝑜𝑛
+𝐿𝑠𝑖𝑚𝑖𝑙𝑎𝑟𝑖𝑡𝑦=
+∑︁
+(𝑖,𝑗) ∈𝑠𝑡𝑖𝑡𝑐ℎ𝑒𝑠
+𝑡𝑎𝑔𝑖−𝑡𝑎𝑔𝑗
+2
+𝐿𝑠𝑒𝑝𝑎𝑟𝑎𝑡𝑖𝑜𝑛=
+∑︁
+𝑖,𝑗∈𝑛𝑜𝑛_𝑓𝑟𝑒𝑒
+(𝑖,𝑗)∉𝑠𝑡𝑖𝑡𝑐ℎ𝑒𝑠
+𝑚𝑎𝑥(𝛿−
+𝑡𝑎𝑔𝑖−𝑡𝑎𝑔𝑗
+2 , 0),
+where 𝑖, 𝑗are edge IDs, 𝑠𝑡𝑖𝑡𝑐ℎ𝑒𝑠is a set of edge pairs to be stitched
+together, and 𝑛𝑜𝑛_𝑓𝑟𝑒𝑒is a set of non-free edges that participate in
+any of the stitches, as opposed to the edges that are left free. Both
+sets are obtained from the ground truth sewing pattern.
+We found the training to be more efficient if 𝐿𝑐𝑙𝑎𝑠𝑠and 𝐿𝑡𝑎𝑔𝑠losses
+are introduced after a few epochs, allowing the model to learn the
+overall concept of sewing patterns first. In our experiments, these
+loss components are added after the 40th epoch.
+5.4.5
+Implementation of panel ordering and padding. Evaluation of
+the above losses requires a choice of panel ordering within a sewing
+pattern. To ensure that ground truth panels of the same class are
+matched to the same positions in the net output panel sequence,
+we organize panels within sewing patterns into panel vectors. We
+fix the order of panel classes and place each existing panel in the
+panel vector according to its class id. The slots corresponding to
+classes not present in a sewing pattern are filled with empty panel
+placeholders, represented by zero tensors of the same dimensionality
+as the actual panels. In contrast to the usual approach of placing
+the padding at the end of a sequence, this arrangement spreads the
+panel placeholders across the panel sequence. This strategy allows
+the ordering to be more consistent across different topologies and
+encourages the network to explore the similarity between the panels
+from the same class. In our experience, the choice of padding strategy
+did not seem to affect the performance of the Baseline model, but it
+paid off when we improved the architecture, as discussed in Sec. 6.
+We additionally experiment with removing the panel order by
+finding the order of panels in the ground truth that best matches
+the order of panels in predicted sewing patterns, similarly to Or-
+derlessRNN [Oguz Yazici et al. 2020]. The matching is performed
+by solving an assignment problem between the two sets of panels
+with an off-the-shelf algorithm. The distances between panels are
+evaluated as Euclidean distances of their vector representation con-
+sisting of the concatenation of all the edge features in a panel and
+6D placement vector.
+6
+NEURALTAILOR: IMPROVEMENTS FOR
+GENERALIZATION
+We introduce two modifications to the baseline framework that
+encourage modular and local context-based reasoning within the
+architecture. These features enable recognizing familiar panel com-
+ponents and reconstructing novel pattern topologies by recombining
+these components.
+6.1
+Attention-based Panel Encodings
+As introduced in Sec. 5, the baseline model employs sequence pre-
+diction from global garment latent code to reconstruct the latent
+codes for individual panels. This global bottleneck makes the model
+prone to relying on the overall shape of the garment and less likely
+to exploit its per-component structure.
+Another option would be to attend to only a relevant part of the
+input point cloud to construct a latent code for a corresponding
+panel. This approach would allow the model to construct the final
+sewing pattern from relevant pieces. An additional consideration is
+that garments of different types have a different number of panels,
+and the types of panels differ, too.
+One thing we may safely assume is that one sewing pattern con-
+tains no more than one panel of each panel class as per the definition
+of panel classes (Sec. 3). Hence, we implement the attention idea by
+introducing an additional MLP module that acts on point feature
+vectors and predicts per-point per-panel-class probability scores
+of how likely it is that a particular point belongs to a given panel
+class, as shown in Fig. 4. The model then obtains encodings for each
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+
+
+NeuralTailor
+•
+1:7
+Panel
+LSTM
+MLP
+
+EdgeConv
+
+6D Placement
+Edge Feature
+
+EdgeConv
+
+
+Edge Feature
+Edge Feature
+Edge Feature
+Panel
+LSTM
+MLP
+6D Placement
+Edge Feature
+
+
+Edge Feature
+Edge Feature
+Edge Feature
+
+
+
+
+Avg Pool
+
+AttMLP
+AttMLP
+AttMLP
+AttMLP
+AttMLP
+Avg Pool
+0 / 1
+Global 
+Edge Feature
+Stitch MLP
+Global 
+Edge Feature
+
+0 / 1
+Global 
+Edge Feature
+Stitch MLP
+Global 
+Edge Feature
+
+
+Fig. 4. Overview of NeuralTailor architecture. The first core difference with baseline is the attention MLP module that predicts per-panel-class attention scores
+for each point (MLP weights are shared across the points). The scores are then used to weigh the point features before aggregating them into per-panel latent
+codes that are then decoded into panel shapes as in the baseline. The second difference is the recovery of stitching information by using a separate StitchMLP
+that classifies edge pairs of the predicted pattern into being stitched or not (MLP weights are shared across edge pairs).
+Fig. 5. Attention weights for a jumpsuit example (unseen type) corresponding to highlighted panels. Interestingly, attention weights spread to the areas of
+panels’ symmetrical counterparts (sleeve, top) and, when needed, to the representative areas of global shape (shape of the top front and back panels depends
+on whether the bottom is skirt or pants, hence the model grabs some features from the bottom. Best viewed on screen zoomed-in.)
+panel class by simply pooling point features as given by the encoder
+(Sec. 5.1) weighted by the attention scores of the relevant class.
+Ideally, attention weights should encourage the recognition of
+components corresponding to panel classes across different gar-
+ments. Hence, we would like attention weights to highlight only the
+minimal local context relevant to each panel class. For that reason,
+weights should be sparse, and each point should participate in just
+one or a few classes. We encourage this behavior by employing
+SparseMax [Martins and Astudillo 2016] as the last layer of the
+attention module evaluated on per-point attention scores.
+Examples of attention weights predicted by our framework are
+given in Fig. 5. The attention weights highlight the local context
+and contain additional clues related to garment type.
+6.2
+Stitching Information Regression Neural Network
+Stitch-tag-based pattern stitches prediction of the baseline model
+yields an effective representation of stitches to reconstruct the whole
+sewing pattern in one single model. However, both stitching infor-
+mation and panel shape are inferred from the same panel latent
+code, which may give an entangling effect of the two properties.
+For example, front panels of T-shirts and jumpsuits have only one
+difference – the latter requires the bottom edge to be separated into
+two for correct connection with pant panels. Although the training
+set contains examples of T-shirt front panels connected to sleeves, it
+does not have such examples for jumpsuits. Having stitching infor-
+mation entangled with shape may result in the network replicating
+this bias of the training data and refusing to predict stitches for
+jumpsuits front panels even when sleeves are present in the input
+3D point cloud.
+For this reason, we shifted towards considering the panel edges as
+individual objects rather than panels’ parts. We hypothesize that the
+pattern geometry and panel placement may provide enough infor-
+mation to predict the stitches without accessing the input geometry.
+Surprisingly, it turned out to be true.
+We constructed a simple MLP model that takes a pair of sewing
+pattern edges as input and outputs the probability of these edges
+being connected by a stitch (Fig. 4). Each edge is represented as a
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+
+
+1:8
+•
+Korosteleva and Lee
+vector
+(𝑣𝑠𝑡𝑎𝑟𝑡
+𝑥
+, 𝑣𝑠𝑡𝑎𝑟𝑡
+𝑦
+, 𝑣𝑠𝑡𝑎𝑟𝑡
+𝑧
+, 𝑣𝑒𝑛𝑑
+𝑥
+, 𝑣𝑒𝑛𝑑
+𝑦
+, 𝑣𝑒𝑛𝑑
+𝑧
+,𝑐𝑥,𝑐𝑦),
+where (𝑣𝑠𝑡𝑎𝑟𝑡
+𝑥
+, 𝑣𝑠𝑡𝑎𝑟𝑡
+𝑦
+, 𝑣𝑠𝑡𝑎𝑟𝑡
+𝑧
+) and (𝑣𝑒𝑛𝑑
+𝑥
+, 𝑣𝑒𝑛𝑑
+𝑦
+, 𝑣𝑒𝑛𝑑
+𝑧
+) are 3D coordi-
+nates relative to the body model of panel vertices connected by the
+stitch, and (𝑐𝑥,𝑐𝑦) are the edge curvature control point coordinates,
+as described in 5.3.2.
+6.2.1
+Training set structure. The only tricky part of training this
+stitch classification model was setting up the training set. A naive
+training set would include all possible combinations of edge pairs
+for each sewing pattern in the garment dataset. This training set is
+highly unbalanced as most edge combinations are not connected
+by a stitch. It also has inadequately more examples for complex
+patterns with many panels than simpler ones, as the number of
+edge pairs grows quadratically with the total number of edges in a
+sewing pattern. The latter property also results in the fast growth of
+the training set size as we add more sewing patterns to it. Instead,
+on each epoch, we sample a given number of edge pairs from each
+sewing pattern, with oversampling of stitched pairs and under-
+sampling of non-connected pairs. Since our dataset contains many
+samples that share sewing pattern topologies, we expect the network
+to get enough clues for non-connected pairs during training. In
+addition to these precautions, we avoid bias towards a particular
+choice of vertices or edges order in pairs by randomizing these
+properties at training time.
+6.3
+Training process adjustments
+Training of NeuralTailor framework is now performed in two steps:
+first, training the model for pattern shape regression, and second,
+training the stitch prediction model, in this order. The stitch predic-
+tion model is trained on the edge features reconstructed by the pat-
+tern shape model instead of using edges from ground truth sewing
+patterns. This decision increases robustness to noise in the pattern
+shape model output at inference time, which we demonstrate in
+Sec. 7.3.1.
+The losses for each model are adjusted as follows. Since the stitch
+prediction moves to a separate module, the 𝐿𝑠𝑡𝑖𝑡𝑐ℎ𝑒𝑠is not needed
+for training the pattern shape regression; hence the total loss for it
+is:
+𝐿𝑝𝑎𝑡𝑡𝑒𝑟𝑛𝑠ℎ𝑎𝑝𝑒= 𝐿𝑒𝑑𝑔𝑒+ 𝐿𝑙𝑜𝑜𝑝+ 𝐿𝑝𝑙𝑎𝑐𝑒𝑚𝑒𝑛𝑡,
+(3)
+with 𝐿𝑒𝑑𝑔𝑒, 𝐿𝑙𝑜𝑜𝑝, and 𝐿𝑝𝑙𝑎𝑐𝑒𝑚𝑒𝑛𝑡being the same as introduced
+in Sec. 5.4. The ordering of ground truth panels for loss evaluations
+follows the same scheme based on panel classes as for the baseline
+model training. As for stitch regression model, we train it as a binary
+classification task using binary cross-entropy loss (BCE).
+7
+EVALUATION
+This section demonstrates the capabilities of NeuralTailor in differ-
+ent setups. First, we introduce the collection of measurements to
+evaluate sewing pattern prediction quality. We then compare the
+performance of NeuralTailor with our baseline solutions for pattern
+shape and stitch information reconstruction on garment types that
+were used or hidden during training. We then further analyze the
+behavior of the framework with different loss conditions, the ef-
+fects of changing the panel classes or removing dataset filtering (as
+introduced in Sec. 3), as well as the potential for generalization to
+in-the-wild data. Lastly, we compare sewing patterns predicted by
+NeuralTailor with the patterns suggested by a recent work solving
+a similar problem [Bang et al. 2021].
+7.1
+Metrics
+We evaluate the accuracy in predicting the number of panels within
+every pattern (#Panels) and the number of edges within every panel
+(#Edges). The cases in which the panel loop does not return to the
+origin are counted as having an incorrect number of edges as they
+usually require adding an edge to produce a connected shape. To
+estimate the quality of panel shape predictions, we use the average
+distance (𝐿2 norm) between the vertices of predicted and ground
+truth panels with curvature coordinates converted to panel space
+and acting as panel vertices in this comparison (Panel L2). Similarly,
+we report 𝐿2 norm on the differences of predicted panel rotations
+(Rot L2) and translations (Transl L2) with ground truth values. The
+quality of predicted stitching information is described by a mean
+precision (Precision) and recall (Recall) of predicted stitches.
+7.2
+Comparing LSTM and Attention-based solutions for
+pattern shape recovery
+Here we compare the baseline hierarchical LSTM (LSTM) architec-
+ture, which relies on the global garment latent codes, versus the
+attention-based model for pattern shape recovery (Att). The pres-
+ence of Stitch Tags in the output affects the performance of both
+models (Sec. 7.4.2), so for a cleaner comparison of shape recovery,
+we train and compare both architectures without stitch tags. We
+evaluate the models on the test set consisting of unseen garment
+examples of the same types that were used during training and on
+completely new types, according to the split described in Sec. 3.
+As can be seen from the results reported in Table 1, the baseline
+solution performs reasonably well on familiar types. However, it
+fails to generalize with less than 7% success rate for predicting
+the correct number of panels in sewing patterns. An orderless loss
+(LSTM Orderless), which was found beneficial for RNN-based im-
+age multi-labeling task [Oguz Yazici et al. 2020], did not improve the
+results. However, the attention-based solution showcases the ability
+to predict sewing patterns for the garment types unseen during
+training, correctly predicting the number of panels in more than
+80% of cases and performing well on other metrics. Examples of
+successful reconstructions are given in the supplementary materials,
+Fig. 11 and Fig. 12. In addition, the attention-based solution produces
+better panel shape quality (1.5 versus 2.7 Panel L2 for LSTM) on the
+test set but with somewhat less accurate panel placement.
+7.3
+Choosing the method for stitch prediction
+To faithfully compare the two solutions for stitch prediction – stitch
+tags as edge features and separate edge pairs classifier – we evaluate
+both models on attention-based pattern shape prediction solution.
+We either train it jointly with stitch tags or use a trained pattern
+shape prediction model to produce inputs for the stitch model. The
+LSTM-based method does not generalize to novel garment types
+(Sec. 7.2); hence it cannot provide suitable inputs for stitching in-
+formation recovery methods for those cases. In the case of unseen
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+
+
+NeuralTailor
+•
+1:9
+Seen types
+Unseen Types
+Panel L2
+#Panels
+#Edges
+Rot L2
+Transl L2 Panel L2
+#Panels
+#Edges
+Rot L2
+Transl L2
+LSTM w Stitch Tags
+5.35
+98.3%
+99.0%
+0.02
+1.04
+20.4
+1.6%
+35.3%
+0.25
+9.02
+LSTM
+2.71
+99.8%
+99.9%
+0.004
+0.32
+14.7
+6.5%
+53.2%
+0.17
+6.75
+LSTM Orderless
+2.87
+99.4%
+99.9%
+0.004
+0.33
+12.94
+2.7%
+59.0%
+0.16
+7.18
+Att (NeuralTailor)
+1.5
+99.7%
+99.7%
+0.04
+1.46
+5.2
+83.6%
+87.3%
+0.07
+3.22
+Att on Scan Imitation
+1.53
+99.6%
+99.8%
+0.04
+1.42
+5.44
+83.2%
+86.3%
+0.07
+3.39
+Att w Stitch Tags
+1.83
+99.6%
+99.8%
+0.05
+1.67
+8.31
+69.9%
+79.9%
+0.08
+3.42
+Att w/o Loop Loss
+1.62
+98.7%
+87.5%
+0.04
+1.53
+5.97
+85.5%
+60.9%
+0.07
+3.35
+Att w Segm
+2.28
+95.3%
+99.6%
+0.05
+1.62
+7.48
+76.3%
+79.5%
+0.07
+2.87
+Att w Alt Classes
+1.53
+98.8%
+99.6%
+0.04
+1.45
+7.96
+73.1%
+80.5%
+0.08
+3.57
+Att w/o Data Filter
+1.6/1.95
+98.6/97.5% 99.8/99.2% 0.07/0.07
+2.2/2.5
+6.2/6.4
+81.6/75.2% 88.5/88.2% 0.08/0.10
+3.9/4.5
+Table 1. Evaluating quality of pattern shape prediction on a test set consisting of garment types seen and unseen during training in various experiments. The
+results for Att w/o Data Filter are reported for filtered and non-filtered test sets divided by "/".
+Seen types
+Unseen Types*
+Precision Recall Precision Recall
+Stitch Tags
+99.9%
+99.9%
+70.1%
+72.9%
+Model on GT
+96.6%
+88.6%
+75.3%
+60.6%
+Model on Predictions
+96.3%
+99.4%
+74.7%
+83.9%
+Table 2. Evaluation of stitch prediction in different experiments. Evaluation
+of the Stitch Model is performed on sewing patterns reconstructed from 3D
+inputs by the pattern shape model. * To reduce error propagation, perfor-
+mance for unseen garment types was evaluated only on sewing patterns
+with a correctly predicted number of panels.
+garment types, we evaluate precision and recall scores only on the
+outputs with a correctly predicted number of panels to prevent er-
+rors of the shape prediction model from affecting the stitch metrics.
+The results of the evaluation are given in Table 2. While stitch tags
+give near-perfect predictions on known types, their performance
+on unseen types is inferior to the best separate stitch model (Model
+on Predictions) in both precision and recall scores. In addition,
+training models with stitch tags seem to affect the performance of
+the shape prediction quality for both LSTM and attention-based
+solutions compared to the models trained without them (Table 1).
+Pattern shape model training with stitch tags is significantly slower
+(by about 15h on 2 GPU training). In contrast, the stitch classifier
+is lightweight, with 20 min training on a single GPU aided by two-
+hour inference of pattern shape model on the entire training set on
+a single GPU to obtain training data for stitch prediction.
+We believe that the successful performance of a simple edge
+classifier model is explained by the fact that connected edges often
+have similar shapes, are close to each other in 3D, and stitches are
+often concentrated around certain body areas in our dataset. The
+latter might not hold for more complex garment types; hence a
+more sophisticated solution might be needed in the future. Another
+essential feature of the model is its reliance on only the local context
+of a potential stitch, which allows for a good performance on unseen
+garment types.
+7.3.1
+Training set source for stitch prediction. There are two options
+for choosing the type of input source to train connectivity predic-
+tion: using the edge vectors from ground truth panels or using the
+edges outputted by the trained pattern shape prediction module. We
+experimented with both approaches and then tested both models on
+the set of patterns outputted by the pattern shape prediction module
+as part of the integrated pipeline (Table 2). As expected, the stitch
+model trained on the pattern shape predictions is more robust to the
+noisy inputs than the model trained on clean ground truth edges,
+hence having a significantly better performance for both seen and
+unseen garment types.
+7.4
+Loss ablation study
+Most of the losses we use for training pattern shape prediction or
+stitching are indispensable components, without which the network
+will output random values for the corresponding variables. However,
+we find the need to justify the usage of loop loss for panel shape
+predictions and discuss encouraging segmentation-like behavior in
+attention scores and the effect of stitch tags prediction on shapes.
+Att w/o Loop Loss
+Att
+Fig. 6. The front top panel of the dress sewing pattern as predicted by
+models trained with and without loop loss. The loop loss encourages the
+completion of shapes and reduces the relative shifting of edges.
+7.4.1
+Loop loss. A model trained with only the basic losses, exclud-
+ing the loop loss, tends to produce panels with the last edge not
+perfectly connected to the first one (Fig. 6). Loop loss helps alleviate
+this issue. Quantitative analysis also reflects this effect: the overall
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.
+
+
+1:10
+•
+Korosteleva and Lee
+Input 3D Garment
+Att
+Att w Alt classes
+Ground Truth
+Att w/o Data Filter
+Fig. 7. Examples of mispredicting sewing pattern topologies according to different data pre-processing strategies. Gray panels denote panels missing from
+prediction, and red outlines indicate extra panels or panels with significant errors.
+edge accuracy score drops drastically when the loop loss is removed
+from the training process (Table 1).
+7.4.2
+Effect of stitch tags presence. Experiments for both LSTM
+and Attention-based architectures show that the presence of stitch
+tags in the model negatively affects the quality of predicted panel
+shapes (Table 1). We conjecture that the reduction of complexity of
+both the output and the loss function when stitch tags are removed
+helps improve training for the rest of the sewing pattern features.
+These experiments provide an additional reason to prefer the sepa-
+rate stitching information regression model to the stitch tags-based
+solution.
+7.4.3
+Learned attention scores vs. segmentation. The way we for-
+mulate the attention scores (Sec. 6.1) is very similar to the typical
+formulation for 3D model segmentation output layers. We also had
+an intuition that attention scores should resemble segmentation
+because they should attend to the area of the input 3D model corre-
+sponding to that particular panel location. With these two factors,
+it seems natural to encourage this segmentation-like behavior in
+attention scores explicitly using segmentation loss and ground truth
+segmentation labels provided with the dataset.
+We implement segmentation loss on SparseMax scores as intro-
+duced in the original paper [Martins and Astudillo 2016] and add
+to the other losses on pattern shape with weighting to balance the
+scales of errors. The point cloud segmentation of inputs is trans-
+ferred from the original mesh segmentation by taking the class of
+the nearest neighbor of each sampled point.
+Results for the model trained on Segmentation loss (Att w Segm)
+are reported in Table 1. Unfortunately, segmentation loss was detri-
+mental to performance on both parts of the test set. A closer in-
+spection of attention scores generated by the model trained without
+segmentation loss (Fig. 5) reveals that while attention tends to con-
+centrate on the areas close to the corresponding panel, it also spreads
+to the areas of a panel’s symmetric counterpart and to the areas
+that reveal related global features (e.g., the number of edges in top
+front or back panels depends on whether they connect to pant or
+skirt panels). Encouraging segmentation behavior may disturb the
+network from discovering these or similar dependencies.
+7.5
+Effects of dataset preprocessing
+As was introduced in Sec. 3, we grouped the panels that compose the
+sewing patterns of garments in the dataset in classes and additionally
+filtered samples of the dataset to reduce the design overlap issues.
+Here we investigate the effect of these decisions.
+7.5.1
+Panel classes. Panels are grouped in classes by their role
+in the garment and location around the body. For example, we
+grouped the front panels covering the trunk from t-shirts, dresses,
+and jumpsuits in one class (the full classification is given in the
+supplementary materials). However, there are several different ways
+to assign classes, and we found that the choice might affect the
+performance of the final panel shape prediction. To demonstrate
+this effect, we constructed an alternative set of classes where both
+panels that correspond to the left and right opening of the jackets
+are assigned a separate class. The original classification grouped one
+of the sides with full front panels of t-shirts, dresses, and jumpsuits.
+The results given in Table 1 demonstrate that this extended class
+arrangement (Att w Alt Classes) has worse performance on unseen
+garment types. In Fig. 7 we demonstrate failure cases for these
+experiments to showcase qualitative differences. For example, when
+the original classification misses or adds one side of the jacket, the
+alternative ones miss or add both.
+These observations lead to the conclusion that the question of
+panel classification might be more complex than we initially thought
+and thus need to be investigated further in more detail in future
+work.
+ACM Trans. Graph., Vol. 41, No. 4, Article 1. Publication date: July 2022.

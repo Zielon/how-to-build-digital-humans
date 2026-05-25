@@ -1,0 +1,552 @@
+Title: Neural Strands: Learning Hair Geometry and Appearance from Multi-View Images
+
+Neural Strands: Learning Hair Geometry
+and Appearance from Multi-View Images
+Radu Alexandru Rosu1⋆, Shunsuke Saito3, Ziyan Wang2,3,
+Chenglei Wu3, Sven Behnke1, and Giljoo Nam3
+1 University of Bonn, Germany
+2 Carnegie Mellon University
+3 Reality Labs Research
+radualexandru.github.io/neural_strands
+Abstract. We present Neural Strands, a novel learning framework for
+modeling accurate hair geometry and appearance from multi-view image
+inputs. The learned hair model can be rendered in real-time from any
+viewpoint with high-fidelity view-dependent effects. Our model achieves
+intuitive shape and style control unlike volumetric counterparts. To en-
+able these properties, we propose a novel hair representation based on a
+neural scalp texture that encodes the geometry and appearance of indi-
+vidual strands at each texel location. Furthermore, we introduce a novel
+neural rendering framework based on rasterization of the learned hair
+strands. Our neural rendering is strand-accurate and anti-aliased, mak-
+ing the rendering view-consistent and photorealistic. Combining appear-
+ance with a multi-view geometric prior, we enable, for the first time, the
+joint learning of appearance and explicit hair geometry from a multi-view
+setup. We demonstrate the efficacy of our approach in terms of fidelity
+and efficiency for various hairstyles.
+1
+Introduction
+Photorealistic rendering of digital humans plays an important role in many
+AR/VR applications such as virtual telepresence. In recent years, data-driven
+approaches have shown compelling results on geometry and appearance model-
+ing of digital humans, especially for face [21, 19, 41, 43] and body [36, 2, 46].
+Hair, on the other hand, still remains a challenge due to the sheer number of thin
+hair strands, their complex geometric structures, and non-trivial light transport
+effects such as subsurface scattering and specular reflections at microscale.
+To enable strand-accurate hair reconstruction, a recent work [28] leveraged
+explicit line assumption in multi-view stereo reconstruction. However, the recon-
+struction does not provide complete hair strands from the root on the scalp due
+to heavy self-occlusions. To date, connecting line segments from the scalp to the
+tip of hair for a variety of hairstyles remains difficult without strong data prior.
+⋆Work done during an internship at Reality Labs Research, Pittsburgh, PA, USA.
+arXiv:2207.14067v1  [cs.CV]  28 Jul 2022
+
+
+2
+Radu Alexandru Rosu et al.
+Hair geometry
+Rendering
+Ground-truth
+Fig. 1: Given multi-view images we recover both explicit geometry (left) and
+photo-realistic appearance of hair that generalizes to novel views (middle).
+Appearance modeling of hair is also an active research field [17, 4]. Physics-
+based rendering approaches typically require extensive light-transport compu-
+tation to represent complex appearance of 3D hair strands, hence are too slow
+for real-time applications. Recently, data-driven approaches [6, 45] enable pho-
+torealistic rendering from geometric proxies such as orientation fields using neu-
+ral rendering techniques. However, due to sub-optimal geometric quality and
+feature representations, these image-space neural rendering methods typically
+suffer from view-inconsistency and lack of fidelity. Volumetric rendering tech-
+niques [27, 23], on the other hand, achieve view-consistent novel-view rendering,
+but geometry-driven manipulation is not possible.
+In this work, we present Neural Strands, a novel learning framework for
+jointly modeling hair geometry and appearance, which can be readily used for
+real-time rendering of photorealistic hair from an arbitrary viewpoint. Our idea
+is to build a strong data prior using a strand-based generative model learned
+from synthetic data. This allows us to register complete hair strands from the
+partial hair reconstruction obtained by [28]. To parameterize the appearance and
+geometry of complete hairstyles from registration, we further present a novel hair
+representation called neural scalp textures, where each texel on a UV texture
+stores a feature vector describing both the shape and appearance of a single
+strand at a corresponding scalp position. With the aforementioned strand gen-
+erator, the neural scalp texture is decoded into dense 3D strands, which are then
+rendered into RGB images by a neural renderer.
+Our strand generator is a multilayer perceptron network that takes as input
+a strand shape feature vector and outputs the 3D shape of the strand. Inspired
+by neural ordinary differential equations [10], we design our strand generator
+to yield the first-order derivatives of a strand geometry, i.e., directional vectors
+with magnitudes. A complete 3D strand shape can be obtained by integrating the
+derivatives. This formulation allows for generation of smooth strands and also
+enables a trade-off between compute and accuracy by changing the integration
+step size. To learn a generic strand generator, we pre-train the network on a
+
+
+Neural Strands
+3
+hair renderer
+𝓡𝓡()
+hair segments
+3D hair strands
+ℒ𝑔𝑔𝑔𝑔𝑔𝑔
+composed image
+GT image
+ℒ𝑟𝑟𝑟𝑟𝑟𝑟𝑟𝑟𝑟𝑟𝑟𝑟
+𝓖𝓖()
+strand 
+generator
+shape 
+texture, Zg
+facial geometry
+appearance 
+texture, Za
+2D descriptor map
+splatting
+differentiable
+rasterizer
+3D Strand Generation
+Neural Hair Rendering
+RGBA image
+body / 
+background
++
+Fig. 2: System overview. A neural scalp texture describing the strand shapes is
+embedded onto the scalp. A strand generator decodes the shape descriptors into
+explicit strands. The 3D strands are then rasterized to the screen space. Finally,
+a hair renderer decodes the 2D descriptors into an RGBA image of the hair which
+is composited with the body and background. We train our system end-to-end
+with both a geometrical loss towards sparse line segments and a rendering loss
+towards the ground-truth images.
+wide variety of strand data, resulting in a generic strand prior for robust strand
+fitting to the noisy real-world scan data.
+In order to render photo-realistic hair images using the generated strands,
+we propose a neural hair renderer. The renderer comprises two parts: a differen-
+tiable rasterizer and an image synthesizer. The rasterizer splats the appearance
+feature vectors onto 2D images while being differentiable w.r.t. the 3D positions
+of strands and the splatted features. The image synthesizer is a UNet architec-
+ture that takes as input the rasterized feature map and yields the final rendered
+images. We train all the components in an end-to-end manner with direct image
+supervision. With an explicit strand representation, our method can directly edit
+or control the hair for rendering, e.g. for virtual haircut or hair blowing, which
+differentiates our approach from the recent work on free-viewpoint volumetric
+rendering [22, 23, 27, 31].
+In summary, our main contributions are:
+– the first joint learning framework for high-quality strand geometry and ap-
+pearance from multi-view images, which can be readily used for photo-
+realistic real-time rendering of human hair,
+– a highly expressive strand generative model, which enables strand-level hair
+registration from partial scan data,
+– a novel neural scalp texture representation that compactly models explicit
+hair strand geometry and view-dependent appearance for real-time rendering
+– an experiment showing that our approach enables intuitive manipulation
+of 3D hair and its rendering, which remains challenging for volumetric ap-
+proaches.
+
+
+4
+Radu Alexandru Rosu et al.
+2
+Related Work
+2.1
+Image-based Hair Modeling
+Strand-based Representation. A common geometric representation for hair
+modeling is a set of 3D strands, where a strand is parameterized by a sequence
+of connected 3D points. To obtain 3D hair strands, typically multi-view hair
+capture methods first reconstruct a low-resolution base geometry using various
+image-based 3D modeling techniques, and run an additional strand-fitting pro-
+cess to obtain dense 3D hair strands that are connected to the scalp [3, 24,
+25, 13, 14, 12, 11]. However, these methods often lack fine details like flyaway
+hairs because of the low-resolution base geometry. To overcome this limitation,
+Nam et al. [28] proposed a line-based multi-view stereo (LMVS) that is tai-
+lored to hair capture tasks and directly obtains 3D line segments from images.
+Sun et al. [38] further improved LMVS and estimated the reflectance param-
+eters of hair for photo-realistic rendering. However, the reconstructed strands
+from both methods [28, 38] only cover the outer surface of hair and they are
+not connected to the scalp. Another line of research focuses on single-view hair
+modeling [9, 8, 5, 7, 49, 52, 50, 47]. While these works show promising results
+from less constrained capture setups, due to the ill-posed nature, these meth-
+ods do not provide metrically accurate 3D geometry of hair strands. Moreover,
+they are not directly applicable to novel-view synthesis in a photorealistic man-
+ner. In contrast, our approach jointly learns metrically accurate geometry and
+appearance from multi-view images, enabling rendering from any viewpoint.
+Volumetric Representation. Volumetric representation is also used for hair
+modeling. Saito et al. [35] propose to regress 3D hair from a single image us-
+ing volumetric orientation fields as an intermediate representation, which can
+be easily handled by 3D convolutions. However, due to the low grid resolution
+of voxels, fine details such as flyaway hairs are not well represented. Combined
+with differentiable volumetric rendering, Neural Volumes [22] and NeRF [27]
+enable highly expressive geometry and appearance modeling of objects from
+multi-view images. Mixture of volumetric primitives (MVP) addresses the per-
+formance bottleneck of volumetric representations by representing scenes as a
+collection of small voxels [23]. While these methods enable realistic rendering of
+3D hairs, lack of geometric hair control hinders us from driving and intuitive
+manipulation of photorealistic hair models.
+2.2
+Neural Hair Rendering
+Neural rendering [40] has recently gained great attention for rendering photo-
+realistic images. Given 2D segmentation masks [39] and 2D orientation maps [30,
+15, 33, 39], generative adversarial networks (GANs) are trained to create RGB
+hair images that match the input data. By rendering these 2D features from 3D
+hair strands, these approaches allow us to photorealistically render hair images
+as well [45, 6]. However, we observe that rendering quality of these image-based
+approaches is highly dependent on the conditioned 2D features, and often leads to
+
+
+Neural Strands
+5
+view-inconsistent results with limited fidelity. In this work, we show that highly
+accurate strands with a per-strand appearance code improve view consistency
+and fidelity of neural hair rendering.
+3
+Overview
+Fig. 2 shows the overview of our learning framework. Neural Strands consists of
+three parts: neural scalp textures, strand generator, and neural hair renderer.
+A neural scalp texture is a 2D UV-texture that stores either the shape (shape
+texture, Zg) or the appearance (appearance texture, Za) of strands. The strand
+generator, G(), is a generative neural network that transforms a strand feature
+vector into a 3D strand geometry. Finally, the hair renderer, R(), is a UNet-
+architecture that renders hair images from rasterized appearance feature maps.
+The design of Neural Strands is motivated by several hair-specific attributes.
+First, in terms of geometry, each strand has its own attachment point in 3D scalp
+position. By using an explicit scalp UV-map, we can easily control or edit the
+geometric features of strands based on the scalp location. The shape texture Zg
+exploits this property and enables several applications such as virtual haircut and
+hairstyle manipulation. Second, while hair shows extremely complex appearance
+in 2D images, individual strands have a smooth color variation along their strand
+directions. The complex hair appearance is determined by how the strands are
+shaped in 3D and how they are projected to each viewpoint. Therefore, we
+only store the low-frequency appearance information of each strand using our
+appearance texture Za. The high-frequency appearance in 2D images can be
+effectively represented by our rasterizer and hair renderer. This separation of
+per-strand appearance modeling and rendering is one of the keys that enable
+our high-fidelity results. In the following sections, we explain the details of each
+component and how they form the final hair images (Section 4) and then present
+the training procedure of our learning framework (Section 5).
+4
+Neural Strands
+4.1
+Neural Scalp Textures
+Neural scalp textures are our base hair representation for explicit 3D geometry
+and appearance of strands. Each texel in the shape texture Zg stores a feature
+vector zi
+g ∈RDg that conveys the shape information of a single hair strand.
+Since the strand roots are created in 3D to ensure uniform coverage, the strands
+sample their corresponding zg from the scalp texture using bilinear interpolation.
+Similarly, the appearance texture is denoted as Za and zi
+a ∈RDa stores the
+appearance information of the strand. For the remaining of this paper, we assume
+that the scalp UV-mapping is known in advance. We set the texture resolutions
+to 2562 for Zg, 5122 for Za, and Dg = 64, Da = 16.
+4.2
+Strand Generator
+
+
+6
+Radu Alexandru Rosu et al.
+z
+z
+z
+z
+z
+0.0
+0.2
+0.5
+0.7
+1.0
+Strand Gen
+Strand Gen
+Strand Gen
+Strand Gen
+Strand Gen
+Integrate
+Fig. 3: The strand generator takes as in-
+put the shape descriptor z and a param-
+eter t ∈[0, 1] indicating the position be-
+tween root and tip. It outputs a direc-
+tion vector for each section of the strand.
+The directions are integrated from root
+to tip in order to recover the explicit 3D
+positions of the strand nodes.
+A single hair strand S is a sequence
+of 3D points: S = {pk}L
+k=0, where L
+is set to 100. The full hair shape is
+a collection of strands {Sj}, where j
+indexes over the strands. Our strand
+generator G() is a neural network that
+transforms a shape feature vector zg
+into a full 3D strand geometry S, i.e.,
+G() : RDg →R3×L.
+Network
+Architecture.
+Inspired
+by NeuralODEs [10], we model the
+strand generation as an integration of
+hair gradients along each strand. We
+thus design the network to output fi-
+nite differences along hair growing di-
+rections, i.e., dk = pk −pk+1, instead
+of 3D positions pk.
+In
+order
+to
+model
+the
+high-
+frequency geometric details, we imple-
+ment our strand generator using the modulated SIREN [26]. Our strand gener-
+ator has two multilayer perceptron (MLP) networks: a modulator and a synthe-
+sizer. The modulator takes as input the strand shape feature zg and outputs
+modulation vectors that modify the amplitude, frequency, and phase shift of the
+sinusoidal activation functions of the synthesizer network. The SIREN[37]-based
+synthesizer takes as input a parameter t ∈[0, 1] that indicates the relative po-
+sition along the strand from root (0) to tip (1). The output of the synthesizer
+is a 3D directional vector dt with magnitude. The final positions of the strand
+nodes are obtained by the forward Euler method, i.e., pk = Pk
+i=0 di. See Fig. 3
+for illustration.
+Discussion. The benefit of working in the gradient domain is that each node
+of the strand has only local effect. When working directly with the positions,
+rotating the hair along the root node modifies the positions of all the subse-
+quent nodes of the strand since they can all be considered as a kinematic chain.
+However, in the gradient domain, modifying the root node direction d0 does not
+necessarily modify the rest of the directions. This independence between nodes
+makes the learning easier, as the network does not need to learn the kinematic
+dependency between hair nodes. In addition, long straight hair can be easily
+represented by a network which outputs mostly constant directions.
+4.3
+Neural Hair Renderer
+Since we have an explicit hair geometry {Sj} from our strand generator, we now
+render the hair appearance using a differentiable rasterization-based neural ren-
+derer. We take inspiration from the Neural Point-Based Graphics (NPBG) [1]
+and the Deferred Neural Rendering (DNR) [42] which use a point/mesh raster-
+izer. Both NPBG and DNR use a geometry proxy (points or mesh) in order to
+
+
+Neural Strands
+7
+carry a neural descriptor either with a texture map or at a per-point level. The
+neural descriptors are rasterized to a screen space and a UNet regresses the final
+color image.
+In our case, the geometry proxy is a 3D line segment, and the neural de-
+scriptors are given by the appearance texture Za. However, hair has various
+properties that need to be properly addressed. First, hair is not opaque and can
+show complex scattering effects. Second, the thin geometry also tends to create
+aliasing artifacts when rendered. We effectively solve these issues by using alpha
+blending and let the UNet renderer directly output the alpha maps for natural
+strand color blending.
+Neural Hair Descriptor. The appearance texture Za stores the vectors zi
+a for
+each texel position i. For each strand Sj, we bi-linearly interpolate the neigh-
+bouring four texels at the root to obtain the corresponding za for the strand. The
+3D points {pk}L
+k=0 belonging to the same strand Sj share the same per-strand
+feature vector za. A per-point neural descriptor is then defined as a concatenated
+vector of the strand feature, the point direction d, and the t parameter:
+  \mat hb f {
+g } =\left [ \mathbf {z}_a, \mathbf {d}, t \right ], \quad \mathbf {g} \in \mathbb {R}^{D_a+3+1}. 
+(1)
+The per-point descriptors are rasterized to each viewpoint via a differentiable
+line rasterizer.
+Differentiable Rasterization. We project the neural descriptors to screen-
+space by rasterizing the strand lines. However, as na¨ıve rasterization methods are
+non-differentiable, we replace the hard rasterizer with soft-rasterization [34, 20,
+48]. We first hard-rasterize unique strand indices onto the screen using OpenGL
+which allow to recover for each pixel a 3D point that lies on a non-occluded strand
+line. The 3D point is associated with a descriptor ˜g by linearly interpolating the
+descriptors from the two points that define the strand segment. At the end of
+this step, we obtain a point cloud of the visible points of the hair together with
+their neural descriptors. As a second step, we project the cloud to screen and the
+descriptors are bi-linearly splatted to the neighboring pixels. In the case where
+multiple 3D points contribute to the same pixel, the splatted descriptor at the
+pixel is defined as the weighted average of the contributing 3D points:
+  \
+m a t hb
+f  
+{h}_u = \frac { \sum w \cdot \mathbf {\tilde {g}} }{ \sum w}, 
+(2)
+where the subscript u is the pixel index in the rasterized image space, hu is
+the rasterized and averaged descriptor at the pixel, and w is the contribution
+weight of each descriptor ˜g. This soft-rasterization for hair is crucial to ensure
+the rendering loss to be back-propagated to the neural scalp textures Zg and
+Za as in Fig. 2. In order to deal with possible holes in the hair, we also splat
+at multiple resolutions and concatenate each resolution with the corresponding
+layer in the UNet, similar to the previous works [1, 34].
+Image Generation. The multi-resolution descriptor maps are concatenated
+with per-pixel viewing directions in order to model view-dependent effects and
+are given as input to the UNet which predicts an RGB and an opacity map for
+
+
+8
+Radu Alexandru Rosu et al.
+the hair. Effectively, the input to the UNet is a descriptor map of (Da + 3 + 1 +
+3) channels concatenated to each downsampling stage of the network, and the
+output is a four-channel image of RGB and alpha.
+We find that the intermediate activation maps of the UNet were aliased by
+the down-sampling with strided convolutions. Therefore, we replace the down-
+sampling and up-sampling layers of the UNet with the anti-aliased versions used
+in [16] and the activation function with their filtered leaky ReLU. We find this
+change effectively solves the aliasing issue and removes temporal flickering arti-
+facts when rendering novel-view images.
+Image Composition. In order to blend the hair with the background and body
+parts, we also learn a low-resolution texture for a body mesh and a background
+mesh represented as a sphere around the subject. The background, body, and hair
+are alpha-blended together in order to recover the full image. The compositing
+can be viewed in Fig. 2.
+5
+Training
+Training Neural Strands is twofold. First, we pre-train the strand generator G()
+using synthetic hair models and freeze the parameters. Then, for each subject,
+we optimize the feature vectors of neural scalp textures Zg and Za, as well as
+the parameters of the UNet renderer R() using the pre-trained generator G().
+5.1
+Strand Generator
+VAE Training. The role of our strand generator G() is to provide a strong prior
+of realistic hair strand shapes that can be readily used for our image-based hair
+modeling framework. To this end, we train it in an auto-encoder fashion with
+synthetic 3D curves. Concretely, we implement it as a variational autoencoder
+(VAE) [18] in order to obtain a smooth embedding of zg. The input and output
+of the VAE is a strand, i.e., {pk}L
+k=0 .
+We design a simple encoder network with a 1D CNN. Given the 3D points
+of a strand, the encoder outputs the parameters sµ and sσ of the Gaussian
+distribution over the latent variables. During training, we sample zg from this
+distribution using the reparameterization trick: zg = sµ + ϵ · sσ, ϵ ∼N(0, 1).
+Given the strand embedding zg, we decode it back to the original points using
+the decoder G() which is implemented as a modulated SIREN.
+We use the L2 loss between the predicted and ground-truth 3D points. Since
+this loss gives little regard to high-frequency detail like curls, we add a loss on
+the predicted directions. The data term is defined as
+  \ma t
+h
+c
+al 
+{L} _ {data
+}  = 
+\
+s u m _ {i=
+0
+}^{L} \norm { \mathbf {p}_i- \tilde { \mathbf {p} }_i }_{2}^{2} + \lambda _{d} \left (1- \mathbf {d}_i \cdot \tilde { \mathbf {d} }_i \right ), 
+(3)
+where p and ˜p are the original and reconstructed points, and d and ˜d are their
+directions. λd is set to 1 × 10−3. We also add the Kullback–Leibler divergence
+
+
+Neural Strands
+9
+term LKL [18]. We train the VAE with the total loss:
+  \m a thcal  {L}_{V AE} = \ma th cal {L} _{data} + \lambda _{KL} \mathcal {L}_{KL} \left ( \mathcal {N}(\mathbf {s}_\mu , \mathbf {s}_\sigma ) \mid \mid \mathcal {N}(\mathbf {0},\mathbf {I}) \right ), 
+(4)
+where λKL is set to 1 × 10−3. Once the VAE is trained, we discard the encoder
+network and only use the decoder as our pre-trained strand generator G().
+Training Data. The dataset to train the strand generator is a set of synthetic
+3D curves and each curve represents a hair strand as a sequence of 100 points.
+To remove the variance between the strands, we represent each one in a local
+coordinate system defined by the root position and the tangent-bitangent-normal
+(TBN) at the scalp. We also augment each strand by randomly stretching each
+dimension, mirroring along the tangent and bitangent vectors and rotating along
+the normal.
+5.2
+End-to-End Optimization
+Data Preparation. Given multi-view images as input, we first perform multi-
+view stereo to obtain 3D geometry of the subject. We then fit the reconstructed
+face geometry to the FLAME face template [19]. This fitting process gives us
+a known UV-mapping for the scalp region and also effectively removes the hair
+geometry in the reconstructed mesh. We also perform the line-based multi-view
+stereo (LVMS) [28] to get partial hair strand reconstruction. Note that the partial
+strands only include the strands in the outer surface of hair and are not connected
+to the scalp. We additionally perform a diffusion algorithm based on user strokes
+similar to [8] in order to resolve the directional ambiguity of the line segments
+and obtain a consistent direction of growth.
+End-to-end training. The input to our end-to-end optimization framework
+are 1) multi-view images, 2) the fitted facial geometry, and 3) the partial hair
+strands. Given the pre-trained strand generator G and input data, we jointly
+optimize for the neural scalp textures Zg and Za as well as the parameters of
+the UNet renderer R() for each captured subject.
+Geometric Loss. The geometric loss encourages our strand generator G() to
+output hair strands that align with the partial hair strands from the LMVS [28].
+The loss is defined as the bi-directional Chamfer of the distance and directions
+between the two point clouds:
+  \b e
+g
+in 
+{
+al i gned }  \ m at h cal
+ 
+{
+L
+}_{
+g
+eo}  = \ s um  _{ \ mat
+h
+bf {x} \in X} \Big ( {\left \| \mathbf {x}-\mathbf {y_x} \right \|}_2 + \left ( 1 - \mathbf {d}_x \cdot \mathbf {d}_y \right ) \Big ) + \sum _{\mathbf {y} \in Y} \Big ( {\left \| \mathbf {x_y}-\mathbf {y} \right \|}_2 + \left ( 1 - \mathbf {d}_x \cdot \mathbf {d}_y \right ) \Big ) , \end {aligned} 
+(5)
+where X is a set of 3D points in the generated strands, Y is a set of points in
+the LMVS-reconstructed hair segments, and yx represents the point y which is
+the closest one in Y to the point x. Effectively, the Chamfer distance brings the
+closest points closer together and also aligns their directions.
+While the geometric loss alone gives us plausible hair geometry, it can lead to
+missing or sub-optimal fitting results as the LMVS-reconstructed hair segments
+do not cover the entire region of the hair. Because the strands that are not
+
+
+10
+Radu Alexandru Rosu et al.
+reconstructed from the LMVS could still be visible from the images, there is
+an opportunity to supervise the strand generation with the rendering loss. We
+therefore also use the rendering loss to optimize for the shape texture Zg. This is
+done by back-propagating the rendering loss not only to the appearance texture
+Za, but also to the shape texture Zg.
+Rendering Loss. The neural renderer R() together with the appearance texture
+Za is trained using a combination of L2 and LPIPS [51] loss. The rendering loss
+Lrender is thus defined as:
+  \math c
+a
+l
+ {L
+}_{ren d er}
+ = 
+\
+s u m _{n =1 }^{N}  \le
+f
+t ( \norm {I_{n} - \tilde {I}_{n}}^2_2 + \lambda _{L} \mathcal {L}_{LPIPS}(I_{n}, \tilde {I}_{n}) \right ), 
+(6)
+where In and ˜In are the rendered and captured images from n-th view, and N
+is the number of multi-view images. We set λL = 0.1.
+Alpha Loss. In order to also offer supervision to the predicted alpha, we ras-
+terize the LMVS line-segments to the image. By itself, this hard LMVS mask
+would be inadequate to be used as alpha supervision since it enforces a strictly
+opaque hair. To remedy this, we dilate the mask and define a region without
+hair that we can claim should be empty and therefore should have an alpha of 0.
+After the dilation, we erode to define an interior region that we can be certain
+that it should be opaque. These two regions are used for supervision, while the
+border regions containing stray hairs are left unsupervised as we cannot reliably
+supervise their soft opacity. The alpha map loss Lalpha is defined as:
+  \mat h
+c
+a
+l {
+L}_{al p ha}
+ = 
+\
+s u m 
+_
+{n=1}^{N} \left ( \norm {A_{n} - \tilde {A}_{n} }^2_2 \cdot M_{n} \right ), 
+(7)
+where An and ˜An are the reference alpha map from LMVS and the generated
+alpha map from n-th view, and Mn is their mask of union of the interior and
+exterior regions. See Fig. 4 for illustration.
+Total Loss. The total loss for our end-to-end optimization is:
+  \mat h cal {L } _{total} =  \lambda _1 \mathcal {L}_{geo} + \lambda _2 \mathcal {L}_{render} + \lambda _3 \mathcal {L}_{alpha}, 
+(8)
+where λ1,λ2, and λ3 are set to 1, 1 × 10−3, and 1 × 10−3, respectively.
+Optimization Details. Fitting the geometry of the strands based on the Cham-
+fer loss to the line-segments is a highly ill-posed problem. To solve this, we pro-
+pose two solutions: a coarse-to-fine and a root-to-tip optimization of the shape
+texture Zg. Coarse-to-fine optimization of the scalp imposes a smoothness prior
+on the features. We implement this by sampling from the texture map in the
+forward pass and blurring the gradient of the loss w.r.t to the texture
+∇L
+∇Zg in
+the backward pass, so that neighboring pixels receive similar gradients. We start
+by blurring with a large kernel and gradually decrease it until the gradient is
+propagated only towards the pixels that correspond to the strand root. This
+optimization scheme is similar to the Laplacian Pyramid from [42]. However,

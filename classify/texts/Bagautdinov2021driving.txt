@@ -1,0 +1,959 @@
+Title: Driving-signal aware full-body avatars
+
+Driving-Signal Aware Full-Body Avatars
+TIMUR BAGAUTDINOV, Facebook Reality Labs, USA
+CHENGLEI WU, Facebook Reality Labs, USA
+TOMAS SIMON, Facebook Reality Labs, USA
+FABIÁN PRADA, Facebook Reality Labs, USA
+TAKAAKI SHIRATORI, Facebook Reality Labs, USA
+SHIH-EN WEI, Facebook Reality Labs, USA
+WEIPENG XU, Facebook Reality Labs, USA
+YASER SHEIKH, Facebook Reality Labs, USA
+JASON SARAGIH, Facebook Reality Labs, USA
+Fig. 1. We present an approach for building photorealistic full-body avatars that can be animated using input driving signals such as 3D keypoints (left) or
+body pose and facial animation codes (right). We build a disentangled latent space that is driving-signal aware to ensure that the model generalizes to novel
+sequences while still producing photorealistic results.
+We present a learning-based method for building driving-signal aware full-
+body avatars. Our model is a conditional variational autoencoder that can
+be animated with incomplete driving signals, such as human pose and facial
+keypoints, and produces a high-quality representation of human geometry
+and view-dependent appearance. The core intuition behind our method is
+that better drivability and generalization can be achieved by disentangling
+the driving signals and remaining generative factors, which are not avail-
+able during animation. To this end, we explicitly account for information
+deficiency in the driving signal by introducing a latent space that exclu-
+sively captures the remaining information, thus enabling the imputation of
+the missing factors required during full-body animation, while remaining
+faithful to the driving signal. We also propose a learnable localized compres-
+sion for the driving signal which promotes better generalization, and helps
+Authors’ addresses: Timur Bagautdinov, Facebook Reality Labs, Pittsburgh, USA,
+timurb@fb.com; Chenglei Wu, Facebook Reality Labs, Pittsburgh, USA, chenglei@fb.
+com; Tomas Simon, Facebook Reality Labs, Pittsburgh, USA, tsimon@fb.com; Fabián
+Prada, Facebook Reality Labs, USA, fabianprada@fb.com; Takaaki Shiratori, Face-
+book Reality Labs, Pittsburgh, USA, tshiratori@fb.com; Shih-En Wei, Facebook Real-
+ity Labs, Pittsburgh, USA, swei@fb.com; Weipeng Xu, Facebook Reality Labs, Pitts-
+burgh, USA, xuweipeng@fb.com; Yaser Sheikh, Facebook Reality Labs, Pittsburgh, USA,
+yasers@fb.com; Jason Saragih, Facebook Reality Labs, USA, jsaragih@fb.com.
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+© 2021 Copyright held by the owner/author(s).
+0730-0301/2021/8-ART143
+https://doi.org/10.1145/3450626.3459850
+minimize the influence of global chance-correlations often found in real
+datasets. For a given driving signal, the resulting variational model produces
+a compact space of uncertainty for missing factors that allows for an impu-
+tation strategy best suited to a particular application. We demonstrate the
+efficacy of our approach on the challenging problem of full-body animation
+for virtual telepresence with driving signals acquired from minimal sensors
+placed in the environment and mounted on a VR-headset.
+CCS Concepts: • Computing methodologies →Neural networks; Ani-
+mation.
+Additional Key Words and Phrases: full-body avatars, disentanglement
+ACM Reference Format:
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabián Prada, Takaaki
+Shiratori, Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih. 2021.
+Driving-Signal Aware Full-Body Avatars. ACM Trans. Graph. 40, 4, Article 143
+(August 2021), 17 pages. https://doi.org/10.1145/3450626.3459850
+1
+INTRODUCTION
+The goal of this work is to build high quality full body models of
+geometry and appearance that can be driven from commodity sen-
+sors placed in the environment. Building expressive and animatable
+virtual humans is a well studied problem in the graphics community.
+The creation of so called digital doubles has roots in the special ef-
+fects industry [Alexander et al. 2010], and in recent years has begun
+to see examples of real-time uses as well such as Siren of Epic Games
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+arXiv:2105.10441v2  [cs.CV]  25 Jun 2021
+
+
+143:2
+•
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabián Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih
+and DigiDoug of Digital Domain. These models are typically built us-
+ing sophisticated multi-view capture systems with elaborate scripts
+that span variations in pose and expression. They capture a low-
+dimensional prior representation of human shape and appearance
+that allows for animation using more modest capture settings [Blanz
+and Vetter 1999; Loper et al. 2015; Romero et al. 2017]. Nonetheless,
+these models rely on brittle hand-crafted assumptions to encourage
+generalization to unseen poses, and overall sensor requirements for
+animation remains significant (e.g., a full-body motion capture suit
+for animation such as Xsens1 and OptiTrack2). Since these models
+are learned independently from the sensor configurations used to
+drive the model during animation, they can simultaneously be over-
+and under-constrained, with limited ability to precisely match poses
+observed by the sensors while exhibiting unrealistic contortions in
+unobserved areas.
+One approach to better integrate the driving signal into the model
+building process is to simultaneously capture using both the mod-
+eling sensors (i.e. an elaborate multi-view capture system) and the
+animation sensors (i.e. a small set of cameras placed in the environ-
+ment). In this scenario, one can learn a model that directly regresses
+full shape and appearance from the information-deficient driving
+signals captured by the animation sensors. Although this approach
+significantly restricts the types of driving signals that can be used,
+e.g. a motion capture suit for a regularly clothed digital double,
+we argue that there is a more fundamental problem with this sce-
+nario. That is, there exists information asymmetry between the
+modeling and animation sensors which results in a one-to-many
+mapping problem, where multiple combinations of model states can
+equally likely explain the measurements. For example, a driving
+signal based on body joint angles does not contain complete infor-
+mation about clothing wrinkles and muscle contraction. Similarly,
+facial keypoints typically do not encode the hair, gaze or tongue mo-
+tion. As a result, a model that is trained naively, without specifically
+taking into account such missing information, will either under-fit
+and produce averaged appearance, or, given enough capacity, will
+over-fit and learn chance correlations only present in the training
+set. Some existing works have addressed the issue of information
+asymmetry through the use of temporal models and adversarial
+training [Alexanderson et al. 2020; Ginosar et al. 2019; Ng et al.
+2020; Yoon et al. 2020]. However, these methods tend to prescribe a
+specific imputation strategy that may not be appropriate in some
+applications. Furthermore, they operate on models post-training,
+making it difficult to overcome over- or under-fitting behavior that
+may already exist in the model.
+Our work aims to address the problem of learning a model for
+a full-body digital avatar that is faithful to information-deficient
+driving signals while also providing an explicit data-driven space
+of plausible configurations for the missing information. To this
+end, we introduce a variational model that explicitly captures two
+types of factors of variation: observed factors that can be reliably
+estimated from the driving signals during animation, and missing
+factors, which are available only during the modeling stage. Our
+core strategy is to encourage better generalization by minimizing
+1https://www.xsens.com/
+2https://www.optitrack.com/
+the correlations between the observed factors, while maximizing it
+for the missing factors, such that during animation the model is able
+to produce plausible/realistic appearance and shape configurations
+that are fully consistent with the driving signal. We achieve the first
+by building a spatially-varying representation of the driving signal
+that localizes its effects and breaks global chance-correlations that
+might exist in the training set. The second is achieved by introducing
+a latent space for variation that is disentangled from the observed
+factors, forcing it to capture only the missing factors that are neces-
+sary to reconstruct the data. In particular, better disentanglement is
+achieved by explicitly accounting for coarse-long range effects of
+the driving signal that would otherwise be modeled by the latent
+space due to the localized conditioning used to encourage general-
+ization. We achieve this using a coarse model of limb motion and
+an ambient occlusion map that helps model self-shadowing without
+overfitting. The resulting model can generate the space of plausible
+animations that agree with the information contained in the driving
+signal (Figure 1). Because of the explicit separation between the
+observed and missing factors, our approach enables the freedom to
+employ imputation techniques best suited to a particular application.
+We demonstrate the effectiveness a particularly simple approach; we
+assign the mean value to the missing factors for all frames during a
+sequence, which results in compelling animations that avoids over-
+or under-fitting effects observed in other approaches.
+To summarize, the contributions of this work are as follows:
+• A representation for a full body model that explicitly accounts
+for the driving signal during its construction. The model can
+generate a diverse space of plausible configurations that agree
+with the information contained in the driving signal.
+• A method for achieving good generalization to novel inputs
+while producing high quality reconstructions by employing
+localized conditioning, accounting for coarse long range ef-
+fects, and disentangling driving signals from the latent space.
+• A demonstration of the utility of this approach on two scenar-
+ios where driving signal information is deficient: performance
+capture with a different attire and avatar animation for VR
+telepresence.
+2
+RELATED WORK
+Our main goal is to build personalized full-body avatars that can
+be animated with information-deficient driving signals, while pro-
+viding flexibility to practitioners to impute missing information
+appropriately for the application at hand.
+2.1
+Avatar Modeling
+In the last decade, many efforts have been made for achieving expres-
+sive and animatable 3D models for human avatars, including face,
+hands and body. Due to the complexity in geometric deformation
+and appearance, data-driven methods have become popular [Blanz
+and Vetter 1999; Loper et al. 2015; Romero et al. 2017]. Linear mod-
+els, e.g. PCA or Blendshapes, have been employed to model the
+muscle-activated skin deformation space, and were demonstrated
+to be effective for facial models [Blanz and Vetter 1999; Lau et al.
+2009; Lewis et al. 2014; Vlasic et al. 2005]. For hands and body, an
+articulated prior is usually explicitly modeled by a kinematic chain,
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+
+
+Driving-Signal Aware Full-Body Avatars
+•
+143:3
+while the surface deformation associated with the pose is obtained
+through skinning [Lewis et al. 2000], which generates the deformed
+surface by a weighted set of the influences from neighboring joints.
+Combining with the statistical modeling tools, a more expressive
+model can be developed by learning the pose-dependent corrective
+deformation across different identities for a body [Anguelov et al.
+2005; Loper et al. 2015] and a hand [Moon et al. 2020; Romero et al.
+2017]. Expressiveness can be further improved by localizing the de-
+formation space [Osman et al. 2020; Tena et al. 2011; Wu et al. 2016].
+These geometric models enable to learn a shading-free appearance
+model across different identities a hand [Qian et al. 2020], to auto-
+matically create a textured full-body avatar from a video [Alldieck
+et al. 2018; Alldieck et al. 2018], and to render avatars under new
+poses and camera views by using neural rendering [Prokudin et al.
+2021]. Building on the above, unified avatar models, which model
+face, hand and body altogether, have been developed, including the
+Frank model [Joo et al. 2018] and the SMPL-X model [Pavlakos et al.
+2019]. However, even given the limited training data, the generated
+results by these models are still underfit and constrained by the
+fidelity they can produce.
+With the advent of deep neural networks, deep generative models
+have been successfully applied to modeling human bodies. For exam-
+ple, various convolutional mesh autoencoders have been proposed
+for building models for faces [Ranjan et al. 2018], or hands and
+bodies [Zhou et al. 2020b]. Compositional VAEs [Bagautdinov et al.
+2018] model facial geometry with a hierarchical deep generative
+model, leading to a more expressive learned space of deformations
+and better modeling of high-frequency detail. Deep Appearance
+Models [Lombardi et al. 2018] learns a personalized variational
+model for both geometry and texture of a face, enabling a photore-
+alistic rendering. However, extending those methods to full-body
+avatars is non-trivial, and, since those do not explicitly account for
+the missing information, they are prone to artifacts in scenarios
+with deficient driving signals.
+Modeling clothing is another aspect closely related to our work,
+as we are primarily interested in animating clothed bodies. [Stoll
+et al. 2010] combine the cloth simulation with a body model from a
+multi-view capture so that the clothed body can be animated with
+the simulation. Recently [Joo et al. 2018] has extended the Frank
+model to Adam for modeling clothed surface with deformation
+spaces. Simulated dynamic clothes are used to model the interaction
+between cloth and the underneath body by explicitly factoring out
+the dynamic deformation [Guan et al. 2012]. CAPE [Ma et al. 2020]
+employs Graph-CNN to dress 3D meshes of human body from SMPL.
+However, it is learnt purely on geometry and only on the scans for
+sparse sampling of poses, and thus cannot be driven to generate
+photorealistic renderings with dynamic clothing.
+Another line of work on animating photorealistic human ren-
+dering skips the complicated 3D geometry modeling, and rather
+focuses on synthesizing photorealistic images or videos by solving
+an image translation problem, e.g., learning the mapping function
+from joint heatmaps [Aberman et al. 2019], rendered skeleton [Chan
+et al. 2019; Esser et al. 2018; Pumarola et al. 2018; Shysheya et al.
+2019; Si et al. 2018], or rendered meshes [Liu et al. 2019c,b; Sarkar
+et al. 2020; Thies et al. 2019; Wang et al. 2018], to real images. Al-
+though these methods often do generate plausible images, they tend
+to have challenges in generalizing to different poses, due to com-
+plex articulations of the human body and dynamics of the clothing
+deformations. For example, methods [Chan et al. 2019; Liu et al.
+2019c] do manage to reproduce overall body motion, but tend to
+produce severe artifacts on the hands and do not transfer facial
+expressions correctly. Moreover, these methods are not capable of
+producing renderings from arbitrary viewpoints, which is critical
+e.g. for telepresence applications.
+Concurrent work to ours, SCANImate [Saito et al. 2021], intro-
+duces a method for building animatable full-body avatars from
+unregistered scans, which relies on implicit representations to learn
+both skinning transformations and pose-dependent geometry cor-
+rectives; interestingly, that work also discovered that localized pose
+conditioning is critical to tackle spurious correlations. [Peng et al.
+2021] introduces a method for novel-view synthesis for human-
+centered videos, which combines an articulated model (SMPL) with
+implicit appearance representation based on neural radiance fields.
+Although this method is capable of producing renders of arbitrary
+viewpoints, it does not allow for generalization across different
+poses, and is primarily tailored to short videos. Neural Parametric
+Models [Palafox et al. 2021] introduce a multi-identity parametric
+model for human body geometry that uses learnable implicit func-
+tions for shape and deformation modeling. Although promising,
+this method does not model appearance, and requires expensive
+optimization during inference, thus making it unsuitable for driving
+with incomplete signals.
+2.2
+Disentangled Representations
+The ability of a learning algorithm to discover disentangled fac-
+tors of variation in the data is considered to be a crucial property
+for building robust and generalizable representations [Bengio et al.
+2013]. A large body of work has been focusing on building generic
+methods for building disentangled representations both with [Lam-
+ple et al. 2017; Schwartz et al. 2020] and without [Higgins et al. 2016;
+Jiang et al. 2020; Zhou et al. 2020a] supervision.
+𝛽-VAE [Higgins et al. 2016] identified that a slight modification
+to the original VAE objective - putting a stronger weight on the
+prior term - can lead to automatic discovery of disentangled repre-
+sentations. In [Burgess et al. 2018] authors study the properties of
+𝛽-VAE from the perspective of the information bottleneck method,
+suggesting the reason behind the emergence of disentangled repre-
+sentations. MINE [Belghazi et al. 2018] provides an efficient way to
+compute a lower bound on the mutual information between two sets
+of variables, which can be used as a proxy objective to encourage
+disentanglement.
+In the context of human modeling, disentanglement has recently
+received a lot of attention as a way to improve model generalization.
+FaderNet [Lample et al. 2017] incorporates adversarial training with
+facial attributes for images synthesis of human faces, allowing dis-
+entanglement based on attributes. In [Schwartz et al. 2020] authors
+propose a generative model for facial avatars which uses several dis-
+entanglement techniques including FaderNet to encourage a model
+to better make use of gaze conditioning information. [Zhou et al.
+2020a] introduces a generative model for human body meshes that
+uses a set of consistency losses as a way to separate the space of
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+
+
+143:4
+•
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabián Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih
+pose- and shape-based deformations. [Jiang et al. 2020] achieve dis-
+entanglement for cross-identity shapes and poses by incorporating
+a deep hierarchical neural network.
+In our settings, there are by design explicitly two groups of fac-
+tors, corresponding to the observed and missing data, respectively.
+Thus our main objective is not to discover the unknown underlying
+factors of variation in an unsupervised way, but rather to encour-
+age separation between the known observed factors (which are
+pre-defined) and the missing factors (learned space). In Section 3.5
+we discuss our approach to handling missing information in more
+detail.
+3
+METHOD
+Our goal is to build a data-driven model for full-body avatars that
+stays faithful to the driving signal, while also providing the flexi-
+bility to generate the information that might be missing from the
+inputs. For example, the driving signal for a human body might
+consist of sparse keypoint detections around the skeletal joints,
+which are insufficient to disambiguate different states of clothing,
+hair and facial expressions. Our key insight is that generalizability
+and controllability can be achieved through disentanglement, while
+explicitly taking into account the information that is missing from
+the driving signals.
+When driving signals are sufficiently reliable, it is desirable to
+break their inter-dependencies as much as possible to achieve better
+generalization. For human bodies, this naturally leads to the notion
+of spatially localized control, such that, for example, a change in a
+facial expression does not have any influence on the state of the legs.
+At the same time, driving signals often do not contain sufficient
+information to fully describe free viewpoint images of the body,
+leading to a many-to-one mapping problem. This results in one
+of two cases; 1. overly smooth estimates, as the model averages
+over all possible unobserved states given the driving signal, or 2.
+overfitting to the dataset, which manifests as chance correlations
+between the driving signal and all unobserved factors. One approach
+to mitigate this problem is to add an additional latent code that
+spans the missing information space. However, as we will see in
+§4, without special care, the model can learn to partially ignore the
+control signal and use the latent space to capture the full information
+state. The resulting model, then, will fail to faithfully reconstruct the
+driving signal at test time, where the true latent code is unobserved.
+In this work, we argue that, while indeed a latent space is useful
+to explicitly account for the missing information, it is also necessary
+to ensure that the latent space only contains information that is not
+present in the driving signal. In other words, the latent space and
+the driving signals should be disentangled. As we will describe in
+the sections that follow, the elements of our proposed architecture
+are explicitly designed to achieve disentanglement through multi-
+ple and complimentary means. The result is a model that exhibits
+good generalization, is faithful to the driving signal during anima-
+tion, and achieves good reconstruction accuracy efficiently for a
+representation that covers the full human body.
+3.1
+Overview
+An overview of our architecture is shown in Figure 2. It takes as input
+the driving signals and viewing direction, and produces registered
+geometry and a view-dependent texture as output using a deconvolu-
+tional architecture. Together, these outputs can be used to synthesize
+an image through rasterization. There are three main components
+of our construction that encourage generalization through disentan-
+glement, namely: spatially localized conditioning, capturing coarse
+long range effects, and information disentanglement.
+3.1.1
+Spatially Localized Conditioning. To reduce overfitting to
+driving signals seen during training, we employ a location-specific
+low-dimensional embedding. These embeddings are used to late-
+condition the deconvolutional architecture, such that their footprint
+in the output texture and geometry have localized spatial extent.
+Together, the embedding and late conditioning extract the most
+relevant information from the driving signal at each spatial location.
+This reduces the tendency to learn spurious long-range correlations
+which might be present in the training data.
+3.1.2
+Coarse Long Range Effects. Although localizing the effects of
+driving signals can reduce overfitting, there exists some long range
+effects that are difficult to capture with such a representation. To
+capture these effects without reintroducing overfitting, we iden-
+tify two major sources of long range effects for human bodies and
+model them explicitly: rigid limb transformations and the effects of
+shadowing. For rigid limb transformations we employ linear-blend
+skinning (LBS) [Kavan et al. 2008; Magnenat-Thalmann et al. 1989]
+that explicitly models rigid motion of the limbs through a compo-
+sition of transformations along an articulated tree structure that
+spans the entire body. We thus decouple our decoder into using
+joint angles via LBS, and producing correctives in the form of a
+displacement map generated using the deconvolutional architecture.
+To handle long range shadowing effects, we explicitly compute an
+ambient occlusion map using the LBS-generated geometry, and pass
+it through a UNet [Ronneberger et al. 2015] to produce a gain map
+that is applied on the output texture. The ambient occlusion map
+serves as a substitute for a shadow-map since our capture space
+has roughly uniform illumination. Together, the LBS and shadow
+branches complement the localized conditioned described above, so
+that major long-term effects are accounted for while maintaining
+good generalization performance.
+3.1.3
+Information Disentanglement. The main motivation for in-
+troducing a latent space is to capture information not contained in
+the driving signal, yet necessary to fully explain image evidence.
+Unlike the driving signal, where avoiding overfitting is primary,
+variations that have no supporting evidence during animation re-
+quire the strongest possible prior to ensure compelling imputation.
+Thus, we use a vector-space representation at the bottle-neck of
+our architecture for the latent space that has spatial support over
+the entire output. To ensure drivability, we encourage the latent
+codes to contain the least amount of information about the driving
+signal as possible by employing disentanglement strategies during
+training. We train all these components of our model jointly using
+a Conditional Variational Auto Encoder (cVAE) [Sohn et al. 2015]
+that has been used effectively to produce well-structured latent
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+
+
+Driving-Signal Aware Full-Body Avatars
+•
+143:5
+Encoder
+Unposed Geometry
+View-Dependent
+Texture
+Unposed Geometry
+Minimize
+Mutual Information
+MI[ (θ,f) | z]
+(§3.5.2)
+Mask+
+tile+conv 
+Pose 
+Conditioning
+θ
+DR
+Posed Geometry
+Mask+
+tile+conv 
+Face 
+Conditioningf
+Face 
+Encodings
+Pose 
+Encodings
+Latent Codes
+z
+Deconv
+Spatially Localized Encodings
+ Mask
+tile2d(θ) *
+View Conditioning 
+Convolutional 
+Decoder
+θ
+Quasi-Shadow Map
+Ambient Occlusion Map
+Location-Dependent Compression
+Quasi-Shadow Branch (§3.4.2)
+LBS
+KRT
+Driving Signals
+GT 
+Camera Image
+Rendered
+Full-Body
+Avatar
+(§3.3)
+L2
+Camera Calibration
+Fig. 2. General overview of the architecture. The core of our full-body model is a conditional variational auto-encoder, which takes as input driving signals
+and view direction, and outputs geometry and view-dependent texture. These are rendered to produce a full-body avatar. Spatially localized encoding of the
+driving signals helps reduce spurious correlations. Additionally, an LBS module and a quasi-shadow branch capture coarse, long-range effects. Information not
+present in the driving signals (e.g., clothing state) is captured by a disentangled latent code z.
+spaces in human-centric datasets [Lample et al. 2017; Lombardi et al.
+2018]. For supervision, we directly use multi-view images, which
+we achieve by applying differentiable rendering [Liu et al. 2019a] to
+generate synthetic images for a direct comparison with the ground
+truth.
+3.2
+Variational Autoencoder
+The core of our model is a conditional variational auto-encoder
+(cVAE), consisting of an encoder 𝐸(·|W𝐸), and a decoder 𝐷(·|W𝐷),
+both parameterized as convolutional neural networks, with weights
+W𝐸and W𝐷, respectively. The cVAE is trained end-to-end to re-
+construct images of a subject captured from a multi-view camera
+rig. Our system presumes the availability of a registered mesh,
+G𝑖∈R𝑁𝑣×3, for each frame 𝑖that we acquire using LBS-based track-
+ing with surface registration [Gall et al. 2009], followed by Laplacian
+deformation to 3D scans for better registration [Botsch and Sorkine
+2008; Sorkine et al. 2004]. The LBS joint angles, 𝜽𝑖∈R100, as well as
+3D facial keypoints, f𝑖∈R𝑁𝑓, are the driving signals that we use to
+condition our model. For settings where 3D face keypoints are not
+available, such as in the experiment with a VR headset in §4.2.2, we
+use the latent codes of the personalized facial model from [Wei et al.
+2019] instead. Finally, we note that the goal of our cVAE training
+is to produce a decoder that we can use to animate an avatar from
+driving signals at test time. To this end, the role of the encoder is
+strictly to facilitate learning and ensure a well structured latent
+space. It can be discarded once training is complete.
+During training, the encoder takes as input geometry, G𝑖, that has
+been unposed using LBS, and produces parameters of a Gaussian
+distribution, N, from which a latent code z ∈R512 is sampled:
+𝝁𝑖, 𝝈𝑖←𝐸(G𝑖|W𝐸) , z𝑖∼N (𝝁𝑖, 𝝈2
+𝑖).
+Here, G𝑖is first rendered to a position map in UV space before
+being passed to the convolutional encoder. The reparameterization
+trick [Kingma and Welling 2013] is used to ensure differentiability
+of the sampling process. Given the latent codes z𝑖, driving signals
+(𝜽𝑖, f𝑖) and a viewpoint v𝑖∈R3, the decoder produces reconstructed
+geometry ˜G𝑖and view-dependent texture ˜T𝑖:
+˜G𝑖, ˜T𝑖←𝐷(𝜽𝑖, f𝑖, z𝑖, v𝑖|W𝐷).
+˜G𝑖is then passed to the LBS module to produce the final geometry,
+and ˜T𝑖is multiplied by a quasi-shadow map to produce the final
+texture. The generation of the quasi shadow map is detailed in
+§3.4.2. Differentiable rasterization [Liu et al. 2019a] is used to render
+an image using the output geometry and texture, which is then
+compared with the ground truth image using an L2-error. Along
+with other supervision and regularization losses described in §3.6,
+the system is trained end-to-end, solving for the cVAE parameters
+W𝐸and W𝐷.
+Once the model is trained, animation is performed by taking the
+driving signals (𝜽, f) e.g. estimated from an external sensor, imputing
+the latent code z (e.g. by sampling or employing a temporal model),
+and then synthesizing the geometry and texture by running the
+decoder 𝐷(𝜽𝑖, f𝑖, z𝑖, v𝑖|W𝐷) followed by rasterization. The reason
+for separating conditioning signal between (𝜽, f) and z comes from
+the fact that, in practice, access to the complete conditioning signal
+is available only during training. This stems from differences in their
+capture setup: training data collection often allows for sophisticated
+multi-camera rigs whose data can be processed in post, whereas
+during animation, the capture system is typically more constrained
+and requires real-time processing. Our specific choice of (𝜽, f) in
+this work is informed by attributes that can be reliably inferred from
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+
+
+143:6
+•
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabián Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih
+limited sensing setups in real-time, such as keypoints and skeleton
+joint angles from a simple stereo camera pair [Gall et al. 2009; Tan
+et al. 2020]. Ultimately, this means that the information contained
+in the driving signal is often insufficient to fully describe the output,
+and we need to introduce z that describes the remaining part of the
+signal, so as to avoid model overfitting or smoothing out the results.
+In Section 4, we provide a comparison with a baseline version of
+the model that does not use a latent space.
+3.3
+Spatially Localized Driving Signals
+For a model to be truly drivable, it has to generalize well. That is,
+it should produce realistic outputs for all real combinations of the
+driving signals. We are focusing on building data-driven models,
+and thus a naive approach to achieving generalization would be to
+collect an exhaustive amount of data that would sufficiently cover
+the space of variations. Unfortunately, even for personalized full-
+body models with a single attire, collecting a dataset that can cover
+all possible combinations of body posture, facial expressions and
+hand gestures is intractable due to the combinatorial explosion of
+part variations. A common approach is to instead capture range-of-
+motion data, with the aim of spanning the full range of each body
+part with the hope that the model can learn to factorize these parts
+accordingly. However, if one considers highly-expressive models,
+such as deep ConvNets, relying on such limited data can lead to
+situations where the model discovers spurious correlations and thus
+learns to encode capture-specific dependencies that are not present
+in other sequences. For example, if during the capture of hand ges-
+tures the subject keeps the same facial expression throughout, there
+is no incentive for the model not to learn an association between
+that facial expression and the hand gestures. An example of this
+phenomenon occurring on real data is shown in Figure 3.
+Fig. 3. Spurious Correlations. A naive model learns to associate clothing
+and shadows facial expression. Combining the pose from the sample on
+the left, and the facial expression from the image on the right produces an
+unrealistic sample where pose-dependent effects are fully controlled by the
+facial expressions (e.g. the collar and armpits, which should be independent
+of expression).
+However, if we assume that the driving signal is sufficiently re-
+liable, and it is not necessary to capture correlations between all
+of its individual components, we can build a model in a way that
+encourages decoupling between those individual components. For
+the human body this would correspond to the fact that spatially
+distant parts (e.g. fingers on different hands) can move completely
+independently from each other. Similar intuition has been applied
+for human geometry in STAR [Osman et al. 2020], which proposes a
+localized version of pose correctives aimed at reducing spurious cor-
+relations: instead of global blendshapes as in SMPL [Bogo et al. 2016],
+the authors propose local blendshapes with a non-linear blending
+scheme. Note that this reasoning is valid primarily for geometrical
+deformations and appearance effects which are local, but does not
+hold for global ones, such as shadowing, and one has to model them
+separately, as we will discuss in §3.4.2.
+In this work, we rely on the structure of our decoder network to
+achieve conditional spatial independence given our driving signal.
+Specifically, our decoder is a fully-convolutional network which
+takes as inputs several encoding maps, e∗∈R𝑁∗×32×32, one for each
+driving source, ∗∈{𝜽, f}, where:
+e∗= proj(M∗⊙tile2d(∗, 32, 32) | W∗).
+Here, tile2d(x,ℎ,𝑤) is an operation that repeats a given vector x
+into a ℎ× 𝑤feature map, and proj(·|Wx) is a projection operation
+that applies a location-dependent compression at each point of
+the input feature map. It is implemented using a two-layer 1x1-
+convolutional network with untied biases. We also apply a binary
+mask M𝑥∈{0, 1}100×32×32, where each channel roughly defines
+the region of influence for each parameter, which we define using
+downsampled LBS skinning weights and capture the local effects of
+each joint angle. In principle, these masks can also be learned, but
+we did not observe improved results by doing so in our experiments.
+Figure 4 visualizes the effects of using localized driving signals,
+where varying one of them leads to spatially (and semantically)
+coherent changes in the corresponding region of the output.
+Fig. 4. Effects of localized representations. Heatmaps indicate the areas
+with largest changes in the output of our model when varying a single
+control variable. From left to right: face, neck, right wrist.
+3.4
+Coarse Long Range Effects
+Some common driving signals used for human body animation
+have long range effects that couple distant locations on the body.
+Explicitly localizing the effects of the driving signal, as described
+previously in §3.3, can therefore limit the model’s ability to recon-
+struct real data with high accuracy. But naively reintroducing global
+influence can lead to over-fitting. As such, we identify two major
+sources of long-range effects in human body appearance, rigid limb
+motion and self-shadowing, and propagate these effects spatially
+using parametric forms that have been shown to generalize well to
+novel poses.
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+
+
+Driving-Signal Aware Full-Body Avatars
+•
+143:7
+3.4.1
+Rigid Limb Motion. Similar to some existing work [Anguelov
+et al. 2005; Loper et al. 2015; Osman et al. 2020], our geometric
+model composes the localized model, described in §3.3, with an
+explicit skeleton model based on LBS, which captures large rigid
+transformations of limbs:
+¯G = 𝐿𝐵𝑆(𝜽, 𝐷𝐺(𝜽, f, z) + ¯G𝑇).
+Here, 𝐷𝐺is the geometry branch of the decoder, ¯G𝑇is the template
+mesh in canonical pose, and ¯G is the final geometry after posing3. In
+particular, given the template and the pose parameters, each vertex
+x𝑖∈R3 of ¯G is computed as:
+x𝑖=
+∑︁
+𝑗
+𝑤𝑖𝑗· (R𝑗· x𝑖
+𝑇+ t𝑗) ,
+where 𝑤𝑖𝑗are the pre-defined skinning weights, which describe the
+influence of 𝑗-th joint on the 𝑖-th vertex x𝑖, and R𝑗, t𝑗are per-joint
+transformation parameters, which are computed from 𝜽via forward
+kinematics.
+The LBS model has been demonstrated to capture large coarse
+motion of the human body, linking distant locations via a kinematic
+chain. Although many of its limitations are well known, e.g., the
+candy wrapper effect [Kavan et al. 2008] and inability to model more
+complex nonlinear effects [Jacobson and Sorkine 2011; Loper et al.
+2015], these deficiencies tend be localized and have been shown to
+be addressable by using localized corrective models [Osman et al.
+2020]. Our approach builds on these prior findings, complementing
+LBS with the localized model described previously in §3.3.
+3.4.2
+Self-Shadowing. Whereas rigid limb motion accounts for
+much of the long range geometrical effects, self-shadowing accounts
+for the majority of long-range appearance effects. This is partic-
+ularly the case during self-interaction, where limbs touch, or are
+in close proximity to each other. Explicitly accounting for these
+effects frees up the localized model in §3.3 to focus on the remaining
+sources of appearance variations, which tend to be more localized,
+such as skin wrinkles, clothing shifts, and view-dependent effects.
+Physically correct estimation of self-shadowing is an extensive
+process [Hill et al. 2020]. It requires an accurate model of the lighting
+environment and geometry that may not be readily available. In our
+case, this would require first running the whole geometry branch
+before an estimate of shadowing can be used to inform the texture
+branch, which limits the use of parallelism for achieving fast de-
+coding. Instead, in this work we compute a fast approximate model
+for depicting environment-occlusion, and then learn the shadowing
+effect implicitly.
+Ambient occlusion (AO) captures environment visibility at each
+location of the body. It is a strong feature for self-shadowing in a
+static environment that can be computed efficiently [Miller 1994].
+Additionally, for roughly uniform illumination conditions, as in our
+case, dependence on the global pose with respect to the environment
+is unnecessary. For computing an AO map, we use the LBS-posed
+template geometry as it is efficient to compute and does not require
+the full evaluation of the geometry branch to generate. Although
+this reduces the precision of the AO map, our goal here is to capture
+coarse long-range appearance effects, and the differences resulting
+3We have dropped the frame index 𝑖from 𝜽𝑖, f𝑖and z𝑖to reduce clutter.
+from using the posed template geometry tend to be localized. This
+AO map is then passed through the shadow branch; a neural network
+with a UNet architecture [Ronneberger et al. 2015] that produces a
+quasi-shadow map. The result is multiplied with the output of the
+texture branch to produce the final texture. Note that the shadow
+branch is not supervised directly. Rather, it is used as an inductive
+bias in cVAE, where its supervision is implicit through a comparison
+of the final rendered image with the ground truth capture (see
+§3.2). In practice, we found that it is sufficient to produce a low-
+resolution quasi-shadow map (4x less compared to the texture) to
+obtain plausible soft shadows. An example of input and output of
+the shadow branch is given in Figure 5.
+Owing to its physically inspired formulation, AO computation
+generalizes to novel geometry generated through LBS, which has
+already demonstrated its ability to generalize to new poses, given
+that reliable joint angles can be acquired from the driving signals.
+The UNet architecture has been shown to exhibit good generaliza-
+tion [Ronneberger et al. 2015], especially when its input and outputs
+differ mostly by local changes, as in our case, by allowing it to rely
+mostly on shallow skip connections4. As with LBS for geometry,
+the shadow branch frees up the texture branch to focus on local ap-
+pearance effects since the majority of long range effects are already
+accounted for through the shadow maps.
+Fig. 5. Shadow branch inputs and outputs. The left image is an example
+of a conditioning signal for the network, and the right image is the prediction
+of our network on a test sample. Note that even though there is no explicit
+supervision provided to the shadow branch, it naturally learns to capture
+approximate global shadowing.
+3.5
+Handling Information Deficiency
+In this section, we describe our approach for handling the problem
+of information deficiency during animation that was outlined in
+§3.2. Our main assumption is that one can identify an explicitly
+defined set of control variables, such as 𝜽and f, that can be reliably
+estimated during both training and animation. The choice for driving
+signals is mainly driven by the application and the sensors it affords.
+4For non-uniform lighting environments, the generalization performance of this net-
+work may be affected since the input AO map would differ from the output shadow map
+more severely. One solution to this might be to perform a full shadow map calculation
+that the UNet would then only need to refine. We leave that investigation as future
+work.
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+
+
+143:8
+•
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabián Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih
+A common set of signals that can be acquired for driving include
+the full-body pose and facial keypoints estimated from an cameras
+placed in the scene, or, when deploying to a VR-based application,
+on a headset.
+Only providing the model with body joints and face keypoints
+is, however, insufficient, as they do not contain all the information
+required to explain the full appearance of a body in motion, such
+as the specific state of clothing, hair and internals of the mouth
+for a given image. Due to the high dimensionality of the inputs as
+well as the high capacity of neural networks, directly regressing
+the output from these signals alone typically overfits to the data,
+where it learns correlations between the driving signal and outputs
+that are not generalizable, e.g. by remembering a certain shadow or
+wrinkle combination.
+To address this problem, a naive solution would be to simply
+introduce an additional latent variable z that contains the remaining
+information about the outputs, e.g. by encoding that latent code
+from the outputs. However, this approach leads to another problem;
+there is no guarantee that z is independent of the driving signal.
+In practice, it tends to retain some information about (𝜽, f), which
+leads the decoder to ignore either of the two variables, or worse,
+learn to "spread" the information between the two, eliminating the
+ability to remain faithful to the driving signal during animation5.
+One example of such a failure mode is illustrated in Figure 6.
+Fig. 6. The need for disentangling. A model with a latent space but no
+disentangling mechanism produces reasonable reconstruction (left) but
+ignores the pose conditioning, which leads to severe artifacts when driving
+(right). For example, incorrect shading on the arms, ghosting artifacts on
+the collar and overly smoothed clothing wrinkles.
+In this work, we propose three strategies to disentangle the two
+sets of variables, which one can select between to best match the
+characteristics of the data at hand.
+3.5.1
+Variational Preferencing. cVAEs have a built-in mechanism
+for disentangling conditioning variables from the latent space. This
+stems from the propensity of a VAE with a factorized Gaussian
+posterior to push a portion of its latent dimensions to become un-
+informative in order to better minimize its KL-regularized loss. In
+effect, it squeezes information at the input to the encoder into a
+5A related problem is that of posterior collapse [Aliakbarian et al. 2019], where a
+high capacity decoder or strong conditioning signal can lead to the latent space being
+ignored. This scenario is more common in temporal auto-regressive models, where
+the history used for conditioning can be highly predictive of the current state. We did
+not observe this behavior in our setting, possibly due to the conditioning signal not
+being strong enough or exhibiting a complex relationship with the output, where the
+information path from encoder to decoder is learned more easily.
+lower-dimensional subspace within its latent space, the dimension-
+ality of which can only be reduced as the KL weight increases.
+In cVAE, when the conditioning variable shares some information
+with the input to the encoder, there is a preference to let the decoder
+use the copy of that information contained in the driving signal,
+so as to allow it to be squeezed out of the latent space, thereby
+achieving lower KL-divergence while still providing the decoder
+with information necessary for good reconstruction. This results in
+disentanglement between the latent space and conditioning vari-
+ables.
+By employing a cVAE architecture, our model already exhibits
+a built-in disentangling mechanism between the latent space and
+the driving signal which is used to condition the decoder. However,
+VAE’s disentangling mechanism is not perfect. Architecture choices
+for the encoder and decoder, as well as optimization strategies and
+even the characteristics of the data can either encourage or impede
+disentanglement. Furthermore, increasing the KL-weight as a way
+of achieving better disentanglement can negatively impact recon-
+struction accuracy as the effective dimensionality of the latent space
+becomes further reduced.
+3.5.2
+Mutual Information Minimization. A more direct approach
+to disentangle the two sets of variables is by minimizing the mutual
+information (MI) between them:
+I(z, c) = KL(𝑝(c, z)||𝑝(c)𝑝(z)) ,
+i.e. a KL-divergence between the joint distribution and the factorized
+one, where c = (𝜽, f). Since directly computing MI is intractable,
+we use MINE [Mattei and Frellsen 2019] - a generic data-driven
+approach for estimating the mutual information between random
+variables. It introduces a parametric approximation to MI through a
+"statistics network" implemented using a deep neural network:
+𝑚←𝑓(z, c) ,
+where 𝑚∈R is a scalar that is high when the mutual information
+between z and c is high, and low otherwise. This statistics network
+𝑓(·) is trained using the following loss function with each mini-
+batch:
+Lmi = −( 1
+𝐵
+𝐵
+∑︁
+𝑏=1
+𝑓(c𝑏, z𝑏) −log
+∑︁
+𝑏=1
+1
+𝐵𝑒𝑓(c𝑏,ˆz𝑏)) ,
+(1)
+where 𝐵is the size of a mini-batch, and ˆz𝑏is a shuffled, or randomly
+sampled, embedding. Thus, the network is trained to maximize the
+difference in 𝑓-function scores between when the data is paired vs.
+randomized. This results in a (biased) estimate of MI, which can be
+used to evaluate how independent c and z are. The loss in Eq.1 can
+be used to define an adversarial term Ldis = −Lmi, which we add
+to the full model training objective described in §3.6. This way, our
+cVAE learns to reconstruct the training data while disentangling
+the latent space from the driving signals.
+3.5.3
+Perturbation Consistency. When the driving signal has a di-
+rect physical interpretation with respect to the model’s output, there
+is an even more direct way to encourage disentanglement. For ex-
+ample, when the driving signal comprises a set of keypoints on
+the surface of the body, it may be possible to define direct cor-
+respondence with vertices on the output geometry. In this case,
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+
+
+Driving-Signal Aware Full-Body Avatars
+•
+143:9
+disentanglement between the latent code, z, and the driving signal,
+c, can be achieved using a perturbation consistency loss:
+Lpc = E𝑝(z)
+" ∑︁
+𝑘∈C
+∥c𝑘−S𝑘𝐷(z, c|WD)∥2
+#
+,
+(2)
+where 𝑝is the prior over the VAE’s latent space, C is the set of
+driving signal components that admit a correspondence with the
+output from the decoder, 𝐷, and S𝑘is a selection matrix that picks
+the corresponding elements in the output. In practice, the expected
+value is approximated by a discrete sampling of z for each minibatch
+during training. If z contains information about c, a random sample
+will perturb the corresponding elements of the decoded output away
+from c. Similarly, if c and z are independent, modifying z will have
+little impact on c-corresponded outputs of 𝐷, so long as 𝐷can
+reconstruct the data well.
+Although the perturbation consistency loss is the most direct way
+of encouraging independence between the latent space and driving
+signal, it is not always possible to define direct correspondence
+between all elements of the driving signal and the output of the
+decoder. In practice, we find a good heuristic is to start by relying
+simply on variational preferencing, and if that is not enough, add
+mutual-information minimization, and finally to add perturbation
+consistency whenever it is available.
+3.6
+Training Details
+We train all our models with Adam, using an initial learning rate of
+1.0e-3, and batch size 8. All models are trained until convergence
+on 8 NVidia V100 GPU with 32GB RAM. For full body models,
+training takes approximately 1.5−2 days. We optimize the following
+composite loss:
+L = 𝜆ILI + 𝜆MLM + 𝜆lapLlap + 𝜆GLG + 𝜆KLLKL + 𝜆disLdis , (3)
+where LI is the inverse rendering losses for images I and foreground
+masks M
+LI = ||Igt −ˆI||1 , LM = ||Mgt −ˆM||2
+2 ,
+LG is the per-vertex tracked mesh loss:
+LG = ||Ggt −ˆG||2
+2
+Llap is the Laplacian loss with respect to the ground truth tracked
+mesh, which encourages smoothness
+Llap = ||𝐿(Ggt) −𝐿( ˆG)||2
+2 ,
+where 𝐿(·) is the mesh Laplacian operator. LKL is the variational
+term, which is a standard VAE KL-divergence penalty [Kingma and
+Welling 2013], and Ldis is the disentangling loss as described in §3.5.
+In practice, we only use mesh supervision LG during the first 2000
+iterations so as to provide a reasonable initialization for the model.
+After that, the inverse rendering loss on images and masks further
+improves the shape and correspondence, as the initial tracked mesh
+may exhibit artifacts due the tracking challenges of human body
+surface. We find that this two phase procedure leads to improved
+estimates of shape and correspondence, which boosts the accuracy
+at which our decoder can reconstruct the images.
+Fig. 7. Data Processing Pipeline. From left to right: input image, fore-
+ground body mask, reconstructed 3d shape, detected keypoints, registered
+surface mesh.
+Fig. 8. Geometry Improvement by Inverse Rendering. Left: our result
+after inverse rendering; right: initial tracked mesh from data processing.
+4
+EXPERIMENTS
+In this section, we provide an experimental evaluation of our ap-
+proach for creating realistic full-body human avatars. We first shortly
+describe our capture setup and the data. We then provide qualitative
+results on multiple identities on reconstruction and driving tasks.
+Finally, we provide a quantitative evaluation and an ablation study
+on different components of our model.
+4.1
+Data
+Our capture setup is a multi-camera dome-shaped rig with 140
+synchronized cameras, each capable of producing 4096x2668 images.
+We collect data from three subjects, where for each subject, we
+capture sequences of 50-70k frames in length, which include a range
+of motion and natural conversation sequences. Out of those frames
+roughly 5000 were left out for testing purposes. For one of the
+subjects, we also collected two additional testing sequences: one
+where the individual is wearing different clothing, and another
+where they are wearing a VR headset. In both cases, the full state of
+the model built from the subject’s original capture is not observable.
+In the first, the specific state of clothing is not transferable due to
+differences in attire between the two captures. In the second, parts
+of the face are occluded by the VR headset.
+To train our full body models, we need to obtain skeletal poses
+as well as registered surface meshes for every frame of the multi-
+view captures. For this, we employ a traditional computer vision
+pipeline that is capable of generating reasonable estimates for both.
+Specifically, we follow a two-step approach: first, we run multi-
+view 3d reconstruction [Galliani et al. 2015], keypoint detection
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.
+
+
+143:10
+•
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabián Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih
+reconstruction
+captured image
+reconstruction
+captured image
+Fig. 9. Qualitative Evaluation: Reconstruction Quality. We demonstrate the ability of our model to produce high-quality reconstructions given full inputs
+(body pose 𝜽, facial keypoints f and latent codes z). Note that none of these frames were observed during training.
+ACM Trans. Graph., Vol. 40, No. 4, Article 143. Publication date: August 2021.

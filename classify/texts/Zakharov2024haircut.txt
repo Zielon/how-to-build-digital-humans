@@ -1,0 +1,495 @@
+Title: Human hair reconstruction with strand-aligned 3d gaussians
+
+Human Hair Reconstruction
+with Strand-Aligned 3D Gaussians
+Egor Zakharov1 , Vanessa Sklyarova1,2 , Michael Black2 , Giljoo Nam3 ,
+Justus Thies2,4 , and Otmar Hilliges1
+1 ETH Zürich, Switzerland
+2 Max Planck Institute for Intelligent Systems, Tübingen, Germany
+3 Meta, Pittsburgh, USA
+4 Technical University of Darmstadt, Germany
+Abstract. We introduce a new hair modeling method that uses a dual
+representation of classical hair strands and 3D Gaussians to produce ac-
+curate and realistic strand-based reconstructions from multi-view data.
+In contrast to recent approaches that leverage unstructured Gaussians
+to model human avatars, our method reconstructs the hair using 3D
+polylines, or strands. This fundamental difference allows the use of the
+resulting hairstyles out-of-the-box in modern computer graphics engines
+for editing, rendering, and simulation. Our 3D lifting method relies on
+unstructured Gaussians to generate multi-view ground truth data to su-
+pervise the fitting of hair strands. The hairstyle itself is represented in
+the form of the so-called strand-aligned 3D Gaussians. This representa-
+tion allows us to combine strand-based hair priors, which are essential
+for realistic modeling of the inner structure of hairstyles, with the differ-
+entiable rendering capabilities of 3D Gaussian Splatting. Our method,
+named Gaussian Haircut, is evaluated on synthetic and real scenes and
+demonstrates state-of-the-art performance in the task of strand-based
+hair reconstruction. For more results, please refer to our project page:
+https://eth-ait.github.io/GaussianHaircut.
+Keywords: 3D Reconstruction · Digital Humans · Hair Modeling
+1
+Introduction
+In recent years, human avatars have attained unprecedented levels of photo-
+realism [14, 17, 21, 31, 34, 42, 43, 47]. This advancement has been largely driven
+by neural modeling and rendering methods that are incompatible with existing
+graphics pipelines. However, many downstream applications require the resulting
+avatars to be deployable in physically simulated environments. In particular, the
+de facto “gold standard” representation of human hair for simulation and ren-
+dering is based on strands, i.e., 3D curves. Yet, strand-based reconstruction of
+hairstyles from real-world data, such as multi-view images, remains a challenging
+and heavily underconstrained problem, as a substantial part of hair geometry
+remains occluded in the image-based captures.
+arXiv:2409.14778v1  [cs.CV]  23 Sep 2024
+
+
+2
+E. Zakharov et al.
+Stage 1: 3D Lifting
+Unstructured Gaussians
+Stage 2: Strands fitting
+Structured Gaussians
+Strand-based Hairstyle
+Multi-view images
+Fig. 1: Gaussian Haircut works with multi-view images and uses strand-aligned 3D
+Gaussians to reconstruct a hairstyle. In the first stage, 3D lifting, we reconstruct the
+scene using unstructured primitives in the form of Gaussians. These unstructured prim-
+itives are then used in the second stage, strands fitting, to supervise our dual hair strand
+representation consisting of 3D Gaussians that are attached to hair strands. As a re-
+sult, we produce a realistic strand-based hairstyle that can be rendered, edited, and
+animated using classical computer graphics techniques.
+To address this, we leverage latent strand and hairstyle priors introduced by
+Rosu et al. [33] and Sklyarova et al. [38] to produce strand-based reconstructions
+of hairstyles that have a realistic internal geometrical structure. Following pre-
+vious approaches, we first obtain a line-based reconstruction of the visible part
+of the hairstyle, where the 3D line segments are used to approximate the hair
+strands locally. We then use this reconstruction to fit the strands with the aid
+of the pre-trained priors. The classical approach for 3D hair modeling [27] uses
+oriented gradient-based filters, the so-called orientation maps, to approximate
+projected line directions of the hair strands from the RGB images. However,
+these maps are inherently noisy [26, 33, 38] and hard to use directly for strand
+fitting. Thus, we use 3D Gaussians to perform an initial 3D lifting and de-noising
+of these orientation maps and use the former to supervise the reconstruction of
+hair strands. To introduce extra details and fidelity into the reconstructions,
+we model a hairstyle using a dual representation of classical hair strands and
+3D Gaussian primitives. The resulting method, called Gaussian Haircut, takes
+multi-view images as input and produces realistic 3D strands as output.
+Our approach is inspired by recent work on 3D Gaussian Splatting (3DGS)
+[16], which is capable of reproducing high-fidelity details in novel-view renders
+of static scenes and objects. Here, we utilize the 3D Gaussians in a novel way to
+enable realistic and animatable hairstyle reconstruction. We emphasize that our
+goal differs significantly from the original task of 3DGS, which reconstructs an
+unstructured set of 3D Gaussian primitives incompatible with physics-based hair
+simulation. These primitives cover only the visible hair surface, while we aim to
+reconstruct a hairstyle that includes the inner structure required to perform the
+simulation. Both 3DGS and follow-up work [34] show that the learned Gaussian
+primitives are often well-aligned with thin structures in a scene, such as hair
+strands, without extra supervision. We leverage this observation to compute a
+
+
+Gaussian Haircut
+3
+3D orientation field of hair strands from the multi-view input images, which we
+refer to as 3D line lifting. To achieve that, we render the directions of the highest
+variance of the Gaussian covariance matrices to obtain 2D orientation maps and
+compare them with ground-truth maps produced using Gabor filters. Moreover,
+we introduce a camera refinement procedure into our Gaussian lifting approach
+designed to recover a more accurate 3D hair shape.
+Having obtained accurate outer hair 3D orientations, we optimize a corre-
+sponding strand-based hairstyle using a strand-based hairstyle prior. We employ
+a dual representation to represent a hairstyle during our coarse-to-fine optimiza-
+tion consisting of classical 3D hair strand polylines and 3D Gaussians. The coarse
+fitting relies on using a latent space to optimize the hair strands, while during
+fine fitting, we directly optimize the parameters of the decoded 3D polylines.
+During the coarse-to-fine optimization, we employ differentiable rasterization of
+the hair strands to achieve a high accuracy in the reconstructed hairstyle. Specif-
+ically, we use 3D Gaussians attached to the line segments of the strand polylines
+and propagate the gradients from their rasterization directly into the latter. We
+supervise the reconstructions using both photometric and geometric constraints.
+To supervise the geometry, we employ the 2D projections of the 3D orientation
+field obtained during the line lifting stage. To help the reconstruction process,
+we also develop a hair upsampling technique that facilitates the effective use of
+the photometric constraints during the coarse optimization stage and a method
+for prior-based optimization of the strands in the domain of 3D polylines. Our
+method is illustrated in Fig. 1.
+We evaluate our approach on both real and synthetic scenes and achieve
+improvements in both reconstruction speed and quality compared to the state-
+of-the-art. Our contributions can be summarized as follows:
+– we propose a new 3D line lifting scheme that uses a modified 3DGS
+reconstruction technique to lift 2D orientation maps into a 3D field while
+also providing refinement of the camera parameters;
+– we introduce a dual representation of hair strand polylines and 3D
+Gaussians to achieve differentiable rasterization of hair strands and leverage
+photometric constraints for strand-based hair reconstruction;
+– based on these components, we propose a coarse-to-fine optimization
+method for prior-guided hair reconstruction that leverages both latent
+and explicit representations of the hairstyle.
+2
+Related Work
+2.1
+3D Gaussian Splatting for Head Avatars
+3D meshes are the most widely used representation for head avatars [1, 18].
+While a 3D mesh efficiently depicts surface-like areas such as faces, it struggles
+to represent complex geometries like hair accurately. To overcome this limita-
+tion, volumetric representations like a mixture of volumetric primitives or neu-
+ral radiance fields have been combined with 3D meshes to better portray hair
+
+
+4
+E. Zakharov et al.
+and beards [12, 20, 55]. However, volume rendering typically demands substan-
+tial computational resources. Recently, there has been a shift towards using 3D
+Gaussian Splatting (3DGS) as a base representation for avatars [31, 34]. This
+approach achieves both photo-realistic appearance and real-time performance.
+Despite these advancements, most studies [4, 8, 32, 45, 47, 52] typically use 3D
+morphable face models such as FLAME [18] and do not model hair as a separate
+layer. Instead, hair was treated as a mere component of the head, without any
+special consideration. This restricts the potential applications of head avatars,
+particularly in hair motion and stylization.
+2.2
+Strand-based Hair Modeling
+Strands are the standard representation for high fidelity 3D hair modeling in
+academia [29, 36, 49] and industry [5, 10]. Strands have several advantages over
+volumes or meshes, being particularly effective for physics-based simulations
+of hair [7, 11, 13]. Strands also enable intuitive geometric editing by directly
+manipulating the length and curvature of strands [37, 39, 46, 54]. However, due
+to the geometric complexity of human hair and the large number of strands
+required, realistic hair modeling is labor-intensive even for skilled 3D artists.
+To overcome this issue, image-based hair modeling methods have been devel-
+oped to automate the 3D hair modeling process from captured photographs. A
+common approach for image-based hair modeling involves the use of 2D orienta-
+tion maps [27]. Strand-based hair models are optimized to align with these 2D
+orientation maps when projected onto screen space [2,3,23–28,50,51]. A notable
+limitation of image-based hair modeling is the lack of information about the
+interior parts of the hair, which are invariably occluded in images. To overcome
+this challenge, Neural Haircut [38] employs a pretrained diffusion-based hairstyle
+prior to infer the interior geometry. Despite these efforts, previous work repre-
+sents hair as 3D polylines, which do not account for thickness in the geometry or
+appearance modeling. These approaches typically have a separate stage to learn
+the appearance of 3D polylines from images [33, 38]. In contrast, our proposed
+dual hair strand representation utilizes a sequence of anisotropic 3D Gaussians
+attached to a hair strand polyline, thereby offering enhanced expressiveness for
+both geometry and appearance modeling.
+In the concurrent work of Luo et al. [22], 3D Gaussians are also used to
+reconstruct human hair strands from multi-view images. In contrast to this ap-
+proach, which uses studio captures with uniform lighting, our method works
+with an unconstrained capture setup. To enable this, we introduce a new cam-
+era optimization approach for 3D Gaussians. Moreover, [22] uses 3D constraints
+to optimize the hair strands, similar to Neural Haircut [38], while our method
+fully relies on our new differentiable rendering scheme.
+3
+Method
+Our method reconstructs 3D strand-based hairstyles from multi-view images.
+We pre-process the data by calculating initial estimates for the cameras, seg-
+
+
+Gaussian Haircut
+5
+Unstructured Gaussians
+Structured Gaussians
+Guiding strands
+Interpolated strands
+Full hairstyle
+(b) Coarse fitting
+(c) Fine fitting
+(a) Strand-aligned Gaussians
+Fig. 2: (a) In our work, we utilize both structured and unstructured sets of Gaussians.
+The former are attached to the strands and thus cover an entire hair volume, while
+the latter concentrate only on the visible part of the hair surface. (b) During coarse
+strand-based fitting, we decode only a set of guiding strands from the latent hair map
+at each training step, as generating a full hairstyle is computationally- and memory-
+expensive. We then convert these strands into a dense hair map suitable for rendering
+by conducting interpolation in the space of their 3D coordinates. (c) Finally, we conduct
+a fine strand-based optimization step. We decode a dense hairstyle from a latent map
+and directly optimize their coordinates instead of latent representations.
+mentation masks, and image gradients, or the so-called orientation maps. The
+reconstruction is then performed in two stages, see Fig. 1.
+For the first 3D line lifting stage, we use a combination of 3D Gaussian
+Splatting [16] and BARF [19] to optimize the parameters of the training cam-
+eras and perform 3D lifting of the scene, including orientation maps. The latter
+are directly embedded into the geometry of the resulting Gaussians. Our main
+idea is to use a covariance matrix to represent the 3D orientation field of hair
+strands. In our approach, the direction of maximum variance of each Gaussian
+corresponds to the direction of the hair strand, and the variance of the orthogo-
+nal directions gives us the natural measure of its uncertainty, which we account
+for during the rendering process. As a result, we obtain a scene representation
+that produces highly realistic renders for both color and orientation maps, as the
+resulting Gaussians are aligned with the hair strands. However, these primitives
+are unstructured, as they only lie on the outer hair surface, see Fig. 2 (a). We
+thus use them to generate the multi-view renders and reconstruct the geometry
+of the hair strands during the second stage using structured primitives.
+In the hair strands fitting stage, we optimize the strand-based hairstyle in a
+coarse-to-fine manner. For the coarse optimization step, we parameterize hair as
+a latent texture map [33]. We use the Gaussians obtained during the first stage
+to create ground truth for photometric and geometric losses. After the coarse
+optimization, we decode the strands into an explicit hair map and optimize it
+directly in a fine-grained fitting step. During both of these steps, we follow [38]
+and regularize the hairstyle using a pre-trained hairstyle diffusion model [15] to
+increase the realism of its internal structure. We also utilize the 3D Gaussian
+Splatting framework to incorporate differentiable rendering of the hair strands.
+
+
+6
+E. Zakharov et al.
+We attach a Gaussian to each line segment on the strand to achieve that. The
+scale of these primitives has only one degree of freedom, which is proportional
+to the length of the line segment, while the other two are fixed to a small pre-
+defined value. This allows us to introduce fine-grained details into the visible
+part of the hair reconstruction.
+3.1
+3D Line Lifting with Unstructured Gaussians
+We rely on the 3D Gaussian Splatting approach to perform an initial scene
+reconstruction. We modify it to incorporate camera optimization, as off-the-shelf
+SfM [35] methods do not achieve high accuracy when localizing the cameras in
+the scenes centered around the hair [38]. Therefore, we employ a learnable 6-DoF
+camera parameterization from BARF [19] as a residual to the initial estimation
+produced by SfM and train it alongside the 3D Gaussians using gradient-based
+optimization.
+Following [16], each reconstructed primitive is parameterized by a learnable
+mean µ, scaling coefficients s, rotation quaternion q, and opacity o. Their co-
+variance matrix can then be expressed as Σ = RSST RT , where R is a matrix
+form of the quaternion q, and S = diag(s). Each Gaussian also has a set of
+learnable features, which include the spherical harmonic coefficients f for the
+view-dependent color, a hair segmentation label l, and confidence value τ for the
+3D orientation of the Gaussian. The rendering proceeds by first projecting each
+Gaussian into the screen space, resulting in a mean µ′ and a covariance matrix
+Σ′. The Gaussians are then sorted according to their depth, and for each pixel
+p, their features ci are rendered using α-blending:
+  C
+_
+p
+ = 
+\ s
+um 
+_{i=
+1 }
+^ {
+N} 
+T
+^i_
+p \ al
+pha
+ ^
+i _ p c_i,\quad T^i_p = \prod _{j=1}^{i-1} (1 - \alpha ^j_p),\quad T_p^1 = 1, \label {eq:volume_rendering} 
+(1)
+  
+\ a lp ha 
+^
+i _
+p =  o_
+i \ ex
+p \ B ig
+ (
+ 
+-\frac {1}{2} (p - \mu '_i)^T \Sigma '_i (p - \mu '_i) \Big ) . \label {eq:opacity_formula} 
+(2)
+As a result, we obtain rendered color, which is produced via the original Gaussian
+splatting approach, hair segmentation label lp, orientation confidence value τp,
+and a rendered silhouette of the Gaussians denoted as sp:
+  l
+_
+p
+ = 
+\ s
+um 
+_{i=
+1} ^
+N
+ 
+T_p
+^ i
+ \a
+lpha
+ _ p
+^
+i
+ l_
+i ,
+\qu
+ad \tau _p = \sum _{i=1}^N T_p^i \alpha _p^i \tau _i,\quad s_p = \sum _{i=1}^N T_p^i \alpha _p^i. 
+(3)
+In our approach, we use the covariance matrices to describe the local geome-
+try of the hair strands in the 3D volume. To do that, we align the Gaussians with
+the hair strands via 3D lifting of the orientation maps. We represent the primary
+3D orientation as the direction of the highest variance and use the variance of
+the orthogonal directions as a measure of uncertainty. Specifically, we obtain a
+rendered strand direction in pixel p, denoted as βp, as follows:
+  \
+b
+e
+ta 
+_ p
+ = 
+\sum _{i=1}^N T_p^i \alpha _p^i \beta _i, 
+(4)
+
+
+Gaussian Haircut
+7
+where αi
+p and T i
+p depend on the full covariance matrix, as per Eq. 1-2, and βi
+denotes a direction of the highest variance of the Gaussian.
+The Gaussians are trained using a gradient-based optimization procedure
+from the original work [16]. Our photometric constraints include Lrgb, which
+consists of L1 and SSIM losses, Lseg that consists of an L1 loss that matches
+the rendered silhouette sp and hair segmentation lp to ground truth masks, and
+Ldir that supervises hair orientations. For the latter, we build upon an original
+formulation [27] and introduce a rendered confidence factor τp into the objective:
+  \m a
+t
+h
+ca l {L}_\te xt {d ir} =  \su m  _ p  \t au _p \min \{ \text {d} (\beta _p, \hat \beta _p), \text {d} (\beta _p, \hat \beta _p) \pm \pi \} - \log \tau _p, 
+(5)
+where d denotes the absolute angular difference between the directions, and ˆβp
+denotes a ground-truth direction in the pixel p. Our resulting training objective
+for the Gaussian-based hair reconstruction stage can be written as follows:
+  \mathca l  {L} _ \text {g a ussian} = \mathcal {L}_\text {rgb} + \lambda _\text {seg} \mathcal {L}_\text {seg} + \lambda _\text {dir} \mathcal {L}_\text {dir}. \label {eq:loss_stage1} 
+(6)
+3.2
+3D Hair Strands Reconstruction
+After the first stage, we obtain Gaussians matching the hairstyle’s visible struc-
+ture, including the geometry and strand orientations, and the optimized camera
+parameters. This information is used for the 3D hair strands reconstruction.
+The strand-based hairstyle is represented as a hair map H corresponding to
+a scalp region of the 3D head model [18]. This head model is fitted into the
+scene using a multiview optimization approach based on facial keypoints [38].
+Each texel of this map stores a 3D hair strand as a polyline: Sk = {pk
+l }. Since
+hair maps have an increasingly high number of degrees of freedom, we regularize
+the optimization process [33] and introduce a latent hair map Z, which can be
+converted to and from H using pre-trained strand decoder G and encoder E:
+  H = \
+m a thcal {G}(Z),\quad Z = \mathcal {E}(H). 
+(7)
+During the coarse fitting step, we optimize the hair strands as a latent map Z,
+while for the fine step, we optimize an explicit hair map H, see Fig. 2 (c).
+Since latent hair map decoding operation is computationally expensive, in
+the coarse optimization step, this mapping can only be performed for a set of
+guiding strands per training batch, which we will denote as H′, see Fig. 2 (b).
+Note, however, that the latent map Z can be decoded into an arbitrarily large
+number of hair strands for the fine-fitting step. The hair strands are optimized
+using two constraints: photometric losses, for which we differentiably rasterize
+the hair strands and latent diffusion-based regularization that follows [38] and
+ensures the realism of the internal part of the hairstyle. Importantly, we use
+the ground truth generated using the Gaussian-based reconstruction from the
+previous stage, substantially reducing the noise in this objective, especially for
+the orientation maps.
+
+
+8
+E. Zakharov et al.
+Photometric losses. During differentiable rasterization, we assign Gaussians to
+each line segment {pk
+l , pk
+l+1} of the strand. The generated primitive has the first
+element of its scaling vector sk
+l proportional to the length of the strand, and the
+other two fixed to a small value, i.e. sk
+l = {1/2 · ∥pk
+l+1 −pk
+l ∥2 , ϵ , ϵ}. Addition-
+ally, its rotation quaternion is set to align the x-axis with the segment direction
+of the hair strand. We make all these Gaussians opaque, meaning ok
+l = 1, have
+unit orientation confidence τ k
+l , and assign each one a trainable set of spherical
+harmonic coefficients f k
+l responsible for rendering the color. During the coarse
+fitting, these coefficients are predicted from the latent hair map using an appear-
+ance decoder Ga, which copies the architecture of a strand decoder G. However,
+while the strand decoder G is pre-trained using a collection of synthetic hair
+strands and is frozen during the reconstruction process, following [33], the ap-
+pearance decoder Ga is optimized from scratch for each scene. Thus, the trainable
+parameters during the coarse optimization step include Z and Ga, while for the
+fine step, we directly optimize H with associated coefficients f k
+l .
+The rendering loss follows the Gaussians training objective Lgaussian from
+the first stage (Eq. 6) and includes a color loss Lrgb, a segmentation loss Lseg,
+and an orientations loss Ldir. Instead of using the covariance matrices to extract
+the orientations βi, we use the direction vectors vk
+l = pk
+l+1 −pk
+l . We can do
+that since, at this stage, we have access to the exact strand growth directions
+instead of undirected lines. However, during the coarse fitting stage, we can only
+decode a small set of guiding hair strands H′ per training batch from the latent
+map Z because of memory constraints. Thus, the rendered geometry may have
+holes, making photometric training losses ineffective. To address this problem,
+we interpolate the guiding strands to produce a dense hair map ˆH, which we
+then use for rasterization. The strand interpolation procedure follows [39] but is
+carried out in the domain of 3D coordinates instead of latent hair maps. Note
+that we do not need such interpolation during the fine optimization stage, as at
+each training step we have direct access to the dense hairstyle.
+Diffusion-based regularization. We follow [38] and employ a diffusion-based score
+distillation sampling [30] loss Lsds to regularize the hair geometry. It is applied
+in the domain of the latent hair maps and uses a pre-trained latent diffusion
+for guide strand generation [38]. While it can be incorporated seamlessly into
+our coarse optimization step by simply applying it to a subsampled version Z′
+of the latent hair map Z, we also want to keep this regularization during the
+fine-grained strands optimization. To achieve that, at each step, we encode a
+random subset of the hair strands into their latent representations using a pre-
+trained encoder E and interpolate them into texels with the same resolution as Z′.
+We then apply a diffusion-based penalty to this low-resolution latent hair map,
+similar to the coarse stage. For more details, please refer to the supplementary
+materials.
+The final objective for the hair strands fitting can be written as follows:
+  \math c al { L }_\text { strand} =  \mathcal {L}_\text {rgb} + \lambda _\text {seg} \mathcal {L}_\text {seg} + \lambda _\text {dir} \mathcal {L}_\text {dir} + \lambda _\text {sds} \mathcal {L}_\text {sds}. 
+(8)
+
+
+Gaussian Haircut
+9
+As a result, we obtain a strand-based hair map that can be rendered statically
+using optimized spherical harmonics coefficients or dynamically via classical com-
+puter graphics engines [6].
+4
+Experiments
+4.1
+Implementation Details
+We preprocess real-world data using COLMAP [35] to produce the initial point
+cloud and camera estimates. We use the default optimization hyperparameters
+from the base 3DGS approach [16] to train the Gaussians, which results in 30,000
+optimization steps during the 3D lifting stage. The camera parameters are op-
+timized for the first 15,000 steps and are frozen afterward. Their learning rate
+schedule follows the learning rates of Gaussian rotations and means.
+During the strand fitting stage, we use pre-trained strand and hairstyle pri-
+ors from [38]. We use 1,000 guiding strands in the hair map H′ during coarse
+optimization, which are interpolated to 10,000 at each training step before ras-
+terization. For the fine fitting of the hairstyle, we decode a hair map H containing
+30,000 strands. To generate a guiding latent hair map Z′ that is used for regular-
+ization, we randomly select 1,000 strands at each training step. We encode them
+into the latent vectors and interpolate them into a latent map before calculating
+a score distillation sampling loss. We use 20,000 and 10,000 optimization steps
+for the coarse and fine fitting, respectively. The weights of the losses during both
+stages are set to λseg = λdir = 10−1, λsds = 10−2. Reconstructing a hairstyle
+using our method takes up to six hours on a single RTX 4090. For more details
+on implementation and training, please refer to the supplementary materials.
+4.2
+Real-world Evaluation
+We evaluate our approach using monocular video sequences captured under un-
+constrained lighting conditions.
+Baseline. The main baseline we compare against is Neural Haircut [38]. This
+method reconstructs strand-based hair geometry in the same scenario as ours,
+i.e. using real-world multi-view image/monocular video data. It consists of two
+stages. During the first stage, it reconstructs coarse hair geometry using a layered
+neural signed distance function [41], where the layers correspond to the hair and
+bust geometries. The hair surface geometry also incorporates a 3D-lifted orienta-
+tion field. During the second stage, the strands are parameterized as latent hair
+maps and optimized using the Chamfer distance between the strands and the
+visible part of the hair surface. The authors also propose a differentiable hair ren-
+dering pipeline that relies on mesh-based rasterization to propagate photometric
+information into geometry. However, this loss does not propagate high-frequency
+details and only slightly improves strand geometry.
+
+
+10
+E. Zakharov et al.
+Image
+NeuralHaircut
+Ours
+Image
+NeuralHaircut
+Ours
+Fig. 3: A qualitative comparison of the reconstructed strand-based geometry against
+Neural Haircut [38]. Our method has higher accuracy of the reconstructed hairstyles
+while achieving more than ten times improvement in the optimization speed.

@@ -1,0 +1,1145 @@
+Title: Animatable implicit neural representations for creating realistic avatars from videos
+
+Animatable Neural Radiance Fields for Modeling Dynamic Human Bodies
+Sida Peng1∗
+Junting Dong1∗
+Qianqian Wang2
+Shangzhan Zhang1
+Qing Shuai1
+Xiaowei Zhou1
+Hujun Bao1†
+1Zhejiang University
+2Cornell University
+Input: multi-view video
+Frame 1
+Frame 100
+Frame 200
+Output: animatable human model
+Reposed geometries
+Synthesized images
+Figure 1: Given a multi-view video of a performer, our method reconstructs an animatable human model, which can be used
+for novel view synthesis and 3D shape generation under novel human poses.
+Abstract
+This paper addresses the challenge of reconstructing an
+animatable human model from a multi-view video. Some
+recent works have proposed to decompose a non-rigidly de-
+forming scene into a canonical neural radiance ﬁeld and a
+set of deformation ﬁelds that map observation-space points
+to the canonical space, thereby enabling them to learn the
+dynamic scene from images. However, they represent the
+deformation ﬁeld as translational vector ﬁeld or SE(3) ﬁeld,
+which makes the optimization highly under-constrained.
+Moreover, these representations cannot be explicitly con-
+trolled by input motions. Instead, we introduce neural blend
+weight ﬁelds to produce the deformation ﬁelds. Based on
+the skeleton-driven deformation, blend weight ﬁelds are
+used with 3D human skeletons to generate observation-to-
+canonical and canonical-to-observation correspondences.
+Since 3D human skeletons are more observable, they can
+regularize the learning of deformation ﬁelds.
+Moreover,
+the learned blend weight ﬁelds can be combined with in-
+put skeletal motions to generate new deformation ﬁelds to
+animate the human model. Experiments show that our ap-
+proach signiﬁcantly outperforms recent human synthesis
+methods. The code and supplementary materials are avail-
+able at https://zju3dv.github.io/animatable nerf/.
+∗The ﬁrst two authors contributed equally. The authors from Zhejiang
+University are afﬁliated with the State Key Lab of CAD&CG.
+†Corresponding author: Hujun Bao.
+1. Introduction
+Rendering animatable human characters has a variety
+of applications such as free-viewpoint videos, telepresence,
+video games and movies. The core step is to reconstruct
+animatable human models, which tends to be expensive and
+time-consuming in traditional pipelines due to two factors.
+First, high-quality human reconstruction generally relies on
+complicated hardware, such as a dense array of cameras
+[56, 16] or depth sensors [10, 14].
+Second, human ani-
+mation requires skilled artists to manually create a skeleton
+suitable for the human model and carefully design skinning
+weights [29] to achieve realistic animation, which takes
+countless human labor.
+In this work, we aim to reduce the cost of human recon-
+struction and animation, to enable the creation of digital hu-
+mans at scale. Speciﬁcally, we focus on the problem of au-
+tomatically reconstructing animatable humans from multi-
+view videos, as illustrated in Figure 1. However, this prob-
+lem is extremely challenging. There are two core questions
+we need to answer: how to represent animatable human
+models and how to learn this representation from videos?
+Recently, neural radiance ﬁelds (NeRF) [41] has pro-
+posed a representation that can be efﬁciently learned from
+images with a differentiable renderer. It represents static 3D
+scenes as color and density ﬁelds, which work particularly
+well with volume rendering techniques. To extend NeRF
+to handle non-rigidly deforming scenes, [46, 51] decom-
+pose a video into a canonical NeRF and a set of deformation
+ﬁelds that transform observation-space points at each video
+arXiv:2105.02872v2  [cs.CV]  7 Oct 2021
+
+
+frame to the canonical space. The deformation ﬁeld is rep-
+resented as translational vector ﬁeld [51] or SE(3) ﬁeld [46].
+Although they can handle some dynamic scenes, they are
+not suited for representing animatable human models due
+to two reasons. First, jointly optimizing NeRF with trans-
+lational vector ﬁelds or SE(3) ﬁelds without motion prior is
+an extremely under-constrained problem [51, 30]. Second,
+they cannot explicitly synthesize novel scenes given input
+motions for animation.
+To overcome these problems, we propose a novel mo-
+tion representation named neural blend weight ﬁeld. Based
+on the skeleton-driven deformation framework [29], blend
+weight ﬁelds are combined with 3D human skeletons to
+generate deformation ﬁelds. This representation has two
+advantages. First, since the human skeleton is easy to track
+[22], it does not need to be jointly optimized and thus pro-
+vides an effective regularization on the learning of deforma-
+tion ﬁelds. Second, by learning an additional neural blend
+weight ﬁeld at the canonical space, we can explicitly ani-
+mate the neural radiance ﬁeld with input motions.
+We evaluate our approach on the H36M [19] and ZJU-
+MoCap [49] datasets that capture dynamic humans in com-
+plex motions with synchronized cameras. Across all video
+sequences, our approach exhibits state-of-the-art perfor-
+mances on novel view synthesis and novel pose synthesis.
+In addition, our method is able to reconstruct the 3D human
+shape at the canonical space and repose the geometry.
+In summary, this work has the following contributions:
+• We introduce a novel representation called neural
+blend weight ﬁeld, which can be combined with NeRF
+and 3D human skeletons to recover animatable human
+models from multi-view videos.
+• Our approach demonstrates signiﬁcant performance
+improvement on novel view synthesis and novel pose
+synthesis compared to recent human synthesis meth-
+ods on the H36M and ZJU-MoCap datasets.
+2. Related work
+Human reconstruction.
+Modeling human characters is
+the ﬁrst step of traditional animation pipelines. To achieve
+high-quality reconstruction, most methods rely on compli-
+cated hardware [10, 14, 59, 11, 16]. Recently, some works
+[58, 44, 41, 32] have attempted to learn 3D representations
+from images with differentiable renderers, which reduces
+the number of input camera views and achieves impres-
+sive reconstruction results. However, they have difﬁculty
+in recovering reasonable 3D human shapes when the cam-
+era views are too sparse, as shown in [49]. Instead of opti-
+mizing the network parameters per scene, [42, 54, 67, 55]
+utilize networks to learn human shape priors from ground-
+truth 3D data, allowing them to reconstruct human shapes
+from even a single image.
+Human animation. Skeletal animation [29, 25] is a com-
+mon approach to animate human models. It ﬁrst creates a
+scale-appropriate skeleton for the human mesh and then as-
+signs each mesh vertex a blend weight that describes how
+the vertex position deforms with the skeleton.
+Skinned
+multi-person linear model (SMPL) [36] learns a skele-
+ton regressor and blend weights from a large amount of
+ground-truth 3D meshes.
+Based on SMPL, some works
+[48, 24, 27, 21, 13] reconstruct an animated human mesh
+from sparse camera views. However, SMPL only describes
+the naked human body and thus cannot be directly used
+to render photorealistic images.
+To overcome this prob-
+lem, [3, 2, 4] apply vertex displacements to the SMPL
+model to capture the human clothing and hair. [61] pro-
+poses a 2D warping method to deform the SMPL model
+to ﬁt the input image. Recent implicit function-based meth-
+ods [45, 40, 9] have exhibited state-of-the-art reconstruction
+quality. [18, 5] combine implicit function learning with the
+SMPL model to obtain detailed animatable human models.
+[12] combines a set of local implicit functions with human
+skeletons to represent dynamic humans. [64] proposes to
+animate occupancy networks with a linear blend skinning
+algorithm. However, these methods all need the supervision
+of 3D ground-truth data.
+Neural rendering. To reduce the requirement for the re-
+construction quality, some methods [57, 60, 34, 62, 28] im-
+prove the rendering pipeline with neural networks. Based
+on the advances in image-to-image translation techniques
+[20], [38, 8, 39] train a network to map 2D skeleton images
+to target rendering results.
+Although these methods can
+synthesize photorealistic images under novel human poses,
+they have difﬁculty in rendering novel views. To improve
+the performance of novel view synthesis, [57, 60, 62, 1,
+50, 65, 52] introduce 3D representations into the rendering
+pipeline. [60] establishes neural texture maps and uses UV
+maps to obtain feature maps in the image space, which is
+then interpreted into images with a neural renderer. [62, 1]
+reconstruct a point cloud from input images and learn a 3D
+feature for each point. Then, they project 3D features into
+a 2D feature map and employ a network to render images.
+However, 2D convolutional networks have difﬁculty in ren-
+dering inter-view consistent images, as shown in [58].
+To solve this problem, [35, 44, 41, 31, 33] interpret fea-
+tures into colors in 3D space and then accumulate them into
+2D images. [35] uses 3D convolutional networks to produce
+discretized RGB-α volumes. Neural radiance ﬁelds (NeRF)
+[41] proposes to represent 3D scenes with color and density
+ﬁelds, which works well with the volumetric rendering and
+gives state-of-the-art performances on novel view synthesis.
+[49] combines NeRF with the SMPL model, allowing it to
+handle dynamic humans and synthesize photorealistic novel
+views from very sparse camera views.
+
+
+Eq. 4
+observation space
+neural blend
+weight field
+neural blend
+weight field
+NeRF
+human skeleton
+viewing direction
+latent code
+latent code
+appearance code
+canonical space
+Figure 2: Overview of our approach. Given a query point x in the observation space at frame i, we infer its blend weight
+wi(x) using a neural blend weight ﬁeld that is conditioned on the latent code ψi. Based on the blend weight and the human
+skeleton, we can obtain the corresponding point x′ in the canonical space using equation (4). Taking the transformed point
+x′, observation-space viewing direction d, and appearance code ℓi as inputs, the template NeRF model predicts the volume
+density and color. To animate the template NeRF, we also learn a neural blend ﬁeld wcan(x′) at the canonical space.
+3. Method
+Given a multi-view video of a performer, our task is to
+reconstruct an animatable human model that can be used
+to synthesize free-viewpoint videos of the performer under
+novel human poses. The cameras are synchronized and cal-
+ibrated. For each frame, we assume the 3D human skele-
+ton is given, which can be obtained with marker-based or
+marker-less pose estimation systems [19, 22]. For each im-
+age, [15] is used to extract the foreground human mask, and
+the values of the background image pixels are set as zero.
+The overview of our approach is shown in Figure 2.
+We decompose a non-rigidly deforming human body into
+a canonical human model represented by a neural radiance
+ﬁeld (Section 3.1) and a per-frame blend weight ﬁeld (Sec-
+tion 3.2) that is used to establish correspondences between
+the observation space and canonical space. Then we dis-
+cuss how to learn the representation on the multi-view video
+(Section 3.3). Based on blend weight ﬁelds, we are able to
+animate the canonical human model (Section 3.4).
+3.1. Representing videos with neural radiance ﬁelds
+NeRF represents a static scene as a continuous volumet-
+ric representation. For any 3D point, it takes a spatial posi-
+tion x and viewing direction d as input to a neural network
+and outputs a volume density σ and color c.
+Inspired by [46, 51], we extend NeRF to represent the
+dynamic human body by introducing deformation ﬁelds, as
+shown in Figure 2. Speciﬁcally, for each video frame i ∈
+{1, ..., N}, we deﬁne a deformation ﬁeld Ti that transforms
+observation-space points to the canonical space. Given the
+canonical-frame density model Fσ, the density model at
+frame i can be thus deﬁned as:
+(σi(x), zi(x)) = Fσ(γx(Ti(x))),
+(1)
+where zi(x) is the shape feature in the original NeRF, and
+γx is the positional encoding [41] for spatial location.
+When predicting the color, we deﬁne a per-frame latent
+code ℓi to encode the state of the human appearance in
+frame i. Similarly, with the canonical-frame color model
+Fc, the color model at frame i can be deﬁned as:
+ci(x) = Fc(zi(x), γd(d), ℓi),
+(2)
+where γd is the positional encoding for viewing direction.
+There are several ways to represent the deformation ﬁeld,
+such as translational vector ﬁeld [51, 30] and SE(3) ﬁeld
+[46]. However, as discussed in [46, 30], optimizing a radi-
+ance ﬁeld together with a deformation ﬁeld is an ill-posed
+problem that is prone to local optima. To overcome this
+problem, [46, 30] propose many regularization techniques
+to facilitate the training, which makes the optimization pro-
+cess complex. Moreover, their representations cannot ro-
+bustly generate new deformation ﬁelds given novel motion
+sequences.
+3.2. Neural blend weight ﬁelds
+Considering that we aim to model dynamic humans, it
+is natural to leverage the human priors to learn the defor-
+mation ﬁeld, which helps us to solve the under-constrained
+problem. Speciﬁcally, we construct the deformation ﬁeld
+based on the 3D human skeleton and the skeleton-driven
+deformation framework [29].
+The human skeleton deﬁnes K parts, which produce
+K transformation matrices {Gk} ∈SE(3). The detailed
+derivation is listed in the supplementary material. In the lin-
+ear blend skinning algorithm [29], a canonical-space point
+v is transformed to the observation space using
+v′ =
+ K
+X
+k=1
+w(v)kGk
+!
+v,
+(3)
+where w(v)k is the blend weight of k-th part. Similarly, for
+an observation-space point x, if we know its corresponding
+
+
+blend weights, we are able to transform it to the canonical
+space using
+x′ =
+ K
+X
+k=1
+wo(x)kGk
+!−1
+x,
+(4)
+where wo(x) is the blend weight function deﬁned in the ob-
+servation space. To obtain the blend weight ﬁeld, a natural
+idea is to deﬁne a function that maps a 3D point to blend
+weights, which then gives the dynamic radiance ﬁelds based
+on equations (1), (2) and (4). However, we ﬁnd that jointly
+learning NeRF with the blend weight ﬁeld is still ill-posed
+and is prone to local minima.
+To solve this problem, we seek the human priors in 3D
+statistical body models [36, 53, 47, 63] to regularize the
+learned blend weights. Speciﬁcally, for any 3D point, we
+assign an initial blend weight based on the body model and
+then use a network to learn a residual vector, resulting in the
+neural blend weight ﬁeld. In practice, the residual vector
+ﬁelds for all training video frames are implemented using a
+single MLP network F∆w : (x, ψi) →∆wi, where ψi is
+a per-frame learned latent code and ∆wi is a vector ∈RK.
+The neural blend weight ﬁeld at frame i is deﬁned as:
+wi(x) = norm(F∆w(x, ψi) + ws(x, Si)),
+(5)
+where ws is the initial blend weights that are computed
+based on the statistical body model Si, and we deﬁne
+norm(w) = w/ P wi. Without loss of generality, we adopt
+SMPL [36] as the body model, which can be obtained by
+ﬁtting the SMPL model to the 3D human skeleton [22].
+Note that this idea can also apply to other human models
+[53, 47, 63]. To compute ws, we take the strategy proposed
+in [18, 6]. For any 3D point, we ﬁrst ﬁnd the closest surface
+point on the SMPL mesh. Then, the target blend weight
+is computed by performing barycentric interpolation of the
+blend weights of three vertices on the corresponding mesh
+facet.
+To animate the learned template NeRF, we additionally
+learn a neural blend weight ﬁeld wcan at the canonical space.
+The SMPL blend weight ﬁeld ws is calculated using the
+T-pose SMPL model, and F∆w is conditioned on an addi-
+tional latent code ψcan. We utilize the inherent consistency
+between blend weights to optimize the neural blend weight
+ﬁeld wcan, which will be described in Section 3.3.
+Instead of learning blend weight ﬁelds at both observa-
+tion and canonical spaces, an alternative method is to only
+learn the blend weight ﬁeld at the canonical space as in
+Equation (3), which speciﬁes the canonical-to-observation
+correspondences. However, “inverting” Equation (3) to get
+observation-to-canonical correspondences for rendering is
+non-trivial.
+We would need to ﬁrst build a dense set of
+observation-to-canonical correspondences by densely sam-
+pling points at the canonical space and evaluating their
+blend weights. Then, for any observation-space point, we
+can interpolate its corresponding canonical point based on
+the pre-computed correspondences. This process is com-
+plex and time-consuming. Moreover, as the sampled points
+are discretized, the calculated correspondences tend to be
+coarse.
+In contrast, learning blend weights at observa-
+tion spaces enables us to easily obtain the observation-to-
+canonical correspondences based on Equation (4).
+3.3. Training
+Based on the dynamic radiance ﬁeld σi and ci, we can
+use volume rendering techniques [23, 41] to synthesize im-
+ages of particular viewpoints for each video frame i. The
+near and far bounds of volume rendering are estimated by
+computing the 3D boxes that bound the SMPL meshes. The
+parameters of Fσ, Fc, F∆w, {ℓi} and {ψi} are jointly op-
+timized over the multi-view video by minimizing the dif-
+ference between the rendered pixel color ˜Ci(r) and the ob-
+served pixel color Ci(r):
+Lrgb =
+X
+r∈R
+∥˜Ci(r) −Ci(r)∥2,
+(6)
+where R is the set of rays passing through image pixels.
+To learn the neural blend weight ﬁeld wcan at the canon-
+ical space, we introduce a consistency loss between blend
+weight ﬁelds.
+As shown by equations (3) and (4), two
+corresponding points at canonical and observation spaces
+should have the same blend weights. For an observation-
+space point x at frame i, we map it to the canonical-space
+point Ti(x) using equation (4). The consistency loss be-
+tween blend weight ﬁelds is deﬁned as:
+Lnsf =
+X
+x∈Xi
+∥wi(x) −wcan(Ti(x))∥1,
+(7)
+where Xi is the set of 3D points sampled within the 3D
+human bounding box at frame i. The coefﬁcient weights of
+Lrgb and Lnsf are both set to 1.
+3.4. Animation
+Image synthesis.
+To synthesize images of the performer
+under novel human poses, we similarly construct the defor-
+mation ﬁelds that transform the 3D points to the canoni-
+cal space. Given a novel human pose, our method updates
+the pose parameters in the SMPL model and computes the
+SMPL blend weight ﬁeld ws based on the new parameters
+Snew. Then, the neural blend weight ﬁeld wnew for the novel
+human pose is deﬁned as:
+wnew(x, ψnew) = norm(F∆w(x, ψnew) + ws(x, Snew)), (8)
+where the F∆w is conditioned on a new latent code ψnew.
+Based on the wnew and equation (4), we can generate the
+
+
+deformation ﬁeld T new for the novel human pose. The pa-
+rameters of ψnew are optimized using
+Lnew =
+X
+x∈X new
+∥wnew(x) −wcan(T new(x))∥1,
+(9)
+where X new is the set of 3D points sampled within the hu-
+man box under the novel human pose. Note that we ﬁx the
+parameters of wcan during training. In practice, we train
+neural skinning ﬁelds under multiple novel human poses si-
+multaneously. This is implemented by conditioning F∆w
+on multiple latent codes. With the deformation ﬁeld T new,
+our method uses equations (1) and (2) to produce the neural
+radiance ﬁeld under the novel human pose.
+3D shape generation.
+In addition to synthesizing images
+under novel human poses, our approach can also explicitly
+animate a reconstructed human mesh, similar to the tradi-
+tional animation methods. In particular, we ﬁrst discretize
+the human bounding box at the canonical space with a voxel
+size of 5mm × 5mm × 5mm and evaluate the volume den-
+sities for all voxels, which are used to extract the human
+mesh with the Marching Cubes algorithm [37]. Then, blend
+weights of mesh vertices are inferred from the neural blend
+weight ﬁeld wcan. Finally, given a novel human pose, we
+use equation (3) to transform each vertex, resulting in a de-
+formed mesh under the target pose. The reconstruction re-
+sults are presented in the supplementary material.
+4. Implementation details
+The networks of our radiance ﬁeld Fσ and Fc closely
+follow the original NeRF [41]. We only use the single-level
+NeRF and sample 64 points along each camera ray. The
+network of F∆w is almost the same as that of Fσ, except that
+the ﬁnal output layer of F∆w has 24 channels. In addition,
+F∆w applies exp(·) to the output. The details of network
+architectures are described in the supplementary material.
+The appearance code ℓi and blend weight ﬁeld code ψi both
+have dimensions of 128.
+Training.
+Our method takes a two-stage training
+pipeline. First, we train the parameters of Fσ, Fc, F∆w,
+{ℓi} and {ψi} jointly over the input video. Second, neural
+blend weight ﬁelds under novel human poses are learned
+using equation (9). The Adam optimizer [26] is adopted for
+the training. The learning rate starts from 5e−4 and decays
+exponentially to 5e−5 along the optimization. The training
+is conducted on four 2080 Ti GPUs. For a three-view video
+of 300 frames, the ﬁrst stage training takes around 200k it-
+erations to converge (about 12 hours). For 200 novel human
+poses, the second stage training takes around 10k iterations
+to converge (about 30 minutes).
+5. Experiments
+5.1. Dataset and metrics
+H36M [19] records multi-view videos with 4 cameras and
+collects human poses using the marker-based motion cap-
+ture system. It includes multiple subjects performing com-
+plex actions.
+We select representative actions, split the
+videos into training and test frames, and perform experi-
+ments on subjects S1, S5, S6, S7, S8, S9, and S11. Three
+cameras are used for training and the remaining camera is
+selected for test. We use [22] to obtain the SMPL param-
+eters from the 3D human poses and apply [15] to segment
+foreground humans. More details of training and test data
+can be found in the supplementary material.
+ZJU-MoCap [49] records multi-view videos with 21 cam-
+eras and collects human poses using the marker-less mo-
+tion capture system. For evaluation, we select four rep-
+resentative sequences: “Twirl”, “Taichi”, “Warmup”, and
+“Punch1”. Four uniformly distributed cameras are used for
+training and the remaining cameras for testing. We follow
+the experimental protocol in [49].
+Metrics.
+Following typical protocols [41], we evaluate
+our method on image synthesis using two metrics: peak
+signal-to-noise ratio (PSNR) and structural similarity index
+(SSIM). For 3D reconstruction, since there is no ground-
+truth geometry, we only provide qualitative results, which
+can be found in the supplementary material.
+5.2. Performance on image synthesis
+Baselines.
+We compare with state-of-the-art image syn-
+thesis methods [60, 62, 49] that also utilize SMPL priors. 1)
+Neural Textures [60] renders a coarse mesh with latent tex-
+ture maps and uses a 2D CNN to interpret feature maps into
+target images. Since [60] is not open-sourced, we reimple-
+ment it and take the SMPL mesh as the input mesh. 2) NHR
+[62] extracts 3D features from input point clouds and ren-
+ders them into 2D feature maps, which are then transformed
+into images using 2D CNNs. Since dense point clouds are
+difﬁcult to obtain from sparse camera views, we take SMPL
+vertices as input point clouds. 3) Neural body [49] repre-
+sents the human body with an implicit ﬁeld conditioned on
+the latent codes anchored on the vertices of SMPL and ren-
+ders the images using volume rendering.
+Results of novel view synthesis.
+For comparison, we
+synthesize novel views of training video frames. Table 1
+shows the comparison of our method with [60, 62]. Specif-
+ically, our model outperforms [60, 62] by a margin of at
+least 2.07 in terms of the PSNR metric and 0.024 in terms of
+the SSIM metric. Moreover, the proposed method achieves
+comparable results with the most recent state-of-the-art ap-
+proach [49] as shown in Table 2, despite not being speciﬁ-
+cally designed for the novel view synthesis task.
+
+
+Ground Truth
+Neural Textures
+NHR
+Ours
+Ground Truth
+Neural Textures
+NHR
+Ours
+Figure 3: Qualitative results of novel view synthesis on the H36M dataset. [60, 62] have difﬁculty in controlling the
+viewpoint and seem to overﬁt training views. Compared with them, our method accurately renders the target view.
+PSNR
+SSIM
+NT [60]
+NHR [62]
+Ours
+NT [60]
+NHR [62]
+Ours
+S1
+20.98
+21.08
+22.05
+0.860
+0.872
+0.888
+S5
+19.87
+20.64
+23.27
+0.855
+0.872
+0.892
+S6
+20.18
+20.40
+21.13
+0.816
+0.830
+0.854
+S7
+20.47
+20.29
+22.50
+0.856
+0.868
+0.890
+S8
+16.77
+19.13
+22.75
+0.837
+0.871
+0.898
+S9
+22.96
+23.04
+24.72
+0.873
+0.879
+0.908
+S11
+21.71
+21.91
+24.55
+0.859
+0.871
+0.902
+average
+20.42
+20.93
+23.00
+0.851
+0.866
+0.890
+Table 1: Results of novel view synthesis on H36M dataset
+in terms of PSNR and SSIM (higher is better). “NT”
+means Neural Textures.
+PSNR
+SSIM
+NT
+[60]
+NHR
+[62]
+NB
+[49]
+Ours
+NT
+[60]
+NHR
+[62]
+NB
+[49]
+Ours
+novel view
+22.61
+23.25
+28.90
+27.10
+0.899
+0.905
+0.967
+0.949
+novel pose
+21.55
+21.88
+23.06
+23.16
+0.860
+0.863
+0.879
+0.893
+Table 2: Results of novel view synthesis and novel pose
+synthesis on ZJU-MoCap dataset in terms of PSNR and
+SSIM (higher is better). “NB” means Neural Body.
+Figure 3 presents the qualitative comparison of our
+method with [60, 62]. Both [60, 62] have difﬁculty in con-
+trolling the rendering viewpoint and tend to synthesize con-
+tents of training views. As shown in the second person of
+Figure 3, they render the human back that is seen during
+training. In contrast, our method is able to accurately con-
+trol the viewpoint, thanks to the explicit 3D representation.
+Results of novel pose synthesis.
+For comparison, we syn-
+thesize test video frames from the test camera view. Table 3
+compares our method with [60, 62] in terms of the PSNR
+metric and the SSIM metric. For both metrics, our method
+gives the best performances. Table 2 shows that our model
+also outperforms [49] when generating images under novel
+human poses on ZJU-MoCap dataset.
+PSNR
+SSIM
+NT [60]
+NHR [62]
+Ours
+NT [60]
+NHR [62]
+Ours
+S1
+20.09
+20.48
+21.37
+0.837
+0.853
+0.868
+S5
+20.03
+20.72
+22.29
+0.843
+0.860
+0.875
+S6
+20.42
+20.47
+22.59
+0.844
+0.856
+0.884
+S7
+20.03
+19.66
+22.22
+0.838
+0.852
+0.878
+S8
+16.69
+18.83
+21.78
+0.824
+0.855
+0.882
+S9
+22.20
+22.18
+23.72
+0.851
+0.860
+0.886
+S11
+21.72
+22.12
+23.91
+0.854
+0.867
+0.889
+average
+20.17
+20.64
+22.55
+0.842
+0.858
+0.880
+Table 3: Results of novel pose synthesis on H36M dataset
+in terms of PSNR and SSIM (higher is better). “NT”
+means Neural Textures.
+The qualitative results are shown in Figure 4. For com-
+plex human poses, [60, 62, 49] give blurry and distorted
+rendering results. In contrast, synthesized images of our
+method achieve better visual quality. The results indicate
+that our model has better controllability on the image gen-
+eration process than CNN-based methods.
+5.3. Ablation studies
+We conduct ablation studies on one subject (S9) of the
+H36M [19] dataset in terms of the novel pose synthesis per-
+formance. First, to analyze the beneﬁt of learning F∆w, we
+compare neural blend weight ﬁeld with SMPL blend weight
+ﬁeld. Then, to explore the inﬂuence of human pose accu-
+racy, we estimate SMPL parameters from predicted human
+poses [7, 22] and perform training on these parameters. Fi-
+nally, we explore the performances of our method under dif-
+ferent numbers of video frames and camera views. Tables
+4, 5, 6, and 7 summarize the results of ablation studies.
+Impact of neural blend weight ﬁeld. Table 4 shows the
+quantitative comparisons, which indicate that neural blend
+weight ﬁeld performs better than SMPL blend weight ﬁeld.
+
+
+Ground Truth
+Neural Textures
+NHR
+Ours
+Ground Truth
+NHR
+Neural Body
+Ours
+Figure 4: Qualitative results of novel pose synthesis on the H36M and ZJU-MoCap datasets. For complex human poses,
+[60, 62, 49] tend to generate distorted rendering results. In contrast to them, our method has a better generalization ability.
+Subject
+Front
+Back
+Figure 5: Visualization of the residual vector ﬁeld F∆w
+on the reconstructed geometries of subjects “S9” and “S6”.
+Red means large residual. Best viewed in color.
+PSNR
+SSIM
+Neural blend weight ﬁeld
+23.72
+0.886
+SMPL blend weight ﬁeld
+21.65
+0.850
+Table 4: Comparison between neural blend weight ﬁeld
+and SMPL blend weight ﬁeld on subject “S9”.
+To better show the improvement on the SMPL blend
+weight ﬁeld, Figure 5 visualizes the residual vector ﬁeld
+F∆w on our reconstructed geometry at the canonical space.
+The bigger residual has a redder color. We can see that re-
+gions of big residual mainly locate on the neck, hand, chest,
+and pants, which are human-speciﬁc details that SMPL can-
+not describe. The results indicate that our learned F∆w are
+physically interpretable.
+Impact of the human pose accuracy. Table 5 compares
+the models trained with human poses from marker-based
+and marker-less systems. The results show that more ac-
+curate human poses produce better rendering quality. The
+qualitative comparison is presented in Figure 6.
+PSNR
+SSIM
+Marker-based pose estimation
+23.72
+0.886
+Marker-less pose estimation
+22.27
+0.858
+Table 5: Comparison between models trained with hu-
+man poses from marker-based and marker-less pose esti-
+mation methods on subject “S9”.
+Frames
+1
+100
+200
+800
+PSNR
+20.29
+23.40
+23.69
+23.16
+SSIM
+0.849
+0.881
+0.883
+0.875
+Table 6: Results of models trained with different num-
+bers of video frames on subject “S9” of H36M dataset.
+Impact of the video length. For comparison, we take 1,
+100, 200 and 800 video frames for training and test the mod-
+els on the same motion sequence. Table 6 lists the quanti-
+tative results of our models trained with different numbers
+of video frames. The results demonstrate that training on
+the video helps the representation learning, but the network
+seems to have difﬁculty in ﬁtting very long videos. Empir-
+ically, we ﬁnd that 150∼300 frames are suitable for most
+subjects. Figure 7 presents the qualitative comparisons.
+Impact of the number of input views. For compari-
+son, we take one view for test and select 1, 2, and 3 nearest
+views for training. Table 7 compares the performances of
+models trained with different numbers of input views. Sur-
+prisingly, the three models have similar quantitative perfor-
+mances. Figure 8 further compares the three models, which
+shows that the model trained on 3 views renders more de-
+tails. It is worth noting that the model trained on a single
+view already achieves reasonable rendering quality.
+
+
+Ground Truth
+Marker-less
+Marker-based
+Ground Truth
+Marker-less
+Marker-based
+Figure 6: Qualitative results of models trained on poses
+from marker-less and marker-based systems.
+Grounth Truth
+1 frame
+100 frames
+200 frames
+800 frames
+Figure 7: Comparison of models trained with different
+numbers of video frames on the subject “S9”.
+1 view
+2 views
+3 views
+PSNR
+23.81
+24.16
+23.72
+SSIM
+0.877
+0.880
+0.886
+Table 7: Results of models trained with different num-
+bers of camera views on subject “S9”.
+5.4. Running time
+For 512 × 512 images, our algorithm takes 1.09s to ren-
+der an image on a desktop with an Intel i7 3.7GHz CPU
+and a GTX 1080 Ti GPU. Speciﬁcally, our implementation
+takes 0.39s for predicting the color and density ﬁelds, 0.63s
+for predicting the blend weight ﬁelds, and 0.07s for volume
+rendering. Because the number of points sampled along the
+ray is only 64 and the scene bound of a human is small, the
+rendering speed of our method is relatively fast.
+6. Limitations
+Combining neural radiance ﬁelds with blend weight
+ﬁelds enables us to obtain impressive performances on
+novel view synthesis and novel pose synthesis. However,
+our method has a few limitations. 1) The skeleton-driven
+deformation model [29] cannot express the complex non-
+rigid deformations of garments.
+As a result, the perfor-
+mance of our method tends to degrade when reconstructing
+performers that wear loose clothes. It would be interest-
+ing to augment neural radiance ﬁelds with the deformation
+graph [43] that can model local garment deformations. 2)
+Currently our method requires rather accurate 3D human
+Grounth Truth
+1 view
+2 view
+3 view
+Figure 8: Comparison of models trained with different
+numbers of camera views on the subject “S9”.
+skeletons. We hope that, in the future, we can ﬁnd a way to
+reﬁne human poses during training. 3) Same to NeRF, our
+proposed model is trained per-scene, which requires a lot
+of time to produce animatable human models. Generalizing
+the networks across different videos and reducing training
+time is left as future work. 4) Moreoever, the rendering time
+of our model is a bit high. It is could be solved with recent
+caching-based techniques [66, 17].
+7. Conclusion
+We introduced a novel dynamic human representation
+for modeling animatable human characters from multi-view
+videos. Our method augments a neural radiance ﬁeld with
+deformation ﬁelds that transform observation-space points
+to the canonical space.
+The deformation ﬁelds are con-
+structed based on the skeleton-driven deformation frame-
+work, where we learn neural blend weight ﬁelds to gener-
+ate observation-to-canonical and canonical-to-observation
+correspondences. The animatable neural radiance ﬁeld is
+learned over the multi-view video with volume rendering
+and the consistency among blend weight ﬁelds. After train-
+ing, our method can synthesize free-viewpoint videos of a
+performer given novel motion sequences. Experiments on
+the H36M and ZJU-MoCap datasets demonstrated that the
+proposed model achieves state-of-the-art performances on
+image synthesis under novel views and novel human poses.
+Acknowledgements: The authors from Zhejiang Univer-
+sity would like to acknowledge the support from the Na-
+tional Key Research and Development Program of China
+(No. 2020AAA0108901) and NSFC (No. 62172364).
+
+
+References
+[1] Kara-Ali Aliev, Artem Sevastopolsky, Maria Kolos, Dmitry
+Ulyanov, and Victor Lempitsky. Neural point-based graph-
+ics. In ECCV, 2020. 2
+[2] Thiemo Alldieck, Marcus Magnor, Bharat Lal Bhatnagar,
+Christian Theobalt, and Gerard Pons-Moll. Learning to re-
+construct people in clothing from a single RGB camera. In
+CVPR, 2019. 2
+[3] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Video based reconstruction
+of 3d people models. In CVPR, 2018. 2
+[4] Thiemo Alldieck, Gerard Pons-Moll, Christian Theobalt,
+and Marcus Magnor. Tex2shape: Detailed full human body
+geometry from a single image. In ICCV, 2019. 2
+[5] Bharat Lal Bhatnagar, Cristian Sminchisescu, Christian
+Theobalt, and Gerard Pons-Moll. Combining implicit func-
+tion learning and parametric models for 3d human recon-
+struction. In ECCV, 2020. 2
+[6] Bharat Lal Bhatnagar, Cristian Sminchisescu, Christian
+Theobalt, and Gerard Pons-Moll. Loopreg: Self-supervised
+learning of implicit surface correspondences, pose and shape
+for 3d human mesh registration. In NeurIPS, 2020. 4
+[7] Zhe Cao, Gines Hidalgo, Tomas Simon, Shih-En Wei, and
+Yaser Sheikh. Openpose: realtime multi-person 2d pose es-
+timation using part afﬁnity ﬁelds. PAMI, 2018. 6, 11
+[8] Caroline Chan, Shiry Ginosar, Tinghui Zhou, and Alexei A
+Efros. Everybody dance now. In ICCV, 2019. 2
+[9] Julian Chibane, Thiemo Alldieck, and Gerard Pons-Moll.
+Implicit functions in feature space for 3d shape reconstruc-
+tion and completion. In CVPR, 2020. 2
+[10] Alvaro Collet, Ming Chuang, Pat Sweeney, Don Gillett, Den-
+nis Evseev, David Calabrese, Hugues Hoppe, Adam Kirk,
+and Steve Sullivan. High-quality streamable free-viewpoint
+video. ACM TOG, 2015. 1, 2
+[11] Paul Debevec, Tim Hawkins, Chris Tchou, Haarm-Pieter
+Duiker, Westley Sarokin, and Mark Sagar.
+Acquiring the
+reﬂectance ﬁeld of a human face. In SIGGRAPH, 2000. 2
+[12] Boyang Deng, JP Lewis, Timothy Jeruzalski, Gerard Pons-
+Moll, Geoffrey Hinton, Mohammad Norouzi, and Andrea
+Tagliasacchi. Nasa: Neural articulated shape approximation.
+In ECCV, 2020. 2
+[13] Junting Dong, Qing Shuai, Yuanqing Zhang, Xian Liu, Xi-
+aowei Zhou, and Hujun Bao. Motion capture from internet
+videos. In ECCV, 2020. 2
+[14] Mingsong Dou, Sameh Khamis, Yury Degtyarev, Philip
+Davidson, Sean Ryan Fanello, Adarsh Kowdle, Sergio Orts
+Escolano, Christoph Rhemann, David Kim, Jonathan Taylor,
+et al. Fusion4d: Real-time performance capture of challeng-
+ing scenes. ACM TOG, 2016. 1, 2
+[15] Ke Gong, Xiaodan Liang, Yicheng Li, Yimin Chen, Ming
+Yang, and Liang Lin. Instance-level human parsing via part
+grouping network. In ECCV, 2018. 3, 5
+[16] Kaiwen Guo, Peter Lincoln, Philip Davidson, Jay Busch,
+Xueming Yu, Matt Whalen, Geoff Harvey, Sergio Orts-
+Escolano, Rohit Pandey, Jason Dourgarian, et al. The re-
+lightables: Volumetric performance capture of humans with
+realistic relighting. ACM TOG, 2019. 1, 2
+[17] Peter Hedman,
+Pratul P. Srinivasan,
+Ben Mildenhall,
+Jonathan T. Barron, and Paul Debevec. Baking neural ra-
+diance ﬁelds for real-time view synthesis. In ICCV, 2021.
+8
+[18] Zeng Huang, Yuanlu Xu, Christoph Lassner, Hao Li, and
+Tony Tung. Arch: Animatable reconstruction of clothed hu-
+mans. In CVPR, 2020. 2, 4
+[19] Catalin Ionescu, Dragos Papava, Vlad Olaru, and Cristian
+Sminchisescu. Human3.6m: Large scale datasets and predic-
+tive methods for 3d human sensing in natural environments.
+PAMI, 2013. 2, 3, 5, 6, 11
+[20] Phillip Isola, Jun-Yan Zhu, Tinghui Zhou, and Alexei A
+Efros. Image-to-image translation with conditional adver-
+sarial networks. In CVPR, 2017. 2
+[21] Wen Jiang, Nikos Kolotouros, Georgios Pavlakos, Xiaowei
+Zhou, and Kostas Daniilidis.
+Coherent reconstruction of
+multiple humans from a single image. In CVPR, 2020. 2
+[22] Hanbyul Joo, Tomas Simon, and Yaser Sheikh. Total cap-
+ture: A 3d deformation model for tracking faces, hands, and
+bodies. In CVPR, 2018. 2, 3, 4, 5, 6
+[23] James T Kajiya. The rendering equation. In SIGGRAPH,
+1986. 4
+[24] Angjoo Kanazawa, Michael J Black, David W Jacobs, and
+Jitendra Malik. End-to-end recovery of human shape and
+pose. In CVPR, 2018. 2
+[25] Ladislav Kavan, Steven Collins, Jiˇr´ı
+ˇZ´ara, and Carol
+O’Sullivan. Skinning with dual quaternions. In I3D, 2007. 2
+[26] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. In ICLR, 2015. 5
+[27] Nikos Kolotouros, Georgios Pavlakos, and Kostas Dani-
+ilidis. Convolutional mesh regression for single-image hu-
+man shape reconstruction. In CVPR, 2019. 2
+[28] YoungJoong Kwon, Stefano Petrangeli, Dahun Kim, Hao-
+liang Wang, Eunbyung Park, Viswanathan Swaminathan,
+and Henry Fuchs. Rotationally-temporally consistent novel
+view synthesis of human performance video. In ECCV, 2020.
+2
+[29] John P Lewis, Matt Cordner, and Nickson Fong. Pose space
+deformation: a uniﬁed approach to shape interpolation and
+skeleton-driven deformation. In SIGGRAPH, 2000. 1, 2, 3,
+8
+[30] Zhengqi Li, Simon Niklaus, Noah Snavely, and Oliver Wang.
+Neural scene ﬂow ﬁelds for space-time view synthesis of dy-
+namic scenes. In CVPR, 2021. 2, 3
+[31] Zhengqi Li, Wenqi Xian, Abe Davis, and Noah Snavely.
+Crowdsampling the plenoptic function. In ECCV, 2020. 2
+[32] Yariv Lior, Kasten Yoni, Moran Dror, Galun Meirav, Atz-
+mon Matan, Basri Ronen, and Lipman Yaron.
+Multiview
+neural surface reconstruction by disentangling geometry and
+appearance. In NeurIPS, 2020. 2
+[33] Lingjie Liu, Jiatao Gu, Kyaw Zaw Lin, Tat-Seng Chua, and
+Christian Theobalt. Neural sparse voxel ﬁelds. In NeurIPS,
+2020. 2
+[34] Lingjie Liu, Weipeng Xu, Marc Habermann, Michael Zoll-
+hoefer, Florian Bernard, Hyeongwoo Kim, Wenping Wang,
+and Christian Theobalt. Neural human video rendering by
+learning dynamic textures and rendering-to-video transla-
+tion. TVCG, 2020. 2
+
+
+[35] Stephen Lombardi, Tomas Simon, Jason Saragih, Gabriel
+Schwartz, Andreas Lehrmann, and Yaser Sheikh. Neural vol-
+umes: Learning dynamic renderable volumes from images.
+In SIGGRAPH, 2019. 2
+[36] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J Black. Smpl: A skinned multi-
+person linear model. ACM TOG, 2015. 2, 4, 11
+[37] William E Lorensen and Harvey E Cline. Marching cubes:
+A high resolution 3d surface construction algorithm. In SIG-
+GRAPH, 1987. 5
+[38] Liqian Ma, Xu Jia, Qianru Sun, Bernt Schiele, Tinne Tuyte-
+laars, and Luc Van Gool. Pose guided person image genera-
+tion. In NeurIPS, 2017. 2
+[39] Yifang Men, Yiming Mao, Yuning Jiang, Wei-Ying Ma, and
+Zhouhui Lian.
+Controllable person image synthesis with
+attribute-decomposed gan. In CVPR, 2020. 2
+[40] Lars Mescheder, Michael Oechsle, Michael Niemeyer, Se-
+bastian Nowozin, and Andreas Geiger. Occupancy networks:
+Learning 3d reconstruction in function space.
+In CVPR,
+2019. 2
+[41] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance ﬁelds for view syn-
+thesis. In ECCV, 2020. 1, 2, 3, 4, 5
+[42] Ryota Natsume, Shunsuke Saito, Zeng Huang, Weikai Chen,
+Chongyang Ma, Hao Li, and Shigeo Morishima. Siclope:
+Silhouette-based clothed people. In CVPR, 2019. 2
+[43] Richard A Newcombe, Dieter Fox, and Steven M Seitz.
+Dynamicfusion: Reconstruction and tracking of non-rigid
+scenes in real-time. In CVPR, 2015. 8
+[44] Michael Niemeyer, Lars Mescheder, Michael Oechsle, and
+Andreas Geiger. Differentiable volumetric rendering: Learn-
+ing implicit 3d representations without 3d supervision. In
+CVPR, 2020. 2
+[45] Jeong Joon Park, Peter Florence, Julian Straub, Richard
+Newcombe, and Steven Lovegrove. Deepsdf: Learning con-
+tinuous signed distance functions for shape representation.
+In CVPR, 2019. 2
+[46] Keunhong Park, Utkarsh Sinha, Jonathan T Barron, Soﬁen
+Bouaziz, Dan B Goldman, Steven M Seitz, and Ricardo-
+Martin Brualla. Deformable neural radiance ﬁelds. arXiv
+preprint arXiv:2011.12948, 2020. 1, 2, 3
+[47] Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani,
+Timo Bolkart, Ahmed AA Osman, Dimitrios Tzionas, and
+Michael J Black. Expressive body capture: 3d hands, face,
+and body from a single image. In CVPR, 2019. 4
+[48] Georgios Pavlakos, Luyang Zhu, Xiaowei Zhou, and Kostas
+Daniilidis. Learning to estimate 3d human pose and shape
+from a single color image. In CVPR, 2018. 2
+[49] Sida Peng, Yuanqing Zhang, Yinghao Xu, Qianqian Wang,
+Qing Shuai, Hujun Bao, and Xiaowei Zhou. Neural body:
+Implicit neural representations with structured latent codes
+for novel view synthesis of dynamic humans.
+In CVPR,
+2021. 2, 5, 6, 7
+[50] Sergey Prokudin, Michael J Black, and Javier Romero. Sm-
+plpix: Neural avatars from 3d human models. In WCCV,
+2021. 2
+[51] Albert Pumarola, Enric Corona, Gerard Pons-Moll, and
+Francesc Moreno-Noguer. D-nerf: Neural radiance ﬁelds for
+dynamic scenes. In CVPR, 2021. 1, 2, 3
+[52] Amit Raj, Julian Tanke, James Hays, Minh Vo, Carsten Stoll,
+and Christoph Lassner. Anr: Articulated neural rendering for
+virtual avatars. In CVPR, 2021. 2
+[53] Javier Romero, Dimitrios Tzionas, and Michael J Black. Em-
+bodied hands: Modeling and capturing hands and bodies to-
+gether. ACM ToG, 2017. 4
+[54] Shunsuke Saito, Zeng Huang, Ryota Natsume, Shigeo Mor-
+ishima, Angjoo Kanazawa, and Hao Li. Pifu: Pixel-aligned
+implicit function for high-resolution clothed human digitiza-
+tion. In ICCV, 2019. 2
+[55] Shunsuke Saito, Tomas Simon, Jason Saragih, and Hanbyul
+Joo. Pifuhd: Multi-level pixel-aligned implicit function for
+high-resolution 3d human digitization. In CVPR, 2020. 2
+[56] Johannes L Schonberger and Jan-Michael Frahm. Structure-
+from-motion revisited. In CVPR, 2016. 1
+[57] Aliaksandra Shysheya, Egor Zakharov, Kara-Ali Aliev,
+Renat Bashirov, Egor Burkov, Karim Iskakov, Aleksei
+Ivakhnenko, Yury Malkov, Igor Pasechnik, Dmitry Ulyanov,
+et al. Textured neural avatars. In CVPR, 2019. 2
+[58] Vincent Sitzmann, Michael Zollh¨ofer, and Gordon Wet-
+zstein.
+Scene representation networks:
+Continuous 3d-
+structure-aware neural scene representations.
+In NeurIPS,
+2019. 2
+[59] Zhuo Su, Lan Xu, Zerong Zheng, Tao Yu, Yebin Liu, et al.
+Robustfusion: Human volumetric capture with data-driven
+visual cues using a rgbd camera. In ECCV, 2020. 2
+[60] Justus Thies, Michael Zollh¨ofer, and Matthias Nießner. De-
+ferred neural rendering: Image synthesis using neural tex-
+tures. ACM TOG, 2019. 2, 5, 6, 7
+[61] Chung-Yi Weng, Brian Curless, and Ira Kemelmacher-
+Shlizerman. Photo wake-up: 3d character animation from
+a single photo. In CVPR, 2019. 2
+[62] Minye Wu, Yuehao Wang, Qiang Hu, and Jingyi Yu. Multi-
+view neural human rendering. In CVPR, 2020. 2, 5, 6, 7
+[63] Hongyi Xu,
+Eduard Gabriel Bazavan,
+Andrei Zanﬁr,
+William T Freeman, Rahul Sukthankar, and Cristian Smin-
+chisescu. Ghum & ghuml: Generative 3d human shape and
+articulated pose models. In CVPR, 2020. 4
+[64] Ze Yang, Shenlong Wang, Sivabalan Manivasagam, Zeng
+Huang, Wei-Chiu Ma, Xinchen Yan, Ersin Yumer, and
+Raquel Urtasun. S3: Neural shape, skeleton, and skinning
+ﬁelds for 3d human modeling. In CVPR, 2021. 2
+[65] Jae Shin Yoon, Lingjie Liu, Vladislav Golyanik, Kripasindhu
+Sarkar, Hyun Soo Park, and Christian Theobalt. Pose-guided
+human animation from a single image in the wild. In CVPR,
+2021. 2
+[66] Alex Yu, Ruilong Li, Matthew Tancik, Hao Li, Ren Ng, and
+Angjoo Kanazawa. PlenOctrees for real-time rendering of
+neural radiance ﬁelds. In ICCV, 2021. 8
+[67] Zerong Zheng, Tao Yu, Yixuan Wei, Qionghai Dai, and
+Yebin Liu. Deephuman: 3d human reconstruction from a
+single image. In ICCV, 2019. 2

@@ -1,0 +1,1316 @@
+Title: LivePortrait: Efficient Portrait Animation with Stitching and Retargeting Control
+
+LivePortrait: Efficient Portrait Animation with Stitching and Retargeting Control
+Jianzhu Guo1∗†
+Dingyun Zhang1,2∗
+Xiaoqiang Liu1
+Zhizhou Zhong1,3
+Yuan Zhang1
+Pengfei Wan1
+Di Zhang1
+1Kuaishou Technology
+2University of Science and Technology of China
+3Fudan University
+https://liveportrait.github.io
+Anima&ng s&ll portraits across various styles and sizes eﬃciently
+🔨🔨🔨
+Eyes retarge&ng
+Lip retargeting
+0.0
+0.8
+0.3
+0.0
+0.8
+0.4
+Anima&ng mul4-person portrait seamlessly with s&tching
+Stitching
+Retarge,ng
+0.4
+0.3
+🚀
+🚀
+✂
+Crop
+Animate with stitching
+📎
+📎
+📎
+📎
+📎
+Figure 1. Qualitative portrait animation results from our model. Given a static portrait image as input, our model can vividly animate it,
+ensuring seamless stitching and offering precise control over eyes and lip movements.
+Abstract
+Portrait animation aims to synthesize a lifelike video from
+a single source image, using it as an appearance reference,
+with motion (i.e., facial expressions and head pose) derived
+from a driving video, audio, text, or generation. Instead of
+following mainstream diffusion-based methods, we explore
+and extend the potential of the implicit-keypoint-based frame-
+work, which effectively balances computational efficiency
+and controllability. Building upon this, we develop a video-
+driven portrait animation framework named LivePortrait
+with a focus on better generalization, controllability, and
+efficiency for practical usage. To enhance the generation
+∗Equal contributions. †Corresponding author.
+quality and generalization ability, we scale up the train-
+ing data to about 69 million high-quality frames, adopt a
+mixed image-video training strategy, upgrade the network
+architecture, and design better motion transformation and
+optimization objectives. Additionally, we discover that com-
+pact implicit keypoints can effectively represent a kind of
+blendshapes and meticulously propose a stitching and two re-
+targeting modules, which utilize a small MLP with negligible
+computational overhead, to enhance the controllability. Ex-
+perimental results demonstrate the efficacy of our framework
+even compared to diffusion-based methods. The generation
+speed remarkably reaches 12.8ms on an RTX 4090 GPU with
+PyTorch. The inference code and models are available at
+https://github.com/KwaiVGI/LivePortrait.
+arXiv:2407.03168v2  [cs.CV]  28 Feb 2025
+
+
+1. Introduction
+Nowadays, people frequently use smartphones or other
+recording devices to capture static portraits to record their
+precious moments. The Live Photos1 feature on iPhone can
+bring static portraits to life by recording the moments 1.5
+seconds before and after a picture is taken, which is likely
+achieved through a form of video recording. However, based
+on recent advances like GANs [1] and Diffusions [2–4], vari-
+ous portrait animation methods [5–13] have made it possible
+to animate a static portrait into dynamic ones, without rely-
+ing on specific recording devices.
+In this paper, we aim to animate a static portrait image,
+making it realistic and expressive, while also pursuing high
+inference efficiency and precise controllability. Although
+diffusion-based portrait animation methods [12–14] have
+achieved impressive results in terms of quality, they are usu-
+ally computationally expensive and lack the precise controlla-
+bility, e.g., stitching control2. Instead, we extensively explore
+implicit-keypoint-based video-driven frameworks [5, 11],
+and extend their potential to effectively balance the general-
+ization ability, computational efficiency, and controllability.
+Specifically, we first enhance a powerful implicit-
+keypoint-based method [5], by scaling up the training data to
+about 69 million high-quality portrait images, introducing a
+mixed image-video training strategy, upgrading the network
+architecture, using the scalable motion transformation, de-
+signing the landmark-guided implicit keypoints optimization
+and several cascaded loss terms. Additionally, we discover
+that compact implicit keypoints can effectively represent
+a kind of implicit blendshapes, and meticulously design a
+stitching module and two retargeting modules, which utilize
+a small MLP and add negligible computational overhead, to
+enhance the controllability, such as stitching control. Our
+core contributions can be summarized as follows: (i) devel-
+oping a solid implicit-keypoint-based video-driven portrait
+animation framework that significantly enhances the gener-
+ation quality and generalization ability, and (ii) designing
+an advanced stitching module and two retargeting modules
+for better controllability, with negligible computational over-
+head. Extensive experimental results demonstrate the effi-
+cacy of our framework, even compared to heavy diffusion-
+based methods. Besides, our model can generate a portrait
+animation in 12.8ms on an RTX 4090 GPU using PyTorch
+for inference.
+2. Related Work
+Recent video-driven portrait animation methods can be di-
+vided into non-diffusion-based and diffusion-based methods,
+as summarized in Tab. 1.
+1https://support.apple.com/en-sg/104966
+2https://www.d-id.com/liveportrait-4
+2.1. Non-diffusion-based Portrait Animation
+For non-diffusion-based models, the implicit-keypoints-
+based methods employed implicit keypoints as the interme-
+diate motion representation, and warped the source portrait
+with the driving image by the optical flow. FOMM [11]
+performed first-order Taylor expansion near each keypoint
+and approximated the motion in the neighborhood of each
+keypoint using local affine transformations. MRAA [15]
+represented articulated motion with PCA-based motion esti-
+mation. Face vid2vid [5] extended FOMM by introducing
+3D implicit keypoints representation and achieved free-view
+portrait animation. IWA [10] improved the warping mecha-
+nism based on cross-modal attention, which can be extended
+to using multiple source images. To estimate the optical
+flow more flexibly and work better for large-scale motions,
+TPSM [7] used nonlinear thin-plate spline transformation
+for representing more complex motions. Simultaneously,
+DaGAN [6] leveraged the dense depth maps to estimate im-
+plicit keypoints that capture the critical driving movements.
+MCNet [8] designed an identity representation conditioned
+memory compensation network to tackle the ambiguous gen-
+eration caused by the complex driving motions.
+Several works [18–20] employed predefined motion rep-
+resentations, such as 3DMM blendshapes [21]. Another line
+of works [22, 23] proposed to learn the latent expression
+representation from scratch. MegaPortrait [22] used the high-
+resolution images beyond the medium-resolution training
+images to upgrade animated resolution to megapixel. EMO-
+Portraits [23] employed an expression-riched training video
+dataset and the expression-enhanced loss to express the in-
+tense motions.
+2.2. Diffusion-based Portrait Animation
+Diffusion models [2–4] synthesized the desired data samples
+from Gaussian noise via removing noises iteratively. [2] pro-
+posed the Latent Diffusion Models (LDMs) and transferred
+the training and inference processes to a compressed latent
+space for efficient computing. LDMs have been broadly
+applied to many concurrent works in full-body dance gener-
+ation [24–28], audio-driven portrait animation [12, 29–34],
+and video-driven portrait animation [9, 12, 13, 16].
+FADM [9] was the first diffusion-based portrait anima-
+tion method. It obtained the coarsely animated result via the
+pretrained implicit-keypoints-based model and then got the
+final animation under the guidance of the 3DMMs with the
+diffusion model. Face Adapter [16] used an identity adapter
+to enhance the identity preservation of the source portrait and
+a spatial condition generator to generate the explicit spatial
+condition, i.e., keypoints and foreground masks, as the inter-
+mediate motion representation. Several works [12, 13, 17]
+employed the mutual self-attention and plugged tempo-
+ral attention architecture similar to AnimateAnyone [24]
+to achieve better image quality and appearance preserva-
+
+
+Method
+Framework
+Intermediate motion representation
+Generation ability
+Inference efficiency
+Controllability
+Stitching
+Eyes retargeting
+Lip retargeting
+FOMM [11]
+MRAA [15]
+Face Vid2vid [5]
+IWA [10]
+TPSM [7]
+DaGAN [6]
+MCNet [8]
+Non-diffusion
+Implicit keypoints
+★★★
+✗
+✗
+✗
+FADM [9]
+Diffusion
+Implicit keypoints + 3DMMs
+★★★
+✗
+✗
+✗
+Face Adapter [16]
+AniPortrait [12]
+Diffusion
+Explicit keypoints or masks
+★★★★
+✗
+✗
+✗
+X-Portrait [13]
+Diffusion
+Only original driving images
+★★★★★
+✗
+✗
+✗
+MegActor [17]
+Diffusion
+Only original driving images
+★★★★
+✗
+✗
+✗
+Ours
+Non-diffusion
+Implicit keypoints
+★★★★
+✓
+✓
+✓
+Table 1. Summary of the video-driven portrait animation methods.
+tion. AniPortrait [12] used the explicit spatial condition,
+i.e., keypoints, as the intermediate motion representation.
+X-Portrait [13] proposed to animate the portraits directly
+with the original driving video instead of using the inter-
+mediate motion representations. It employed the implicit-
+keypoint-based method [5] for cross-identity training to
+achieve this. MegActor [17] also animated the source portrait
+with the original driving video. It employed the existing face-
+swapping and stylization framework to get the cross-identity
+training pairs and encoded the background appearance to
+improve the animation stability.
+3. Methodology
+This section details our method. We begin with a brief
+review of the video-based portrait animation framework
+face vid2vid [5] and introduce our significant enhancements
+aimed at enhancing the generalization ability and expres-
+siveness of animation. Then, we present our meticulously
+designed stitching and retargeting modules which provide de-
+sired controllability with negligible computational overhead.
+Finally, we detail the inference pipeline.
+3.1. Preliminary of Face Vid2vid
+Face vid2vid [5] is a seminal framework for animating a still
+portrait, using the motion features extracted from the driving
+video sequence. The original framework consists of an ap-
+pearance feature extractor F, a canonical implicit keypoint
+detector L, a head pose estimation network H, an expression
+deformation estimation network ∆, a warping field estimator
+W, and a generator G. F maps the source image s to a 3D
+appearance feature volume fs. The source 3D keypoints xs
+and the driving 3D keypoints xd are transformed as follows:
+  \ l eft \{  \b e gin
+ { a rray}{ l r}  x_{s} = x_{c,s} R_{s} + \delta _{s} + t_{s}, & \\ x_{d} = x_{c,s} R_{d} + \delta _{d} + t_{d}, & \end {array} \right . \label {eq:k3d_ori} 
+(1)
+where xs and xd are the source and driving 3D implicit
+keypoints, respectively, and xc,s ∈RK×3 represents the
+canonical keypoints of the source image. The source and
+driving poses are Rs and Rd ∈R3×3, the expression de-
+formations are δs and δd ∈RK×3, and the translations are
+ts and td ∈R3. Next, W generates a warping field using
+the implicit keypoint representations xs and xd, and em-
+ploys this flow field to warp the source feature volume fs.
+Subsequently, the warped features pass through a decoder
+generator G, translating them into image space and resulting
+in a target image.
+3.2. Stage I: Base Model Training
+We choose face vid2vid [5] as our base model and intro-
+duce a series of significant enhancements. These include
+high-quality data curation, a mixed image and video training
+strategy, an upgraded network architecture, scalable mo-
+tion transformation, landmark-guided implicit keypoints op-
+timization, and cascaded loss terms. These advancements
+significantly enhance the expressiveness of the animation
+and the generalization ability of the model. The pipeline of
+the first training stage is shown in Fig. 2.
+High quality data curation.
+We leverage public video
+datasets such as Voxceleb [35], MEAD [36], and
+RAVDESS [37], as well as the styled image dataset
+AAHQ [38]. Additionally, we collect a large corpus of 4K-
+resolution portrait videos with various poses and expressions,
+200 hours of talking head videos, and utilize the private
+LightStage [39, 40] dataset, along with several styled por-
+trait videos and images. We split long videos into clips of
+less than 30 seconds and ensure each clip contains only one
+person using face tracking and recognition. To maintain the
+quality of the training data, we use KVQ [41] to filter out
+low-quality video clips. Finally, our training data consists of
+
+
+Appearance 
+Feature Extractor
+Source implicit keypoints
+Appearance feature volume
+Loss
+Trainable modules
+Mo#on Extractor
+Canonical 
+keypoints
+Expression 
+Deforma9on 
+Head 
+pose
+Appearance and Mo,on 
+Extractor 
+🔥
+Driving implicit keypoints
+Decoder
+🔥
+🔥
+Warping 
+Module 
+🔥
+F
+fs
+xs
+xd
+Id
+Is
+Ip
+Id
+W
+m
+evTzJIAGCfQ8qHqQ2+i0=">AB8nicdVDLSgMxFM34rPVdekmWARXw2
+RaO10W3LgRKtgHTIeSTNtaCYzJBmhDP0MNy4UcevXuPNvzLQVPRA4HDO
+veTcE6acKe04H9ba+sbm1nZp7y7t39wWDk67qok4R2SMIT2Q+xopwJ2
+tFMc9pPJcVxyGkvnF4Vfu+eSsUScadnKQ1iPBYsYgRrI/mDGOsJwTy/mQ
+8rVcdGqIZcBA3xPK/mGVJ3G47rQWQ7C1TBCu1h5X0wSkgWU6EJx0r5yEl
+1kGOpGeF0Xh5kiqaYTPGY+oYKHFMV5IvIc3hulBGMEme0HChft/IcazUL
+A7NZBFR/fYK8S/Pz3TUDHIm0kxTQZYfRmHOoHF/XDEJCWazwzBRDKTFZ
+IJlpho01LZlPB1KfyfdF0bNezL23q1VzVUQKn4AxcAQ80ALXoA06gIA
+EPIAn8Gxp69F6sV6Xo2vWaucE/ID19gncCZGh</latexit>M
+G
+LGAN,lip
+Dlip
+🔥
+🔥
+🔥
+⌧
+⌧
+R
+xc
+s, δ, t
+LG,cascade
+LP,cascade
+Lfaceid
+H
+icdVDLSgNBEJz1bXxFPXoZDIHCbsxmnhS8OLBQwSjQhJC76QTh8w+mOkVw5LP8eKveBFRxKtf4myMoKIFDUVN91dfqykId9cyYmp6ZnZufmcwuL
+S8sr+dW1CxMlWmBdRCrSVz4YVDLEOklSeBVrhMBXeOn3jzP/8ga1kVF4ToMYWwH0QtmVAshK7fzhFm8GQNcCVHo6bKe1nSbhLekgFWAEdHA4zP1o+LJ
+7iczMdr7gFr39crlS5W6xVC17lT1L3INSZfeAe0V3hAIbo9bOPzU7kUgCDEkoMKbhuTG1UtAkhUK7LDEYg+hDxuWhCgaWjR4d8yod3o20rZD4S
+P0+kUJgzCDwbWd2s/ntZeJfXiOhbrWVyjBOCEPxuaibKE4Rz1LjHalRkBpYAkJLeysX16BkM02Z0P4+pT/Ty5KNqji3lm5cLQzjmObBNts08VmFH
+7ITVWJ0Jdsce2DN7ce6dR+fVeftsnXDGM+vsB5z3D0LvqJs=</latexit>Lguide
+Figure 2. Pipeline of the first stage: base model training. The appearance and motion extractors F and M, the warping module W, and the decoder G are optimized. In this
+stage, models are trained from scratch. Please refer to Sec. 3.2 for details.
+69M video frames (92M before filtering) from about 18.9K
+identities and 60K static styled portraits.
+Mixed image and video training.
+The model trained only
+on realistic portrait videos performs well on human por-
+traits but generalizes poorly to styled portraits, e.g., anime.
+Styled portrait videos are scarce, we collect only about 1.3K
+clips from fewer than 100 identities. In contrast, high-quality
+styled portrait images are more abundant; we gathered ap-
+proximately 60K images, each representing a unique identity,
+offering diverse identity information. To leverage both data
+types, we treat single images as one-frame video clips and
+train the model on both images and videos. This mixed train-
+ing improves the model’s generalization ability.
+Upgraded network architecture.
+We unify the original
+canonical implicit keypoint detector L, head pose estimation
+network H, and expression deformation estimation network
+∆into a single model M, with ConvNeXt-V2-Tiny [42]
+as the backbone, which directly predicts the canonical key-
+points, head pose and expression deformation of the input im-
+age. Additionally, we follow [43] to use SPADE decoder [44]
+as the generator G, which is more powerful than the origi-
+nal decoder in face vid2vid [5]. The warped feature volume
+fs is delicately fed into the SPADE decoder, where each
+channel of the feature volume serves as a semantic map to
+generate the animated image. For efficiency, we insert a Pix-
+elShuffle [45] layer as the final layer of G to upsample the
+resolution from 256×256 to 512×512.
+Scalable motion transformation.
+The original implicit
+keypoint transformation in Eqn. 1 ignores the scale factor,
+which tends to incorporate scaling into the expression de-
+formation and increases the training difficulty. To address
+this issue, we introduce a scale factor to the motion transfor-
+mation, and the updated transformation τ is formulated as:
+  \ l ef t  \{ \be g in { arr
+ay } {l r } x_{s}  = s _ {s} \cdot ( x_{c,s} R_{s} + \delta _{s}) + t_{s}, & \\ x_{d} = s_{d} \cdot ( x_{c,s} R_{d} + \delta _{d}) + t_{d}, & \end {array} \right . \label {eq:k3d_new} 
+(2)
+where ss and sd are the scale factors of the source and driving
+input, respectively. Note that the transformation differs from
+the scale orthographic projection, which is formulated as
+x = s ·
+ (xc + δ)R
+
++ t. We find that the scale orthographic
+projection leads to overly flexible learned expressions δ,
+causing texture flickering when driving across different iden-
+tities. Therefore, this transformation can be seen as a tradeoff
+between flexibility and drivability.
+Landmark-guided implicit keypoints optimization.
+The
+original face vid2vid [5, 43] seems to lack the ability to
+vividly drive facial expressions, such as winking and eye
+movements. In particular, the eye gazes of generated por-
+traits are bound to the head pose and remain parallel to it, a
+limitation we also observed in our reproduction experiments.
+We attribute these limitations to the difficulty of learning
+subtle facial expressions, like eye movements, in an unsuper-
+vised manner. To address this, we introduce 2D landmarks
+that capture micro-expressions, using them as guidance to op-
+timize the learning of implicit points. The landmark-guided
+loss Lguide is formulated as follows:
+  \mat h c
+al
+ 
+{
+L}_
+{
+\textrm {guide}} \! = \! \frac {1
+}
+{2N} \sum _{i=1}^{N} \big ( \textrm {Wing} (l_i, x_{s,i,:2}) \! + \! \textrm {Wing} (l_i, x_{d,i,:2}) \big ), (3)
+where N is the number of selected landmarks, li is the i-th
+landmark, xs,i,:2 and xd,i,:2 represent the first two dimen-
+sions of the corresponding implicit keypoints respectively,
+and Wing loss is adopted following [46]. In our experiments,
+N is set to 10, with the selected landmarks taken from the
+eyes and lip.
+Cascaded loss terms.
+We follow face vid2vid [5] to use
+implicit keypoints equivariance loss LE, keypoint prior loss
+
+
+Eyes deforma,on 
+oﬀset
+Lip deforma,on 
+oﬀset
+Warping 
+Module 
+S"tching and Retarge"ng Modules 
+Source implicit keypoints
+Cross-id driving implicit keypoints
+S,tching module
+Lip retarge,ng
+module
+Eyes retarge,ng 
+module
+Source lip-open 
+condi,on
+Loss
+Frozen modules
+Trainable modules
+Random driving
+eyes-open condi,on
+S,tching 
+deforma,on oﬀset
+🎲
+❄
+❄
+🔥
+❄
+Is
+Landmark 
+detec<on
+fs
+🎲
+Cross-id
+Decoder
+∆st
+Appearance 
+Feature Extractor
+Appearance and Mo.on 
+Extractor 
+Mo,on Extractor
+❄
+Source eyes-open 
+condi,on
+Random driving
+lip-open condi,on
+🎲
+xs
+J
+34rPVdelmsAguJCS2JlkWdOGygn1AG8pketsOnTycmRC6He4caGIWz/GnX/j9CGo6IELh3Pu5d57goQzqSzrw1hZXVvf2CxsFbd3dvf2SweHTRmngkKDxjwW7YBI4CyChmKQzsRQ
+MKAQysYX8381gSEZHF0p7IE/JAMIzZglCgt+d1r4Ir0cshATnulsmVWXM/2KtgyLdzXUsT23GcqoNt05qjJao90rv3X5M0xAiRTmRsmNbifJzIhSjHKbFbiohIXRMhtDRNCIhSD+fH
+z3Fp1rp40EsdEUKz9XvEzkJpczCQHeGRI3kb28m/uV1UjXw/JxFSaogotFg5RjFeNZArjPBFDFM0IFUzfiumICEKVzqmoQ/j6FP9Pmhc6FvPytlqunS/jKBjdILOkI1cVEM3qI4a
+iKJ79ICe0LMxMR6NF+N10bpiLGeO0A8Yb5+YDZKb</latexit>∆eyes
+∆lip
+xd = sd · (xc,sRd + δd) + td
+Id
+x0
+d,st = xd + ∆st
+x0
+d,eyes = xs + ∆eyes
+x0
+d,lip = xs + ∆lip
+xs
+xs
+xd
+Ip,lip
+Ip,eyes
+R
+8s0qNmLilvin6mSBjydIpsdHLdcf8/dO9xtdlg16ho2sYVtmuc+OviGLnq2/l94wG/n3Ll1fjp3T1RnrtJs4MVy7v8DFxqZgA=</latexit>Lst,const
+Leyes,const
+<latexit sha1_base64="xky9AwPm+F0BON5UeYhKXsBphw0=">A
+C3XicjVFNT9wEH2ktCzQlm25IHGxukLiUEXJLtBwQ+LCgQNILCABWjnGgLXOhxIHabVabtyqXvkDXNu/g/gH8C8Ym6wEB1QcJRm/e/ZMxPnWpUmCO4nvA+THz9NaZnZj9/+TrX/PZ9
+v8yqQsiuyHRWHMa8lFqlsmuU0fIwLyRPYi0P4v6mzR9cyqJUWbpnBrk8Sfh5qs6U4Ia
+gXnPhOHmQnA93B71hlrlP5nI0tKMes1W4LfXO1EYscDvrEfRSoeCdhitBhEL/cCtFuq1kzXvcI
+xTZBCokEAihaFYg6Ok5wghAuSEnWBIWEGRcnmJEWZIWxFLEoMT2qfvOe2OajSlvfUsnVrQKZregpQMS6TJiFdQbE9jLl85Z4u+5T10nvZuA/rHtVdCqMEFof/TjZnv1dlaDM4QuRoU1ZQ7
+xFYnapfKdcXenL2oypBDTpiNTylfUCyctxn5jSlq932lrv8g2Na1O5Fza3waG9JAx5Pkb0d7Lf9cM1f21pbB61A0s4geWaZ6/sIEt7KBL3le4xV/83retfb+/NM9SZqzTxeLe/mCS
+WGmeg=</latexit>Llip,const
+Ip,st ⊙(1 −M st(Is))
+Ip,eyes ⊙(1 −M eyes(Is))
+Ip,lip ⊙(1 −M lip(Is))
+Ip,recon ⊙(1 −M lip(Is))
+Ip,recon ⊙(1 −M eyes(Is))
+5
+g+QvFXpgbgQra7b517zqm698Z5mhjL+e+pYPrFy1evZ2bn5t8svH1XWVzaNarQnaFSpXejyMj0ySTXZvYVO7nWkbDOJV78elnl987k9okKvtuz3N5NIyOs2SQiMgS1KusfO2N8k9aCpWN2aHqK8tqdbGtn+MjB3XKGvGq6u9SpWHjQ3e4G3Gw+ZGq9lpUdDuNDvrnNVD7lcV5dpRlV84RB8KAgWGkMhgKU4RwdBzgDo4csKOMCJMU5T4vMQYc6QtiCWJERF6St9j2h2UaE
+Z752m8WtApKb2alAwrpFHE0xS705jPF97ZoY95j7ynu9s5/ePSa0ioxQmhT+kmzOfqXC0WA2z6GhKqKfeIq06ULoXvirs5+68qSw45YS7uU15TLxy0mfmNcbX7nob+fwfz3So24uSW+CvuyUNeDJF9niwux7W2HrW6O69b4c9Qw+4CNqNM82tvAFO+iS9wVucYefQRpcBlfB9T9qMFVqlvFgBTf3jWydVQ=</latexit>
+Ip,recon ⊙(1 −M st(Is))
+🔥
+🔥
+🔥
+cs,eyes
+cs,lip
+cs,eyes
+cs,lip
+cd,lip
+cd,eyes
+Figure 3. Pipeline of the second stage: stitching and retargeting modules training. After training the base model in the first stage, we freeze the appearance and motion extractor,
+warpping module and decoder. Only the stitching module and the retargeting modules are optimized in the second stage. Please refer to Sec. 3.3 for details.
+LL, head pose loss LH, and deformation prior loss L∆. To
+further improve the texture quality, we apply perceptual and
+GAN losses on the global region of the input image, and local
+regions of face and lip, denoted as a cascaded perceptual
+loss LP,cascade and a cascaded GAN loss LG,cascade. LG,cascade
+consists of LGAN,global, LGAN,face, and LGAN,lip, which
+depend on the corresponding discriminators Dglobal, Dface,
+and Dlip training from scratch. The face and lip regions
+are defined by 2D semantic landmarks. We also adopt a
+face-id [47] loss Lfaceid to preserve the identity of the source
+image. The overall training objective of the first stage is
+formulated as:
+  \be g in  {a l ig n ed}
+ \mathcal { L}_{\textr m  {base} }  = & \ \mathcal {L}_{E} + \mathcal {L}_{L} + \mathcal {L}_{H} + \mathcal {L}_{\Delta } + \\ & \ \mathcal {L}_{P, \textrm {cascade}} + \mathcal {L}_{G, \textrm {cascade}} + \mathcal {L}_{\textrm {faceid}} + \mathcal {L}_{\textrm {guide}}. \end {aligned} 
+(4)
+During the first stage, the model is fully trained from scratch.
+3.3. Stage II: Stitching and Retargeting
+We suppose the compact implicit keypoints can serve as a
+kind of implicit blendshapes. Unlike pose, we cannot explic-
+itly control the expressions, but rather need a combination of
+these implicit blendshapes to achieve the desired effects. Sur-
+prisingly, we discover that such a combination can be well
+learned using only a small MLP network, with negligible
+computational overhead. Considering practical requirements,
+we design a stitching module, an eyes retargeting module,
+and a lip retargeting module. The stitching module pastes
+the animated portrait back into the original image space
+without pixel misalignment, such as in the shoulder region.
+This enables the handling of much larger image sizes and
+the animation of multiple faces simultaneously. The eyes
+retargeting module is designed to address the issue of in-
+complete eye closure during cross-id reenactment, especially
+when a person with small eyes drives a person with larger
+eyes. The lip retargeting module is designed similarly to the
+eye retargeting module, and can also normalize the input by
+ensuring that the lips are in a closed state, which facilitates
+better animation driving. The pipeline of the second training
+stage is shown in Fig. 3.
+Stitching module.
+During training, the stitching module S
+receives the source and driving implicit keypoints xs and xd
+as input, and estimates a deformation offset ∆st ∈RK×3 of
+the driving keypoints. Following Eqn. 2, the source implicit
+keypoints are calculated as xs = ss · (xc,sRs + δs) + ts,
+and the driving implicit keypoints xd are calculated using
+another person’s motions as xd = sd · (xc,sRd + δd) + td.
+Note that the transformation of xd differs from the first train-
+ing stage, as we deliberately use cross-id rather than same-id
+motion to increase training difficulty, aiming for better gen-
+eralization in stitching. Then, ∆st = S(xs, xd), the driving
+keypoints are updated as x′
+d,st = xd + ∆st, and the pre-
+diction image Ip,st = D
+ W(fs; xs, x′
+d,st)
+
+. We denote the
+self-reconstruction image as Ip,recon = D
+ W(fs; xs, xs)
+
+.
+Finally, the stitching objective Lst is formulated as:
+  \ s
+calebox {0.9}{$ \m a
+t
+hca l {L}_
+{\t
+e
+x
+tr
+m
+ {st}} = 
+\und
+erb
+race 
+{\
+big \Vert (I_{p,st} \! - \! I_{p,recon}) \odot \big (1 \! - \! M^{st}(I_{s})\big ) \big \Vert _1}_{\mathcal {L}_{st,const}} \! + w_{reg}^{st} \big \Vert \Delta _{st} \big \Vert _1, $} (5)
+where Lst,const is the consistency pixel loss between the
+shoulder region of the prediction and the self-reconstruction
+image, M st is a mask operator that masks out the non-
+shoulder region from the source image Is, which is visu-
+alized in Fig. 3. ∥∆st∥1 is the L1 norm regularization of the
+stitching deformation offset, and wst
+reg is a hyperparameter.
+Eyes and lip retargeting modules.
+The eyes retargeting
+module Reyes receives the source implicit keypoints xs, the
+source eyes-open condition tuple cs,eyes and a random driv-
+ing eyes-open scalar cd,eyes ∈[0, 0.8] as input, estimating
+a deformation offset ∆eyes ∈RK×3 for the driving key-
+points: ∆eyes = Reyes(xs; cs,eyes, cd,eyes). The eyes-open
+condition denotes the ratio of eye-opening: the larger the
+value, the more open the eyes. Similarly, the lip retargeting
+
+
+module Rlip also receives the source implicit keypoints xs
+and the source lip-open condition scalar cs,lip and a random
+driving lip-open scalar cd,lip as input, estimating a deforma-
+tion offset ∆lip ∈RK×3 for the driving keypoints: ∆lip =
+Rlip(xs; cs,lip, cd,lip). Then, the driving keypoints are up-
+dated as x′
+d,eyes = xs + ∆eyes and x′
+d,lip = xs + ∆lip, and
+the prediction images are Ip,eyes = D
+ W(fs; xs, x′
+d,eyes)
+
+and Ip,lip = D
+ W(fs; xs, x′
+d,lip)
+
+. Finally, the training ob-
+jectives for the eyes and lip retargeting modules are formu-
+lated as follows:
+  \sc a
+lebox {0.8}{$ \begin  
+{
+ali gned} \m
+ath
+c
+a
+l 
+{
+L}_{\textrm
+ 
+{eyes
+}} =
+ & \
+ \unde r brace {
+\b
+i g  \Ver
+t (
+I_{p,ey
+es
+} 
+\! -  
+\! I_{p,recon}) \od o
+t
+ \b ig (1 \
+! -
+ 
+\
+! 
+M
+^{eyes}(I_
+{
+s})\
+big 
+) \b
+ig \V e rt _1}
+_{
+\ m athc
+al 
+{L}_{e
+ye
+s,const}} + \\ & w_{cond}^{eyes} \big \Vert c^{p}_{s,eyes} - c_{d,eyes} \big \Vert _1 + w_{reg}^{eyes} \big \Vert \Delta _{eyes} \big \Vert _1, \\ \\ \mathcal {L}_{\textrm {lip}} = & \ \underbrace {\big \Vert (I_{p,lip} \! - \! I_{p,recon}) \odot \big (1 \! - \! M^{lip}(I_{s})\big ) \big \Vert _1}_{\mathcal {L}_{lip,const}} + \\ & w_{cond}^{lip} \big \Vert c^{p}_{s,lip} - c_{d,lip} \big \Vert _1 + w_{reg}^{lip} \big \Vert \Delta _{lip} \big \Vert _1, \\ \end {aligned} $} 
+(6)
+where M eyes and M lip are mask operators that mask out the
+eyes and lip regions from the source image Is respectively,
+cp
+s,eyes and cp
+s,lip are the condition tuples from Ip,eyes, Ip,lip
+respectively, and weyes
+cond, weyes
+reg , wlip
+cond, wlip
+reg are hyperparam-
+eters.
+3.4. Inference
+In the inference phase, we first extract the feature vol-
+ume fs = F(Is), the canonical keypoints xc,s = M(Is)
+from the source image Is. Given a driving video se-
+quence {Id,i|i = 0, . . . , N −1}, we extract motions from
+each frame sd,i, δd,i, td,i, Rd,i = M(Id,i) and conditions
+cd,eyes,i and cd,lip,i. The source and driving implicit key-
+points are next transformed as follows:
+ 
+ 
+\
+le
+f t \ { \begi n  {a r ray
+}{ll
+}  x _ {s} 
+&= s _
+{
+s} \cdot (x_
+{c,s} R
+_{s }  + \ d elta 
+_
+{ s})  + t_ { s}, \\ x_{d,i} &= s_{s} \cdot \frac {s_{d,i}}{s_{d,0}} \cdot \big ( x_{c,s} (R_{d,i} R^{-1}_{d,0} R_s) + \\ &(\delta _{s} + \delta _{d,i} - \delta _{d,0})\big ) + (t_{s} + t_{d,i} - t_{d,0}). \end {array} \right . \label {eqn:inference} 
+(7)
+Then, the influence procedure could be described as in Al-
+gorithm 1, where \alpha _{st}, \alpha _{eyes} and \alpha _{lip} are indicator variables
+that can take values of either 0 or 1. The final prediction
+image Ip,i is generated by the warping network W and the
+decoder D. Note that the deformation offsets of eyes and lip
+are decoupled from each other, allowing them to be linearly
+added to the driving keypoints.
+4. Experiments
+We first give an overview of the implementation details,
+baselines, and benchmarks used in the experiments. Then,
+we present the experimental results on self-reenactment and
+cross-reenactment, followed by an ablation study to validate
+the effectiveness of the proposed stitching and retargeting
+modules.
+Algorithm 1 Illustration of the inference procedure
+Input: fs; xs, xd,i; αeyes, αlip, αst; cs,eyes, cd,eyes,i, cs,lip,
+cd,lip,i
+Output: Ip,i
+1: if αst = 0 and αeyes = 0 and αlip = 0 then
+2:
+▷without stitching or retargeting
+◁
+3:
+x′
+d,i ←xd,i
+4: else if αst = 1 and αeyes = 0 and αlip = 0 then
+5:
+▷with stitching and without retargeting
+◁
+6:
+∆st,i = S(xs, xd,i)
+7:
+x′
+d,i ←xd,i + ∆st,i
+8: else if αeyes = 1 or αlip = 1 then
+9:
+▷with eyes or lip retargeting
+◁
+10:
+∆eyes,i = Reyes(xs; cs,eyes, cd,eyes,i)
+11:
+∆lip,i = Rlip(xs; cs,lip, cd,lip,i)
+12:
+x′
+d,i ←xs + αeyes∆eyes,i + αlip∆lip,i
+13:
+if αst = 1 then
+14:
+∆st,i = S(xs, x′
+d,i)
+15:
+x′
+d,i ←x′
+d,i + ∆st,i
+16:
+end if
+17: end if
+18: Ip,i ←D
+ W(fs; xs, x′
+d,i)
+
+Implementation Details.
+In the first training stage, our
+models are trained from scratch using 8 NVIDIA A100
+GPUs for approximately 10 days. During the second training
+stage, we only train the stitching and retargeting modules
+while keeping other parameters frozen, which takes approx-
+imately 2 days. The input images are aligned and cropped
+to a resolution of 256×256, with a batch size set to 104.
+The output resolution is 512×512. The Adam optimizer is
+employed with a learning rate of 2 × 10−4, β1 = 0.5, and
+β2 = 0.999. The stitching module consists of a four-layer
+MLP with layer sizes of [126, 128, 128, 64, 65]. The eyes
+retargeting module consists of a six-layer MLP with layer
+sizes of [66, 256, 256, 128, 128, 64, 63]. The lip retargeting
+module consists of a four-layer MLP with layer sizes of
+[65, 128, 128, 64, 63]. The computation budget of the stitch-
+ing and retargeting modules is negligible.
+Baselines.
+We compare our model with several non-
+diffusion-based methods, including FOMM [11], Face
+Vid2vid [5], DaGAN [6], MCNet [8], and TPSM [7], as
+well as diffusion-based models such as FADM [9], Ani-
+Portrait [12], and X-Portrait [13]. For face vid2vid [5], we
+employ the implementation from [43], while for the other
+methods, we use the official implementations.
+Benchmarks.
+To measure the generalization quality and
+motion accuracy of portrait animation results, we adopt Peak
+Signal-to-Noise Ratio (PSNR), Structural Similarity Index
+(SSIM) [48], Learned Perceptual Image Patch Similarity
+(LPIPS) [49], L1 distance, FID [50], Average Expression
+
+
+FOMM
+Face Vid2vid
+DaGAN
+MCNet
+FADM
+AniPortrait
+Ours
+Source
+Driving
+TPSM
+X-Portrait
+Figure 4. Qualitative comparisons of self-reenactment. The first four source-driving paired images are from TalkingHead-1KH [5] and the
+last ones are from VFHQ [51]. Our model faithfully preserves lip movements and eye gazes, handles large poses more stably, and maintains
+the identity of the source portrait better compared to other methods.
+Distance (AED) [11], Average Pose Distance (APD) [11],
+and Mean Angular Error (MAE) of eyeball direction [16].
+For self-reenactment, our models are evaluated on the official
+test split of the TalkingHead-1KH dataset [5] and VFHQ
+dataset [51], which consist of 35 and 50 videos respectively.
+For cross-reenactment, the first 50 images obtained from
+the FFHQ dataset [52] are used as source portraits. Detailed
+descriptions of these metrics are provided in Appendix A.
+4.1. Self-reenactment
+For each test video sequence, we use the first frame as the
+source input and animate it using the whole frames as driving
+images, which also serve as ground truth. For comparisons,
+the animated portraits and the ground truth images are down-
+sampled to a resolution of 256×256 to maintain consistency
+with the baselines. Qualitative and quantitative comparisons
+are detailed as follows.
+Qualitative results.
+The qualitative comparisons are illus-
+trated in Fig. 4. Our results are the pasted back images in the
+original image space using the first-stage base model. These
+cases demonstrate that our model can faithfully transfer mo-
+tions from the driving images, including lip movements and
+eye gazes, while preserving the appearance details of the
+source portrait. The fourth case in Fig. 4 demonstrates that
+our model achieves stable animation results even with large
+poses, ensuring accurate transfer of poses.
+Quantitative results.
+In Tab. 2, we present quantitative
+comparisons of self-reenactment. Our model slightly outper-
+forms previous diffusion-based methods, such as FADM [9],
+AniPortrait [12], and X-Portrait [13], in generation quality,
+and demonstrates better eyes motion accuracy than other
+methods.
+4.2. Cross-reenactment
+Qualitative results.
+Qualitative comparisons of cross-
+reenactment are shown in Fig. 5. The first two cases demon-
+strate our model’s ability to stably transfer motion under
+large poses from the driving or source portraits. The third
+and fourth cases show that our model accurately transfers
+delicate lip movements and eye gazes, maintaining appear-
+ance details consistent with the source portrait. Additionally,
+the last case illustrates that stitching enables our model to
+perform stably even when the face region in the reference
+image is relatively small, providing the capability to animate
+multi-person inputs or full-body images gracefully.
+Quantitative results.
+Tab. 3 shows the quantitative re-
+sults of the cross-reenactment comparisons. Our model out-
+performs previous diffusion-based and non-diffusion-based
+methods in both generation quality and motion accuracy,
+except for the FID on TalkingHead-1KH and the CSIM on
+both datasets, where the FID of the diffusion-based method
+AniPortrait [12] and the CSIM of X-Portrait [13] are better
+than ours. The flip side is that diffusion-based methods re-
+quire much more inference time than non-diffusion-based
+
+
+Method
+TalkingHead-1KH
+VFHQ
+PSNR↑
+SSIM↑
+LPIPS↓
+L1↓
+CSIM↑
+MAE (°)↓
+PSNR↑
+SSIM↑
+LPIPS↓
+L1↓
+CSIM↑
+MAE (°)↓
+FOMM [11]
+31.0681
+0.7620
+0.1201
+0.0419
+0.8805
+10.1745
+30.5912
+0.7098
+0.1410
+0.0505
+0.8700
+10.9327
+Face Vid2vid [5, 43]
+30.8438
+0.7743
+0.0940
+0.0432
+0.8774
+10.8117
+30.5166
+0.7247
+0.1132
+0.0500
+0.8775
+11.1500
+DaGAN [6]
+31.3657
+0.7903
+0.0969
+0.0389
+0.8798
+11.8655
+30.7038
+0.7315
+0.1258
+0.0481
+0.8747
+11.2051
+MCNet [8]
+32.0013
+0.8042
+0.1018
+0.0349
+0.8876
+10.9035
+31.3459
+0.7540
+0.1209
+0.0429
+0.8849
+9.6634
+TPSM [7]
+31.2934
+0.7965
+0.0990
+0.0395
+0.8848
+9.6036
+31.0262
+0.7476
+0.1177
+0.0466
+0.8884
+9.8169
+FADM [9]
+30.2141
+0.7695
+0.1049
+0.0484
+0.8708
+11.4484
+30.0932
+0.7180
+0.1252
+0.0535
+0.8707
+11.7523
+AniPortrait [12]
+31.4669
+0.7144
+0.0922
+0.0470
+0.8550
+12.0807
+30.9013
+0.6718
+0.1073
+0.0542
+0.8570
+14.2411
+X-Portrait [13]
+31.2716
+0.7193
+0.1007
+0.0487
+0.8773
+9.2335
+30.5840
+0.6479
+0.1312
+0.0627
+0.8721
+9.3846
+Ours
+32.0082
+0.8193
+0.0664
+0.0347
+0.9125
+7.0535
+31.5616
+0.7653
+0.0798
+0.0422
+0.9121
+6.6966
+Table 2. Quantitative comparisons of self-reenactment.
+Source
+Driving
+FOMM
+Face Vid2vid
+DaGAN
+MCNet
+FADM
+AniPortrait
+Ours w/o stitching
+(cropping space)
+Ours
+TPSM
+X-Portrait
+Figure 5. Qualitative comparisons of cross-reenactment. The first three source portraits are from FFHQ [52] and the last two are celebrities.
+Driving portraits are random selected from TalkingHead-1KH [5], VFHQ [51] and NeRSemble [53]. We present the animated portraits
+without stitching in the cropping space, as well as the final results after stitching and pasting back into the original image space. Similar to
+self-reenactment, our model better transfers lip movements and eye gazes from another person, while maintaining the identity of the source
+portrait.
+methods due to multiple denoising steps and high FLOPs.
+Additionally, the temporal consistency of the foreground and
+background is not as good compared to non-diffusion-based
+methods, due to the high variability of the diffusion models.
+This phenomenon can be observed in Fig. 6, where self-
+reenactment cases from testsets of VFHQ and TalkingHead-
+1KH are exemplified. We also illustrate the results of MegAc-
+tor [17] in Fig. 6, which is also a diffusion-based method
+sharing a similar mutual self-attention and plugged temporal
+attention architecture as AniPortrait [12] and AnimateAny-
+one [24].
+4.3. Ablation Study and Analysis
+In this section, we discuss the benefits and necessities of
+stitching, eyes and lip retargeting.
+Ablation of the stitching module.
+As shown in the first
+block of Fig. 7, given a source image and a driving video
+sequence, the animated results without stitching share the
+same shoulder position as the driving frames. After stitching,
+the shoulder of the animated person is force aligned with
+the cropped source portrait while preserving the motion and
+appearance. In the second block of Fig. 7, after mapping into
+the original image space, it is clear that the animated portrait
+without stitching shows significant shoulder misalignment,
+while the stitched results show no visually apparent misalign-
+ment.
+Ablation of eyes retargeting.
+In the first block of Fig. 8,
+the quantitative controllability of the eyes-open of the source
+image is illustrated. Without any driving motions, one can
+provide a proper driving eyes-open scalar cd,eyes from 0 to
+
+
+Method
+TalkingHead-1KH
+VFHQ
+FID↓
+CSIM↑
+AED↓
+APD↓
+MAE (°)↓
+FID↓
+CSIM↑
+AED↓
+APD↓
+MAE (°)↓
+FOMM [11]
+90.8068
+0.3057
+0.7934
+0.0411
+18.3946
+94.1640
+0.2011
+0.7374
+0.0336
+18.6282
+Face Vid2vid [5, 43]
+82.9066
+0.3687
+0.8285
+0.0559
+20.2687
+83.8891
+0.2360
+0.7891
+0.0470
+19.9852
+DaGAN [6]
+81.1110
+0.2937
+0.7636
+0.0405
+21.0156
+82.6255
+0.1969
+0.7108
+0.0334
+20.6918
+MCNet [8]
+89.3218
+0.2863
+0.7163
+0.0375
+17.0721
+89.9694
+0.1907
+0.6545
+0.0329
+17.3642
+TPSM [7]
+80.5436
+0.3289
+0.7492
+0.0387
+17.4371
+77.5867
+0.2197
+0.6700
+0.0290
+16.8058
+FADM [9]
+95.4043
+0.3755
+0.8158
+0.0525
+18.8346
+98.2516
+0.2473
+0.7811
+0.0438
+18.9776
+AniPortrait [12]
+47.8739
+0.3733
+0.9127
+0.0450
+19.7136
+70.8077
+0.2538
+0.9018
+0.0501
+20.1085
+X-Portrait [13]
+60.7963
+0.5843
+0.8392
+0.1070
+20.9344
+58.6731
+0.5881
+0.8463
+0.1226
+22.5937
+Ours
+58.0370
+0.3909
+0.6772
+0.0333
+14.7946
+56.4165
+0.2606
+0.6476
+0.0271
+13.3464
+Table 3. Quantitative comparisons of cross-reenactment.
+Source
+FADM
+AniPortrait
+Ours
+Driving
+Source
+MegActor
+FADM
+AniPortrait
+Ours
+Driving
+MegActor
+Source
+FADM
+AniPortrait
+Ours
+Driving
+MegActor
+X-Portrait
+X-Portrait
+X-Portrait
+Figure 6. Temporal consistency comparisons with diffusion-based methods. These three cases are from VFHQ and TalkingHead-1KH test
+sets. Our animation results are in the original image space with stitching. Within the vertical circles, the statue disappears in the subsequent
+animated frames of FADM [9], there are pedestrian-like unnatural background movements in the animated results of AniPortrait [12], and
+the red banner disappears in some frames of MegActor [17]. Within the horizontal circles, there are hand-waving-like unnatural foreground
+movements in the animated images of both AniPortrait [12] and MegActor [17], while the patterns on the clothing change in the animated
+images of X-Portrait [13].
+0.8, send it to the eyes retargeting module Reyes along with
+the source eyes-open condition tuple cs,eyes, and drive the
+eyes from closed to fully open. The eyes-open motion does
+not affect the remaining part of the reference image. Ad-
+ditionally, an out-of-training-distribution driving eyes-open
+scalar, such as −0.2, can also achieve reasonable results.
+In the second block of Fig. 8, a cartoon image is animated
+by the driving frames of a closing-eye video. The eyes of
+the girl are much larger than those of the man in the first
+driving frame. Therefore, the driving eye-closing motion
+is too weak to close the girl’s eyes to the same extent, as
+observed in the second row without eyes retargeting. When
+we employed eyes retargeting, the driving eyes-open scalar
+cd,eyes,i corresponding to the i-th driving frame can be for-
+mulated as: cd,eyes,i = cs,eyes · c′s,eyes,i
+c′s,eyes,0 , where c′s,eyes,i is
+the average value of the eyes-open condition tuple for the
+i-th driving frame, and the overline represents the averaging
+operation. Benefiting from eyes retargeting, the animated
+frames achieve the same eye-closing motion as the driving
+video.
+Ablation of lip retargeting.
+Similarly, the first block of
+Fig. 9 illustrates the quantitative lip-open controllability of
+the source image. One can input a driving lip-open scalar
+cd,lip between 0 and 0.8, feed it to the lip retargeting module
+along with the source lip-open condition cs,lip, and drive the
+lips from closed to fully open. The lip-open motion does
+not affect the remaining part of the source image. An out-of-
+training-distribution driving lip-open scalar can also achieve
+reasonable results, as depicted in Fig. 9. Additionally, the
+tongue is generated when the lips are widely open. As shown
+in the second block of Fig. 9, we can also drive the lip to
+close conditioned on a lip-close scalar cd,lip,i extracted from
+the driving frame: cd,lip,i = cs,lip ·
+c′
+s,lip,i
+c′
+s,lip,0 , where c′
+s,lip,i is
+the lip-open condition of the i-th driving frame.
+
+
+Source (original)
+Driving
+Original image space after pasting back
+Source (cropped)
+Ours
+Ours
+w/o stitching
+w/o stitching
+Cropped image space
+Figure 7. Ablation study of the stitching. The first block shows the comparisons of stitching in the cropping image space, and the second
+block shows the comparisons after mapping into the original image space. The misalignment is apparent without stitching, especially in the
+shoulder region.
+Source
+Source
+w/o eyes retargeting
+Ours
+Driving
+cd,eyes = −0.2
+cd,eyes = 0.0
+cd,eyes = 0.2
+cd,eyes = 0.4
+cd,eyes = 0.6
+cd,eyes = 0.8
+cd,eyes = 0.653
+cd,eyes = 0.603
+cd,eyes = 0.498
+cd,eyes = 0.459
+cd,eyes = 0.290
+cd,eyes = 0.013
+cd,eyes = 0.012
+cd,eyes = 0.015
+cs,eyes = (0.630, 0.690)
+cs,eyes = (0.431, 0.436)
+cd,eyes = 0.1
+cd,eyes = 0.5
+cd,eyes = 0.25
+cd,eyes = 0.660
+Figure 8. Examples and ablation study of our eyes retargeting. The first block shows the eyes-open controllability of our model on the
+source image without any driving frames. The second block demonstrates the ability of eye retargeting in cross-reenactment, especially
+when the eyes of the source person are much larger than the driving one. For clarity, the animated results adopt the source head rotation.
+Analysis on eyes and lip retargeting.
+A natural question
+is whether the eye and lip retargeting can take effect simulta-
+neously, as described in Algorithm 1, when \alph a _{eyes} = 1 and
+\alp ha _{lip} = 1. In other words, the core question is whether the

@@ -1,0 +1,1210 @@
+Title: Relightable and animatable neural avatar from sparse-view video
+
+Relightable and Animatable Neural Avatar from Sparse-View Video
+Zhen Xu 1
+Sida Peng 1
+Chen Geng 1
+Linzhan Mou 1
+Zihan Yan 2
+Jiaming Sun 3
+Hujun Bao 1
+Xiaowei Zhou 1
+1Zhejiang University
+2MIT Media Lab
+3Image Derivative Inc.
+Time
+Sparse-View (or Monocular) Video
+Inverse Rendering
+Relightable and Animatable Neural Avatar
+Rendering
+Albedo
+Roughness
+Geometry
+Visibility
+Specular
+Lighting
+Novel Lighting + Novel Pose + Novel View
+Specular
+Visibility
+Figure 1. Reconstructing relightable and animatable neural avatar from sparse-view (or monocular) video. Our method takes only a
+sparse-view (or monocular) video as input and reconstructs a relightable and animatable neural avatar under unknown illumination, which
+can then be relit with arbitrary environment lights and animated with arbitrary motion sequences. Note that our method successfully
+captures the shininess of the skin and pants as well as the specular highlights on the t-shirt’s plastisol printings.
+Abstract
+This paper tackles the challenge of creating relightable
+and animatable neural avatars from sparse-view (or even
+monocular) videos of dynamic humans under unknown il-
+lumination. Compared to studio environments, this setting
+is more practical and accessible but poses an extremely
+challenging ill-posed problem. Previous neural human re-
+construction methods are able to reconstruct animatable
+avatars from sparse views using deformed Signed Distance
+Fields (SDF) but cannot recover material parameters for re-
+lighting. While differentiable inverse rendering-based meth-
+ods have succeeded in material recovery of static objects,
+it is not straightforward to extend them to dynamic humans
+as it is computationally intensive to compute pixel-surface
+intersection and light visibility on deformed SDFs for inverse
+rendering. To solve this challenge, we propose a Hierarchical
+Distance Query (HDQ) algorithm to approximate the world
+space distances under arbitrary human poses. Specifically,
+we estimate coarse distances based on a parametric human
+model and compute fine distances by exploiting the local
+deformation invariance of SDF. Based on the HDQ algo-
+rithm, we leverage sphere tracing to efficiently estimate the
+surface intersection and light visibility. This allows us to de-
+velop the first system to recover animatable and relightable
+neural avatars from sparse view (or monocular) inputs. Ex-
+periments demonstrate that our approach is able to produce
+superior results compared to state-of-the-art methods. Our
+code will be released for reproducibility.
+1. Introduction
+Realistic human avatars have a range of applications
+[14, 64] in various domains, e.g., virtual reality, filmmak-
+ing, and video games. This work focuses on the specific
+setting of creating animatable and relightable human avatars
+from sparse-view or monocular RGB videos. This problem
+is challenging due to the inherent ambiguity of acquiring
+human geometry, materials, and motions from sparse view
+images [22,53]. Traditional methods [18,21,22,26,37,64,70]
+resolve this ambiguity via customized and costly capture de-
+vices, e.g., light stages with controllable illumination and
+dense camera arrays. However, such devices are restricted to
+professional users, impeding their universality and general-
+ization.
+Recent neural scene representation-based methods [45,
+52,68] have demonstrated the ability to extract detailed ge-
+ometry and photorealistic appearance of human performers
+from sparse-view videos without sophisticated studio setup.
+These methods typically define the human model in canoni-
+cal space and warp it into world space through a deformation
+module to represent human performers observed in videos.
+1
+arXiv:2308.07903v2  [cs.CV]  17 Aug 2023
+
+
+For example, AniSDF [52] models the human geometry and
+appearance as neural signed distance and radiance fields,
+and deforms them using linear blend skinning (LBS) [41]
+and learned local deformation networks. Albeit showing the
+capability of novel pose synthesis, the reconstructed avatars
+in these works [45,51,68] are not relightable as they bake the
+shading and shadow into the appearance model. As a result,
+the shading of the avatars under novel poses is unrealistic
+and the environment illumination cannot be changed, which
+restricts the applicability of the avatars.
+Another line of works attempts to create relightable mod-
+els under natural illumination through inverse rendering tech-
+niques [10,62,75,78,79], which estimate surface material pa-
+rameters from input images through differentiable physically-
+based rendering. Computing the visibility of 3D points to the
+environment light is essential for accurate estimation [78,79],
+but the cost of visibility computation is high. To improve
+efficiency, L-Tracing [16] adopts a signed distance field to
+represent the scene geometry and estimates the light visibil-
+ity through sphere tracing, which iteratively marches along a
+ray using distance values until hitting the surface. Although
+this strategy works well on static objects, it is not suitable
+for animatable neural avatars [52, 68, 71], which warp the
+canonical SDF to world space based on a non-rigid motion
+field, producing a deformed SDF. The reason is that sphere
+tracing might not converge on the deformed SDF [59] since
+the SDF is inherently defined in the canonical space, thereby
+yielding incorrect world-space distance.
+In this work, we propose a novel approach for creating
+relightable and animatable human avatars from sparse-view
+(or monocular) videos via neural inverse rendering. Inspired
+by previous methods [52,68], we parameterize the human
+avatar as MLP networks, which predict material parameters
+and signed distance for any 3D point in canonical space.
+These values are transformed into world space for rendering
+through a neural deformation field. Our innovation lies in
+designing a hierarchical query scheme that enables a consis-
+tent approximation of 3D points’ distance to the surface of
+the neural avatar under arbitrary human poses. This allows
+us to perform sphere tracing for 3D points’ pixel-surface
+intersection and light visibility for physically-based render-
+ing. Specifically, we smoothly blend the world-space KNN
+(when query points are far from the surface) distances and
+canonical-space neural SDF (when query points are close to
+the surface), approximating an SDF defined on the world-
+space geometry of the neural avatar. In this way, vanilla
+sphere tracing [30] can be performed on the deformed SDF
+in world space when animating and relighting the avatar,
+avoiding the non-linearity of canonical sphere tracing, as
+well as the pitfalls of world space tracing with incorrect
+world-space distance.
+Based on the Hierarchical Distance Query algorithm, we
+further develop a soft visibility computation scheme by incor-
+porating traditional distance field soft shadow (DFSS) [50]
+onto the deformed SDF, which is essential to the photo-
+realism of the relightable neural avatar. The soft shadow
+produced by an area light source typically requires multiple
+light samples to compute, while DFSS utilizes distance val-
+ues to approximate the soft shadow coefficient with only a
+single sample. Note that it is not trivial to combine DFSS
+with previous methods [51,68,71], as they cannot produce
+world-space distance values from 3D points to the scene
+surface along an arbitrary direction.
+To validate our approach, we collect a real-world multi-
+view dataset dubbed MobileStage, which captures the com-
+plex shading and shadow effects of dynamic humans with
+an array of mobile phone cameras. Furthermore, we extend
+the SyntheticHuman dataset [52] with novel illuminations,
+enabling the evaluation of relightable neural avatars with
+ground-truth photometric properties and relighting results.
+Experiments on relighting ability and novel pose synthesis
+show that our method outperforms the state-of-the-art with
+superior visual quality and physical accuracy on both real-
+world and synthetic datasets. Our code will be made publicly
+available for reproducibility.
+Our contributions can be summarized as follows: (a) We
+propose a novel system for reconstructing relightable and
+animatable neural avatars from sparse-view (or monocular)
+videos. (b) We design a hierarchical distance query algorithm
+for efficient pixel-surface intersection and light visibility
+computation using sphere tracing. (c) We extend DFSS to
+drivable neural SDF, efficiently producing realistic soft shad-
+ows for the neural avatars. (d) We demonstrate quantitative
+and qualitative improvements compared to prior work.
+2. Related work
+Human avatars.
+To produce animatable human avatars,
+previous methods [14, 27, 28, 64, 66, 72] generally adopt a
+three-stage pipeline: they first reconstruct the human shape
+and appearance, then bind the shape to a skeleton, and fi-
+nally animate the human model through linear blend skin-
+ning (LBS) algorithm [41]. Traditional methods tend to
+leverage complicated hardware, such as dense camera ar-
+rays [18,24,37,63,64] or depth sensors [4,9,60,65], to create
+high-fidelity human models. Recently, some optimization-
+based methods [5,35,53,69,71] have attempted to reconstruct
+human models given sparse multi-view videos. For exam-
+ple, Neural Body [53] represents a dynamic human model
+by combining SMPL model [46] with neural radiance field
+(NeRF) [48]. Its model parameters are learned from images
+through differentiable volume rendering.
+To animate the reconstructed human model, some [5,31]
+retrieve the skinning weights of the SMPL model for per-
+forming the LBS algorithm. Several methods [15,31,51,56]
+opt to optimize personalized skinning weights for the target
+human subject, where they represent the skinning weights as
+2
+
+
+World
+Space
+Residual
+Displacement
+Surface Normal
+Gradient
+BRDF
+Evaluation
+Camera
+Rays
+Light
+Rays
+Light Visibility
+Albedo
+Roughness
+Specular
+Ground Truth
+Final Rendering
+Surface Intersection
+Geometry
+Material
+Canonical SDF
+Canonical Material
+Photometric Loss
+Canonical
+Space
+Hierarchical
+Distance
+Hierarchical
+Distance
+Physically
+Based
+Rendering
+Network
+Learnable Light Probe
+SMPL Pose
+Canonical
+Point
+Geometry
+Material
+Rendering
+Figure 2. Overview of the proposed approach. Given world space camera rays, we perform sphere tracing on the hierarchically queried
+distances (Section 3.2) to find surface intersections and canonical correspondences (Section 3.3). Light rays generated by an optimizable light
+probe are also sphere traced with HDQ to compute the closest distances along the ray for soft visibility (Section 3.3). Material properties
+(Section 3.4) and surface normals are queried on the canonical correspondences and warped to world space. Then, the final pixel colors are
+computed using the rendering equation (Section 3.5).
+an MLP network and learn it from input data, such as human
+shapes [15,56] or multi-view videos [31,51]. Another line
+of works [45, 52] introduce a neural displacement field to
+improve animation realism. The articulated deformation is
+represented by the LBS model of SMPL, and the non-rigid
+deformation is predicted using an MLP network. While neu-
+ral animatable methods can produce dynamic avatars that
+appear realistic, they do not model the material properties of
+the avatars, making them unable to adapt to different lighting
+conditions.
+Relighting.
+To relight objects, a typical approach is first
+acquiring their material properties and then rendering with
+new illumination through physically-based rendering. Tradi-
+tional methods [22,57] mostly require a known illumination
+for calculating the material parameters through photomet-
+ric stereos. Light stage-based approaches [21, 22, 26, 70]
+build a controllable light array to capture images of tar-
+get subjects under multiple illuminations. Based on these
+captured images and the known illuminations, they solve
+for the unknown material properties. Following this setting,
+some methods [8, 33, 42] achieve photorealistic relighting
+results by adopting a neural renderer to implicit learn the
+relightable appearance model from light-stage images. How-
+ever, these methods typically require the geometry to be
+known a priori. More recently, neural inverse rendering meth-
+ods [10–12,16,40,62,75,78,79] explore more flexible cap-
+ture settings, where the illumination is unknown or even
+variable. Motivated by its potential for many human-centric
+applications, research on human relighting has been widely
+conducted in the literature [47, 49, 74, 77]. Same as other
+objects, the material properties of human subjects can be
+recovered using neural inverse rendering methods. The dif-
+ference is that human subjects exhibit more strong material
+priors. Therefore, some methods [6,32,34,38,49,74] attempt
+to train neural networks to predict human materials from a
+single image. Recently, Relighting4D [17] have attempted
+to acquire human materials from sparse multi-view videos.
+However, Relighting4D is not designed to relight animatable
+avatars realistically, limiting its applicability.
+3. Method
+Given a sparse-view (or monocular) video of a human
+performer under natural and unknown illumination, we learn
+to reconstruct the drivable geometry and photometric prop-
+erties of the human performer to create an animatable and
+relightable neural avatar. We assume the human poses and
+the foreground masks are provided as in [45,51–53].
+3.1. Relightable and Animatable Neural Avatar
+We formulate the relightable and animatable avatar using
+a set of canonical space neural fields and a warping between
+world and canonical space defined by the linear blend skin-
+ning algorithm [41] and a displacement field [45,51,52,69].
+In the canonical space, we define a set of geometry (S(x))
+and material neural fields (A(x) and Γ(x)) for the animated
+human model. The canonical space displacement field F∆x
+provides additional pose-dependent deformation on top of
+SMPL inverse LBS. More details about the warping process
+are provided in Section 3.2 and the supplementary.
+The relightable and animatable neural avatar will be ren-
+dered by casting camera rays in world space and finding the
+surface intersection points xs and their normals ns using
+the Hierarchical Distance Query (HDQ) algorithm, whose
+3
+
+
+Source (B) 
+Canonical Space SDF
+Source (A) 
+Coarse World Distance
+Query Point 0
+Blend Threshold
+Fine Distance
+World to Canonical Warp
+Target 
+World Space SDF
+Query Point 1
+Figure 3. Illustration of the Hierarchical Distance Query algo-
+rithm. In this figure, query point 0 falls out of the cut-off threshold
+thus its coarse distance is used directly as the world space distance,
+while query point 1 blends the coarse world space distance and fine
+canonical distance together since it is within the range of local SDF
+values.
+material properties albedo αs and roughness γs can be ob-
+tained from the canonical mateiral MLPs A(x) and Γ(x),
+composing the BRDF Rs(xs, ωi, ωo, ns). Light visibility
+Vs(xs, ωi) can be computed by performing HDQ sphere
+tracing on all incoming light directions. We also incorpo-
+rate Distance Field Soft Shadow (DFSS) algorithm [3,7,50]
+onto our drivable neural distance fields for soft-visibility
+computation. These properties will be integrated around the
+hemisphere ωi ∈Ωusing the rendering equation [36]:
+Lo =
+Z
+Ω
+Ls(ωi)Rs(xs, ωi, ωo, ns)Vs(xs, ωi)(ns · ωi)dωi,
+(1)
+where Lo(xs, ωo) ∈R3 is the outgoing radiance at the
+surface intersection point xs, ωo is the outgoing radiance
+direction and ωi is the incoming radiance direction. In this
+paper, we use the Microfacet BRDF model in [67] which
+is defined in the canonical space of the animatable avatar,
+and an optimizable light probe image Ls(ωi) ∈R16×32×3.
+An overview of the relightable and animatable avatar can be
+found in Figure 2.
+3.2. Hierarchical Distance Query
+Given the world space query point x, we approximate its
+world space distance dworld(x) to the closest surface point
+on the neural avatar with the Hierarchical Distance Query
+algorithm dworld(x) ≈˜dworld(x) = HDQ(x), which is
+later used for Sphere Tracing [30]. The query algorithm
+consists of four stages: (a) coarse distance query, (b) inverse
+warping, (c) fine distance query, and (d) smooth distance
+blending.
+Coarse distance query.
+We first perform a geodesically-
+aware signed K Nearest Neighbor (GS-KNN) algorithm
+[55] on the posed vertices v ∈V of the driven paramet-
+ric human model (SMPL-H [54]). GS-KNN produces the
+indices IK = {i0, ..., iK} of the K closest points to x
+in V, and its corresponding world-space closest vertices
+VK = {v0..., vK}, distances DK = {d0..., dK}, normals
+NK = {n0..., nK} and blend weights WK = {w0..., wK}.
+We set K = 10 through all experiments. The unsigned dis-
+tance D is augmented with the sign of the dot product be-
+tween x−v and n to produce a coarse SDF. We additionally
+discard the k-th neighbor vk if its canonical correspondence
+(T-Pose of SMPL-H) is too far from the canonical corre-
+spondence of the nearest neighbor, K is set to 10 for all
+experiments. The coarse level world space SDF is defined as
+dworld
+coarse =
+PK
+k=0 dk
+K
+.
+Inverse warping.
+We follow the previous literature [45,51]
+and use the linear blend skinning algorithm [41] to perform
+the inverse warping. The details can be found in the supple-
+mentary material.
+Fine distance query.
+Given the warped query point x′, the
+pose-dependent displacement field F∆x adds small perturba-
+tion to produce the final canonical space query point x′′. We
+implement F∆x as an MLP with the human pose at the fth
+frame Θf and x′ as input. The displaced canonical point x′′
+fed into the canonical distance model S is defined as
+x′′ = x′ + F∆x(Θf, x′).
+(2)
+Then, the fine canonical distance value can be obtained by
+querying the network dcan
+fine = S(x′′).
+Smooth distance blending.
+Since SDF values of points
+close to the surface are hardly affected by LBS (Figure 2
+and 5 of the supplementary), we propose to blend the fine
+canonical space distance value dcan
+fine and the coarse world
+space distance dworld
+coarse using a smooth function to produce
+the final approximated world space distance value ˜dworld
+˜dworld =
+(
+dworld
+coarse
+, if dworld
+coarse > ˜Td
+dcan
+fine(1 −
+dcan
+fine
+Td ) + dworld
+coarse
+dcan
+fine
+Td
+, otherwise
+(3)
+where ˜Td is the distance threshold for cutting off coarse and
+fine distances, which is empirically set to 0.1. Note that we
+only perform the evaluation of S on points that satisfy the
+cutoff criteria dworld
+coarse ≤˜Td for efficiency.
+3.3. Geometry
+Our physically based renderer requires the pixel-surface
+intersection xs ∈R3, surface normal ns ∈R3, and light
+4
+
+
+visibility V (xs, ωi) ∈R as input. Using the Hierarchical
+Distance Query, these values can be easily obtained from the
+world space SDF of the neural avatar under arbitrary human
+poses.
+Surface intersection.
+Given a camera ray and the neural
+avatar’s SDF, we compute the location xs at which the ray
+r(t) = o + td from the camera origin o along the ray di-
+rection d intersects the surface of the posed neural avatar.
+Specifically, we perform Nst Sphere Tracing iterations with
+the world space distance ˜dworld = HDQ(x) using Hierar-
+chical Distance Query until the ray converges to the surface
+intersection point xs. The detailed algorithm is listed in the
+supplementary. Nst is set to 16 across all experiments.
+Surface normal.
+The analytic normal direction n of any
+3D points could be computed as the gradient of the neu-
+ral SDF using ∇˜dworld(x). Although the hierarchical dis-
+tance is differentiable, computing gradient through the whole
+query process is not efficient. Instead, we notice that surface
+intersections should satisfy the cutoff criteria of smooth dis-
+tance blending in Section 3.2, that is
+˜dworld(xs) = dcan
+fine(xs), dworld
+coarse(xs) ≤˜Td.
+(4)
+Thus, the world space normal can be computed using
+∇S(xcan
+s
+) and transformed from canonical to world space
+using the forward warping process. More details can be
+found in the supplementary.
+Light visibility.
+Light visibility V (x, ωi) from any 3D
+point x along any light direction ωi can be computed as
+whether the light path x + tωi is occluded by the geometry
+of the posed neural avatar, which is later integrated in the ren-
+dering equation [36] around the hemisphere. Since we use a
+discrete light probe Ls(ωi) ∈R16×32×3, the visibility term
+for every light direction needs to be integrated on the area
+of the pixel of Ls(ωi), which is time-consuming. Thanks to
+the global meaning of distance field, this occlusion and inte-
+gration process can be approximated using Distance Field
+Soft Shadow (DFSS) [3,7,50], producing soft visibility with
+a single light sample. Specifically, we compute the visibility
+as the soft penumbra coefficient ps(xs, ωi):
+ps(xs, ωi) =
+min(
+˜dworld(xs + t0ωi)
+2t0
+p a
+π
+, ...,
+˜dworld(xs + tN vis
+st ωi)
+2tNvis
+st
+p a
+π
+),
+(5)
+for each surface point xs along one of the 512 light direc-
+tions ωi defined by Ls(ωi) during the N vis
+st
+sphere tracing
+steps, which is set to 4 for all experiments. The ratio between
+the two tangent values
+˜dworld
+t
+and 2p a
+π serves as an approx-
+imation of the ratio of light being occluded by the geometry
+from xs along ωi. Thanks to the smooth blending of dworld
+coarse
+and dcan
+fine in Section 3.2, our soft visibility scheme produces
+realistic and smooth soft shadow even when distance values
+from the parametric human model [54] and the canonical
+neural SDF are not perfectly aligned. A detailed listing of
+this algorithm is provided in the supplementary.
+3.4. Reflectance
+We adopt the Microfacet BRDF model in [67] for our ma-
+terial representation, which is composed of a diffuse albedo
+α ∈R3 term and a specular roughness γ ∈R term. We
+use a fixed Fresnel term of 0.04. Similar to [17,78,79], we
+paramterize the albedo and roughness map with two MLPs
+α = A(x′′) and γ = Γ(x′′), which is defined in the same
+canonical frame as S(x′′) and F∆(x′) in Section 3.2. The
+BRDF model is denoted Rs(xs, ωi, ωo, ns) where ωi is the
+incoming radiance direction, ωo is the outgoing radiance
+direction and ns is the surface normal.
+Given world space query point xs and its correspond-
+ing canonical space point x′′, we obtain the albedo α and
+roughness γ by querying their canonical neural fields A
+and Γ, which can then be converted to BRDF values as
+defined in [67]. Our physically-based renderer also takes
+a light probe Ls(ωi) ∈R16×32×3 as input, which is rep-
+resented by an optimizable neural texture during training
+and replaced with the designated environment map during
+relighting [17,20,78].
+3.5. Training
+We use 512 discrete incoming light directions defined
+by the light probe Ls(ωi) ∈R16×32×3 to approximate the
+Rendering Equation [36] as
+Lo =
+X
+ωi
+Ls(ωi)Rs(xs, ωi, ωo, ns)Vs(xs, ωi)(ns ·ωi)∆ωi,
+(6)
+where ∆ωi is the solid angle of the incoming light ωi sam-
+pled from the light probe Ls(ωi) and Lo(xs, ωo) ∈R3 is
+the outgoing radiance at the surface intersection xs.
+We optimize our relightable and animatable neural hu-
+man avatar by rendering the image with given camera poses
+and comparing the pixel values Lo against the ground truth
+ones Lgt. The main loss function is defined as Ldata =
+P
+r∈R ∥Lo(r) −Lgt(r)∥2, where r = o+td ∈R denotes
+all camera rays in the forward rendering process. Due to
+the ill-posed nature of the problem, we adopt a two-stage
+training strategy and add additional regularizations one the
+geometry (eikonal loss Leik) and material (sparsity loss Lent
+and smoothness loss La, Lr). We elaborate on the details of
+each loss term and the training stragety in the supplemen-
+tary. The training takes 20 hours on an Nvidia RTX 3090.
+Rendering a 512×512 image takes 5s.
+5
+
+
+Normal
+Ours
+NeRFactor
+Relighting4D
+Ground Truth
+Albedo
+Visibility Rendering
+Relight
+    Visibility
+(Novel Light)
+Normal
+Albedo
+Visibility Rendering
+Relight
+    Visibility
+(Novel Light)
+Normal
+Albedo
+Visibility Rendering
+Relight
+    Visibility
+(Novel Light)
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+NeRFactor*
+N/A
+N/A
+N/A
+N/A
+N/A
+N/A
+Relighting4D*
+Figure 4. Qualitative comparison of our method and baselines. The first six columns display the results of synthesizing a character in a
+novel pose from the MobileStage dataset. The middle six columns depict a character in a training pose from the MobileStage dataset. For
+the last six columns, we show results from SyntheticHuman++, for which we have ground truth as reference. Note that NeRFactor is only
+trained on 1 frame. Relighting4D* and NeRFactor* denote directly computing normal and visibility using their density MLPs.
+4. Experiments
+In this section, we conduct qualitative and quantitative
+experiments to investigate the performance of our relightable
+neural avatars. All hyperparameters are fixed through out
+the experiments unless otherwise specified. In Section 4.1,
+we briefly introduce the datasets used for evaluation. Then
+we make quantitative and qualitative comparisons with three
+baseline methods in Section 4.2. Finally, we conduct ablation
+studies to investigate the effectiveness of our Hierarchical
+Distance Query and the soft visibility scheme in Section 4.3.
+4.1. Datasets
+We collect two datasets MobileStage and SyntheticHu-
+man++ for evaluation. MobileStage is a real-world multi-
+view (36 views) dataset created with synchronized mobile
+phone cameras on 4 real-world humans. We uniformly se-
+lect 12 views for training. SyntheticHuman++ contains 4
+sequences (20 views) of dynamic 3D human models with
+ground truth shape and relighting information. We uniformly
+select 10 views for training for the sparse-view setting and
+we use the fourth view for the monocular setting. Please
+refer to the supplementary material for more detail.
+4.2. Baseline Comparisons
+Baselines.
+To the best of our knowledge, there are very
+few prior works that study the exact same setting as ours,
+i.e. training with unknown illumination and sparse-view (or
+monocular) videos while rendering with novel illumination
+6
+
+
+Table 1. Quantitative comparison. We compare our method with baselines on the SyntheticHuman++ dataset. Following [53], the SSIM
+and LPIPS [76] metrics are computed in the bounding box of the human region, while the degree of normal and PSNR metrics are computed
+within the foreground mask. Due to the inherent scale ambiguity in the inverse rendering task, we align the rendered images and albedo with
+ground truth ones following [75] before computing metrics. Since NeRFactor [78] is designed to fit static objects, we train and evaluate
+it only on the first frame of each sequence. All image metrics are computed in the foreground region in linear color space. “∗” denotes
+variants without the normal and visibility MLPs. AniSDF produces baked lighting in the rendering network, while NeRFactor [78] and
+Relighting4D [17] perform poorly on the uniform shading task for visibility since the reconstructed geometry is too rough. Our method
+works well even on the challenging monocular setting.
+Normal
+Diffuse Albedo
+Relighting
+Visibility
+Degree ↓
+PSNR↑SSIM↑LPIPS↓
+PSNR↑
+SSIM↑
+LPIPS↓PSNR↑SSIM↑LPIPS↓
+Sparse-View
+Ours
+12.44
+29.01
+0.933
+0.119
+22.69
+0.861
+0.206
+20.20
+0.848
+0.155
+Relighting4D*
+29.38
+24.70
+0.885
+0.183
+22.13
+0.835
+0.237
+15.22
+0.763
+0.252
+Relighting4D
+93.83
+24.71
+0.885
+0.183
+20.87
+0.774
+0.276
+5.366
+0.514
+0.375
+NeRFactor* (1 frame)
+34.29
+22.23
+0.817
+0.226
+21.04
+0.758
+0.313
+11.37
+0.581
+0.387
+NeRFactor (1 frame)
+51.92
+22.23
+0.817
+0.226
+20.70
+0.757
+0.299
+10.56
+0.597
+0.361
+AniSDF
+14.72
+22.13
+0.862
+0.202
+17.55
+0.799
+0.262
+-
+-
+-
+Monocular
+Ours
+18.71
+23.42
+0.873
+0.176
+22.45
+0.831
+0.224
+17.95
+0.761
+0.212
+Relighting4D*
+26.17
+25.37
+0.864
+0.210
+21.81
+0.802
+0.254
+17.10
+0.709
+0.286
+Relighting4D
+81.74
+25.36
+0.864
+0.210
+21.85
+0.806
+0.268
+16.18
+0.726
+0.302
+AniSDF
+20.36
+21.51
+0.812
+0.255
+18.29
+0.745
+0.297
+-
+-
+-
+and novel human poses. We take NeRFactor [78] and Re-
+lighting4D [17] as baselines and make comparisons with
+them on both real and synthetic datasets. Since NeRFactor
+is designed to handle static objects, we only train and eval-
+uate it on the multi-view images of the first frame of each
+video. We observe that their normal and visibility MLPs
+often fail under complex human motions, thus we addition-
+ally compare with a Relighting4D* and NeRFactor* variant
+where we use the normal and visibility computed from the
+density MLP instead of the normal and visibility MLPs. To
+illustrate the effectiveness of our proposed components, we
+additionally render AniSDF [52] as a baseline.
+Metrics.
+For quantitative analysis, we compare the normal
+(in degrees), albedo (in PSNR, SSIM and LPIPS [76]), light
+visibility rendered with uniform BRDF (in PSNR, SSIM,
+and LPIPS) and relighting (in PSNR, SSIM, and LPIPS) re-
+sults on 6 different light probes obtained from Polyhaven [2].
+Following [75], we align the diffuse albedo and rendered
+images with ground truth ones before computing metrics to
+mitigate the inherent scale ambiguity in the inverse render-
+ing problem. Note that we compute PSNR using the save
+protocal as [51], only computing metrics on the human re-
+gion. When computing metrics on the full image, our method
+reports PSNR of 28-30 dB for the relighting and visibility
+task. We do not compare the roughness term since Blender
+uses a different Principled BRDF model from [67]. Envi-
+ronment map of SyntheticHuman [52] is not available since
+they used programmatically defined light sources. Qualita-
+tive results can be found in the supplementary video. We
+compare the uniform shading results to evaluate the visibility
+quality, where the BRDFs of the reconstructed avatars are
+set to 0.8 across all radiance directions (denoted “Visibility”)
+when rendering. Since SyntheticHuman [52] does not pro-
+vide ground truth models for novel poses, we only perform
+quantitative comparisons on training poses in Table 1, while
+qualitative analysis of animating the avatars can be found in
+Figure 4 and the supplementary video.
+Results.
+As shown in Figure 4, our approach can success-
+fully decompose the material and dynamic geometry of the
+neural avatar, generating a relightable neural avatar from only
+sparse-view (or monocular) video inputs. In comparison,
+NeRFactor [78] trained on 1 video frame overfits the training
+image when training views are sparse. Relighting4D [17]
+passes structured latent codes [53] to NeRFactor’s MLPs, en-
+abling it to relight a dynamic video of human performance.
+However, its quality decreases greatly when synthesizing
+novel poses. This is mainly because the visibility and normal
+MLP used in [17] is not generalizable to novel human mo-
+tions. For the Relighting4D* variant, the density backbone
+still fails to generalize to novel poses [45,52]. AniSDF [52]
+bakes illuminations effects like self-occlusions onto the ren-
+dering network, thus the reconstructed neural avatar looks
+unrealistic under novel illuminations. Qualitative results on
+monocular inputs can be found in Figure 12 and the sup-
+plementary video. Relighting4D and NeRFactor take 3s to
+render a 512×512 image, their “*” variants take 50s and our
+method takes 5s.
+4.3. Ablation Studies
+In this part, we ablate the effectiveness of our proposed
+Hierarchical Distance Query and soft visibility scheme on
+relighting quality with the jody model of SyntheticHuman++
+7
+
+
+w/o HDQ
+w/o HDQ vis
+w/o
+w/o
+Ours
+Ground Truth
+(GS-KNN)
+Figure 5. Effectiveness of Hierarchical Distance Query. Performing sphere tracing using only the canonical distance dcan
+fine or coarse world
+distance dworld
+coarse results in incorrect surface intersection xs and soft visibility ps, while tracing with our proposed Hierarchical Distance
+Query produces correct results. Using hard shadow (“w/o soft vis”) or local shadow (“w/o HDQ vis”) leads degraded perceptual quality.
+under the sparse-view setting. We provide more detailed
+ablation on the soft visibility scheme, the number of sphere
+tracing steps, the number of vertices for GS-KNN, and the
+number of canonical material samples in the supplementary.
+Table 2. Ablation study on the proposed Hierarchical Distance
+Query algorithm. Qualitative results can be found in Figure 5. The
+“w/o HDQ” variant uses naive volume rendering (128 samples per
+ray) to compute pixel-surface intersection and visibility, which is
+not only slow (60s per image at 512 × 512 resolution compared to
+our 5s per image) but also exhibits inferior rendering quality.
+Relighting
+Visibility
+PSNR↑SSIM↑LPIPS↓PSNR↑SSIM↑LPIPS↓
+Ours
+21.57
+0.853
+0.168
+20.53
+0.869
+0.142
+w/o soft vis
+21.19
+0.848
+0.173
+21.27
+0.873
+0.145
+w/o HDQ vis
+21.00
+0.844
+0.175
+20.88
+0.869
+0.143
+w/o HDQ
+21.36
+0.753
+0.196
+20.00
+0.760
+0.173
+w/o dworld
+coarse
+20.69
+0.792
+0.236
+18.75
+0.767
+0.250
+w/o dcan
+fine (GS-KNN) 19.56
+0.784
+0.245
+14.63
+0.758
+0.233
+Effectiveness of Hierarchical Distance Query and soft
+visibility scheme.
+In Figure 5, We compare the results of
+performing sphere tracing on the canonical space distance
+(“w/o dworld
+coarse”), coarse GS-KNN distance (“w/o dcan
+fine”) and
+our proposed hierarchically queried distance (“Ours”). As
+shown in the figure, the canonical space distance is incorrect
+when the query point is far from the actual surface of the
+human geometry, resulting in incorrect surface intersection
+points after the termination of the sphere tracing algorithm.
+Additionally, computing light visibility on this incorrect dis-
+tance field would lead to false black regions since distances
+far from surface points are not reported correctly. Perform-
+ing surface intersection and visibility computation on the
+coarse distance results in distorted rendering results. The
+“w/o HDQ” variant uses volume rendering of 128 samples
+per ray for surface intersection and light visibility computa-
+tion, leading to an excessive rendering time of 60s per image
+for a resolution of 512×512, while our HDQ algorithm is
+able to obtain 10x speed-up at 5s per image with superior
+rendering quality.
+We demonstrate the effectiveness of our HDQ-DFSS al-
+gorithm by comparing it with two other variants where (a)
+hard visibility is used (“w/o soft vis”) and (b) only local visi-
+bility computed from normal is used (“w/o HDQ vis”). The
+quantitative comparison of all three variants can be found
+in Table 2. Note that although the “w/o soft” variants report
+higher PSNR and SSIMs, the visual quality of hard cast shad-
+ows is worse than ours, as indicated by the LPIPS metric and
+visible in Figure 5.
+Sensitivity analysis on hyper-parameters.
+We provide
+additional sensitivity analysis of hyper parameters including
+Nst (the number of sphere tracing steps), N vis
+st
+(the num-
+ber of sphere tracing steps for visibility computation), K
+(the number of points sampled to perform GS-KNN and
+canonical-to-world warping), Ns (the number of points to
+sample in the material MLPs) and a runtime and quality anal-
+ysis regarding the cut-off value ˜Td in the supplementary.
+5. Conclusion and Discussion
+This paper presents a novel framework to reconstruct
+relightable and animatable neural avatars from only sparse-
+view (or monocular) video input. We generalize the canon-
+ical distance field to arbitrary human poses via a hierar-
+chical distance query scheme, with which the photometric
+properties of the neural avatar can be easily retrieved for
+relighting. We demonstrate that together with other inno-
+vative components, our approach reconstructs high-quality
+animatable geometry and material, supporting realistic re-
+lighting. This work also has some limitations. Although the
+proposed method produces high-quality relighting results
+from challenging sparse-view or monocular settings, it has
+the natural limitation of neural field methods in that it re-
+quires a long training time of 20 hours. Future work could
+consider recent neural field acceleration methods to further
+increase the training speed.
+8
+
+
+References
+[1] Easymocap - make human motion capture easier. Github,
+2021. 14
+[2] Poly Haven, 2023. 7, 12
+[3] Sebastian Aaltonen.
+Gpu-based clay simulation and ray-
+tracing tech in claybook. San Francisco, CA, 2(5), 2018.
+4, 5, 16
+[4] Kairat Aitpayev and Jaafar Gaber. Creation of 3d human
+avatar using kinect. Asian Transactions on Fundamentals of
+Electronics, Communication & Multimedia, 1(5):12–24, 2012.
+2
+[5] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Video based reconstruction
+of 3d people models. In Proceedings of the IEEE Conference
+on Computer Vision and Pattern Recognition, pages 8387–
+8397, 2018. 2
+[6] Thiemo Alldieck, Mihai Zanfir, and Cristian Sminchisescu.
+Photorealistic monocular 3d reconstruction of humans wear-
+ing clothing. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pages 1506–1515,
+2022. 3
+[7] R´obert B´an, Csaba B´alint, and G´abor Valasek. Area lights
+in signed distance function scenes. In Eurographics (Short
+Papers), pages 85–88, 2019. 4, 5, 16
+[8] Sai Bi, Stephen Lombardi, Shunsuke Saito, Tomas Simon,
+Shih-En Wei, Kevyn Mcphail, Ravi Ramamoorthi, Yaser
+Sheikh, and Jason Saragih.
+Deep relightable appearance
+models for animatable faces. ACM Transactions on Graphics
+(TOG), 40(4):1–15, 2021. 3
+[9] Federica Bogo, Michael J Black, Matthew Loper, and Javier
+Romero. Detailed full-body reconstructions of moving people
+from monocular rgb-d sequences. In Proceedings of the IEEE
+international conference on computer vision, pages 2300–
+2308, 2015. 2
+[10] Mark Boss, Raphael Braun, Varun Jampani, Jonathan T Bar-
+ron, Ce Liu, and Hendrik Lensch. Nerd: Neural reflectance
+decomposition from image collections. In Proceedings of
+the IEEE/CVF International Conference on Computer Vision,
+pages 12684–12694, 2021. 2, 3
+[11] Mark Boss, Andreas Engelhardt, Abhishek Kar, Yuanzhen
+Li, Deqing Sun, Jonathan T Barron, Hendrik Lensch, and
+Varun Jampani. Samurai: Shape and material from uncon-
+strained real-world arbitrary image collections. arXiv preprint
+arXiv:2205.15768, 2022. 3
+[12] Mark Boss, Varun Jampani, Raphael Braun, Ce Liu, Jonathan
+Barron, and Hendrik Lensch.
+Neural-pil: Neural pre-
+integrated lighting for reflectance decomposition. Advances
+in Neural Information Processing Systems, 34:10691–10704,
+2021. 3
+[13] Hongrui Cai, Wanquan Feng, Xuetao Feng, Yan Wang,
+and Juyong Zhang.
+Neural surface reconstruction of dy-
+namic scenes with monocular rgb-d camera. arXiv preprint
+arXiv:2206.15258, 2022. 18
+[14] Joel Carranza, Christian Theobalt, Marcus A Magnor, and
+Hans-Peter Seidel. Free-viewpoint video of human actors.
+ACM transactions on graphics (TOG), 22(3):569–577, 2003.
+1, 2
+[15] Xu Chen, Yufeng Zheng, Michael J Black, Otmar Hilliges,
+and Andreas Geiger. Snarf: Differentiable forward skinning
+for animating non-rigid neural implicit shapes. In Proceed-
+ings of the IEEE/CVF International Conference on Computer
+Vision, pages 11594–11604, 2021. 2, 3
+[16] Ziyu Chen, Chenjing Ding, Jianfei Guo, Dongliang Wang,
+Yikang Li, Xuan Xiao, Wei Wu, and Li Song. L-tracing: Fast
+light visibility estimation on neural surfaces by sphere tracing.
+In European Conference on Computer Vision, pages 217–233.
+Springer, 2022. 2, 3, 16
+[17] Zhaoxi Chen and Ziwei Liu. Relighting4d: Neural relightable
+human from videos. In European Conference on Computer
+Vision, pages 606–623. Springer, 2022. 3, 5, 7, 12, 13, 17, 20,
+21
+[18] Alvaro Collet, Ming Chuang, Pat Sweeney, Don Gillett, Den-
+nis Evseev, David Calabrese, Hugues Hoppe, Adam Kirk, and
+Steve Sullivan. High-quality streamable free-viewpoint video.
+ACM Transactions on Graphics (ToG), 34(4):1–13, 2015. 1,
+2
+[19] Blender Online Community. Blender - a 3D modelling and
+rendering package. Blender Foundation, Stichting Blender
+Foundation, Amsterdam, 2018. 14
+[20] Paul Debevec. Rendering synthetic objects into real scenes:
+Bridging traditional and image-based graphics with global
+illumination and high dynamic range photography. In Acm
+siggraph 2008 classes, pages 1–10. 2008. 5
+[21] Paul Debevec. The light stages and their applications to
+photoreal digital actors. Technical report, UNIVERSITY OF
+SOUTHERN CALIFORNIA LOS ANGELES, 2012. 1, 3
+[22] Paul Debevec, Tim Hawkins, Chris Tchou, Haarm-Pieter
+Duiker, Westley Sarokin, and Mark Sagar. Acquiring the
+reflectance field of a human face. In Proceedings of the 27th
+annual conference on Computer graphics and interactive
+techniques, pages 145–156, 2000. 1, 3
+[23] Qi Fang, Qing Shuai, Junting Dong, Hujun Bao, and Xiaowei
+Zhou. Reconstructing 3d human pose by watching humans in
+the mirror. In CVPR, 2021. 14
+[24] Oliver Grau. Studio production system for dynamic 3d con-
+tent. In Visual Communications and Image Processing 2003,
+volume 5150, pages 80–89. SPIE, 2003. 2
+[25] Amos Gropp, Lior Yariv, Niv Haim, Matan Atzmon, and
+Yaron Lipman. Implicit geometric regularization for learning
+shapes. arXiv preprint arXiv:2002.10099, 2020. 16
+[26] Kaiwen Guo, Peter Lincoln, Philip Davidson, Jay Busch,
+Xueming Yu, Matt Whalen, Geoff Harvey, Sergio Orts-
+Escolano, Rohit Pandey, Jason Dourgarian, et al. The re-
+lightables: Volumetric performance capture of humans with
+realistic relighting. ACM Transactions on Graphics (ToG),
+38(6):1–19, 2019. 1, 3
+[27] Marc Habermann, Weipeng Xu, Michael Zollhoefer, Ger-
+ard Pons-Moll, and Christian Theobalt. Livecap: Real-time
+human performance capture from monocular video. ACM
+Transactions On Graphics (TOG), 38(2):1–17, 2019. 2
+[28] Marc Habermann, Weipeng Xu, Michael Zollhofer, Gerard
+Pons-Moll, and Christian Theobalt. Deepcap: Monocular
+human performance capture using weak supervision. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 5052–5063, 2020. 2
+9
+
+
+[29] John C Hart. Sphere tracing: A geometric method for the
+antialiased ray tracing of implicit surfaces. The Visual Com-
+puter, 12(10):527–545, 1996. 17
+[30] John C Hart et al. Sphere tracing: Simple robust antialiased
+rendering of distance-based implicit surfaces. In Siggraph,
+volume 93, pages 1–11, 1993. 2, 4, 18
+[31] Zeng Huang, Yuanlu Xu, Christoph Lassner, Hao Li, and Tony
+Tung. Arch: Animatable reconstruction of clothed humans.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 3093–3102, 2020. 2, 3
+[32] Umar Iqbal, Akin Caliskan, Koki Nagano, Sameh Khamis,
+Pavlo Molchanov, and Jan Kautz. Rana: Relightable articu-
+lated neural avatars. arXiv preprint arXiv:2212.03237, 2022.
+3
+[33] Shun Iwase, Shunsuke Saito, Tomas Simon, Stephen Lom-
+bardi, Timur Bagautdinov, Rohan Joshi, Fabian Prada,
+Takaaki Shiratori, Yaser Sheikh, and Jason Saragih.
+Re-
+lightablehands: Efficient neural relighting of articulated hand
+models. In Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition, pages 16663–16673,
+2023. 3
+[34] Chaonan Ji, Tao Yu, Kaiwen Guo, Jingxin Liu, and Yebin Liu.
+Geometry-aware single-image full-body human relighting. In
+European Conference on Computer Vision, pages 388–405.
+Springer, 2022. 3
+[35] Wei Jiang, Kwang Moo Yi, Golnoosh Samei, Oncel Tuzel,
+and Anurag Ranjan. Neuman: Neural human radiance field
+from a single video. In European Conference on Computer
+Vision, pages 402–418. Springer, 2022. 2
+[36] James T Kajiya. The rendering equation. In Proceedings
+of the 13th annual conference on Computer graphics and
+interactive techniques, pages 143–150, 1986. 4, 5
+[37] Takeo Kanade, Peter Rander, and PJ Narayanan. Virtualized
+reality: Constructing virtual worlds from real scenes. IEEE
+multimedia, 4(1):34–47, 1997. 1, 2
+[38] Yoshihiro Kanamori and Yuki Endo. Relighting humans:
+occlusion-aware inverse rendering for full-body human im-
+ages. arXiv preprint arXiv:1908.02714, 2019. 3
+[39] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization.
+arXiv preprint arXiv:1412.6980,
+2014. 17, 18
+[40] Zhengfei Kuang, Kyle Olszewski, Menglei Chai, Zeng Huang,
+Panos Achlioptas, and Sergey Tulyakov.
+Neroic: Neural
+rendering of objects from online image collections. arXiv
+preprint arXiv:2201.02533, 2022. 3
+[41] John P Lewis, Matt Cordner, and Nickson Fong. Pose space
+deformation: a unified approach to shape interpolation and
+skeleton-driven deformation.
+In Proceedings of the 27th
+annual conference on Computer graphics and interactive
+techniques, pages 165–172, 2000. 2, 3, 4, 18
+[42] Junxuan Li, Shunsuke Saito, Tomas Simon, Stephen Lom-
+bardi, Hongdong Li, and Jason Saragih. Megane: Morphable
+eyeglass and avatar network. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 12769–12779, 2023. 3
+[43] Ruilong Li, Shan Yang, David A Ross, and Angjoo Kanazawa.
+Ai choreographer: Music conditioned 3d dance generation
+with aist++. In Proceedings of the IEEE/CVF International
+Conference on Computer Vision, pages 13401–13412, 2021.
+12, 14
+[44] Shanchuan Lin, Linjie Yang, Imran Saleemi, and Soumyadip
+Sengupta. Robust high-resolution video matting with tem-
+poral guidance. In Proceedings of the IEEE/CVF Winter
+Conference on Applications of Computer Vision, pages 238–
+247, 2022. 14
+[45] Lingjie Liu, Marc Habermann, Viktor Rudnev, Kripasindhu
+Sarkar, Jiatao Gu, and Christian Theobalt. Neural actor: Neu-
+ral free-view synthesis of human actors with pose control.
+ACM Transactions on Graphics (TOG), 40(6):1–16, 2021. 1,
+2, 3, 4, 7
+[46] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J Black. Smpl: A skinned multi-
+person linear model. ACM transactions on graphics (TOG),
+34(6):1–16, 2015. 2
+[47] Abhimitra Meka, Rohit Pandey, Christian Haene, Sergio Orts-
+Escolano, Peter Barnum, Philip David-Son, Daniel Erickson,
+Yinda Zhang, Jonathan Taylor, Sofien Bouaziz, et al. Deep
+relightable textures: volumetric performance capture with
+neural rendering. ACM Transactions on Graphics (TOG),
+39(6):1–21, 2020. 3
+[48] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis. Communications of the ACM, 65(1):99–106, 2021. 2,
+16
+[49] Rohit Pandey, Sergio Orts Escolano, Chloe Legendre, Chris-
+tian Haene, Sofien Bouaziz, Christoph Rhemann, Paul De-
+bevec, and Sean Fanello. Total relighting: learning to relight
+portraits for background replacement. ACM Transactions on
+Graphics (TOG), 40(4):1–21, 2021. 3
+[50] Steven Parker, Peter Shirley, and Brian Smits. Single sample
+soft shadows. Technical report, Technical Report UUCS-98-
+019, Computer Science Department, University of Utah, 1998.
+2, 4, 5, 14, 16
+[51] Sida Peng, Junting Dong, Qianqian Wang, Shangzhan Zhang,
+Qing Shuai, Xiaowei Zhou, and Hujun Bao. Animatable
+neural radiance fields for modeling dynamic human bodies.
+In Proceedings of the IEEE/CVF International Conference
+on Computer Vision, pages 14314–14323, 2021. 2, 3, 4, 7
+[52] Sida Peng, Zhen Xu, Junting Dong, Qianqian Wang,
+Shangzhan Zhang, Qing Shuai, Hujun Bao, and Xiaowei
+Zhou.
+Animatable implicit neural representations for
+creating realistic avatars from videos.
+arXiv preprint
+arXiv:2203.08133, 2022. 1, 2, 3, 7, 14, 16, 17, 18, 20, 21
+[53] Sida Peng, Yuanqing Zhang, Yinghao Xu, Qianqian Wang,
+Qing Shuai, Hujun Bao, and Xiaowei Zhou. Neural body:
+Implicit neural representations with structured latent codes
+for novel view synthesis of dynamic humans. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 9054–9063, 2021. 1, 2, 3, 7, 14
+[54] Javier Romero, Dimitrios Tzionas, and Michael J Black. Em-
+bodied hands: Modeling and capturing hands and bodies to-
+gether. ACM ToG, 2017. 4, 5, 14
+[55] Nick Roussopoulos, Stephen Kelley, and Frederic Vincent.
+Nearest neighbor queries. In Proceedings of the 1995 ACM
+10

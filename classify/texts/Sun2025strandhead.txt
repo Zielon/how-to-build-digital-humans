@@ -1,0 +1,1258 @@
+Title: StrandHead: Text to Hair-Disentangled 3D Head Avatars Using Human-Centric Priors
+
+StrandHead: Text to Hair-Disentangled 3D Head Avatars
+Using Human-Centric Priors
+Xiaokun Sun, Zeyu Cai, Ying Tai, Jian Yang, Zhenyu Zhang*
+Nanjing University
+∗Corresponding Author
+xiaokun sun@smail.nju.edu.cn, caizeyu010612@gmail.com,
+{yingtai, csjyang}@nju.edu.cn, zhangjesse@foxmail.com
+(d) Hairstyle Transfer
+(f) Physics-Based Simulation
+(e) Hairstyle Editing
+“A handsome 
+American man with 
+slicked-back sandy 
+blonde hair.”
+“Brad Pitt with 
+medium-length, 
+tousled blonde hair.”
+…
+(a) Input Prompts
+(b) Realistic Hair-Decoupled 3D Head Avatars
+(c) Strand-Based 3D Hair
+“Chris Hemsworth 
+with side-swept 
+sandy blonde hair.”
+“Marilyn Monroe 
+with iconic short 
+curly platinum 
+blonde hair.”
+Figure 1. Given (a) input prompts, StrandHead generates (b) realistic 3D head avatars featuring strand-level attributes and (c) 3D hair
+strands by utilizing human-specific 2D generative priors and 3D hair strand geometric priors. By precisely capturing the internal geometry
+of hair strands, our approach enables seamless and flexible (d) hairstyle transfer and (e) editing, as well as (f) physics-based simulation.
+Abstract
+While haircut indicates distinct personality, existing
+avatar generation methods fail to model practical hair due
+to the data limitation or entangled representation. We pro-
+pose StrandHead, a novel text-driven method capable of
+generating 3D hair strands and disentangled head avatars
+with strand-level attributes. Instead of using large-scale
+hair-text paired data for supervision, we demonstrate that
+realistic hair strands can be generated from prompts by dis-
+tilling 2D generative models pre-trained on human mesh
+data. To this end, we propose a meshing approach guided
+by strand geometry to guarantee the gradient flow from
+the distillation objective to the neural strand representa-
+tion. The optimization is then regularized by statistically
+significant haircut features, leading to stable updating of
+strands against unreasonable drifting.
+These employed
+2D/3D human-centric priors contribute to text-aligned and
+realistic 3D strand generation. Extensive experiments show
+that StrandHead achieves the state-of-the-art performance
+on text to strand generation and disentangled 3D head
+avatar modeling. The generated 3D hair can be applied
+on avatars for strand-level editing, as well as implemented
+in the graphics engine for physical simulation or other
+applications. Project page: https://xiaokunsun.
+github.io/StrandHead.github.io/.
+1. Introduction
+Creating 3D head avatars is crucial for many appli-
+cations including digital telepresence, gaming, movies,
+and AR/VR. Hairstyles reflecting personal characteristics
+greatly impact the fidelity and realism of digital humans.
+Traditional methods rely heavily on manual effort, mak-
+ing them time-consuming and labor-intensive. Recent ad-
+vances [52, 75, 79, 88] achieve automatic 3D head genera-
+tion with the research paradigm based on supervised learn-
+ing.
+However, these methods require costly 3D training
+data, which significantly limits their generalization capabil-
+ities and restricts potential applications.
+With the rapid development of text-driven generation
+arXiv:2412.11586v4  [cs.CV]  14 Feb 2026
+
+
+methods [47, 54], creating 3D head avatars from given
+prompts without requiring 3D-text datasets becomes possi-
+ble. Recent studies [1, 12, 84, 94] unlock the potential of 2D
+diffusion models in modeling 3D head avatars by integrat-
+ing them with 3D head priors [4, 26, 77]. HumanNorm [17]
+further improves domain-specific fidelity by fine-tuning dif-
+fusion models on high-quality 3D human meshes. While
+focusing on facial geometry and texture modeling, these
+methods utilize holistic meshes or NeRF [38] to represent
+3D haircuts, failing to capture the internal geometric struc-
+ture of hair strands, i.e., 3D curves. This limitation not only
+significantly reduces the realism of the generated avatars but
+also makes them incompatible with strand-based applica-
+tions and simulation systems [2, 9, 10].
+To accurately model 3D haircuts, recent efforts achieve
+strand-level hairstyle reconstruction [55, 64, 89] or gener-
+ation [13, 92] using VAEs or parametric models. Despite
+their impressive performance, these methods require con-
+strained multi-view images or manual latent space search-
+ing, preventing them from freely creating 3D hair based on
+user-friendly text. The most recent work, HAAR [65] pio-
+neers text-to-strand by training a text-conditioned hair map
+diffusion model.
+However, due to its reliance on large-
+scale and costly paired data including 9825 haircuts and
+descriptions, HAAR faces challenges in generating diverse
+hairstyles outside the training set.
+Additionally, HAAR
+overlooks hair texture and geometry that adapts to specific
+head shapes, further limiting its practical applications.
+So can we use powerful human-specific 2D generative
+priors to create realistic and diverse strand-based hair from
+text? We address this meaningful and challenging problem
+by developing StrandHead, a novel framework that gen-
+erates high-fidelity 3D head avatars with strand-accurate
+hair from prompts. As illustrated in Fig. 1, the generated
+head avatars feature diverse and realistic hair strands, en-
+abling seamless and flexible strand-level transfer, editing,
+and physics-based simulation. Instead of using large-scale
+hair-prompt paired data, we achieve text-aligned 3D hair
+strand generation by effectively utilizing human-specific 2D
+generative priors and 3D hair geometric priors.
+Specifically, we propose a novel differentiable prismati-
+zation algorithm inspired by the cylindrical structure of hair
+strands. This algorithm can efficiently and differentiably
+convert strands into watertight prismatic meshes, which en-
+ables smooth backpropagation of gradients from 2D diffu-
+sion models pre-trained on human mesh data to 3D hair
+strands using mesh-based differentiable renderers, thereby
+making it possible to use 2D generative priors for model-
+ing 3D hairstyles. Then we propose two effective losses in-
+spired by the distribution patterns of 3D hair geometric fea-
+tures to further regularize the hair shape. These rich 2D/3D
+human-centric priors work together to achieve text-aligned
+and realistic 3D hair strand generation. Extensive experi-
+ments demonstrate that StrandHead outperforms the state-
+of-the-art (SOTA) methods in both head and hair generation
+tasks, and supports flexible haircut transfer and editing, as
+well as physical-based rendering and simulation.
+Our main contributions are summarized as follows:
+• We propose StrandHead, a novel framework for generat-
+ing realistic 3D head avatars with strand-level attributes.
+To the best of our knowledge, StrandHead is the first work
+to generate 3D hair strands by distilling human-specific
+2D diffusion models.
+• We propose a differentiable prismatization algorithm that
+converts hair strands into watertight prismatic meshes.
+This ensures stable gradient flow from 2D generative pri-
+ors to 3D hair strand representation, thereby achieving re-
+liable end-to-end strand-based hair optimization.
+• Inspired by statistical 3D hair geometric features, we in-
+troduce two simple but solid regularization losses to su-
+pervise both local and global hair shapes, enabling rea-
+sonable and realistic hairstyle generation.
+2. Related Work
+Text-to-3D General Object Generation.
+Inspired by
+the success of text-to-image (T2I) generation [42, 50, 51,
+54, 56, 86], many studies have explored using pre-trained
+vision-language models [49, 54] to achieve text-guided
+3D content generation without large-scale 3D-text paired
+data. Early methods [18, 37, 39, 58, 69] employ the CLIP
+model [49] to supervise the alignment of 3D representa-
+tions with prompts. DreamFusion [47] introduces the Score
+Distillation Sampling (SDS) loss, significantly enhancing
+the fidelity of generated 3D content by leveraging more
+powerful pre-trained diffusion models [54].
+Subsequent
+works further advance text-driven 3D generation by im-
+proving 3D representations [5, 6, 80], optimization strate-
+gies [29, 68, 81], SDS loss [28, 71], and diffusion mod-
+els [27, 48, 62]. Despite these advancements, current ap-
+proaches focused on general content generation do not fully
+leverage the extensive prior knowledge of human heads and
+hair, limiting their ability to generate realistic, high-quality
+3D head avatars with strand-based hair.
+Text-to-3D Head Avatar Generation.
+CLIPFace [1],
+T2P [87] and Describe3D [74] pioneer zero-shot text-driven
+3D head generation by combining CLIP [49] with 3D para-
+metric head models [4, 8, 26, 77].
+With the introduc-
+tion of SDS loss [47], DreamFace [85] and FaceG2E [76]
+leverage pre-trained T2I diffusion models to greatly im-
+prove generation quality within specific domains. Head-
+Evolver [70] enhances the expressiveness of head mesh
+deformations by introducing vector fields, while Head-
+Sculpt [12], and HeadArtist [30] employ DMTet [60] in-
+stead of traditional meshes to capture geometric details.
+HeadStudio [94] incorporates 3DGS [20] to produce real-
+istic and animatable 3D heads. HumanNorm [17], further
+
+
+Task
+Method
+Head-Hair-
+Decoupled
+Strand-Based
+Hair
+Geometry &
+Texture
+No Large-Scale
+3D-Text Paired Data
+Text-to-Head
+[12, 17, 30, 94]
+[84]
+✗
+✓
+✗
+✗
+✓
+✓
+✓
+✓
+Text-to-Hair
+[28, 48, 62, 80]
+[65]
+✗
+✗
+✗
+✓
+✓
+✗
+✓
+✗
+Text-to-Head-Hair
+Ours
+✓
+✓
+✓
+✓
+Table 1. Comparison with current related methods.
+enhances human-specific fidelity by fine-tuning 2D diffu-
+sion models on high-quality human mesh data.
+Despite
+these advancements, these approaches treat the head and
+hair as a holistic model, limiting support for downstream
+applications such as hairstyle transfer and editing. To en-
+able flexible head-hair-disentangled generation, TECA [84]
+independently represents the head with mesh and the hair
+with NeRF [38]. However, these methods focus only on the
+realistic external appearance of hair without modeling its
+internal geometric structure, restricting their application for
+strand-level editing and physics-based simulation.
+Strand-Based Hair Creation.
+Automatic strand-based
+hair modeling has garnered significant attention from both
+industry [2, 9, 10] and academia [3, 14, 33, 82], as it en-
+ables downstream physics-based rendering and simulation
+Such methods can be broadly categorized into two types:
+(1) reconstructing hair from input images or videos and (2)
+generating hair based on control conditions. Works on the
+former one [15, 21, 32, 35, 41, 55, 57, 61, 64, 67, 72, 73, 78,
+83, 89–91, 93] relies on classical 3D reconstruction frame-
+works [20, 36, 38, 45, 59] and incorporates hair-specific
+features [44] to realize accurate 3D strand reconstruction.
+However, these methods depend on constrained multi-view
+images, making hair creation costly and challenging in
+less controlled settings. Recently, 3D hair generation ap-
+proaches [13, 92] have emerged using GANs or parametric
+models, but they struggle with controllable generation. The
+most relevant work to ours is HAAR [65], which pioneers
+text-to-strand by training a text-conditioned hair map diffu-
+sion model. However, HAAR relies on a large-scale paired
+dataset including 9825 haircuts and prompts with limited
+diversity, restricting its ability to generate novel hairstyles
+beyond the training data. Moreover, HAAR overlooks hair
+texture and geometry that adapts to specific head shapes,
+further limiting its application range.
+Compared to previous methods, StrandHead generates
+3D heads featuring strand-level hairstyles. Instead of re-
+quiring large-scale hair-text paired data, we achieve realis-
+tic and diverse 3D hair strand generation by using 2D/3D
+human-centric priors. We summarize the main differences
+between our methods and related works in Tab. 1.
+3. Method
+3.1. Preliminaries
+FLAME [26] is a 3D parametric head model that repre-
+sents the human head shape, pose, and expression using a
+compact set of parameters. Given a set of shape parameters
+β, pose parameters θpose, and expression parameters ψexp,
+FLAME can create a 3D head mesh M.
+HumanNorm [17] is a text-driven, high-quality 3D head
+generation method. In specific, it models the geometry and
+texture of the human head using DMTet [60] and a tex-
+ture field. The alignment between the text y and the opti-
+mized representation θ is achieved using the following SDS
+loss [47] with T2I diffusion models ϕ:
+  \nab l a _{
+\
+theta } \ma th ca l  {L}
+_{
+S
+DS} = \mathbb {E}_{t, \epsilon } \left [ w(t) ({\epsilon }_{\phi }(x_t; y, t) - \epsilon ) \frac {\partial x}{\partial \theta } \right ], \label {eq:sds} \vspace {-0.3cm} 
+(1)
+where x = g(θ) is the image rendered from θ by a dif-
+ferentiable renderer g, t is the time step, xt = x + ϵ is
+a noised version of x, ϵϕ(xt; y, t) is the denoised image,
+and w(t) is a weighting function. HumanNorm employs
+human-specific diffusion models fine-tuned on high-quality
+human mesh data to replace the general diffusion model,
+enhancing the fidelity of the generated human heads.
+Neural Scalp Textures (NST) [55] is an efficient hair rep-
+resentation where each pixel stores a feature vector convey-
+ing the shape information of a single strand at the corre-
+sponding scalp location.
+Using a pre-trained hair strand
+generator [55] G, the low-dimensional 2D neural scalp tex-
+ture T can be decoded into high-dimensional 3D strand
+polylines S = {si}Ns
+i=1, where Ns is the number of strands
+and si = {pi
+j}Np
+j=1 consists of Np 3D points. This process is
+formulated as follows: S = G(T).
+3.2. Overview
+Given a text prompt, StrandHead aims to create a realistic
+3D head avatar with strand-based hair without relying on
+large-scale 3D-text paired data. Fig. 2 provides an overview
+of our three-stage pipeline. First, we generate a FLAME-
+aligned 3D bald head for accurate hair initialization using
+human-specific diffusion models (Sec. 3.3). In the subse-
+quent stages, we model the reasonable geometry and real-
+istic texture of 3D hair strands by leveraging rich 2D/3D
+human-centric priors (Sec. 3.4 and Sec. 3.5).
+3.3. Bald Head Generation
+To achieve accurate hair initialization and optimize 3D hair
+strands in subsequent steps using human-specific 2D gen-
+erative priors, we first need to obtain a reasonable and
+semantic-aligned 3D bald head from the text (Fig. 2-(a)). To
+achieve this goal, we enhance HumanNorm [17] by incor-
+porating an evolving FLAME [26] model while optimizing
+the bald head DMTet θh. This provides accurate semantic
+information and prevents unnatural geometry. Please refer
+to the Supp. Mat. for details on bald head generation.
+3.4. Hair Geometry Generation
+With a FLAME-aligned bald head, we can generate 3D hair
+in the scalp area. Specifically, we first initialize the haircut
+based on hairstyle descriptions, and then further sculpt the
+3D hair shape utilizing 2D/3D human-centric priors.
+
+
+“A bald 
+handsome 
+American 
+man.”
+𝑳𝑳𝑺𝑺𝑺𝑺𝑺𝑺
+𝐡𝐡𝐡𝐡
+Normal-
+Conditioned 
+Diffusion Model
+𝑳𝑳𝑴𝑴𝑴𝑴𝑴𝑴𝑴𝑴
+𝐡𝐡𝐡𝐡
+𝒏𝒏𝐡𝐡+𝐬𝐬
+𝒄𝒄𝐡𝐡+𝐬𝐬
+Bald Head 
+DMTet 𝜽𝜽𝒉𝒉
+Bald Head 
+Texture Field 𝝍𝝍𝒉𝒉
+FLAME Mesh 𝑴𝑴𝒉𝒉
+Hair Strand 
+Texture Field 𝝍𝝍𝒔𝒔
+Differentiable 
+Rendering
+(c) Hair Texture 
+Generation
+: Frozen Parameters
+: Optimized Parameters
+: Human-Specific 2D Generative Priors
+: 3D Hair Strand Geometric Priors
+zz
+𝒏𝒏𝐡𝐡+𝐬𝐬
+𝒅𝒅𝐡𝐡+𝐬𝐬
+Normal-Adapted 
+Diffusion Model
+𝑳𝑳𝑺𝑺𝑺𝑺𝑺𝑺
+𝐡𝐡𝐡𝐡
+𝑳𝑳𝑺𝑺𝑺𝑺𝑺𝑺
+𝐡𝐡𝐡𝐡
+Depth-Adapted 
+Diffusion Model
+Differentiable 
+Rendering
+“A handsome 
+American man 
+with slicked-back 
+sandy blonde hair.”
+(b) Hair Geometry 
+Generation
+Neural Scalp 
+Textures 𝑻𝑻    
+Hair Strands 𝑺𝑺
+Hair Prismatic 
+Meshes 𝑴𝑴𝒑𝒑
+Differentiable 
+Prismatization
+𝑮𝑮
+Strand 
+Generator
+𝑳𝑳𝒐𝒐𝒐𝒐𝒐𝒐+ 𝑳𝑳𝒄𝒄𝒄𝒄𝒄𝒄
+(a) Bald Head 
+Generation
+𝑮𝑮
+Figure 2. StrandHead includes three stages: (a) We first create a FLAME-aligned 3D bald head using the improved HumanNorm [17]. (b)
+Next, we introduce a differentiable prismatization algorithm to enable human-specific geometry-aware 2D diffusion models to supervise
+hair shape modeling. Additionally, two losses inspired by 3D hair geometric priors are applied to further regularize the hair geometry. (c)
+Finally, we use a human-specific normal-conditioned 2D diffusion model to generate lifelike hair textures.
+Hair Initialization. To achieve reasonable and diverse hair
+initialization, we first utilize ChatGPT [43] to select the
+20 most representative hairstyles from the USC-HairSalon
+Dataset [15]. We then optimize neural scalp textures to fit
+the selected hairstyle using the following loss function:
+  {\ m
+at
+h
+cal
+ {
+L
+}}_
+\tex
+t  {f
+it} = \sum ^{N
+_ {s}
+}_{i=1} \su
+m  ^{
+N_{p}}_{j=1} \Vert \hat {p}^{i}_{j} - p^{i}_{j} \Vert _{2} + \lambda _{\text {ori}} (1-\hat {o}^{i}_{j} \cdot o^{i}_{j}) + \lambda _{\text {cur}} \Vert \hat {c}^{i}_{j} - c^{i}_{j} \Vert _{1}, \label {eq:init_hair} 
+(2)
+where ˆpi
+j and pi
+j are the position of the j-th point on the i-th
+polyline of the GT and generated hair, respectively, and ˆoi
+j,
+oi
+j, ˆci
+j, and ci
+j denote their orientation and curvature, respec-
+tively. Here, orientation oi
+j = (pi
+j+1 −pi
+j)/∥pi
+j+1 −pi
+j∥2
+represents the direction of change in strand position, and
+curvature ci
+j = ∥oi
+j −oi
+j−1∥2 denote the rate of change in
+strand orientation. Given a hair description, we select an op-
+timal pre-trained NST as initialization and further optimize
+it in subsequent stages.
+Discussion on Strand-Based Differentiable Rendering.
+With reasonable hair initialization, the next step is to lever-
+age human-specific 2D diffusion models to further sculpt
+the hair geometry. However, due to the lack of a stable
+strand-based differentiable renderer, it is very challenging
+to optimize hair shape using 2D generative priors like other
+SDS-based methods. Besides, we expect hair strands to pro-
+duce mesh-style smooth geometry and texture maps to fully
+exploit the powerful generative capabilities of 2D diffusion
+models pre-trained on human mesh data. A feasible alter-
+native is to first differentiably convert the strands into quad
+meshes [82], similar to NeuralHaircut [64], and then lever-
+age SDS-based mesh optimization frameworks to model
+hair strands. However, this non-watertight stripe-like mesh
+easily produces ambiguous normal maps or excessively thin
+sides (see the zoom image of Fig. 3-(c)), which significantly
+(b) A strand-to-mesh conversion example 
+w/ NeuralHaircut’s quad mesh
+w/ differentiable prismatization
+Reliable Optimization
+Reasonable Normals
+Watertight Mesh
+Non-Watertight Mesh
+Ambiguous Normals
+Unstable Optimization
+(a) Gradient backpropagation process
+(c) Differentiable prismatization’s advantages  
+Hair Strand
+Hair Prismatic Mesh
+2D Image
+SDS Loss
+Neural Scalp 
+Texture
+Strand
+Generator
+Differentiable
+Prismatization
+Mesh-Based
+Differentiable
+Renderer
+: Forward
+: Backward
+Step 1
+Step 2
+Step 3
+Step 4
+Step 5
+: Strand Points
+: Strand Normals
+: Mesh Vertices
+Figure 3. The differentiable prismatization algorithm’s (a) gradi-
+ent backpropagation process, (b) a strand-to-mesh conversion ex-
+ample and (c) advantages over NeuralHaircut [64]. Non-watertight
+quad meshes can easily produce ambiguous normal maps, which
+significantly reduce the stability of hair shape modeling (see the
+drifting hair highlighted by the oval dotted box in (c)).
+reduce the optimization stability (see the drifting hair high-
+lighted by the oval dotted box in Fig. 3-(c)). Therefore, a
+differentiable strand-to-mesh conversion method with supe-
+rior optimization properties is urgently needed.
+Differentiable Prismatization (DP). To this end, we pro-
+pose a novel differentiable prismatization algorithm in-
+spired by the internal structure of 3D hair (i.e., hair fiber
+is a dielectric cylinder covered with tilted scales and with a
+pigmented interior [19, 34]). This algorithm can efficiently
+and differentiably convert strands into watertight prismatic
+meshes with arbitrary thickness and lateral edges to approx-
+imate the cylindrical structure of the hair.
+This enables
+
+
+smooth backpropagation of gradients from the SDS loss
+to the 3D strand representation using mesh-based differen-
+tiable renderers [22], thereby making it possible to fully ex-
+ploit 2D generative priors distilled from high-fidelity human
+mesh data for modeling realistic hair strands. Fig. 3-(a) vi-
+sualizes the complete gradient backpropagation process.
+In specific, given a hair strand s, our DP converts it into
+a watertight prismatic mesh with K lateral edges and ra-
+dius R through the following five steps: (1) Compute the
+Initial Normal Vector. (2) Generate K Rotated Normals.
+(3) Translate to Form Lateral Edges. (4) Construct Lateral
+Faces. (5) Construct Top and Bottom Faces. An exam-
+ple of this conversion is shown in Fig. 3-(b). Unlike quad
+meshes [64], our DP effectively avoids ambiguous normals,
+enabling smooth gradient backpropagation and hair strand
+optimization, as shown in Fig. 3-(c). Further algorithm de-
+tails are provided in the Supp. Mat.
+With the help of our proposed differentiable prismatiza-
+tion algorithm, we optimize the neural scalp texture T by
+utilizing rich human-specific 2D generative priors through
+the following SDS losses (Fig. 2-(b)):
+  \na
+bla  _{T}
+ 
+\mathcal {
+L } ^{\te xt  {hn}}_{
+SD
+S
+}
+ &=
+ \ mat
+hbb  {E}_
+{
+t, \epsilo
+n  } \le ft  [( {\ep
+si
+l
+on }_{{\phi }_\text {hn}}(n^\text {h+s}_t; y_\text {h+s}, t) - \epsilon ) \frac {\partial n^\text {h+s}}{\partial T} \right ], \label {eq:sds_hair_normal} \\ \nabla _{T} \mathcal {L}^{\text {hd}}_{SDS} &= \mathbb {E}_{t, \epsilon } \left [( {\epsilon }_{{\phi }_\text {hd}}(d^\text {h+s}_t; y_\text {h+s}, t) - \epsilon ) \frac {\partial d^\text {h+s}}{\partial T} \right ], \label {eq:sds_hair_depth} \vspace {-0.8cm}
+(4)
+where ϕhn
+and ϕhd
+are the human-specific normal-
+adapted and depth-adapted diffusion models from Human-
+Norm [17], nh+s and dh+s are the rendered normal and
+depth maps of the head DMTet θh with hair prismatic mesh
+Mp = DP(G(T)), respectively. Here, DP(·) denotes the
+differentiable prismatization operation function, yh+s is the
+full text description of the head with hair.
+However, due to the excessive flexibility of hair strands,
+relying solely on the SDS loss leads to unnatural strand ori-
+entations and unrealistic hairstyles (Fig. 9). Furthermore,
+the lack of constrained multi-view images prevents us from
+leveraging hair-specific features [44] to provide powerful
+supervision as in previous works [55].
+Prior-Driven Losses. To address this issue, we propose
+two straightforward yet robust prior-driven losses based on
+observations of the 3D hair strand orientation and curva-
+ture to ensure the rationality of the generated hair strands.
+Specifically, we observe two geometric properties of hair:
+(1) neighboring strand orientations are highly consis-
+tent, and (2) strand curvature is strongly and positively
+correlated with the curliness of the hairstyle. To validate
+the properties, we calculate the cosine similarity of adja-
+cent hair strand orientations CSori and the average curvature
+Cmean of 343 hairstyles in the USC-HairSalon dataset [15]
+using the following equations and visualize their distribu-
+tions and some examples in Fig. 4:
+  CS_{\text {ori}}
+ &= \frac {1}{N_{s
+}N_{p}} \sum _{i=1}^{N_{s}} \
+sum _{
+j=1}^{N
+_{p}} \sum _{k \in A(i)} \fra
+c {o^{
+i}_{j} 
+\cdot o^{k}_{j}}{|A(i)|}, \label {eq:cs_ori} \\ C_{
+\text { m ean}} &= \fr a c {1}{
+N_{s}N_ { p}}\su m ^{N_ { s}}_{i
+=1} \su m  ^{N_{ p}}_{j = 1} c^{
+i}_{j},  \label  {eq:c _ mean} 
+\vspace  {-0.6c m}
+(6)
+where A(i) is the set of adjacent strands for the i-th strand,
+and |A(i)| is the number of neighboring strands.
+As illustrated, over 95% of hairstyles exhibit an orienta-
+tion similarity above 0.9, and the average curvature is sig-
+nificantly positively related to curliness, which successfully
+validates the properties. Based on these observations, we
+introduce orientation consistency loss and curvature regu-
+larization to guide the local and global strand shapes, for-
+mulated as follows:
+  \m a t h cal {L
+}_{
+\tex t  {ori} }  &= 1 - CS_{\text {ori}}, \label {eq:ori_cons} \\ \mathcal {L}_{\text {cur}} &= \Vert C_{\text {mean}} - C_{\text {target}} \Vert _{1}, \label {eq:cur_reg} \vspace {-0.5cm}
+(8)
+where Ctarget represents the target average curvature set ac-
+cording to the input hair description. These two losses, in-
+spired by 3D hair geometry priors, regularize the hair shape
+by supervising the consistency of orientations between ad-
+jacent strands and the overall hairstyle’s curvature.
+Additionally, we introduce a series of losses Lbbox,
+Lface, and Lcolli, which prevent the hair from exceeding
+the bounding box, obscuring the face, and colliding with
+the head, respectively. These losses can further improve the
+rationality of hair geometry. Their details are provided in
+the Supp. Mat. The final loss function for optimizing hair
+shape is expressed as follows:
+  \mathca l  {L
+}_{ \ tex
+t {hai
+r-g e o}} =\ &  \mathcal
+ {L}^{\text  {hd}}_{SDS }  + \lambda ^{\text {hn}}_{SDS} \mathcal {L}^{\text {hn}}_{SDS} + \lambda _{\text {ori}} \mathcal {L}_{\text {ori}} + \lambda _{\text {cur}} \mathcal {L}_{\text {cur}} \nonumber \\ & + \lambda _{\text {bbox}} \mathcal {L}_{\text {bbox}} + \lambda _{\text {face}} \mathcal {L}_{\text {face}} + \lambda _{\text {colli}} \mathcal {L}_{\text {colli}}. \label {eq:hair_geometry}
+(9)
+
+
+“An elderly Caucasian 
+grandmother with thin lips and 
+a straight, short silver bob.”
+“A confident Hispanic man with a 
+beard and a curly black afro.”
+“Brad Pitt with medium-length, 
+tousled blonde hair.”
+“Beyoncé with voluminous, 
+curly honey blonde hair.”
+“Scarlett Johansson with a 
+textured blonde bob.”
+“Chris Hemsworth with side-
+swept sandy blonde hair.”
+“Dwayne Johnson with 
+a short black afro.”
+“Lionel Messi with a blonde 
+mohawk hairstyle.”
+“A curly dark blonde haircut.”
+“A short, wavy 
+brown bob.”
+“A sleek long 
+black hairstyle.”
+“A light brown 
+mohawk  hairstyle.”
+“Long wavy chestnut 
+brown hair.”
+“Medium-length, 
+straight auburn hair.”
+“A curly black afro.”
+“A beautiful Caucasian girl with delicate 
+features and long silky golden blonde hair.”
+“A side-swept 
+silver haircut.”
+“Medium-length wavy 
+caramel-colored hair.”
+“Long silky golden 
+blonde hair.”
+“Medium-length, 
+tousled blonde hair.”
+“Side-swept sandy 
+blonde hair.”
+“A mature European woman with
+a straight nose and medium-
+length, straight auburn hair.”
+“A charming Caucasian woman 
+with a straight nose and shoulder-
+length curly sleek blonde hair.”
+Figure 5. Examples of high-fidelity and diverse 3D heads and strand-accurate haircuts generated by our method. The upper visualization
+includes rendered color and normal maps of the head and hair prismatic meshes. The lower visualization shows the physics-based hair
+strand rendering result using Blender [10]. For better strand-based visualization, we interpolate generated hair to approximately 10,000
+strands and apply a consistent appearance. Please zoom in for detailed views, and refer to the Supp. Mat. for video demonstrations.
+3.5. Hair Texture Generation
+Next, we fix the optimized hair strand geometry and model
+the realistic hair strand texture under the supervision of the
+SDS loss as follows (Fig. 2-(c)):
+  \nab
+la _ {{\psi }_\text
+ { s}} \ mathc al  {L}^{\t
+ext
+ {hc}}_{SDS} = \mathbb {E}_{t, \epsilon } ( {\epsilon }_{{\phi }_\text {hc}}(c^\text {h+s}_t; n^\text {h+s}, y_\text {h+s}, t) - \epsilon ) \frac {\partial c^\text {h+s}}{\partial {\psi }_\text {s}}, \label {eq:sds_hair_color} \vspace {-0.1cm} (10)
+where ϕhc is the human-specific normal-conditioned dif-
+fusion model from HumanNorm [17], ch+s is the rendered
+color map of the head texture field ψh and hair strand tex-
+ture field ψs. Since the vanilla SDS loss often leads to color
+oversaturation, we replace it with the following MSDS
+loss [17] to further enhance the texture’s realism in later
+iterations of texture optimization:
+  \nab
+la _ { {\psi }_\te
+x t  {s}}  \mat hc a l {L}^{
+\te
+xt {hc}}_{MSDS} = \mathbb {E}_{t, \epsilon } ( H(c^\text {h+s}_t; n^\text {h+s}, y_\text {h+s}, t) - \epsilon ) \frac {\partial c^\text {h+s}}{\partial {\psi }_\text {s}}, \label {eq:msds_hair_color} \vspace {-0.1cm} (11)
+where H(·) denotes the multi-step operation function. Ad-
+ditionally, we propose a strand-aware texture field that mod-
+els orientation-dependent texture to better generate high-
+frequency color variations. Please refer to the Supp. Mat.
+for more their details.
+3.6. Implementation Details
+Our method is implemented using PyTorch [46] and Three-
+Studio [11].
+Experiments are conducted on an Ubuntu
+server equipped with A6000 GPUs. Starting with a prompt
+such as “A man with brown hair”, we first generate a bald
+head using “A bald man”. Then, we generate the hair based
+on “A man with brown hair”. Further implementation de-
+tails are available in the Supp. Mat.
+4. Experiments
+Some examples of 3D head models with strand-based hair
+generated by StrandHead are shown in Fig. 5. Due to space
+limitations, only the key experimental settings and results
+are presented here. For more results, evaluations, and de-
+tails, please refer to our Supp. Mat.
+4.1. Experimental Settings
+Baselines. We compare StrandHead with the SOTA meth-
+ods for head avatar and haircut generation. The baseline
+methods for head generation include text-to-holistic-head
+works (HeadArtist [30], HumanNorm [17], and HeadStu-
+dio [94]) and text-to-decoupled-head work (TECA [84]).
+For text-to-hair generation, we consider general text-to-
+3D methods (MVDream [62], GaussianDreamer [80], Lu-
+cidDreamer [28], and RichDreamer [48]), text-to-strand
+method (HAAR [65]), and TECA [84].
+Dataset Construction.
+To create the dataset, we use
+ChatGPT[43] to randomly generate 30 text descriptions of
+heads with hair. These include 30 descriptions for assessing
+
+
+HeadArtist
+HeadStudio
+HumanNorm
+TECA
+StrandHead
+Text-to-Head
+Text-to-Hair
+“A handsome American man with slicked-back sandy blonde hair.”
+“Beyoncé with voluminous, curly honey blonde hair.”
+MVDream GaussianDreamer LucidDreamer RichDreamer
+TECA
+HAAR
+StrandHead
+“Medium-length, straight auburn hair.”
+“A short, wavy brown bob.”
+N/A
+N/A
+Figure 6. Qualitative comparisons with the SOTA methods. Since TECA [84] uses the vanilla NeRF to represent hair, rendering normals
+is not supported. HAAR [65] generates only the geometry of hair strands, so we first convert the strands into prismatic meshes using
+differentiable prismatization and then utilize TEXTure [53] to generate texture for visualization and comparison.
+HAAR
+StrandHead
+“A side-swept silver haircut.”
+“Slicked-back ash blonde hair.”
+“Shoulder-length straight red hair.”
+“A short wavy brown bob.”
+HAAR
+StrandHead
+Figure 7.
+Qualitative comparison with HAAR [65].
+HAAR,
+which does not model heads, often produces unreasonable
+hair-head collisions (highlighted in the black box).
+head generation and 30 for evaluating hair generation. The
+full list of prompts can be found in the Supp. Mat.
+Evaluation Metrics. Current text-to-3D methods typically
+use CLIP-based metrics to assess text-image alignment and
+output quality. However, research [16, 31] shows that these
+metrics struggle to capture fine-grained alignment between
+3D content and input prompts, as validated by our exper-
+iments in the Supp. Mat. To address this limitation, we
+draw inspiration from Progressive3D [7] and Barbie [66],
+using BLIP-VQA [23, 24] and BLIP2-VQA [23, 25] for
+evaluation. Specifically, we convert each prompt into two
+questions to separately verify head and hair. We then feed
+the rendered image of the generated 3D content into the
+VQA model, asking each question in sequence and using
+the probability of a “yes” response as our evaluation metric.
+For example, the head prompt “A man with black hair” is
+transformed into “Is the person in the picture a man?” and
+“Does the person in the picture have black hair?” The hair
+prompt “Black hair” becomes “Is the object in the picture
+black hair?” Finally, we conduct a user study by randomly
+Method
+BLIP-VQA ↑
+BLIP2-VQA ↑
+GQP ↑
+TAP ↑
+HeadArtist
+0.7667
+0.9667
+1.00
+2.33
+HeadStudio
+0.7833
+0.8833
+3.33
+3.67
+HumanNorm
+0.7000
+0.9500
+7.67
+7.67
+TECA
+0.7333
+0.9500
+34.33
+28.33
+StrandHead (Ours)
+0.8500
+0.9667
+53.67
+58.00
+MVDream
+0.9000
+0.8333
+24.67
+20.00
+GaussianDreamer
+0.3333
+0.3667
+5.33
+3.00
+LucidDreamer
+0.8000
+0.9333
+5.33
+5.00
+RichDreamer
+0.8333
+0.7667
+4.00
+5.67
+TECA
+0.7000
+0.7667
+1.67
+3.67
+HAAR
+0.6333
+0.2000
+1.33
+2.33
+StrandHead (Ours)
+0.9000
+0.9000
+57.67
+60.33
+Table 2.
+Quantitative comparisons with the SOTA methods.
+The best and second-best results are highlighted in bolded and
+underlined, respectively. GQP: generation quality preference (%),
+TAP: text-image alignment preference (%).
+selecting 10 generated examples and asking 30 volunteers to
+assess (1) generation quality and (2) text-image alignment,
+and select the best methods.
+4.2. Comparisons of Head Generation
+As illustrated in the upper section of Tab. 2, StrandHead
+outperforms all comparison methods across every evalua-
+tion metric. The qualitative results on the left side of Fig. 6
+further highlight the advantages of our method. Compared
+to other head generation methods, the head avatars gener-
+ated by StrandHead exhibit not only more refined facial
+geometry and texture details but also strand-accurate hair
+with a plausible appearance that integrates seamlessly with
+physics-based simulation systems. To the best of our knowl-
+edge, StrandHead is the first head generation framework
+that realizes strand-level hair modeling, a capability that
+holds substantial potential for advancing human-centric 3D
+AIGC applications in the industry.
+4.3. Comparisons of Hair Generation
+As shown in the lower part of Tab. 2, our approach surpasses
+other methods across most evaluation metrics, and is only
+slightly lower than LucidDreamer (the latest open-source
+
+
+Bald Head 
+Initial Hairstyle + Hairstyle Prompt
+“Medium-
+length, 
+curly hair.”
+“Tight, 
+curly dark 
+brown hair.”
+“A bald 
+beautiful girl 
+with delicate 
+features.”
+“A bald 
+handsome 
+American 
+man.”
+“Bald 
+Marilyn 
+Monroe.”
+“Long, straight 
+platinum 
+blonde hair.”
+“Slicked-back sandy blonde hair.”
+w/ human-specific 
+2D supervision    
+(a) Ablation study on human-specific diffusion models’ supervision
+w/ general 2D supervision    
+w/o 2D supervision    
+(b) Generated strand-based hair under different bald heads
+Figure 8. Analysis of human-specific 2D diffusion models.
+text-to-3D method) on BLIP2-VQA, ranking the second.
+The qualitative comparisons on the right side of Fig. 6 dis-
+play sample generation results. Compared to general text-
+to-3D methods, our approach more precisely captures the
+internal structure of hair strands, resulting in realistic hair-
+cut geometry and appearance without incorporating incor-
+rect content such as parts of the human head.
+Compared with HAAR [65], StrandHead relies on robust
+2D/3D human-centric priors rather than large-scale paired
+datasets to supervise hair generation. This not only allows
+it to generate hairstyles that are uncommon in the dataset
+(see slicked-back and side-swept hairstyles in Fig. 7), but
+also models hair texture or geometry that adapts to specific
+head shapes (Fig. 8-(b)), thereby avoiding unnatural hair-
+head collisions (see the black box in Fig. 7).
+4.4. Ablation Study
+Effectiveness of Human-Specific 2D Generative Priors.
+We demonstrate the importance of human-specific 2D gen-
+erative priors from two aspects: (1) As shown in Fig. 8-
+(a), ignoring 2D supervision fails to generate meaningful
+hair. While a general 2D diffusion model can slightly im-
+prove modeling performance, it still falls short of producing
+high-quality results. Only by incorporating human-specific
+2D generative priors can one achieve realistic textures and
+reasonable shapes for hairstyles. (2) Fig. 8-(b) illustrates
+generated hair under varying bald head conditions while
+maintaining a fixed initial hairstyle and hair prompt. The
+hairstyles created under the supervision of human-specific
+2D diffusion models exhibit clear geometric and textural
+variations that adapt to specific bald heads. This strongly
+demonstrates the necessity of considering the bald head
+for hair strand generation and highlights the advantages of
+w/o
+w/
+“A curly dark brown afro.”
+“Medium-length wavy 
+caramel-colored hair.”
+w/o
+w/
+(b)
+(a)
+Figure 9. Ablation study on (a) orientation consistency loss Lori
+and (b) curvature regularization loss Lcur.
+“A weathered African man with a broad forehead and brown dreadlocks”
+“A beautiful girl with delicate features and long ponytail”
+Figure 10. Failure cases.
+StrandHead over HAAR [65].
+Effectiveness of Prior-Driven Losses. Fig. 9-(a) demon-
+strates that incorporating Lori provides strong guidance for
+generating natural hair by supervising the consistency of
+orientations between adjacent strands. As shown in Fig. 9-
+(b), our Lcur preserves the desired curliness by constrain-
+ing the overall hairstyle’s curvature. In summary, these two
+losses, inspired by 3D hair geometry priors, effectively en-
+hance the realism and rationality of the generated haircut.
+5. Conclusion
+In this paper, a novel framework StrandHead is proposed
+to generate realistic hair-disentangled 3D head avatars us-
+ing text prompts. With a series of 2D generative models
+pre-trained on human-centric data, StrandHead generates
+strand-based hair requiring no large-scale text-hair paired
+data for supervision. This goal is achieved mainly by two
+approaches: (1) proposing a novel differentiable prismatiza-
+tion method that transforms the hair strands into prismatic
+meshes, and (2) using the prior-driven losses inspired by
+the observation of real-world haircut and the statistical fea-
+tures of human-crafted 3D hair data. The former one pro-
+duces watertight geometry more similar to the original hair
+strands, boosting a stable optimization with significantly
+less normal ambiguity. Besides, the latter one well con-
+strains the optimization with reliable guidance to generate
+reasonable 3D haircuts. Extensive experiments demonstrate
+that StrandHead obtains the state-of-the-art performance on
+3D head avatars and haircuts generation. The generated re-
+sults are easily implemented in industrial software to pro-
+duce physical simulation and high-fidelity rendering.
+Limitations and Future Work. Due to the limited repre-
+sentation capabilities of the strand generator, StrandHead is
+unable to create highly complex 3D hairstyles (e.g., dread-
+locks and ponytails in Fig. 10). Additionally, although the
+SDS-based method effectively leverages 2D generative pri-
+ors, its high computational cost restricts practical applica-
+tion. In future work, we aim to address these challenges by
+incorporating richer hairstyle datasets and exploring deeper
+hair priors.
+
+
+Acknowledgement.
+This
+work
+was
+supported
+by
+the National Science Foundation of China (62376121).
+References
+[1] Shivangi Aneja, Justus Thies, Angela Dai, and Matthias
+Nießner. Clipface: Text-guided editing of textured 3d mor-
+phable models. ACM SIGGRAIPH, 2022. 2
+[2] Inc. Autodesk.
+Autodesk maya - 3d animation and mod-
+eling software.
+https://www.autodesk.com/
+products/maya, 2024. 2, 3
+[3] Gaurav Bhokare, Eisen Montalvo, Elie Diaz, and Cem Yuk-
+sel.
+Real-time hair rendering with hair meshes.
+In ACM
+SIGGRAIPH, 2024. 3
+[4] Volker Blanz and Thomas Vetter. A morphable model for the
+synthesis of 3d faces. In Seminal Graphics Papers: Pushing
+the Boundaries, Volume 2, 2023. 2
+[5] Rui Chen, Yongwei Chen, Ningxin Jiao, and Kui Jia. Fan-
+tasia3d: Disentangling geometry and appearance for high-
+quality text-to-3d content creation.
+In Int. Conf. Comput.
+Vis., 2023. 2
+[6] Zilong Chen, Feng Wang, and Huaping Liu. Text-to-3d us-
+ing gaussian splatting. In IEEE Conf. Comput. Vis. Pattern
+Recog., 2024. 2
+[7] Xinhua Cheng, Tianyu Yang, Jianan Wang, Yu Li, Lei
+Zhang, Jian Zhang, and Li Yuan. Progressive3d: Progres-
+sively local editing for text-to-3d content creation with com-
+plex semantic prompts. In Int. Conf. Learn. Represent., 2023.
+7, 5
+[8] Hang Dai, Nick Pears, William Smith, and Christian Duncan.
+Statistical modeling of craniofacial shape and texture. Int. J.
+Comput. Vis., 2020. 2
+[9] Inc. Epic Games. Unreal engine - real-time 3d creation tool.
+https://www.unrealengine.com/, 2024. 2, 3
+[10] Blender Foundation. Blender - a 3d modelling and rendering
+software. https://www.blender.org/, 2024. 2, 3, 6,
+7
+[11] Yuan-Chen Guo, Ying-Tian Liu, Ruizhi Shao, Christian
+Laforte, Vikram Voleti, Guan Luo, Chia-Hao Chen, Zi-
+Xin Zou, Chen Wang, Yan-Pei Cao, and Song-Hai Zhang.
+threestudio: A unified framework for 3d content generation.
+https://github.com/threestudio-project/
+threestudio, 2023. 6
+[12] Xiaoping Han, Yukang Cao, K. Han, Xiatian Zhu, Jiankang
+Deng, Yi-Zhe Song, Tao Xiang, and Kwan-Yee K. Wong.
+Headsculpt: Crafting 3d head avatars with text. In Adv. Neu-
+ral Inform. Process. Syst., 2023. 2, 3
+[13] Chengan He, Xin Sun, Zhixin Shu, Fujun Luan, S¨oren Pirk,
+Jorge Alejandro Amador Herrera, Dominik L Michels, Tuan-
+feng Y Wang, Meng Zhang, Holly Rushmeier, and Yi Zhou.
+Perm: A parametric representation for multi-style 3d hair
+modeling. arXiv preprint arXiv:2407.19451, 2024. 2, 3
+[14] Jerry Hsu, Tongtong Wang, Zherong Pan, Xifeng Gao, Cem
+Yuksel, and Kui Wu. Real-time physically guided hair inter-
+polation. ACM Trans. Graph., 2024. 3
+[15] Liwen Hu, Chongyang Ma, Linjie Luo, and Hao Li. Single-
+view hair modeling using a hairstyle database. ACM Trans.
+Graph., 2015. 3, 4, 5, 2
+[16] Kaiyi Huang, Kaiyue Sun, Enze Xie, Zhenguo Li, and Xi-
+hui Liu. T2i-compbench: A comprehensive benchmark for
+open-world compositional text-to-image generation. In Adv.
+Neural Inform. Process. Syst., 2023. 7, 5
+[17] Xin Huang, Ruizhi Shao, Qi Zhang, Hongwen Zhang, Ying
+Feng, Yebin Liu, and Qing Wang. Humannorm: Learning
+normal diffusion model for high-quality and realistic 3d hu-
+man generation. In IEEE Conf. Comput. Vis. Pattern Recog.,
+2024. 2, 3, 4, 5, 6, 1
+[18] Ajay Jain, Ben Mildenhall, Jonathan T Barron, Pieter
+Abbeel, and Ben Poole. Zero-shot text-guided object gener-
+ation with dream fields. In IEEE Conf. Comput. Vis. Pattern
+Recog., 2022. 2
+[19] James T Kajiya and Timothy L Kay. Rendering fur with three
+dimensional textures. ACM Siggraph Computer Graphics,
+1989. 4
+[20] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Trans. Graph., 2023. 2, 3
+[21] Zhiyi Kuang, Yiyang Chen, Hongbo Fu, Kun Zhou, and
+Youyi Zheng.
+Deepmvshair:
+Deep hair modeling from
+sparse views. In ACM SIGGRAPH Asia, 2022. 3
+[22] Samuli Laine, Janne Hellsten, Tero Karras, Yeongho Seol,
+Jaakko Lehtinen, and Timo Aila.
+Modular primitives for
+high-performance differentiable rendering.
+ACM Trans.
+Graph., 2020. 5
+[23] Dongxu Li, Junnan Li, Hung Le, Guangsen Wang, Silvio
+Savarese, and Steven C.H. Hoi. LAVIS: A one-stop library
+for language-vision intelligence. In Proceedings of the 61st
+Annual Meeting of the Association for Computational Lin-
+guistics (Volume 3: System Demonstrations), 2023. 7, 5
+[24] Junnan Li, Dongxu Li, Caiming Xiong, and Steven Hoi.
+Blip: Bootstrapping language-image pre-training for unified
+vision-language understanding and generation. In Interna-
+tional Conference on Machine Learning, 2022. 7, 5
+[25] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi.
+Blip-2:
+Bootstrapping language-image pre-training with
+frozen image encoders and large language models. In In-
+ternational Conference on Machine Learning, 2023. 7, 5
+[26] Tianye Li, Timo Bolkart, Michael J Black, Hao Li, and Javier
+Romero. Learning a model of facial shape and expression
+from 4d scans. ACM Trans. Graph., 2017. 2, 3
+[27] Weiyu Li, Rui Chen, Xuelin Chen, and Ping Tan. Sweet-
+dreamer: Aligning geometric priors in 2d diffusion for con-
+sistent text-to-3d. arXiv preprint arXiv:2310.02596, 2023.
+2
+[28] Yixun Liang, Xin Yang, Jiantao Lin, Haodong Li, Xiao-
+gang Xu, and Yingcong Chen. Luciddreamer: Towards high-
+fidelity text-to-3d generation via interval score matching. In
+IEEE Conf. Comput. Vis. Pattern Recog., 2024. 2, 3, 6
+[29] Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa,
+Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fidler,
+Ming-Yu Liu, and Tsung-Yi Lin. Magic3d: High-resolution
+text-to-3d content creation. In IEEE Conf. Comput. Vis. Pat-
+tern Recog., 2023. 2
+
+
+[30] Hongyu Liu, Xuan Wang, Ziyu Wan, Yujun Shen, Yib-
+ing Song, Jing Liao, and Qifeng Chen. Headartist: Text-
+conditioned 3d head generation with self score distillation.
+In ACM SIGGRAIPH, 2024. 2, 3, 6, 1
+[31] Yujie Lu, Xianjun Yang, Xiujun Li, Xin Eric Wang, and
+William Yang Wang. Llmscore: Unveiling the power of large
+language models in text-to-image synthesis evaluation. In
+Adv. Neural Inform. Process. Syst., 2024. 7, 5
+[32] Haimin Luo, Min Ouyang, Zijun Zhao, Suyi Jiang, Longwen
+Zhang, Qixuan Zhang, Wei Yang, Lan Xu, and Jingyi Yu.
+Gaussianhair: Hair modeling and rendering with light-aware
+gaussians. arXiv preprint arXiv:2402.10483, 2024. 3
+[33] Ryota Maeda, Kenshi Takayama, and Takafumi Taketomi.
+Refinement of hair geometry by strand integration. In Com-
+put. Graph. Forum, 2023. 3
+[34] Stephen R Marschner, Henrik Wann Jensen, Mike Cam-
+marano, Steve Worley, and Pat Hanrahan. Light scattering
+from human hair fibers. ACM Trans. Graph., 2003. 4
+[35] Givi Meishvili, James Clemoes, Charlie Hewitt, Zafiirah Ho-
+senie, Xian Xiao, Martin de La Gorce, Tibor Takacs, Tadas
+Baltrusaitis, Antonio Criminisi, Chyna McRae, et al. Hair-
+mony: Fairness-aware hairstyle classification. arXiv preprint
+arXiv:2410.11528, 2024. 3
+[36] Lars Mescheder, Michael Oechsle, Michael Niemeyer, Se-
+bastian Nowozin, and Andreas Geiger. Occupancy networks:
+Learning 3d reconstruction in function space. In IEEE Conf.
+Comput. Vis. Pattern Recog., 2019. 3
+[37] Oscar Michel, Roi Bar-On, Richard Liu, Sagie Benaim, and
+Rana Hanocka. Text2mesh: Text-driven neural stylization
+for meshes.
+In IEEE Conf. Comput. Vis. Pattern Recog.,
+2022. 2
+[38] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik,
+Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis. In Eur. Conf. Comput. Vis., 2020. 2, 3
+[39] Nasir Mohammad Khalid, Tianhao Xie, Eugene Belilovsky,
+and Tiberiu Popa. Clip-mesh: Generating textured meshes
+from text using pretrained image-text models. In ACM SIG-
+GRAPH Asia, 2022. 2
+[40] Thomas M¨uller, Alex Evans, Christoph Schied, and Alexan-
+der Keller. Instant neural graphics primitives with a multires-
+olution hash encoding. ACM Trans. Graph., 2022. 1
+[41] Giljoo Nam, Chenglei Wu, Min H Kim, and Yaser Sheikh.
+Strand-accurate multi-view hair capture.
+In IEEE Conf.
+Comput. Vis. Pattern Recog., 2019. 3
+[42] Alex Nichol, Prafulla Dhariwal, Aditya Ramesh, Pranav
+Shyam, Pamela Mishkin, Bob McGrew, Ilya Sutskever, and
+Mark Chen. Glide: Towards photorealistic image generation
+and editing with text-guided diffusion models. arXiv preprint
+arXiv:2112.10741, 2021. 2
+[43] OpenAI. Chatgpt. https://openai.com/, 2024. 4, 6,
+2
+[44] Sylvain Paris, Hector M Briceno, and Franc¸ois X Sillion.
+Capture of hair geometry from multiple images. ACM Trans.
+Graph., 2004. 3, 5
+[45] Jeong Joon Park, Peter Florence, Julian Straub, Richard
+Newcombe, and Steven Lovegrove. Deepsdf: Learning con-
+tinuous signed distance functions for shape representation.
+In IEEE Conf. Comput. Vis. Pattern Recog., 2019. 3
+[46] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer,
+James Bradbury, Gregory Chanan, Trevor Killeen, Zeming
+Lin, Natalia Gimelshein, Luca Antiga, et al. Pytorch: An
+imperative style, high-performance deep learning library. In
+Adv. Neural Inform. Process. Syst., 2019. 6
+[47] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Milden-
+hall. Dreamfusion: Text-to-3d using 2d diffusion. In Int.
+Conf. Learn. Represent., 2022. 2, 3
+[48] Lingteng Qiu, Guanying Chen, Xiaodong Gu, Qi Zuo, Mu-
+tian Xu, Yushuang Wu, Weihao Yuan, Zilong Dong, Liefeng
+Bo, and Xiaoguang Han.
+Richdreamer: A generalizable
+normal-depth diffusion model for detail richness in text-to-
+3d. In IEEE Conf. Comput. Vis. Pattern Recog., 2024. 2, 3,
+6
+[49] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry,
+Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learn-
+ing transferable visual models from natural language super-
+vision. In International Conference on Machine Learning,
+2021. 2
+[50] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray,
+Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever.
+Zero-shot text-to-image generation. In International Confer-
+ence on Machine Learning, 2021. 2
+[51] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu,
+and Mark Chen. Hierarchical text-conditional image gen-
+eration with clip latents. arXiv preprint arXiv:2204.06125,
+2022. 2
+[52] Anurag Ranjan,
+Timo Bolkart,
+Soubhik Sanyal,
+and
+Michael J Black. Generating 3d faces using convolutional
+mesh autoencoders. In Eur. Conf. Comput. Vis., 2018. 1
+[53] Elad Richardson, Gal Metzer, Yuval Alaluf, Raja Giryes,
+and Daniel Cohen-Or. Texture: Text-guided texturing of 3d
+shapes. In ACM SIGGRAIPH, 2023. 7
+[54] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+Patrick Esser, and Bj¨orn Ommer. High-resolution image syn-
+thesis with latent diffusion models. In IEEE Conf. Comput.
+Vis. Pattern Recog., 2022. 2
+[55] Radu Alexandru Rosu, Shunsuke Saito, Ziyan Wang, Chen-
+glei Wu, Sven Behnke, and Giljoo Nam.
+Neural strands:
+Learning hair geometry and appearance from multi-view im-
+ages. In Eur. Conf. Comput. Vis., 2022. 2, 3, 5
+[56] Chitwan Saharia, William Chan, Saurabh Saxena, Lala
+Li, Jay Whang, Emily L Denton, Kamyar Ghasemipour,
+Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans,
+et al. Photorealistic text-to-image diffusion models with deep
+language understanding.
+In Adv. Neural Inform. Process.
+Syst., 2022. 2
+[57] Shunsuke Saito,
+Liwen Hu,
+Chongyang Ma,
+Hikaru
+Ibayashi, Linjie Luo, and Hao Li. 3d hair synthesis using
+volumetric variational autoencoders. ACM Trans. Graph.,
+2018. 3
+[58] Aditya Sanghi, Hang Chu, Joseph G Lambourne, Ye Wang,
+Chin-Yi Cheng, Marco Fumero, and Kamal Rahimi Malek-
+shan. Clip-forge: Towards zero-shot text-to-shape genera-
+tion. In IEEE Conf. Comput. Vis. Pattern Recog., 2022. 2

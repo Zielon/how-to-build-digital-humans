@@ -1,0 +1,181 @@
+name: Validate Publication Entry
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'assets/data/publications.json'
+      - 'tables_src/bibliography.bib'
+      - 'classify/final_results.json'
+      - 'tables/publications.html'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base publications.json
+        run: git show origin/${{ github.base_ref }}:assets/data/publications.json > /tmp/base-publications.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run validation
+        id: validate
+        run: |
+          python scripts/validate_new_entries.py \
+            --base /tmp/base-publications.json \
+            --pr assets/data/publications.json \
+            --github-output /tmp/validation-summary.md \
+          && echo "status=success" >> "$GITHUB_OUTPUT" \
+          || echo "status=failure" >> "$GITHUB_OUTPUT"
+
+      # ----- Source-drift check -----
+      # Verifies the committed publications.json (and tables/publications.html)
+      # match what build_publications.py would regenerate from the source files
+      # (tables_src/bibliography.bib + classify/final_results.json).
+      #
+      # Catches the common contributor mistake of editing the generated
+      # publications.json directly without updating its sources: those edits
+      # are silently erased the next time ./deploy.sh runs.
+      - name: Source-drift check
+        id: drift
+        run: |
+          cp assets/data/publications.json /tmp/committed-publications.json
+          cp tables/publications.html /tmp/committed-publications.html
+
+          # Regenerate from sources
+          python tables_src/build_publications.py > /tmp/build.log 2>&1 \
+            || { echo "::error::build_publications.py failed. See log:"; cat /tmp/build.log; exit 1; }
+
+          drift_json=""
+          drift_html=""
+          if ! diff -q /tmp/committed-publications.json assets/data/publications.json >/dev/null; then
+            drift_json="yes"
+          fi
+          if ! diff -q /tmp/committed-publications.html tables/publications.html >/dev/null; then
+            drift_html="yes"
+          fi
+
+          {
+            echo ""
+            echo "---"
+            echo "## Source-drift check"
+            if [ -z "$drift_json" ] && [ -z "$drift_html" ]; then
+              echo ""
+              echo ":white_check_mark: Generated files match the sources."
+            else
+              echo ""
+              echo ":x: **Generated files drifted from sources — action required from the submitter (not the maintainer).**"
+              echo ""
+              echo "Your PR modifies \`assets/data/publications.json\` and/or \`tables/publications.html\`, but those are **generated files**. The build script \`tables_src/build_publications.py\` does not reproduce them from the source files in this PR — meaning any direct edits will be silently erased the next time the maintainer runs \`./deploy.sh\`."
+              echo ""
+              echo "**To fix this PR yourself:**"
+              echo ""
+              echo "1. Add the BibTeX entry to \`tables_src/bibliography.bib\` (with \`% Webpage:\`, \`% Code:\`, \`% Video:\`, \`% Arxiv:\` metadata comments above it)"
+              echo "2. Add a classification entry to \`classify/final_results.json\` (under \`avatar_classifications\`, \`assets_classifications\`, or \`skipped\`)"
+              echo "3. Run \`./deploy.sh\` locally to regenerate everything and fetch thumbnails/abstracts from arXiv"
+              echo "4. Commit and push the regenerated \`assets/data/publications.json\`, \`tables/publications.html\`, and any new files under \`assets/img/thumbnails/\` and \`assets/data/abstracts/\`"
+              echo ""
+              echo "> The maintainer will **not** run \`./deploy.sh\` on your behalf. PRs that drift from sources stay open until the submitter fixes them."
+              echo ""
+              if [ -n "$drift_json" ]; then
+                echo "<details><summary>publications.json drift (first 60 lines)</summary>"
+                echo ""
+                echo '```diff'
+                diff /tmp/committed-publications.json assets/data/publications.json | head -60
+                echo '```'
+                echo ""
+                echo "</details>"
+              fi
+              if [ -n "$drift_html" ]; then
+                echo "<details><summary>tables/publications.html drift (first 60 lines)</summary>"
+                echo ""
+                echo '```diff'
+                diff /tmp/committed-publications.html tables/publications.html | head -60
+                echo '```'
+                echo ""
+                echo "</details>"
+              fi
+            fi
+          } >> /tmp/validation-summary.md
+
+          if [ -n "$drift_json" ] || [ -n "$drift_html" ]; then
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=success" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ----- Thumbnail / abstract presence gate -----
+      # After the drift check regenerates publications.json from sources,
+      # verify every entry with an arxiv link has a WebP thumbnail under
+      # assets/img/thumbnails/ and an abstract .txt under assets/data/abstracts/.
+      #
+      # Catches PRs that add new entries with arxiv links but forget to run
+      # ./deploy.sh and commit the resulting media files.
+      - name: Asset presence gate
+        id: assets
+        run: |
+          if python scripts/check_assets.py --github-output /tmp/asset-summary.md; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+            {
+              echo ""
+              echo "---"
+              echo "## Asset presence gate"
+              echo ""
+              echo ":white_check_mark: All thumbnails and abstracts present."
+            } >> /tmp/validation-summary.md
+          else
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            {
+              echo ""
+              echo "---"
+              echo "## Asset presence gate"
+              echo ""
+              echo ":x: **Missing thumbnails or abstracts — action required from the submitter (not the maintainer).**"
+              echo ""
+              echo "**To fix this PR yourself:**"
+              echo ""
+              echo "1. Run \`./deploy.sh\` locally — it downloads PDFs from arXiv, extracts first-page thumbnails (converted to WebP), and fetches abstracts via the arXiv API."
+              echo "2. Commit the new WebP files under \`assets/img/thumbnails/\` and \`.txt\` files under \`assets/data/abstracts/\` and push to this PR's branch."
+              echo ""
+              echo "> The maintainer will **not** run \`./deploy.sh\` on your behalf. The PR stays open until these files are committed."
+              echo ""
+              cat /tmp/asset-summary.md
+            } >> /tmp/validation-summary.md
+          fi
+
+      - name: Stage artifact payload
+        if: always()
+        run: |
+          mkdir -p /tmp/validation-artifact
+          if [ -f /tmp/validation-summary.md ]; then
+            cp /tmp/validation-summary.md /tmp/validation-artifact/summary.md
+          else
+            echo "## Validation\nCould not generate validation summary. Check the workflow logs." > /tmp/validation-artifact/summary.md
+          fi
+          echo "${{ github.event.pull_request.number }}" > /tmp/validation-artifact/pr-number.txt
+
+      - name: Upload validation summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-summary
+          path: /tmp/validation-artifact/
+
+      - name: Fail if any check failed
+        if: |
+          steps.validate.outputs.status == 'failure'
+          || steps.drift.outputs.status == 'failure'
+          || steps.assets.outputs.status == 'failure'
+        run: exit 1

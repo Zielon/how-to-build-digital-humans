@@ -1,0 +1,448 @@
+Title: Disentangled clothed avatar generation from text descriptions
+
+Disentangled Clothed Avatar Generation from
+Text Descriptions
+Jionghao Wang1,2
+†, Yuan Liu3
+†, Zhiyang Dou3,4 ,
+Zhengming Yu1 , Yongqing Liang1 , Cheng Lin3 , Rong Xie2 ,
+Li Song2
+‡, Xin Li1 , and Wenping Wang1
+‡
+1 Texas A&M University
+2 Shanghai Jiao Tong University
+3 The University of Hong Kong
+4 TransGP
+white
+teenage boy
+Christmas
+sweater
+denim jeans
+Human Body
+Fitting Clothes
+Clothed Human
+Disentangled Assets
+Generated from Text Prompts
+Animated Results in Physical Simulation Environment
+Simulated Texture
+Simulated Geometry
+Simulated Texture
+Simulated Geometry
+Fig. 1: Our method generates high-quality separated human body and clothes
+meshes from text prompts. Kinematics or simulation motions can drive the
+disentangled avatar representations to achieve photorealistic animations.
+Abstract. In this paper, we introduce a novel text-to-avatar genera-
+tion method that separately generates the human body and the clothes
+and allows high-quality animation on the generated avatar. While re-
+cent advancements in text-to-avatar generation have yielded diverse hu-
+man avatars from text prompts, these methods typically combine all el-
+ements—clothes, hair, and body—into a single 3D representation. Such
+an entangled approach poses challenges for downstream tasks like edit-
+ing or animation. To overcome these limitations, we propose a novel
+disentangled 3D avatar representation named Sequentially Offset-SMPL
+(SO-SMPL), building upon the SMPL model. SO-SMPL represents the
+human body and clothes with two separate meshes but associates them
+with offsets to ensure the physical alignment between the body and the
+clothes. Then, we design a Score Distillation Sampling (SDS)-based dis-
+tillation framework to generate the proposed SO-SMPL representation
+from text prompts. Our approach not only achieves higher texture and
+geometry quality and better semantic alignment with text prompts, but
+also significantly improves the visual quality of character animation, vir-
+tual try-on, and avatar editing. Project page: this link.
+Keywords: avatar and clothes generation · score distillation sampling
+† Co-first authors.
+‡ Corresponding authors.
+arXiv:2312.05295v2  [cs.CV]  26 Sep 2024
+
+
+2
+J. Wang et al.
+1
+Introduction
+Human avatars play a significant role in visual storytelling, conveying narra-
+tives through actions, expressions, and interactions with other elements in the
+animated world, thereby creating a dynamic and engaging experience for the
+audience. Avatars can be designed to represent diverse characters, including dif-
+ferent genders, races, ethnicities, and abilities, promoting inclusivity and chal-
+lenging stereotypes in the media. However, creating high-quality avatars is costly
+and labor-intensive, requiring skilled 3D modelers. To achieve photorealistic, an-
+imatable, and customizable avatars, it is imperative to employ a disentangled
+representation consisting of distinct components, such as body and clothing ele-
+ments. This approach enhances customization and reusability, allowing seamless
+alterations to clothing while maintaining the same underlying body structure.
+Additionally, separate components contribute to heightened realism in anima-
+tion, as different parts exhibit distinct motion characteristics. For example, hu-
+man body movements can be animated using forward kinematics, while cloth
+motion can be generated through physical simulation.
+Despite evident benefits, most existing research [39, 99] focuses on recon-
+structing a singular avatar mesh from videos or images [73,107], neglecting the
+potential for disentangled representations. Only a few studies, like DELTA [26]
+and SCARF [27], explore disentangled avatar reconstruction from videos but
+do not facilitate the arbitrary creation of such representations. Thus, a com-
+prehensive method for creating disentangled human avatars remains an unre-
+solved challenge. Extending text-to-avatar pipelines to generate disentangled
+avatars involves not only independently generating body and clothing compo-
+nents but also ensuring their precise alignment for visually appealing results.
+To address this, we introduce Sequentially-Offset-SMPL (SO-SMPL), based on
+SMPL-X [59] for characterizing coarse human shapes. SO-SMPL adds trainable
+offsets and appearance features to represent the unclothed human body, inspired
+by TADA [51], and further refines these to learn clothing specifics. This sequen-
+tial approach ensures perfect alignment and separation of body and clothing
+meshes.
+Leveraging the power of stable diffusion with SDS losses [71], we introduce
+a novel approach to generate our SO-SMPL representation from text prompts.
+Our method achieves disentangled avatar generation by first creating the un-
+clothed human body and subsequently distilling the clothing components based
+on the underlying body structure. Experiments show that our method produces
+high-quality human avatars with better geometry details and appearances than
+baseline methods [35, 51]. The disentangled nature of our SO-SMPL represen-
+tation unlocks strong customization capabilities, allowing for the seamless inte-
+gration of various clothing options on the same human body. Furthermore, the
+avatars generated by our state-of-the-art method exhibit exceptionally realis-
+tic animation results, achieved by simulating distinct motion characteristics for
+both clothing and human body components. Moreover, by generating another
+layer of offsets, we can generate multiple-layered clothes, like a suit on a T-shirt,
+and each layer has a separate mesh.
+
+
+Disentangled Clothed Avatar Generation from Text Descriptions
+3
+2
+Related work
+Distilling diffusion for 3D tasks. Many recent works have utilized diffusion
+models to generate 3D objects or scenes. Some works [6, 43, 45, 57, 63, 72, 91]
+trained 3D diffusion models to directly generate 3D representations such as point
+clouds, meshes, radiance fields [62], SDFs [90], UDFs [108], DMTets [80] or tri-
+planes [11]. Others designed diffusion models to generate 3D-aware 2D images
+or textures [8, 12, 29, 54, 56, 58, 61, 76, 82, 89]. Both lines of works rely on 3D
+data [20,21,25] or multi-view images [75,102,106] to train.
+With the success of 2D text-to-image diffusion models [22, 32, 77], recent
+works [5, 13, 16, 40, 53, 71, 78, 79, 86, 88, 94, 95, 97, 104, 118] propose to distill 3D
+representations from 2D diffusion models to circumvent the lack of 3D data.
+Some of them designed different 3D representations [13, 53, 86] for generation,
+while others explored the guidance schemes of diffusion models [71,88,94].
+3D Human Avatar generation. Previous works on 3D avatar generation [7,
+15, 28, 34, 65, 66, 112, 113] could generate diverse human geometries or textured
+avatars, but the generation process could not be controlled by text descriptions.
+With the help of large language models like CLIP [74] and text-to-image diffusion
+models [32,77], recent works [9,38,46,103,116] were able to generate high-fidelity
+avatars with prompts or with both image and prompt [39,70,96]. Other works
+have attempted to generate human avatars by painting the given human meshes
+with generated textures [84, 105]. However, the generated avatars could not be
+animated and utilized in CG software. [4,35,41,47,51,55,101,111] could produce
+animatable avatars, but they ignored garment-human interactions, leading to
+unsatisfactory animation quality.
+Disentangled representations. Reconstructing the human body and clothes
+as separate geometries has long been studied in the field of computer vision [19,
+26, 27, 42, 52, 68], but generating distinct body and clothes representations has
+barely been explored. Previous works have made attempts to generate 3D avatars
+as a combination of separate components [34] or layers [100], but they did not
+explicitly disentangle human body and accessories, making an individual com-
+ponent or layer not physically meaningful. A more recent work [36] trained a
+diffusion-based human generation model and distinctly represented the human
+body and different types of clothes as separate layers, but it did not have seman-
+tic controllability and suffers from over-smoothing textures. Another effort [93]
+proposed to use an SDS-based pipeline to generate a NeRF-based clothing layer
+separated from the human body, but could not be utilized in physical simulations
+due to its implicit representation. A concurrent work TECA [109] explored dis-
+entangling hair and head ornament from text and images while our work focuses
+on decomposing the avatar into a human body and clothes. Another recent work
+AvatarFusion [37] also separates clothes from human bodies. However, AvatarFu-
+sion adopts a post-processing strategy based on the outputs of AvatarClip [35],
+leading to low-quality results. Our method is natively designed for disentangled
+generation, which produces much better quality.
+
+
+4
+J. Wang et al.
+3
+Preliminaries
+Score distillation sampling [71] is proposed to optimize a 3D representation
+through a frozen pre-trained large 2D diffusion model. Specifically, to optimize
+a given 3D representation with parameters θ using a diffusion model with pa-
+rameters ϕ, SDS loss is computed as:
+  \nab l a _{
+\
+theta } \m at h cal 
+{L
+}_{SDS} = E_{t,\epsilon } \left [(\hat {\epsilon }_{\phi }(x_t; \mathbf {y}, t) - \epsilon ) \frac {\partial x}{\partial \theta } \right ] 
+(1)
+where t is the time step in diffusion model, x = g(θ) is the rendered image using
+a differentiable renderer g, xt = x + ϵ is the noise version of x, ϵ is a sampled
+gaussian noise, ˆϵϕ(xt; y, t) is the predicted noise of the diffusion model, and y is
+the input text prompt.
+SMPL-X [69] is an expressive parametric human model that could produce a
+human mesh with a fixed topology. SMPL-X is conditioned by a given input
+shape parameter β, pose parameter θ, and expression parameters ψ, and follows
+a vertex-based linear blend skinning(LBS) based on skeleton J(β) and skinning
+weights W for pose transforming and animation. Specifically, SMPL-X computes
+a posed human mesh K(β, θ, ψ) as:
+  \b eg in  {split } \ma thbf {K }(
+\bet a , \ t h eta ,  \psi )  &= \mathcal {W}(\mathbf {T}(\beta , \theta , \psi ), J(\beta ), \theta , W) \\ \mathbf {T}(\beta , \theta , \psi ) &= T + B_s(\beta ) + B_e(\psi ) + B_p(\theta ) \label {equ:smplx} \end {split}
+(2)
+where an T-pose body mesh T(β, θ, ψ) is first calculated as the combination of
+a mean template T, shape, expression and pose blend shapes {Bs, Be, Bp} then
+warped to target pose θ with LBS operation W.
+4
+Methodology
+Fig. 2 is an overview of our disentangled avatar generation pipeline. Given text
+descriptions of the human avatar, our pipeline produces an animatable and high-
+quality unclothed avatar in the first stage. In the second stage, we create clothes
+on the target avatar. In the following, we introduce our disentangled represen-
+tation, called SO-SMPL, of the human body and the clothes.
+4.1
+SO-SMPL Representation
+Human body geometry. As shown in Fig. 3, we represent the human body
+mesh with a densified SMPL-X parametric model introduced in Eq. 2 and we
+add learnable vertex-wise offsets Oh to represent details on the body, similar to
+recent works [51]. We fix the pose of the human body mesh to an “A” pose θ
+and use a default expression parameter ψ during the text-to-avatar generation
+process so that θ and ψ are omitted for simplicity. Specifically, the human body
+geometry Th is
+  \be gin  {spl i t} \mathbf {T}_{\text {h}}(\beta , \mathbf {O}_{\text {h}}) &= \mathbf {T}(\beta ) + \mathbf {O}_{\text {h}}, \end {split} \label {equ:smplplus}
+(3)
+
+
+Disentangled Clothed Avatar Generation from Text Descriptions
+5
+Stage I
+Point Light Source
+Rendering
+Stage II
+Point Light Source
+Rendering
+ControlNet
+''Caucasian
+Teenage Boy''
+Human Prompt
+''Grey Tweed Blazer''
+Clothes Prompt
+''Caucasian Teenage Boy
+wearing grey tweed blazer''
+Clothed-Human
+Prompt
+Stable Diffusion
+Shading
+Update
+Update
+Fig. 2: An overview of our generation pipeline. Our pipeline has two stages. In
+Stage I, we generate a base human body model by optimizing its shape parameter β,
+vertex offset Oh and albedo texture Γh. A ControlNet is utilized to compute a Score
+Distillation Sampling(SDS) Loss conditioned on an “A”-pose map P for the rendered
+RGB image Ih and normal map Nh. In Stage II, we freeze the human body model
+and optimize the clothes parameters Oc along with the albedo texture MLP Γc. The
+rendered RGB images and normal maps of both the clothed human and the clothes are
+used in computing the SDS losses. In both stages, we utilized a simple Phong shading
+model to render images from our SO-SMPL representations.
+where Oh is trainable vertex-wise offset and β is trainable shape parameter.
+Clothes geometry. Clothes are represented by additional vertex-wise masks
+Mc and offsets Oc on Th. The clothed human mesh Tc+h are
+  \begi n { spl it}  \math bf { T} _ {\text {c+h}}(\beta , \mathbf {O}_{\text {h}},\mathbf {O}_{\text {c}},\mathbf {M}_{\text {c}}) &= \mathbf {T}_{\text {h}}(\beta , \mathbf {O}_{\text {h}}) + \mathbf {O}_{\text {c}} \odot \mathbf {M}_{\text {c}}, \end {split} \label {equ:smplplusclothedhuman}
+(4)
+where ⊙denotes the Hadamard product between the vertex-wise offsets and
+masks. We can also get the clothes geometry Tc only by masking on the clothed
+human mesh
+  \be gin  {s pli t } \math bf {T} _{\ t ext {c}}(\beta , \mathbf {O}_{\text {h}},\mathbf {O}_{\text {c}},\mathbf {M}_{\text {c}}) &= \mathbf {T}_{\text {c+h}}(\beta , \mathbf {O}_{\text {h}},\mathbf {O}_{\text {c}},\mathbf {M}_{\text {c}}) \odot \mathbf {M}_{\text {c}}. \end {split} \label {equ:smplplusclothes}
+(5)
+To enable the generation of diverse clothes types, we use the body-part segments
+of SMPL-X and pre-define vertex-level mask templates of 6 different garment
+types, namely long shirts, short shirts, long pants, short pants, vests, and overalls.
+These templates are used to initialize clothes mask Mc. We can also support
+skirts generation using the skirts template from BCNet [42].
+Discussion. Previous works [37, 109] tried to represent clothes as a volume-
+based representation, e.g. NeRF [62], which is hard to be converted to a mesh.
+Our clothes representation is naturally a thin mesh representation, which is
+preferable for most graphics software and physical simulators [1,2]. Meanwhile,
+by representing the clothes as a displacement surface that “grows” upon the base
+human, we ensure the alignment between the human body and clothes.
+4.2
+SO-SMPL Rendering
+On both the human body mesh and the clothes mesh, we model appearances
+with a Phong shading model where the meshes are characterized by their albedo
+and the lighting is simply a combination of a point light and an ambient light.
+
+
+6
+J. Wang et al.
+Human Offsets
+Clothes Offsets
+SO-SMPL
+Fig. 3: Illustration of our SO-SMPL representation. Two vertex-wise offsets,
+namely the human offset Oh and the clothes offset Oc are sequentially added in order
+to the SMPL-X body mesh T(β) to obtain the human body mesh Th(β, Oh) and
+clothed human mesh Tc+h(β, Oh, Oc, Mc), where a vertex mask Mc is calculated to
+determine the clothing region. Finally, we mask the clothed human mesh with Mc and
+obtain the separated clothes mesh Tc(β, Oh, Oc, Mc).
+Albedo. We use an MLP Γi to represent the albedo of the mesh. The albedo ρ
+of a 3D point x on the target mesh is computed by
+  \mathbf {\rho } &= \Gamma _i(\gamma (\mathbf {x}); \xi _i), \label {equ:mlp}
+(6)
+where i ∈{h, c} means clothes or human body, γ is positional encoding of the
+3D position x, and ξi is the parameter of the MLP.
+Shading model. Given a randomly-sampled point light with a position of v
+and an intensity of ld, along with the ambient light intensity la, the shading
+color c of a surface point p is computed by
+  \begi n  {spli t}  \mathbf {c} &= \mathbf {\rho }_\mathbf {p} (\mathbf {l}_{\text {a}} + \max (0, \vec {\mathbf {n}}_l \cdot \vec {\mathbf {n}}_\mathbf {p}) \mathbf {l}_{\text {d}}) \end {split} \label {equ:lambertian}
+(7)
+where np is the normal direction of the point p, nl = (v −p)/∥v −p∥2 is the
+light direction towards the surface vertice, and ρp is the albeodo on this point.
+Fig. 4: An intuitive illustration of the impact of the baked-in artifacts in
+learned albedo. On the left, the generated pant suffers from severe baked-in wrinkles
+in its texture, resulting in non-photorealistic wrinkles and shadows in animation. On
+the right side, our shader prevents the shadows from baking into the albedo, hence
+significantly improving the visual quality of animations.
+Discussion. Incorporating this shading model greatly reduces the chance that
+the shadows are baked into the albedo of the generated clothes, which improves
+
+
+Disentangled Clothed Avatar Generation from Text Descriptions
+7
+the consistency between geometry and textures, as shown in Fig. 4. This shading
+model associates the rendering colors with the generated normals so optimizing
+rendering colors also changes the normal directions, which reduces the chances
+of getting baked-in shadows or wrinkles.
+Rendering clothes & human body. From any given camera viewpoint, we
+can render the images from our SO-SMPL representation using rasterization.
+We first determine the corresponding 3D point and its normal from Th+c on
+every pixel. Then, the shading colors are computed using Eq. 7, resulting in the
+rendered image Ih+c. In a similar fashion, we render separate images for the
+body (Ih) and the clothes (Ic), respectively. Concurrently, we also obtain the
+corresponding normal maps Nh+c, Nh, and Nc. More details are included in the
+supplementary material.
+4.3
+SO-SMPL Generation
+To learn the geometry and texture representations of the SO-SMPL model, we
+utilize SDS losses on both the rendered RGB images and the normal maps.
+Our approach involves a two-stage optimization process: In Stage I, we focus
+on generating an unclothed human body model. Following this, in Stage II, we
+proceed to generate the clothing, which is attached to the human body model
+established in Stage I.
+Stage I: Human body generation. For the human body generation, we adopt
+an OpenPose [10]-based ControlNet [114] with SDS [71] losses to optimize a SO-
+SMPL representation. An “A”-pose joint map P rendered from 3D skeleton joints
+is utilized as the condition for ControlNet to compute SDS losses. Given an input
+rendered image I ∈{Ih, Nh}, the gradient is computed by
+  \n a bla 
+_
+{\Theta _{\ te xt  {h }}
+} \
+m
+athcal {L} = E_{t,\epsilon } \left [(\hat {\epsilon }_{\phi }(\mathbf {I}_t; \mathbf {y}_{\text {h}}, \mathcal {P}, t) - \epsilon ) \frac {\partial \mathbf {I}}{\partial \Theta _{\text {h}}} \right ], 
+(8)
+where It = I + ϵ is a noisy version of the input image, Θh = {β, Oh, ξh} is
+the trainable parameters during human body generation, {β, Oh} are geometry
+parameters, ξh is the texture parameters, ˆϵϕ(It; yh, P, t) is the predicted noise
+given text embedding yh, noise step t and the pose map P. To ensure our gener-
+ated human body mesh is unclothed, we add specific descriptions to the human
+prompt such as “wearing tight shorts”. Additionally, to further guide the body
+mesh and texture away from depicting clothing, we employ negative prompts
+like “loose clothes, accessories”.
+Stage II: Clothes generation. Similar to human body generation, we also
+utilize SDS losses to update clothing parameters Θc = {Oc, ξc}. We calculate
+SDS gradients through RGB and normal images of both the clothed human and
+the separated clothes. Given a rendered image I ∈{Ic, Nc, Ic+h, Nc+h}, and its
+corresponding text prompt embedding yc, the SDS loss is termed as:
+  \b e gin 
+{
+split} \ nab la  _{ \T
+het
+a _{\text {c}}} \mathcal {L} = E_{t,\epsilon } \left [(\hat {\epsilon }_{\phi }(\mathbf {I}_t; \mathbf {y}_{\text {c}}, t) - \epsilon ) \frac {\partial \mathbf {I}}{\partial \Theta _{\text {c}}} \right ] \end {split}
+
+
+8
+J. Wang et al.
+Fig. 5: A gallery of our generated clothed avatars. Our method can generate
+avatars with varied ethnicities, genders, and clothes.
+Albedo smoothness constraint. To avoid geometries (e.g. wrinkles and bumps)
+and lighting (shadows and highlights) being baked into the albedo of the model,
+we employ an albedo smoothness loss following [17,115] to reduce these effects.
+With a small perturbation δ of the input position x, we encourage the estimated
+albedo from texture MLP Γi ∈{Γh, Γc} to be consistent, i.e.
+  \ mathca l  {L} _ {a} = \|\Gamma _i(\mathbf {x}) - \Gamma _i(\mathbf {x} + \delta )\|_2 
+(9)
+Geometry constraints. In both the human body and clothing generation, we
+utilize geometry constraints to ensure that the mesh is smooth and does not devi-
+ate too far from the original SMPL-X mesh. We employ a Laplacian smoothness
+term [44] Ls to minimize the norm of graph Laplacian. We also add an offset
+regularizing term Lo = ∥Oi∥2 for the body/clothes offset Oi ∈{Oh, Oc}. Thus,
+the geometry regularization loss is Lgeo = Ls +Lo. More implementation details
+such as camera configurations are included in the supplementary material.
+5
+Experiments
+5.1
+Generated Avatars & Clothes
+As demonstrated in Fig. 5, our method generates diverse avatars and various
+types of clothes with detailed textures. Besides, since the clothes are generated
+on a base human body, they fit with the intended human naturally.
+5.2
+Quality Comparisons
+We conduct comparisons on three aspects, static clothed-avatar quality, clothes
+quality, and animation quality. For the generation quality of clothed avatars,
+
+
+Disentangled Clothed Avatar Generation from Text Descriptions
+9
+Fig. 6: Quality comparison of the generated clothed avatars. We compare re-
+sults from TEXture [76], AvatarCLIP [35], TADA! [51] and our method with the same
+prompts.
+we compare with state-of-the-art text-to-3D avatar generation methods TEX-
+ture [76], AvatarCLIP [35] and TADA! [51]. As for clothes generation, we con-
+duct comparisons with two of the best existing text-to-3D methods Prolific-
+Dreamer [94] and TextMesh [86]. We then compare animation results in the
+physical simulation environment [2] with the animatable meshes generated by
+TEXture [76] and TADA! [51].
+Clothed avatar quality. A visual comparison of the generated avatars is pre-
+sented in Fig. 6. TEXTure [76] takes a fixed SMPL-X mesh as input and suffers
+from texture inconsistency under different views. AvatarCLIP [35] often produces
+geometry artifacts and poor facial details. TADA! [51] tends to generate unnatu-
+ral geometric artifacts and unaligned outfits, e.g. a hull on the African-American
+woman’s belly and the white teenage girl’s yellow pants that contradicts the
+“beige legging” described by the prompt. This is because they use a simple text-
+to-image diffusion model and lack sufficient regularization on geometry. In com-
+parison, using a pose-controlled diffusion model and proper regularization, our
+method can produce not only the most realistic human with detailed textures
+but also high-quality clothes that are semantically aligned with texts.
+Clothes quality. We also evaluate the quality of the separated clothes. As
+demonstrated in Fig. 7, neither TextMesh [86] or ProlificDreamer [94] can gen-
+erate meaningful clothes shapes or textures. Besides, they cannot control the
+position and the size of the generated clothes, and thus cannot be fitted to an
+
+
+10
+J. Wang et al.
+avatar. In comparison, our method can produce clothes fitting to a specific avatar
+and also with high-quality textures and shapes.
+Fig. 7: Comparisons of clothes generation quality. Garments in each row are
+generated using the same prompts.
+Animation quality. Our generated human body mesh is built upon the SMPL-
+X model and thus allows us to use SMPL-X parameters to animate the body.
+On the other hand, the separately generated clothes can be used in a simula-
+tion environment [1, 2] to simulate their motions. We used motion sequences
+from AMASS [60] and AIST++ [50] to animate the generated avatars and sim-
+ulate the clothes animations in the MarvelousDesigner [2]. Note that the recent
+progress in human motion synthesis [3,18,23,85,87,117] or human motion cap-
+ture from visual signals [14, 24, 49, 81, 92, 110] can also be employed to drive
+the generated character. The animation results of TADA!, TEXTure, and our
+method are shown in Fig. 8. For TADA! and TEXTure, the clothes are entangled
+on the generated avatar, which leads to inconsistent wrinkles and shadows in an-
+imation. Our method disentangles clothes and human bodies, enabling realistic
+clothes-body interactions and visual effects.
+Methods
+AvatarCLIP [35] TEXture [76] TADA [51] Ours
+FID ↓
+166.0
+132.8
+90.2
+84.9
+CLIP-FID ↓
+34.9
+42.8
+27.4
+26.2
+CLIP Score ↑
+19.2
+23.6
+24.9
+28.4
+Table 1: Quantitative comparisons of generated “A”-pose avatar quality in FID, CLIP-
+FID, and CLIP score.

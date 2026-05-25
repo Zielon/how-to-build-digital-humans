@@ -1,0 +1,1135 @@
+Title: GRMM: Real-Time High-Fidelity Gaussian Morphable Head Model with Learned Residuals
+
+GRMM: Real-Time High-Fidelity Gaussian Morphable Head Model
+with Learned Residuals
+Mohit Mendiratta1* Mayur Deshmukh1
+Kartik Teotia1
+Vladislav Golyanik1
+Adam Kortylewski1,2
+Christian Theobalt1
+1 Max Planck Institute for Informatics and Saarland University
+2 University of Freiburg
+Monocular Input
+Reconstruction
+3DMM Expression
+Novel-View Synthesis @ 75 fps
+3DMM Identity
+3DMM Neck Pose
+Residual Expression
+Residual Identity
+Parametric Control
+Multi-view Dataset EXPRESS-50
+GRMM
+Figure 1.
+GRMM provides disentangled control over a base 3DMM and learned residuals, fitting unseen identities from input images
+and enabling novel view synthesis and expression editing while preserving identity. It produces photorealistic 1K-resolution full-head
+renderings with diverse expressions in real time, achieving up to 75 fps. As part of this work, we also contribute EXPRESS-50, a dataset
+of 50 identities with 60 distinct expressions aligned across subjects, enabling consistent modeling of expression residuals.
+Abstract
+3D Morphable Models (3DMMs) enable controllable fa-
+cial geometry and expression editing for reconstruction,
+animation, and AR/VR, but traditional PCA-based mesh
+models are limited in resolution, detail, and photoreal-
+ism. Neural volumetric methods improve realism but re-
+main too slow for interactive use. Recent Gaussian Splat-
+ting (3DGS) based facial models achieve fast, high-quality
+rendering but still depend solely on a mesh-based 3DMM
+prior for expression control, limiting their ability to capture
+fine-grained geometry, expressions, and full-head coverage.
+We introduce GRMM, the first full-head Gaussian 3D mor-
+phable model that augments a base 3DMM with residual
+geometry and appearance components, additive refinements
+that recover high-frequency details such as wrinkles, fine
+skin texture, and hairline variations. GRMM provides dis-
+entangled control through low-dimensional, interpretable
+parameters (e.g., identity shape, facial expressions) while
+separately modelling residuals that capture subject- and
+expression-specific detail beyond the base model’s capac-
+ity. Coarse decoders produce vertex-level mesh deforma-
+tions, fine decoders represent per-Gaussian appearance,
+and a lightweight CNN refines rasterised images for en-
+hanced realism, all while maintaining 75 FPS real-time
+rendering. To learn consistent, high-fidelity residuals, we
+present EXPRESS-50, the first dataset with 60 aligned ex-
+pressions across 50 identities, enabling robust disentangle-
+ment of identity and expression in Gaussian-based 3DMMs.
+Across monocular 3D face reconstruction, novel-view syn-
+thesis, and expression transfer, GRMM surpasses state-of-
+the-art methods in fidelity and expression accuracy while
+delivering interactive real-time performance.
+1. Introduction
+High-fidelity 3D face modelling is essential for VR, AR,
+animation, and digital avatar creation. A widely used class
+of methods, 3D Morphable Models (3DMMs) [2, 10] com-
+pactly and controllably represent facial geometry and ap-
+pearance using low-dimensional parametric spaces. How-
+ever, achieving photorealism, real-time efficiency, and ex-
+pressiveness remains challenging, as current methods strug-
+gle to capture fine details while maintaining real-time per-
+formance. Traditional mesh-based 3DMMs [2, 3, 20, 46]
+are efficient and interpretable but limited in resolution and
+unable to represent fine-scale geometry and texture vari-
+ation.
+Neural rendering [12, 47] and volumetric meth-
+arXiv:2509.02141v1  [cs.GR]  2 Sep 2025
+
+
+ods [13, 14, 52] improve visual fidelity, but are computa-
+tionally heavy and struggle with large deformations or ex-
+treme expressions. More recently, 3D Gaussian Splatting
+(3DGS)[15] has enabled high-resolution rendering at inter-
+active rates. However, 3DGS-based facial models[45, 50]
+still rely solely on coarse mesh-based 3DMM priors for ex-
+pression control, limiting their expressivity and ability to
+capture subtle, identity- or expression-specific detail. Fur-
+thermore, these models are not publicly available.
+An additional bottleneck is the scarcity of datasets with
+both high expression diversity and cross-identity expres-
+sion alignment. While recent datasets [19, 24, 25] improve
+identity coverage, they typically provide limited expression
+variability and lack the alignment required for disentangled
+identity–expression learning.
+To address these limitations, we propose the Gaussian
+Residual Morphable Model (GRMM), the first open-source,
+full-head 3D Gaussian morphable model with learned resid-
+uals: additive refinements to both geometry and appearance
+that recover high-frequency details such as wrinkles, skin
+microstructure, and hairline variation beyond the capacity
+of a base 3DMM. GRMM offers independent control over
+(i) interpretable low-dimensional 3DMM parameters (iden-
+tity shape, facial expression, head pose) and (ii) residual
+parameters that encode fine-scale, identity- and expression-
+specific deviations. This separation enables precise, compo-
+sitional manipulation of facial attributes without sacrificing
+realism (Figure 1).
+Technically, GRMM is based on a mesh-based base
+3DMM [20] to produce a coarse head shape and pre-
+dicts residual deformations using lightweight MLPs driven
+by low-dimensional identity and expression codes.
+UV-
+anchored Gaussian primitives deform coherently with the
+mesh, preserving spatial consistency and cross-identity cor-
+respondence. Convolutional decoders predict per-Gaussian
+appearance for detailed geometry and texture, while an
+image-space CNN refines rasterised images to recover sur-
+face details not fully captured by the Gaussians. The result
+is real-time 1K-resolution rendering at 75 FPS.
+To support learning disentangled residuals, we introduce
+EXPRESS-50, a multi-view dataset containing 50 identities
+each performing 60 consistently aligned expressions. Ex-
+pression alignment is achieved via over 150 hours of frame-
+by-frame manual annotation, ensuring that all subjects ex-
+hibit semantically matched expressions (including challeng-
+ing motions such as tongue movement). This alignment en-
+ables cross-identity supervision for robust residual disen-
+tanglement and improves generalisation to unseen subjects
+and expressions.
+In summary, our contributions are:
+• GRMM, the first open-source, full-head residual Gaus-
+sian morphable model that achieves high expressivity,
+fine-grained control, and real-time 1K rendering at 75
+FPS, outperforming prior morphable face models in both
+quality and flexibility.
+• A novel architecture that separates base 3DMM control
+from learned residual geometry and appearance, com-
+bined with enhanced mesh topology and UV mapping that
+explicitly models teeth and inner-mouth regions. Thus,
+enabling high rendering quality, speed, and expressivity.
+• EXPRESS-50, i.e., a new multi-view image dataset with
+50 identities and 60 aligned facial expressions, extends
+the corpus of existing datasets in the literature and serves
+as an essential ingredient to obtaining the results demon-
+strated in this paper.
+2. Related Work
+Mesh-based head models.
+Parametric 3D face models
+represent facial geometry, expression, and identity using
+low-dimensional parameters. The seminal 3D Morphable
+Model (3DMM) by Blanz and Vetter [2] aligns a fixed-
+topology mesh to 3D scans through non-rigid registra-
+tion and learns shape and appearance spaces via PCA [1].
+Subsequent works [20, 40] introduced multilinear models
+with separate control over facial components (e.g., jaw and
+eyes), which have become standard priors for reconstruc-
+tion and tracking [17, 35, 36]. FaceScape [46] improved
+realism with high-resolution geometry and diverse expres-
+sions, but mesh-based 3DMMs remain constrained by lin-
+ear subspaces and limited expressiveness for fine details.
+To overcome this, non-linear mesh 3DMMs [29, 38, 39]
+use deep networks to learn complex mappings from latent
+codes to mesh geometry, improving reconstruction quality
+and facial variation. However, these models often act as
+black boxes, sacrificing interpretability and editability, and
+typically remain limited to facial regions without support-
+ing full-head modelling. Delta models such as DECA [11]
+and EMOCA [8] enhance detail with UV-space displace-
+ments but remain restricted to the facial region.
+Gener-
+ative approaches, such as Morphable Diffusion [6], lever-
+age diffusion models conditioned on 3DMMs to synthesise
+avatars from a single image; however, they lack explicit
+control over identity and expression, and cannot represent
+the mouth interior or hair. Our method unifies the control-
+lability of mesh-based 3DMMs with learned full-head per-
+vertex deltas and 3D Gaussian refinement, thereby retaining
+interpretability while capturing high-frequency details that
+exceed the limits of linear or face-only models.
+Implicit parametric head models.
+Implicit representa-
+tions have driven significant progress in neural parametric
+head modelling. SDF-based methods [12, 47] avoid fixed
+mesh topology and better capture complex structures like
+hair. NeRF-based approaches [14, 42, 52] achieve photore-
+alistic heads without explicit geometry, while hybrid tech-
+niques [5, 13, 23] combine mesh priors with volumetric
+
+
+fields for improved controllability and realism, often using
+large-scale capture datasets. However, NeRF-based models
+suffer from low rendering efficiency, forcing trade-offs be-
+tween quality and speed. In contrast, our method predicts
+mesh-based deformations in a delta space and adds fine-
+scale details using 3D Gaussians, enabling efficient render-
+ing while preserving control and high-frequency detail.
+3D Gaussians-based head representations.
+3D Gaus-
+sian splatting (3DGS) has recently emerged as a powerful
+approach for photorealistic novel-view rendering with real-
+time performance [15, 41].
+Initially developed for rigid
+scenes, it has been extended to dynamic domains, including
+human heads and faces. The 3D Gaussian Parametric Head
+Model (GPHM) [45] adapts 3DGS for facial geometry by
+representing the head with a dense set of Gaussians trained
+on datasets such as NeRSemble [19] and FaceVerse [43],
+achieving high-quality synthesis. However, GPHM relies
+on MLP decoding, lacks a clear separation between coarse
+geometry and fine detail, and relies on 3DMM fitting and
+keypoints for reconstruction, which limits its expressive-
+ness. HeadGAP [50] builds on FLAME with part-based
+Gaussian offsets but remains constrained by FLAME’s fixed
+topology and shape space, while also inheriting the MLP
+overhead.
+Furthermore, HeadGAP cannot sample new
+identities or expressions, reducing its generative flexibil-
+ity. Other re-enactment approaches, such as GAGAvatar [7]
+and Portrait4D-v2 [9], use captured FLAME parameters but
+can only replay observed motions. Despite these advances,
+building a generative, expressive, and efficient head model
+remains an open challenge. Our approach combines mesh-
+based 3DMM control with full-head geometric deltas and
+3D Gaussian refinement.
+We utilise a lightweight MLP
+for vertex geometry and convolutional decoders for per-
+Gaussian parameters, thereby avoiding the need for heavy
+per-Gaussian MLPs. This design reduces runtime, separates
+coarse geometry from fine details, and allows for sampling
+of identities and expressions.
+Multiview
+head
+datasets.
+Several
+multiview
+head
+datasets have been developed to advance 3D head mod-
+elling.
+FaceScape [46] captures 938 subjects with 20
+expressions
+using
+high-resolution
+multiview
+images,
+primarily featuring East Asian identities and excluding
+hair.
+NeRSemble [19] comprises 300 identities in con-
+trolled setups, offering good subject diversity but limited
+expression coverage [27].
+RenderMe-360 [25] captures
+500 subjects with full 360-degree views, including complex
+hairstyles and accessories, but offers only 12 expressions
+per subject. AVA-256 [24] extends diversity by supporting
+256 identities under consistent illumination and broad ex-
+pression coverage, but it suffers from background matting
+and unnatural colour distribution, which complicates 3D
+reconstruction. Although these datasets improve diversity
+and fidelity, they lack expression alignment across identi-
+ties, which is critical for learning morphable models with
+precise identity-expression control.
+We complement these datasets with our EXPRESS-50
+dataset, which provides expression alignment across 50 di-
+verse identities. EXPRESS-50 captures a broader range of
+expressions than existing datasets, ensuring consistent cor-
+respondence across subjects. This alignment is essential for
+learning expressive, identity-disentangled morphable mod-
+els.
+3. Method
+We present GRMM, a real-time, high-fidelity full-head
+morphable model that augments a mesh-based 3D Mor-
+phable Model (3DMM) with learned geometry and appear-
+ance residuals using 3D Gaussian splatting. Section 3.1 in-
+troduces our new EXPRESS-50 dataset and the associated
+preprocessing pipeline, which together form a key contribu-
+tion enabling consistent expression alignment across iden-
+tities. Section 3.2 outlines the Gaussian attributes, image
+model, and camera model used to define the 3D representa-
+tion and projection process. Section 3.3 describes the model
+structure, and Section 3.4 details the training methodology.
+Finally, Section 3.5 presents the inference process, includ-
+ing refinement steps for full-head reconstruction.
+3.1. Expression-Aligned Datasets
+We use two datasets to train our model: EXPRESS-50, a
+novel dataset we collected for complex facial expression
+modelling, and RenderMe-360 [25], a publicly available
+4D human head dataset. EXPRESS-50 was created to pro-
+vide a rich and diverse set of high-intensity expressions,
+complementing RenderMe-360’s broader identity coverage.
+EXPRESS-50 contains 50 identities performing 60 distinct
+expressions, recorded at 24 fps using a 24-camera FaceRig
+at 3840×2160 resolution. RenderMe-360 features 500 sub-
+jects performing 12 expressions, captured with 60 synchro-
+nised cameras at a resolution of 2448×2048.
+Preprocessing.
+We preprocess both datasets through ex-
+pression alignment, tracking, image preprocessing, and
+depth generation. A key contribution is the manual align-
+ment of expressions across identities, enabling better disen-
+tanglement of identity and expression residuals in our mor-
+phable model. Age and gender statistics for EXPRESS-50
+are in the supplemental (Section 5), and we will publicly
+release the dataset with annotations, expression labels, and
+preprocessing outputs.
+Expression Alignment.
+We manually annotate peak ex-
+pressions in the EXPRESS-50 and RenderMe-360 datasets
+
+
+to ensure consistent expression alignment across identities.
+In EXPRESS-50, each subject follows a scripted sequence
+of 60 expressions demonstrated via a reference video. For
+a chosen reference identity, we manually select the frame
+where each expression is most prominent to serve as the
+canonical example.
+For the remaining 49 identities, we
+select the peak expression frame that best matches each
+canonical frame, ensuring visual and semantic alignment
+across subjects. In RenderMe-360, each of the 12 expres-
+sions is provided as a short video sequence per identity. We
+observe that the final frame in each sequence typically cap-
+tures the peak of the intended expression, so we annotate
+the last frame of each video as the aligned expression frame.
+We use 280 RenderMe-360 identities for alignment, exclud-
+ing those with heavy makeup or large accessories that inter-
+fere with facial appearance. Together, these datasets com-
+prise 330 unique identities, offering broad coverage of facial
+shapes and expressions. Examples of consistent expression
+alignment are included in the supplementary material.
+Tracking.
+To recover coarse facial geometry, we estimate
+FLAME [20] parameters: neck pose θneck, jaw pose θjaw,
+expression αexp, and identity αid. We adopt landmark- and
+photometry-based tracking using VHAP [28] to fit FLAME
+to annotated frames, obtaining a tracked mesh vrec, global
+pose (R, t) per frame. For RenderMe-360 and EXPRESS-
+50, 68 facial landmarks from [4] guide the tracking.
+Ground-Truth Depth Generation.
+To obtain high-
+quality ground truth depth images Igt
+depth for supervision,
+we adopt ProbeSDF [37], a state-of-the-art surface recon-
+struction method.
+We apply it to each time step in our
+dataset to raycast depth from the optimised 3D surface.
+Image Preprocessing.
+Foreground masks are extracted
+with RMBG-2.0 [49] for RenderMe-360 and Background-
+MattingV2 [21] for EXPRESS-50, while Sapiens [16] pro-
+vides additional facial masks to remove the torso and focus
+on the face.
+3.2. Preliminaries
+Image Generation Model.
+We build upon 3D Gaussian
+Splatting (3DGS) [15], where each primitive is parameter-
+ized by position p, rotation r, scale s, opacity o, and color
+c. Following RaDe-GS [48], we render depth from Gaus-
+sian attributes, and further attach a learnable feature vector
+fi ∈R32 to each primitive for richer mid-level appearance.
+The complete attribute set is
+B = {p, r, s, o, c, f},
+Irgb, Idepth, Ifeature = R(B, πK,E),
+(1)
+where R is a differentiable rasterizer with camera intrinsics
+K and extrinsics E. To ensure a consistent reference frame,
+we transform cameras into the canonical FLAME space:
+π′
+R,t = K · E ·
+R
+t
+,
+(2)
+where R, t are the tracked FLAME mesh orientation
+and translation obtained from the preprocessing step Sec-
+tion 3.1.
+GaussianHeads.
+Our GRMM method adapts the Gaus-
+sianHeads (GH) [34] architecture, which maps primitives
+to UV space of a template mesh.
+Unlike GH, designed
+for subject-specific reconstruction, our method generalizes
+across identities and expressions with a different formula-
+tion and training strategy. Given expression code zexp and
+view direction d, GH predicts primitive attributes as
+{vδ, δr, δp, δs, o, c} = DGH(zexp, d),
+(3)
+where vδ are mesh vertex deformations, {δr, δp, δs} are ro-
+tation, translation and scale offsets relative to the template,
+and o, c denote opacity and color.
+3.3. Gaussian Residual Morphable Model
+Our goal is to generate a high-fidelity head model for un-
+seen identity and expression. Our method comprises a set
+of decoders (Figure 2), DGRMM := {Φmesh, ΦT , Φα, Φapp}
+and a refinement network Ψref. The mesh decoder Φmesh
+predicts vertex deformations for vrec, the transform decoder
+ΦT outputs Gaussian primitive transformations, the opacity
+decoder Φα estimates primitive opacities, and the color de-
+coder Φapp produces view-dependent appearance. All mod-
+ules take as input the residual identity code zid, residual
+expression code zexp, neck pose θneck, jaw pose θjaw, ex-
+pression coefficients αexp, and view direction d, generating
+a complete head model with photorealistic rendering.
+{vδ, δr, δp, δs, o, c, f} = DGRMM
+ zid, zexp, αexp,
+θneck, θjaw, d
+
+.
+(4)
+The refinement network Ψref refines the rendered image
+Irgb, which is obtained from Equation 1. Each component
+is introduced in detail in the following sections.
+Leveraging Expression Alignment.
+We represent each
+subject with a learnable residual identity latent code zid ∈
+R512 and each facial expression with a learnable global ex-
+pression residual latent code zexp ∈R256. Each expres-
+sion is associated with a single zexp that is shared across all
+identities. This design promotes a clear separation between
+identity and expression residuals.
+Mesh Decoder
+The mesh decoder Φmesh predicts per-
+vertex identity and expression displacements.
+We use a
+shared MLP before the decoder to fuse identity and pose
+
+
+Appearance Map
+Opacity Map
+Mesh Decoder
+p 
+r 
+s
+Rendered Image
+Feature Image
+Depth Image
+Output Image
+Splatting
+Inference Step
+View direction
+Concatenation
+Addition
+pin rin sin
+Initialized 
+Gaussians
+pin rin sin
+Deformed Mesh
+FLAME 
+DECODER
+OUTPUT
+,
+,
+,
+Template 3DMM
+Mesh Decoder
+Figure 2. Method pipeline. Identity and expression latents zid ∈R512 and zexp ∈R256, together with FLAME pose/expression param-
+eters (θneck, θjaw, αexp), drive the coarse mesh decoder Φmesh to predict per-vertex displacements vδ. Adding these to the tracked mesh
+vrec yields the deformed mesh Md = (vd, F). UV-anchored 3D Gaussians with initial (pin, rin, sin) are placed on Md. The transfor-
+mation decoder ΦT(zid, zexp) outputs UV-aligned maps δp, δr, δs to refine position, rotation, and scale; the opacity decoder Φα(zid) and
+appearance decoder Φapp(zid, d) produce opacity, RGB, and a 32-D feature map. A differentiable rasterizer renders Irgb, Idepth, Ifeature,
+where Idepth is normalized to Inorm
+depth and provided as input to the screen-space CNN Ψref, which outputs the final RGB image I.
+features, which improves conditioning and enables disen-
+tangled geometry prediction. A shared MLP processes the
+identity and pose inputs:
+fbase = MLPshared([zid, θneck, θjaw]),
+(5)
+where zid
+∈
+R512 is the residual identity code, and
+θneck, θjaw ∈R3 are pose parameters. Identity displace-
+ments are predicted as:
+vδ,id = Φmesh,id(fbase),
+(6)
+where vδ,id ∈RNv×3 and Nv is the number of mesh ver-
+tices. FLAME expression modulation is applied to the con-
+catenated identity–expression feature:
+fexp = [fbase, zexp],
+zexp ∈R256,
+(7)
+[γ, β] = MLPFiLM(αexp),
+αexp ∈R100,
+(8)
+˜fexp = fexp + γ ⊙fexp + β,
+(9)
+where MLPFiLM outputs the scale γ ∈Rd and shift β ∈
+Rd parameters for feature-wise linear modulation (FiLM).
+Expression displacements are then computed as:
+vδ,exp = Φmesh,exp(˜fexp).
+(10)
+The final deformed mesh is:
+vd = vrec + vδ,id + Mface vδ,exp,
+(11)
+where Mface masks teeth vertices to prevent expression off-
+sets. We add teeth vertices following VHAP and extend
+FLAME with inner-mouth faces, forming Md = (vd, F),
+where F is the face connectivity. FLAME enhancements
+are provided and ablated in the supplemental material (Sec-
+tion 7). Additionally, we ablate the importance of Φmesh
+in Section 10.
+Gaussian Primitive Initialisation.
+We initialize Nprim =
+N2
+g 3D Gaussians by uniformly sampling the UV space of
+the 3DMM mesh at a resolution of Ng×Ng, with Ng = 512.
+Each Gaussian is assigned a position pin ∈R3 via barycen-
+tric interpolation on the deformed mesh Md with vertices
+vd, and both rotation rin ∈R3 and scale sin ∈R3 are ini-
+tialized to zero. To model the mouth interior, we enhance
+the FLAME UV map by defining separate UV regions for
+the teeth and mouth interior. More details are provided in
+the supplemental material (Section 7).
+Decoding the Gaussian Primitive Attributes.
+To enable
+high-resolution real-time rendering, we decode the proper-
+ties of each Gaussian using efficient CNN decoders. Fol-
+lowing [26, 32], these decoders map identity and expression
+codes (zid, zexp) to geometric and appearance attributes,
+capturing fine transformations and view-dependent colour.
+Transformation decoder ΦT maps zid and zexp to an
+offset map of size Ng×Ng×10, corresponding to the offsets
+of position (δp), rotation (δr) and scale (δs) for the initial
+values pin, rin, and sin. The updated Gaussian parameters
+are:
+p = pin + δp,
+r = δr,
+s = δs.
+(12)
+Position offsets δp capture fine-scale surface variation, in-
+cluding facial hair and inner-mouth geometry.
+
+
+Opacity decoder Φα predicts a map of size Ng×Ng×1,
+where each value represents the opacity oi of a Gaussian
+and is only conditioned on zid.
+Appearance decoder Φapp predicts a map of size Ng ×
+Ng × 35, where each entry contains RGB colour ci ∈R3×1
+and a learned feature vector fi ∈R32×1; this decoder is
+conditioned on zid and the view direction d.
+Refinement Network.
+We use a CNN in the screen space,
+Ψref, to refine the rendered results. The image resolution re-
+mains unchanged (1K) before and after refinement. Please
+refer to our video for a clearer illustration. We also ablate
+the importance of the refinement network in the supplemen-
+tary material (Section 10). This refinement enhances ap-
+pearance priors that are difficult to capture for our 3DGS-
+based model without altering the underlying 3D representa-
+tion, similar to the approaches in [44, 51].
+[Irgb, Ifeature, Idepth] = R(B, π′
+R,t),
+(13)
+I = Ψref([Irgb, Ifeature, Inorm
+depth]),
+(14)
+The rendered depth image is standardised for Ψref by ap-
+plying min–max normalisation, resulting in Inorm
+depth.
+3.4. Training and Losses
+Given the GRMM representation, our proposed model is
+learned end-to-end using multi-view image supervision to
+train the decoders and refinement network. For this, we op-
+timise the following objective function:
+L = Lrec(I, I∗) + Lrec(Irgb, I∗) +
+λdepth · Ldepth(Idepth, Igt
+depth) + Lreg .
+(15)
+Here, I∗denotes the ground-truth RGB image. Lrec is the
+reconstruction loss computed between both the image-space
+prediction I from refinement network and the rendered im-
+age Irgb against I∗. Ldepth is the L2 loss between the pre-
+dicted and ground-truth depth images, scaled by the weight
+λdepth.
+Finally, Lreg represents additional regularization
+terms applied during training. Specifically, image recon-
+struction loss:
+Lrec = λl1Ll1 + λssimLssim + λpercLperc
+(16)
+consists of L1 loss Ll1, SSIM loss Lssim, and perceptual loss
+Lperc with the VGG [33] as the backbone. Meanwhile, the
+training regularization loss:
+Lreg = λsLs + λzLz + λlapLlap,
+(17)
+Here, Ls is a regularisation term on the scale parameters,
+which encourages the scale of Gaussian primitives s to stay
+within a constrained range as follows:
+Ls = mean(ls), ls =
+
+
+
+
+
+1/ max(si,d, 10−7)
+if si,d < 0.1
+(si,d −10.0)2
+if si,d > 10.0
+0
+otherwise,
+(18)
+where si,d, d ∈{x, y, z} denotes the scale value of each
+Gaussian primitive i along each axis, and mean(·) is the
+average operation across all dimensions, similar to [31].
+Llap represents a smoothness regularization term for the de-
+formed mesh Md, and Lz is the L2-norm of zid and zexp to
+improve the disentanglement.
+In our experiments, we set λl1 = 0.8, λssim = 0.2,
+λperc = 0.04, λz = 0.001, λlap = 0.01, λs = 0.1 and
+λdepth = 0.5.
+3.5. Fitting via Inverse Rendering
+Given a single- or multi-view RGB portrait, we obtain 3D
+face tracking with VHAP and align inputs (Sec. 3.1). We
+use a two-stage optimisation.
+Stage 1 (latent inversion). With decoders fixed, we op-
+timise the latent codes zid and zexp by minimising
+L(1)
+fit = Lrec(I, I∗) + Lrec(Irgb, I∗) + λz Lz.
+(19)
+Stage 2 (prior-preserving refinement). We then fix zid
+and zexp and fine-tune DGRMM for by minimising
+L(2)
+fit = Lrec(I, I∗) + Lrec(Irgb, I∗) + λloc Lloc.
+(20)
+Lloc is a PTI [30]-inspired locality regulariser that con-
+strains updates to a small neighbourhood of the pretrained
+solution, preserving the prior. We set λloc = 0.1. We de-
+fine and ablate Lloc in detail in the supplementary material
+(Section 9).
+4. Experiments
+We evaluate GRMM on the RAVDESS [22] dataset for
+monocular 3D face reconstruction, using 10 randomly se-
+lected identities. To assess novel-view synthesis across di-
+verse expressions, we further sample ten identities from
+NeRSemble [19], five from RenderMe, and three from
+EXPRESS-50. RAVDESS provides monocular RGB videos
+with acted emotions, while NeRSemble contributes multi-
+view recordings that capture complex expressions and
+head motion.
+We report ablation studies in Section 4.1,
+and present results on downstream applications including
+monocular fitting, novel-view synthesis, and expression
+transfer in Section 4.2. Additionally, examples of disen-
+tangled parametric control for the inverted identities are in-
+cluded in the supplementary material (Section 12).
+4.1. Ablation
+No-residuals (direct 3DMM conditioning).
+In this vari-
+ant, we remove residual parameterisation and condition the
+network directly on the FLAME parameters.
+{vδ, δr, δp, δs, o, c, f} = DGRMM
+ αid, αexp, θneck, θjaw, d
+
+.
+(21)
+
+
+Learning residuals zid and zexp over FLAME parameters
+enhances identity and expression representations, yielding
+finer hair and appearance details and improved mouth artic-
+ulation (see Figure 3).
+EXP1
+EXP2
+ID1
+ID2
+Ground Truth
+With Residuals
+W/O Residuals
+Ground Truth
+With Residuals
+W/O Residuals
+Figure 3. Residual parameterization improves fidelity. Qualita-
+tive ablation comparing W/O residuals vs. With residuals. Resid-
+uals yield finer hair detail and better mouth articulation (e.g.,
+for ID1, EXP2 the mouth cannot roll in without residuals), with
+higher PSNR (dB): W/O residuals 28.91 vs. With residuals 30.54
+(+1.63). Please zoom in for details.
+Combining Datasets.
+We conduct an ablation study to
+assess the impact of combining EXPRESS-50 and Ren-
+derMe.
+Using camera views as input, we fit our model
+to target identities from NeRSemble.
+Figure 4 and Ta-
+ble 1 compare models trained without EXPRESS-50, with-
+out RenderMe, and with both datasets. Joint training clearly
+improves identity and expression fidelity, highlighting the
+complementary strengths of RenderMe-360 for identity
+generalization and EXPRESS-50 for expression generaliza-
+tion.
+Input Frame
+Ground Truth
+W/O RenderMe
+W/O EXPRESS-50
+Ours
+Figure 4.
+Combining Datasets.
+(left to right) Ground Truth,
+Without EXPRESS-50, without RenderMe and Ours. Our model
+trained with the combined datasets leads to overall better identity
+and expression fidelity.
+Table 1. Combining Datasets. Joint training clearly enhances
+both identity and expression fidelity, showcasing the complemen-
+tary strengths of RenderMe-360 for identity generalization and
+EXPRESS-50 for expression generalization.
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+W/O EXPRESS-50
+24.56
+0.87
+0.126
+W/O RenderMe
+25.27
+0.90
+0.115
+Ours - Full Model
+27.40
+0.92
+0.091
+Table 2. Novel-view synthesis. Quantitative comparison on held-
+out views. GRMM achieves the best performance, substantially
+improving over MoFaNeRF and HeadNeRF.
+Method
+PSNR ↑
+SSIM ↑
+LPIPS ↓
+MoFaNeRF
+13.89
+0.55
+0.372
+HeadNeRF
+17.42
+0.85
+0.178
+Ours
+30.85
+0.97
+0.072
+Table 3. Monocular reconstruction. Quantitative comparison us-
+ing RMSE and FID. GRMM outperforms MoFaNeRF and Head-
+NeRF, indicating improved pixel accuracy and perceptual fidelity.
+Method
+RMSE ↓
+FID ↓
+MoFaNeRF
+0.193
+290.786
+HeadNeRF
+0.067
+116.34
+Ours
+0.022
+74.34
+4.2. Comparisons and Application
+In this section, we demonstrate applications of GRMM in
+monocular image fitting, novel-view synthesis, and expres-
+sion transfer. These applications showcase the generalisa-
+tion capacity of our model to unseen identities, expressions
+and views.
+Compared Methods.
+We compare GRMM with pub-
+licly available parametric head models, including Head-
+NeRF [14], MoFaNeRF [52], and the recent Morphable Dif-
+fusion [6]. We observe that Morphable Diffusion is not a
+volume-rendering approach and achieves viewpoint control
+via a conditioning camera. Consequently, it does not gen-
+eralise well to camera distributions from unseen datasets;
+when rendering novel viewpoints using evaluation dataset
+cameras, the results appear misaligned and slightly dis-
+torted.
+Therefore, we do not report quantitative metrics
+for Morphable Diffusion, but instead assess its performance
+through a user study and qualitative analysis. The user study
+evaluates novel view, expression and identity consistency,
+with full details and results provided in the supplementary
+material (Section 8).
+Novel-view Synthesis.
+We evaluate GRMM for the task
+of novel-view synthesis for different identities in our eval-
+uation set. We fit our model to a single viewpoint as de-
+
+
+Input
+GT
+Fitting
+NV
+Ours
+Morphable Diffusion
+MoFaNeRF
+HeadNeRF
+Novel-View Synthesis
+Fitting
+NV
+Fitting
+NV
+Fitting
+NV
+Input
+Fitting
+NV
+Fitting
+NV
+Fitting
+NV
+Fitting
+NV
+Monocular Reconstruction
+Ours
+Morphable Diffusion
+MoFaNeRF
+HeadNeRF
+Figure 5. Novel view synthesis (left) and monocular reconstruction (right). Left: given one or few posed views, GRMM synthesizes
+unseen viewpoints while preserving identity and expression. Right: from a single RGB frame, GRMM reconstructs the subject and renders
+both the input and novel views. We compare against Morphable Diffusion [6], MoFaNeRF [52], and HeadNeRF [14] in both settings. FID
+is reported only in the monocular inversion setting, where GRMM achieves lower FID than all other baselines. Please zoom in for details.
+scribed in Section 3.5, and assess our model’s performance
+on two holdout views. Our method shows improved fitting
+and novel-view synthesis quality, as shown in Figure 5 and
+Table 2. Note that for the related methods, we use their pub-
+licly available inference code without any modifications.
+Input
+Target
+Ours
+Ground Truth
+MD
+Figure 6. Expression transfer. From a single frontal image, we
+invert (Sec. 3.5), swap expression parameters, and render novel
+views on EXPRESS-50 and NeRSemble. GRMM preserves iden-
+tity and subtle expressions with multi-view consistency, whereas
+Morphable Diffusion (MD) generates inconsistent expressions
+across views. Please zoom in for details.
+Expression Transfer.
+We compare GRMM to Morphable
+Diffusion for expression transfer by randomly sampling tar-
+get expressions for selected identities from EXPRESS-50
+and NeRSemble. For each identity, we perform inversion
+(Section 3.5) on a single frontal view, swap the expression
+parameters, and render the results under novel views. Quali-
+tatively, Morphable Diffusion struggles to capture subtle ex-
+pressions and produces expression-inconsistent renderings
+across novel views, whereas GRMM preserves both iden-
+tity and expressions with multi-view consistency at high
+resolution and real-time frame rates (see Figure 6 and the
+supplemental video). A user study (Section 8) corroborates
+these findings: participants consistently preferred GRMM
+for both expression accuracy and identity preservation in
+side-by-side novel-view comparisons.
+4.3. Conclusion
+We present GRMM, a Gaussian Residual Morphable Model
+that addresses key limitations of existing 3D morphable
+head models. By combining the efficiency of 3D Gaus-
+sian Splatting with residual augmentation of a mesh-based
+3DMM in a coarse-to-fine pipeline, GRMM achieves pho-
+torealistic and diverse facial expressions at 1K resolu-
+tion in real time (75 fps).
+The model leverages UV-
+anchored Gaussians and a lightweight refinement stage
+to enhance rendering quality, speed, and controllable ex-
+pressivity. We also introduce EXPRESS-50, a multi-view
+dataset with 50 identities and 60 semantically aligned ex-
+pressions, and show that joint training with RenderMe-
+360 improves both identity generalisation and expression
+fidelity.
+While advancing the state of the art, GRMM
+remains challenged by out-of-distribution subjects and
+lighting variations, suggesting the need for more diverse
+training data to improve robustness.
+With its ability to
+capture exaggerated expressions and render interactively,
+GRMM is well-suited for applications in computer graph-
+ics, virtual and augmented reality, and facial animation.
+References
+[1] Herv´e Abdi and Lynne J Williams.
+Principal component
+analysis.
+Wiley interdisciplinary reviews: computational
+statistics, 2(4):433–459, 2010. 2
+
+
+[2] V Blanz and T Vetter. A morphable model for the synthesis
+of 3d faces. In 26th Annual Conference on Computer Graph-
+ics and Interactive Techniques (SIGGRAPH 1999), pages
+187–194. ACM Press, 1999. 1, 2
+[3] James Booth, Anastasios Roussos, Stefanos Zafeiriou, Allan
+Ponniah, and David Dunaway. A 3d morphable model learnt
+from 10,000 faces. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 5543–5552,
+2016. 1
+[4] Adrian Bulat and Georgios Tzimiropoulos. How far are we
+from solving the 2d & 3d face alignment problem? (and a
+dataset of 230,000 3d facial landmarks).
+In International
+Conference on Computer Vision, 2017. 4
+[5] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz,
+Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi,
+Shih-En Wei, Danielle Belko, Shoou-I Yu, Yaser Sheikh, and
+Jason Saragih. Authentic volumetric avatars from a phone
+scan. ACM Trans. Graph., 41(4), 2022. 2
+[6] Xiyi Chen, Marko Mihajlovic, Shaofei Wang, Sergey
+Prokudin, and Siyu Tang.
+Morphable diffusion:
+3d-
+consistent diffusion for single-image avatar creation. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 10359–10370, 2024. 2, 7, 8
+[7] Xuangeng Chu and Tatsuya Harada. Generalizable and ani-
+matable gaussian head avatar. Advances in Neural Informa-
+tion Processing Systems, 37:57642–57670, 2024. 3
+[8] Radek Danˇeˇcek, Michael J Black, and Timo Bolkart. Emoca:
+Emotion driven monocular face capture and animation. In
+Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition, pages 20311–20322, 2022. 2
+[9] Yu Deng, Duomin Wang, and Baoyuan Wang. Portrait4d-v2:
+Pseudo multi-view data creates better 4d head synthesizer. In
+European Conference on Computer Vision, pages 316–333.
+Springer, 2024. 3
+[10] Bernhard Egger, William AP Smith, Ayush Tewari, Stefanie
+Wuhrer, Michael Zollhoefer, Thabo Beeler, Florian Bernard,
+Timo Bolkart, Adam Kortylewski, Sami Romdhani, et al.
+3d morphable face models—past, present, and future. ACM
+Transactions on Graphics (ToG), 39(5):1–38, 2020. 1
+[11] Yao Feng, Haiwen Feng, Michael J Black, and Timo Bolkart.
+Learning an animatable detailed 3d face model from in-the-
+wild images. ACM Transactions on Graphics (ToG), 40(4):
+1–13, 2021. 2
+[12] Simon Giebenhain, Tobias Kirschstein, Markos Georgopou-
+los, Martin R¨unz, Lourdes Agapito, and Matthias Nießner.
+Learning neural parametric head models.
+In Proc. IEEE
+Conf. on Computer Vision and Pattern Recognition (CVPR),
+2023. 1, 2
+[13] Yang Haotian, Zheng Mingwu, Ma ChongYang, Lai Yu-Kun,
+Wan Pengfei, and Huang Haibin. Vrmm: A volumetric re-
+lightable morphable head model. In SIGGRAPH 2024 Con-
+ference Proceedings, 2024. 2
+[14] Yang Hong, Bo Peng, Haiyao Xiao, Ligang Liu, and Juy-
+ong Zhang.
+Headnerf: A real-time nerf-based parametric
+head model. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 20374–
+20384, 2022. 2, 7, 8
+[15] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Transactions on Graphics, 42
+(4), 2023. 2, 3, 4
+[16] Rawal Khirodkar, Timur Bagautdinov, Julieta Martinez, Su
+Zhaoen, Austin James, Peter Selednik, Stuart Anderson, and
+Shunsuke Saito. Sapiens: Foundation for human vision mod-
+els. arXiv preprint arXiv:2408.12569, 2024. 4
+[17] Hyeongwoo Kim, Pablo Garrido, Ayush Tewari, Weipeng
+Xu, Justus Thies, Matthias Niessner, Patrick P´erez, Christian
+Richardt, Michael Zollh¨ofer, and Christian Theobalt. Deep
+video portraits. ACM Trans. Graph., 37(4), 2018. 2
+[18] Diederik P. Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization, 2017. 4
+[19] Tobias Kirschstein, Shenhan Qian, Simon Giebenhain, Tim
+Walter, and Matthias Nießner. Nersemble: Multi-view ra-
+diance field reconstruction of human heads.
+ACM Trans.
+Graph., 42(4), 2023. 2, 3, 6
+[20] Tianye Li, Timo Bolkart, Michael J Black, and Javier
+Romero. Learning a model of facial shape and expression
+from 4d scans. 2017. 1, 2, 4
+[21] Shanchuan
+Lin,
+Andrey
+Ryabtsev,
+Soumyadip
+Sen-
+gupta, Brian Curless, Steve Seitz, and Ira Kemelmacher-
+Shlizerman. Real-time high-resolution background matting.
+arXiv, pages arXiv–2012, 2020. 4
+[22] Steven R Livingstone and Frank A Russo.
+The ryer-
+son audio-visual database of emotional speech and song
+(ravdess): A dynamic, multimodal set of facial and vocal
+expressions in north american english.
+PloS one, 13(5):
+e0196391, 2018. 6
+[23] Stephen Lombardi,
+Tomas Simon,
+Gabriel Schwartz,
+Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. Mix-
+ture of volumetric primitives for efficient neural rendering.
+ACM Trans. Graph., 40(4), 2021. 2
+[24] Julieta Martinez, Emily Kim, Javier Romero, Timur Bagaut-
+dinov, Shunsuke Saito, Shoou-I Yu, Stuart Anderson,
+Michael Zollh¨ofer, Te-Li Wang, Shaojie Bai, Chenghui Li,
+Shih-En Wei, Rohan Joshi, Wyatt Borsos, Tomas Simon,
+Jason Saragih, Paul Theodosis, Alexander Greene, Anjani
+Josyula, Silvio Mano Maeta, Andrew I. Jewett, Simon Ven-
+shtain, Christopher Heilman, Yueh-Tung Chen, Sidi Fu, Mo-
+hamed Ezzeldin A. Elshaer, Tingfang Du, Longhua Wu,
+Shen-Chi Chen, Kai Kang, Michael Wu, Youssef Emad,
+Steven Longay, Ashley Brewer, Hitesh Shah, James Booth,
+Taylor Koska, Kayla Haidle, Matt Andromalos, Joanna Hsu,
+Thomas Dauer, Peter Selednik, Tim Godisart, Scott Ardis-
+son, Matthew Cipperly, Ben Humberston, Lon Farr, Bob
+Hansen, Peihong Guo, Dave Braun, Steven Krenn, He Wen,
+Lucas Evans, Natalia Fadeeva, Matthew Stewart, Gabriel
+Schwartz, Divam Gupta, Gyeongsik Moon, Kaiwen Guo,
+Yuan Dong, Yichen Xu, Takaaki Shiratori, Fabian Prada,
+Bernardo R. Pires, Bo Peng, Julia Buffalini, Autumn Trim-
+ble, Kevyn McPhail, Melissa Schoeller, and Yaser Sheikh.
+Codec Avatar Studio: Paired Human Captures for Complete,
+Driveable, and Generalizable Avatars.
+NeurIPS Track on
+Datasets and Benchmarks, 2024. 2, 3
+[25] Dongwei Pan, Long Zhuo, Jingtan Piao, Huiwen Luo, Wei
+Cheng, Yuxin Wang, Siming Fan, Shengqi Liu, Lei Yang, Bo
+
+
+Dai, Ziwei Liu, Chen Change Loy, Chen Qian, Wayne Wu,
+Dahua Lin, and Kwan-Yee Lin. Renderme-360: A large dig-
+ital asset library and benchmarks towards high-fidelity head
+avatars.
+Advances in Neural Information Processing Sys-
+tems, 36, 2024. 2, 3
+[26] Haokai Pang, Heming Zhu, Adam Kortylewski, Christian
+Theobalt, and Marc Habermann. Ash: Animatable gaussian
+splats for efficient and photoreal human rendering, 2024. 5
+[27] Malte Prinzler, Egor Zakharov, Vanessa Sklyarova, Berna
+Kabadayi, and Justus Thies. Joker: Conditional 3d head syn-
+thesis with extreme facial expressions, 2024. 3
+[28] Shenhan Qian. Vhap: Versatile head alignment with adaptive
+appearance priors, 2024. 4, 1
+[29] Anurag Ranjan,
+Timo Bolkart,
+Soubhik Sanyal,
+and
+Michael J. Black. Generating 3d faces using convolutional
+mesh autoencoders, 2018. 2
+[30] Daniel Roich, Ron Mokady, Amit H. Bermano, and Daniel
+Cohen-Or. Pivotal tuning for latent-based editing of real im-
+ages, 2021. 6
+[31] Shunsuke Saito, Gabriel Schwartz, Tomas Simon, Junxuan
+Li, and Giljoo Nam.
+Relightable gaussian codec avatars.
+2023. 6
+[32] Shunsuke Saito, Gabriel Schwartz, Tomas Simon, Junxuan
+Li, and Giljoo Nam.
+Relightable gaussian codec avatars,
+2024. 5
+[33] Karen Simonyan and Andrew Zisserman. Very deep convo-
+lutional networks for large-scale image recognition, 2015. 6
+[34] Kartik Teotia, Hyeongwoo Kim, Pablo Garrido, Marc Haber-
+mann, Mohamed Elgharib, and Christian Theobalt. Gaus-
+sianheads: End-to-end learning of drivable gaussian head
+avatars from coarse-to-fine representations.
+ACM Trans.
+Graph., 43(6), 2024. 4
+[35] Ayush Tewari, Michael Zollhofer, Hyeongwoo Kim, Pablo
+Garrido, Florian Bernard, Patrick Perez, and Christian
+Theobalt. Mofa: Model-based deep convolutional face au-
+toencoder for unsupervised monocular reconstruction.
+In
+Proceedings of the IEEE International Conference on Com-
+puter Vision (ICCV) Workshops, 2017. 2
+[36] Justus Thies, Michael Zollhofer, Marc Stamminger, Chris-
+tian Theobalt, and Matthias Niessner. Face2face: Real-time
+face capture and reenactment of rgb videos. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pat-
+tern Recognition (CVPR), pages 2387–2395, 2016. 2
+[37] Briac Toussaint, Diego Thomas, and Jean-S´ebastien Franco.
+Probesdf: Light field probes for neural surface reconstruc-
+tion.
+In Proceedings of the Computer Vision and Pattern
+Recognition Conference, pages 11026–11035, 2025. 4, 1
+[38] Luan Tran and Xiaoming Liu. Nonlinear 3d face morphable
+model, 2018. 2
+[39] Luan Tran, Feng Liu, and Xiaoming Liu.
+Towards high-
+fidelity nonlinear 3d face morphable model, 2019. 2
+[40] Daniel Vlasic, Matthew Brand, Hanspeter Pfister, and Jovan
+Popovi´c. Face transfer with multilinear models. ACM Trans.
+Graph., 24(3):426–433, 2005. 2
+[41] Angtian Wang, Peng Wang, Jian Sun, Adam Kortylewski,
+and Alan Yuille.
+Voge: A differentiable volume renderer
+using gaussian ellipsoids for analysis-by-synthesis. In The
+Eleventh International Conference on Learning Representa-
+tions, 2022. 3
+[42] Daoye Wang, Prashanth Chandran, Gaspard Zoss, Derek
+Bradley, and Paulo Gotardo.
+Morf: Morphable radiance
+fields for multiview neural head modeling.
+In ACM SIG-
+GRAPH 2022 Conference Proceedings, pages 1–9, 2022. 2
+[43] Lizhen Wang, Zhiyuan Chen, Tao Yu, Chenguang Ma, Liang
+Li, and Yebin Liu.
+Faceverse: a fine-grained and detail-
+controllable 3d face morphable model from a hybrid dataset.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), 2022. 3
+[44] Yuelang Xu, Hongwen Zhang, Lizhen Wang, Xiaochen
+Zhao, Huang Han, Qi Guojun, and Yebin Liu. Latentavatar:
+Learning latent expression code for expressive neural head
+avatar. In ACM SIGGRAPH 2023 Conference Proceedings,
+2023. 6
+[45] Yuelang Xu, Lizhen Wang, Zerong Zheng, Zhaoqi Su, and
+Yebin Liu.
+3d gaussian parametric head model.
+In Pro-
+ceedings of the European Conference on Computer Vision
+(ECCV), 2024. 2, 3
+[46] Haotian Yang, Hao Zhu, Yanru Wang, Mingkai Huang, Qiu
+Shen, Ruigang Yang, and Xun Cao. Facescape: a large-scale
+high quality 3d face dataset and detailed riggable 3d face pre-
+diction. In Proceedings of the ieee/cvf conference on com-
+puter vision and pattern recognition, pages 601–610, 2020.
+1, 2, 3
+[47] T Yenamandra, A Tewari, F Bernard, HP Seidel, M El-
+gharib, D Cremers, and C Theobalt. i3dmm: Deep implicit
+3d morphable model of human heads.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), 2021. 1, 2
+[48] Baowen Zhang, Chuan Fang, Rakesh Shrestha, Yixun Liang,
+Xiaoxiao Long, and Ping Tan. Rade-gs: Rasterizing depth in
+gaussian splatting. arXiv preprint arXiv:2406.01467, 2024.
+4
+[49] Peng Zheng, Dehong Gao, Deng-Ping Fan, Li Liu, Jorma
+Laaksonen, Wanli Ouyang, and Nicu Sebe. Bilateral refer-
+ence for high-resolution dichotomous image segmentation.
+CAAI Artificial Intelligence Research, 2024. 4
+[50] Xiaozheng Zheng, Chao Wen, Zhaohu Li, Weiyi Zhang,
+Zhuo Su, Xu Chang, Yang Zhao, Zheng Lv, Xiaoyuan
+Zhang, Yongjie Zhang, Guidong Wang, and Xu Lan.
+Headgap: Few-shot 3d head avatar via generalizable gaus-
+sian priors. arXiv preprint arXiv:2408.06019, 2024. 2, 3
+[51] Xiaozheng Zheng, Chao Wen, Zhaohu Li, Weiyi Zhang,
+Zhuo Su, Xu Chang, Yang Zhao, Zheng Lv, Xiaoyuan
+Zhang, Yongjie Zhang, Guidong Wang, and Lan Xu.
+Headgap: Few-shot 3d head avatar via generalizable gaus-
+sian priors, 2025. 6
+[52] Yiyu Zhuang, Hao Zhu, Xusen Sun, and Xun Cao. Mofanerf:
+Morphable facial neural radiance field. In European confer-
+ence on computer vision, pages 268–285. Springer, 2022. 2,
+7, 8

@@ -1,0 +1,1050 @@
+Title: Disentangled clothed avatar generation with layered representation
+
+Disentangled Clothed Avatar Generation with Layered Representation
+Weitian Zhang1
+Yichao Yan1†
+Sijing Wu1
+Manwen Liao2
+Xiaokang Yang1
+1 MoE Key Lab of Artificial Intelligence, AI Institute, Shanghai Jiao Tong University
+2The University of Hong Kong
+1{weitianzhang, yanyichao, wusijing, xkyang}@sjtu.edu.cn
+2{manwen}@connect.hku.hk
+(a) Disentangled Clothed Avatar Generation
+(b) Animation
+(e) Component Transfer
+(c) Camera View Control
+(d) Decomposition
+Figure 1. We propose LayerAvatar to efficiently generate diverse clothed avatars with components fully disentangled. The generated
+avatars can be animated and synthesized in novel views. They can also be decomposed into body, hair, and clothes for component transfer.
+Abstract
+Clothed avatar generation has wide applications in vir-
+tual and augmented reality, filmmaking, and more. While
+existing methods have made progress in creating animat-
+able digital avatars, generating avatars with disentangled
+components (e.g., body, hair, and clothes) has long been a
+challenge. In this paper, we propose LayerAvatar, a novel
+feed-forward diffusion-based method capable of generat-
+ing high-quality component-disentangled clothed avatars
+in seconds. We propose a layered UV feature plane rep-
+resentation, where components are distributed in different
+layers of the Gaussian-based UV feature plane with cor-
+responding semantic labels.
+This representation can be
+effectively learned with current feed-forward generation
+pipelines, facilitating component disentanglement and en-
+† Corresponding author.
+hancing details of generated avatars. Based on the well-
+designed representation, we train a single-stage diffusion
+model and introduce constrain terms to mitigate the severe
+occlusion issue of the innermost human body layer. Ex-
+tensive experiments demonstrate the superior performances
+of our method in generating highly detailed and disentan-
+gled clothed avatars. In addition, we explore its applica-
+tions in component transfer. The project page is available
+at https://olivia23333.github.io/LayerAvatar.
+1. Introduction
+The creation of digital avatars has various applications [2,
+13] in virtual and augmented reality, filmmaking, and more.
+Traditional graphics-based pipelines require extensive ef-
+fort from 3D artists to construct a single digital avatar. To
+reduce tedious manual labor and facilitate mass production,
+learning-based methods aiming at generating digital avatars
+arXiv:2501.04631v2  [cs.CV]  4 Sep 2025
+
+
+automatically have been widely explored recently.
+Recent learning-based methods [3, 16, 84] mainly com-
+bine 3D representations [30, 45, 62, 71] with generation
+pipelines (e.g., 3D-aware GANs [4, 5, 49] and diffusion
+models [53, 58]) to create digital avatars. However, most of
+these methods often ignore the compositional nature of dig-
+ital avatars and represent the human body, hair, and clothes
+as a whole, which limits their capabilities in digital avatar
+customization such as cloth transfer. Neural-ABC [7] and
+SMPLicit [14] provide parametric model with disentangled
+clothes and human body. However, modeling texture are
+leaved an un-explored problem. HumanLiff [24] proposes
+a layer-wise generation process that first generates clothed
+avatars in minimal clothes, then generates digital avatars
+wearing the next layer of clothing conditioned on the cur-
+rent layer. Nevertheless, the human body and clothes are not
+fully disentangled, which makes it difficult to extract the
+components of each layer, thus reducing the editing abil-
+ity. In addition, some methods [15, 19, 66, 70, 73] fol-
+low the trend of DreamFusion [55] to achieve disentangled
+clothed avatar generation by learning each component of
+digital avatars separately through the prior knowledge of
+2D diffusion models [58] in an optimization manner. These
+methods can generate clothed avatars with each component
+disentangled, however, they take hours to generate a single
+digital avatar, and the optimization time will increase lin-
+early according to the number of components.
+In this paper, we propose LayerAvatar, a novel feed-
+forward diffusion-based method that achieves (1) compo-
+nent disentanglement, enabling seamless transfer of individ-
+ual components such as clothes, hair, and shoes; (2) high-
+quality results, with generated avatars exhibiting intricate
+facial details, distinct fingers, and realistic cloth wrinkles;
+and (3) efficiency, requiring only seconds to generate a sin-
+gle avatar. We choose 3D Gaussians [30] as the underly-
+ing representation due to its high-quality rendering results
+for intricate details, and strong representation capability for
+diverse cloth types. However, naively representing the dis-
+entangled clothed avatar using 3D Gaussians is impractical
+due to its unstructured nature that is incompatible with most
+current feed-forward generation pipelines [5, 58]. There-
+fore, we introduce a Gaussian-based UV feature plane, in
+which 3D Gaussians are projected into a predefined 2D
+UV space shared among subjects. The attributes of each
+3D Gaussian are encoded as local geometry and texture la-
+tent features, which can be obtained from the 2D feature
+plane via bilinear interpolation. Furthermore, to achieve
+full disentanglement of avatar components (hair, shoes, up-
+per cloth) and higher generation quality, we represent avatar
+components in separate layers of the UV feature plane
+which provides neighboring components with distinctive
+features from different layers to facilitate decomposition.
+To generate the layered representation in a feed-forward
+manner, we elaborately train a single-stage diffusion model
+[6] from multi-view 2D images. To fully disentangle each
+component and ensure plausible avatar generation results,
+we employ supervision both in the individual components
+and the entire compositional clothed avatar. Moreover, sev-
+eral prior losses are utilized to constrain the smooth surface
+and reasonable color of the severely occluded human body.
+We evaluate LayerAvatar on multiple datasets [9, 21, 81],
+demonstrating its superior performance in generating disen-
+tangled avatars. We also explore its application in compo-
+nent transfer. In summary, our main contributions are:
+• We introduce LayerAvatar, a novel feed-forward clothed
+avatar generation pipeline with each component disentan-
+gled, enhancing the controllability of avatar generation.
+• We propose a layered UV feature plane representation
+that enhances generation quality and facilitates the dis-
+entanglement of each component.
+• Our method achieves outstanding generation results on
+multiple datasets and support downstream applications
+such as component transfer.
+2. Related work
+Diffusion in 3D Generation.
+Encouraged by the suc-
+cess of diffusion model [58] in 2D image generation
+area, researchers have attempted to extend it to 3D gen-
+eration tasks.
+These works can be divided into two
+categories, feed-forward and optimization-based methods.
+Optimization-based methods [8, 37, 38, 55, 56, 68, 74],
+represented by DreamFusion [55], utilize SDS loss to dis-
+till prior knowledge of 2D diffusion model to supervise
+3D scenes. These methods often suffer from oversatura-
+tion and Janus problems. Thus, improved SDS loss [74]
+and camera-conditional [40] or multi-view diffusion mod-
+els [63] are introduced to mitigate these problems. More-
+over, optimization-based methods usually take hours to gen-
+erate a single object, which hinders its application in real
+life. On the other hand, feed-forward methods [42, 76, 82,
+85, 89] directly learn diffusion model for 3D representa-
+tions, such as points [48, 83], voxels [57], meshes [42, 79],
+and implicit neural representations [23, 47, 64].
+These
+methods can generate 3D objects in seconds. Several at-
+tempts [12, 26, 86, 87] have been made to adapt them to the
+field of digital human generation. Different from most pre-
+vious works, we regard digital avatars as a composition of
+multiple components instead of a unified whole and learn a
+diffusion model on the proposed layered representation.
+Clothed Avatar Generation. Inspired by general 3D ob-
+ject generation, many methods [3, 12, 16, 22, 50, 88] in-
+troduce 3D-aware GANs [5] and diffusion models [58] for
+clothed avatar generation. These methods first learn clothed
+avatars in canonical space and then animate them to posed
+space using a deformation module. Following EG3D [5],
+some methods [84, 88] apply triplane features to represent
+
+
+Denoising U-Net
+!
+Attribute Maps
+Add Gaussian Noise
+!# = α " !$ + σ " ϵ
+Disentangled Clothed Avatar 
+Diffusion Model
+Canonical Space Pose Space
+Layered UV Feature Plane Fitting
+Layered UV 
+Feature Plane
+Noisy Layered UV 
+Feature Plane
+Multi-view images supervision for RGB & Mask
+Reconstruction Loss
+Clothed 
+Avatar
+Human 
+Body
+Exterior
+Components
+Segmentation 
+mask
+Constraint Loss
+Figure 2. Method overview. LayerAvatar learns a feed-forward diffusion model to generate clothed avatars with each component disentan-
+gled. The clothed avatars are represented as layered UV feature plane where components are represented separately. After decoding the
+feature plane into attribute maps, we can extract 3D Gaussians from them through SMPL-X-based templates. Generated clothed avatars
+are then transformed into targeted pose space for further supervision. Reconstruction loss and constraint loss are both utilized to facilitate
+the disentanglement and handle the severe occlusion of human body layer.
+clothed avatars for higher quality and utilize inverse skin-
+ning for animation. AG3D [16] introduces forward skinning
+technique [10, 11] to achieve robust animation including
+loose clothing. On the other hand, Chupa [32] and Avatar-
+Popup [34] apply diffusion models to learn front and back
+view image pairs and then lift them to 3D space. Despite
+their impressive success, most of these methods represent
+clothed avatars as an entity and fail to disentangle the hu-
+man body and clothes. Recently, some optimization-based
+methods [15, 19] achieved success in generating cloth-
+disentangled avatars, however, the generating process takes
+hours to generate a single avatar.
+Compositional Avatar Representation. Instead of repre-
+senting avatars [46, 75, 80] as a single entity, some methods
+represent clothed avatars as a combination of multiple sub-
+modules. COAP [44], Spams [51] and DANBO [65] con-
+sider human avatars as a composition of body parts, while
+EVA3D [22] and ENARF-GAN [50] follow this trend and
+utilize multiple neural networks to represent different body
+parts of the digital avatar, achieving more efficient and de-
+tailed generation results. Several methods [1, 24, 78] rep-
+resent clothed avatars as separate layers to enable the ex-
+pressiveness of various topologies. However, these meth-
+ods ignore the disentanglement of human body and clothes,
+which makes each submodule less physically meaningful.
+Recently, some works [18, 39, 54, 77, 90] disentangle the
+human body and clothes by representing each component
+separately.
+During the rendering process, these compo-
+nents are combined through various compositional render-
+ing techniques. Most of these methods are designed to op-
+timize a single digital avatar. In this paper, we propose a
+novel layered UV feature plane representation that is com-
+patible with feed-forward generation framework.
+3. Method
+We propose LayerAvatar, a feed-forward generative method
+for disentangled clothed avatar generation. The overview
+of our method is illustrated in Fig. 2. We provide a brief
+introduction for prior knowledge in Sec. 3.1. To achieve
+disentangled clothed avatar generation, we propose a novel
+layered UV feature plane representation (Sec. 3.2), which
+facilitates disentanglement and is compatible with current
+feed-forward generative pipelines. The clothed avatars are
+generated in canonical space and then deformed to targeted
+pose space via deformation module (Sec. 3.3). The training
+process is introduced in Sec. 3.4.
+3.1. Preliminary
+SMPL-X [52] is an expressive parametric human model
+that can produce naked human meshes M(β, θ, ψ) given
+shape parameter β, pose parameter θ, and expression pa-
+
+
+rameter ψ. The producing process can be formulated as:
+T(β, θ, ψ) = Tc + Bs(β; s) + Be(ψ; e) + Bp(θ; p),
+M(β, θ, ψ) = LBS(T(β, θ, ψ)), J(β), θ, W),
+(1)
+where a canonical human mesh T is first calculated as a
+combination of the mean shape template Tc and vertex dis-
+placements (Bs(β; s), Be(ψ; e), Bp(θ; p)) computed by the
+blend shapes s, e, p and their corresponding pose, shape,
+and expression parameters. The body template T is then
+deformed to the given pose by linear blend skinning(LBS)
+based on the skinning weights W and joint locations J(β).
+3D Gaussians [30] is a primitive-based explicit represen-
+tation that combines the strengths of both previous explicit
+and implicit representations. It consists of a set of learn-
+able 3D Gaussian primitive Gk where each contains five at-
+tributes: position µ, scaling matrix S, rotation matrix R,
+opacity α, and color c. In practice, we employ diagonal
+vector s ∈R3 and axis-angle r ∈R3 to represent S and
+R respectively. 3D Gaussians are represented as ellipses
+in 3D space defined by their position µ and covariance ma-
+trix Σ = RSST RT . During the rendering process, these
+3D Gaussians are projected to a 2D image plane where the
+pixel color C can be calculated as follows:
+C =
+N
+X
+i=1
+ciσi
+i−1
+Y
+j=1
+(1 −σj) ,
+(2)
+where ci is the color of the i-th 3D Gaussian on the ray, and
+σi is the blending weight calculated with the opacity α.
+3.2. Layered UV Feature Plane Representation
+Previous methods mainly represent avatars as a single entity
+or depend on optimization-based schemes. As a result, the
+generated results often have difficulty with editing or are
+slow to create, typically taking hours to generate a single
+subject. To address these limitations, we propose a layered
+UV feature plane representation that can separate compo-
+nents of clothed avatars and is compatible with fast, feed-
+forward generation pipelines. We employ 3D Gaussians as
+the base representation for efficient rendering along with
+easy animation and editing.
+To enable disentanglement, we consider clothed avatars
+as a composition of human body and exterior components.
+Gavatar = {Gbody, Gtop, Gbottom, Ghair, Gshoes}.
+(3)
+Each component is represented as a set of Gaussian prim-
+itives Gi parameterized with five attributes: 3D position
+µi ∈R3, opacity αi ∈R, rotation matrix Ri represented by
+axis angle ri ∈R3, scale matrix Si represented by diagonal
+vector si ∈R3 and rgb color ci ∈R3. Inspired by exist-
+ing works [25, 87] that initialize 3D Gaussians by attach-
+ing them to SMPL parametric model for geometry and ani-
+mation prior. We initialize the 3D Gaussians of each com-
+ponent by attaching them to self-designed templates based
+on SMPL-X. For each component, we design a template
+that maximizes coverage of the region where the component
+may exist. To enhance generation quality, all templates are
+subdivided to support densified Gaussian primitives. Then,
+we initialize the positions of 3D Gaussians as the center
+points of faces on the densified template mesh. And the ini-
+tial rotations of 3D Gaussians are set as the tangent frame of
+the faces, which consists of the normal vector of that face,
+the direction vector of one edge and their cross product.
+For
+compatibility
+with
+feed-forward
+generation
+pipelines, previous methods typically project 3D Gaussians
+into 2D space (e.g., multi-view image space [67, 69], UV
+space [87]).
+Unlike these methods, which represent the
+entire subject as a single entity and then employ a post-
+processing step for disentanglement, we directly model
+components separately by mapping their templates into a
+three-layer UV space, combined with semantic labels. The
+first layer represents the innermost part of the human body,
+the second layer represents the hair and shoes, and the
+third layer represents top and bottom clothes. Following
+[87], all Gaussian attributes are stored as local UV features
+to enhance generation quality. The UV features plane is
+first split into two parts in a channel-wise manner and
+then decoded by two light-weight shared MLP decoders
+Dg and Dt separately. Dg decodes the geometry-related
+attributes: position offset ∆µ and opacity α of 3D Gaus-
+sians and Dt predicts texture-related attributes, color c and
+covariance-related rotation ∆r and scale ∆s.
+Given the
+decoded attribute maps, we can extract the attributes for
+each 3D Gaussian Gi via bilinear interpolation. The opacity
+value αi and color value ci are obtained directly, and the
+other values are obtained via following formula based on
+their initial values:
+µi = µ0
+i + ∆µi,
+si = s0
+i · ∆si,
+ri = r0
+i · ∆ri,
+(4)
+where µ0
+i , s0
+i , and r0
+i are initial position, scale, and rota-
+tion values for 3D Gaussians, respectively. ∆µi, ∆si and
+∆ri are predicted residuals extracted from attribute maps.
+By collecting the attributes of 3D Gaussians with the same
+semantic label, we can obtain a canonical space represen-
+tation of each component, and their composition forms the
+complete disentangled clothed digital avatar.
+3.3. Deformation
+Benefiting from the SMPL-X-based templates, our method
+supports deformation in body shapes and novel poses in-
+cluding gestures and facial expressions. To support training
+with multiple subjects in various body shapes, we disentan-
+gle the body shape factor by defining all the templates in
+a canonical space with neutral body shapes. The neutral
+body shape avatar and its corresponding components can be
+transformed into targeted body shape space via the follow-
+
+
+ing warping process:
+¯µ = µ + Bs(β, s, µ),
+(5)
+where ¯µ represents the position of 3D Gaussians in the tar-
+geted β body shape space and Bs(β, s, µ) are correspond-
+ing body shape related offsets extracted from the SMPL-X
+based templates via barycentric interpolation. We further
+add pose-dependent offsets Bp(θ, p, µ) and facial expres-
+sion offsets Be(ψ, e, µ) in the same way to ensure accurate
+animation results.
+The animation of a generated avatar from the canonical
+T-pose to an arbitrary target pose can be regarded as trans-
+forming the 3D Gaussian attributes. During the animation
+process, the opacity α and color c of 3D Gaussians remain
+unchanged. Therefore, we only discuss the transformation
+of position µ, rotation matrix R and scale matrix S in this
+section. Using the LBS function, we can transform the po-
+sition ¯µ of 3D Gaussians as:
+µ′ =
+nb
+X
+i=1
+wiBi ¯µ,
+(6)
+where nb represents the number of joints and Bi is the trans-
+formation matrix of the i-th joint. For 3D Gaussians on
+the innermost human body layer, the corresponding blend
+skinning weights w are obtained directly from SMPL-X-
+based templates through barycentric interpolation, as these
+regions usually undergo minimal topology changes. For 3D
+Gaussians representing the exterior components, we follow
+[16] to extract the skinning weights from a pre-computed
+low-resolution volumetric field of fused skinning weights,
+which is more stable for points that deviate significantly
+from the original template. T = Pnb
+i=1 wiBi is the blended
+transformation matrix, and the rotation matrix R is updated
+via R′ = T1:3,1:3R, where T1:3,1:3 is the rotational part of
+T. The scale matrix S is recalculated in the targeted pose
+space to fit deformed topology.
+3.4. Learning Disentangled Clothed Avatar
+To mitigate the impact of occlusion, we adopt a single-stage
+training scheme [6], which is more robust in occluded and
+sparse view situations. Specifically, the layered UV fea-
+ture plane fitting and diffusion training process is conducted
+simultaneously, and the UV feature plane is jointly opti-
+mized by the fitting and diffusion loss. Similar to the SDS
+loss [55], the diffusion loss provides a diffusion prior for
+the UV feature plane, thereby facilitating the completion of
+unseen regions in the training images.
+Layered UV Feature Plane Fitting. Given multi-view im-
+ages, we optimize the layered UV feature plane and shared
+decoders to reconstruct avatars with disentangled compo-
+nents. The objective function can be divided into recon-
+struction and constraint part. The reconstruction loss Lrecon
+can be formulated as follows:
+Lrecon = λcolor ·Lcolor +λmask ·Lmask +λper ·Lper +λseg ·Lseg.
+(7)
+To achieve the disentanglement between exterior compo-
+nents and human body, we not only minimize the color loss
+Lcolor and mask loss Lmask on the overall rendering result,
+but also perform supervision on each component. Specif-
+ically, we first render the 3D Gaussians corresponding to
+each component separately to obtain multi-view images of
+each component. Then, inspired by Clothedreamer [41], in-
+stead of blending the rendering results of these components
+via estimated depth order to obtain the rendering results of
+clothed avatars, we directly render all the 3D Gaussians to
+alleviate artifacts caused by the blending process. The sil-
+houette masks of each component and the clothed avatar are
+obtained similarly. The ground truth of silhouette masks is
+estimated based on the semantic segmentation results pre-
+dicted by Sapiens [31]. We apply Huber loss [27] for both
+Lcolor and Lmask following SCARF [18], due to its robust-
+ness to the estimated noisy segmentation results. To en-
+hance the details of generated results, we also employ a per-
+ceptual loss Lper [29] to minimize the difference between
+extracted features of rendered outputs and targeted images.
+Components in overlapping regions may learn inverted
+color or opacity values due to incorrect depth ordering. To
+address this, we render semantic segmentation maps of the
+clothed avatar by assigning the segmentation label of each
+Gaussian as its color. We then minimize the distance to the
+predicted semantic segmentation map using the Huber loss,
+Lseg, to encourage accurate depth ordering.
+Due to the severe occlusion of the inner human body
+layer, we apply constraints on the geometry and texture of
+the human body to obtain reasonable results. Since the hu-
+man body is always within the exterior layer, we employ the
+following constraints:
+Lmaskin = λmaskinReLU
+ Rb
+m(Gbody) −Mfg
+
+,
+(8)
+where Rb
+m(Gbody) represents the rendered silhouette of the
+human body, and Mfg is the estimated foreground silhouette
+mask. When rendering Rb
+m(Gbody), we detach the opac-
+ity values and set them to 1, only optimizing offset and
+covariance-related attributes, preventing the model from
+minimizing the loss via decreasing opacity on the bound-
+ary. Utilizing the prior that the occluded skin color should
+be similar to the color of hands, we introduce the following
+texture constraint:
+Lskin = λskin
+ Moc ⊙
+ Rb
+m(Gbody) −Cskin
+
+,
+(9)
+where Cskin is the average color of pixels in the hands re-
+gion and Moc is the mask of the occluded region. Other
+regularization terms are as follows:
+Lreg = λoffsetLoffset + λsmoothLsmooth.
+(10)
+
+
+Loffset = ∥∆µ∥2 constrains the offset from being extremely
+large. Lsmooth is the total variational (TV) loss, which is
+used to minimize the average L2 distance between neigh-
+boring pixels on attribute maps. This regularization term
+encourages smooth transitions between the neighboring at-
+tributes (e.g. offsets, rotation, and opacity), promoting the
+generation of reasonable texture and geometry surface.
+Disentangled Clothed Avatar Diffusion Model. To gener-
+ate disentangled clothed avatars, we train a diffusion model
+that maps Gaussian noise to the layered UV latent space.
+Since diffusion models generally perform better on inputs
+with low channel dimensions [59], we concatenate our lay-
+ered UV feature plane across widths instead of stacking
+them across channels. During training, we first obtain de-
+structed UV feature plane xt by adding Gaussian noise
+ϵ ∼N(0, I) to the layered UV feature plane x0 according
+to following noise schedule:
+xt := α(t)x0 + σ(t)ϵ,
+(11)
+where α(t) and σ(t) are predefined functions that control
+the intensity of added noise, and t is the time step in the
+range of [0, 1]. To stabilize and accelerate training, we use
+v-prediction proposed in [61] to train the denoising UNet.
+The objective function for the diffusion model is:
+Ldiff =
+E
+t,x0,ϵ
+1
+2w(t) ∥ˆx0 −x0∥2
+
+,
+(12)
+where w(t) = (α(t)/σ(t))2ω, the ω is set to 0.5 following
+[6]. Ldiff is used to update not only the parameters of de-
+noising UNet, but also the UV feature plane. It promotes
+the UV feature plane to adapt to the learned latent space,
+thereby providing priors for occluded regions.
+4. Experiments
+Baselines. To evaluate holistic generation quality, we com-
+pare our method with the state-of-the-art methods of ani-
+matable avatar generation (EVA3D [22], StructLDM [26],
+and E3Gen [87]) on THuman2.0 [81] dataset.
+We
+then evaluate the decomposition capability of our method
+by comparing the layer-wise generation results with the
+disentanglement-related method HumanLiff [24] on Tight-
+cap [9] dataset.
+And we further evaluate the compo-
+nent generation quality against optimization-based meth-
+ods: LAGA [19], SO-SMPL [70], and TELA [15]. Our
+method is trained on a composite dataset including Cus-
+tomHuman [21], THuman2.0 [81], and THuman2.1 [81].
+Metrics. For holistic generation quality evaluation, we uti-
+lize FID [20] following previous works [5, 26, 87]. For
+layer-wise generation results, we adopt FID for overall gen-
+eration quality evaluation and L-PSNR [24] for disentangle-
+ment capability evaluation, which calculates the PSNR be-
+tween two layers with the adding component masked. Ad-
+ditionally, we conduct a user study with 20 participants to
+compare the generation quality and disentanglement quality
+of our methods with optimization-based methods.
+Dataset. For THuman2.0 [81], we sample 500 scans and
+render each from 54 camera views to obtain multi-view im-
+ages. Then, we employ Sapiens [31] to estimate segmen-
+tation masks for these images, from which per-component
+silhouette masks can be extracted. This approach enables
+our method to learn directly from multi-view images with-
+out requiring separate meshes of each component, thereby
+simplifying the data collection process. Tightcap [9] con-
+tains 3D scans with separate meshes for cloth and shoe,
+which facilitates direct rendering of multi-view images and
+silhouette masks for each component. For a fair compari-
+son, we use the preprocessed version provided by Human-
+Liff [24], which selects 107 samples from Tightcap. Each
+sample is rendered from 158 camera views, providing im-
+ages and silhouette masks for both the entire avatar and each
+component. We also construct a composite dataset consist-
+ing of 1954 selected scans from THuman2.0 [81], THu-
+man2.1 [81], and CustomHuman [21] datasets. Each scan
+is processed in the same way as the THuman2.0 data. Ad-
+ditionally, all SMPL-X parametric models are standardized
+to neutral gender with refinement in body shape parameters
+to ensure the body layer fits underneath the cloth surface.
+4.1. Evaluation of Generation Quality and Disen-
+tanglement Capability
+Disentanglement and Animation Capacities.
+The dis-
+entanglement and animation results are shown in Fig. 1.
+Our method successfully generates clothed avatars with full
+disentanglement of components such as hair, shoes, and
+clothes from the human body. Moreover, our method recon-
+structs the inner body layer with reasonable geometry and
+texture under severe occlusion. Benefiting from the SMPL-
+X-based templates within our layered Gaussian-based UV
+feature plane representation, each component can be easily
+deformed into novel poses.
+Comparisons. For holistic generation quality, we compare
+our method against representative feed-forward diffusion
+and 3D-aware GAN pipelines. The quantitative compari-
+son results are shown in Tab. 1a. Our method outperforms
+all baselines on THuman2.0 [81] dataset, achieving the best
+FID score. The visual comparisons shown in Fig. 3 fur-
+ther enhance the superiority of our method. EVA3D [22]
+struggles with generating digital avatars with plausible tex-
+ture and geometry.
+Compared to StructLDM [26] and
+E3Gen [87], our method exhibits finer details, such as dis-
+tinctive fingers, realistic cloth wrinkles, and intricate faces.
+To evaluate disentanglement capability, we compare
+layer-wise generation results and disentangled avatar gen-
+eration results of our method with state-of-the-art meth-
+ods. For layer-wise generation, our method surpasses other
+methods in both FID and L-PSNR, as shown in Tab. 1b,
+
+
+Methods
+FID↓
+EVA3D [22]
+124.54†
+StructLDM [26]
+25.22†
+E3Gen [87]
+15.78⋆
+Ours
+12.50
+(a) Holistic Generation Quality.
+Methods
+FID↓
+L-PSNR↑
+EVA3D [22]
+61.58*
+<20*
+Rodin [72]
+56.57*
+18.12*
+HumanLiff [24]
+54.39*
+28.57*
+Ours
+17.37
+>40
+(b) Layer-wise Generation Quality.
+Methods
+Disentanglement↑
+Quality↑
+Time↓
+SO-SMPL [70]
+13.02
+3.57/8.57
+5h
+LAGA [19]
+9.77
+5.00/1.43
+1.5h
+TELA [15]
+19.07
+14.29/8.57
+6h
+Ours
+58.14
+77.14/81.43
+2s
+(c) Component Quality and Disentanglement Evaluation.
+Table 1. Quantitative comparison. Our method outperforms other methods in both holistic and layer-wise generation quality, as well as
+disentanglement capability. Due to the minor difference between the two masked layers, the L-PSNR value of our method is so large that
+we use > 40 to express it. For component comparison, we show the quality preference in component quality preference/overall quality
+preference format. ∗, † and ⋆denote results adopted from HumanLiff [24], StructLDM [26] and E3Gen [87] respectively.
+Figure 3. Qualitative comparison. The left part demonstrates our generation results on THuman2.0 dataset [81]. The middle part illustrates
+layer-wise generated results on Tightcap dataset [9]. Our method can generate more reasonable human bodies under severe occluded
+scenarios. The right part exhibits our component generation results compared with optimization-based methods.
+which indicates that our method achieves higher holistic
+generation results and can generate disentangled avatars
+without facing the identity shifting problem.
+The elim-
+ination of identity shifting demonstrates that our method
+achieves full disentanglement of components, since entan-
+gled components will result in shifting problems. As shown
+in Fig. 3, Rodin [72] struggles to maintain identity con-
+sistency during the generation process. Although Human-
+Liff [24] achieves correct layer-wise generation, it produces
+less smooth body geometry and exhibits subtle identity
+shifting, shown by the enlarged face region. Our method
+can generate each layer without shifting problems, demon-
+strating more complete disentanglement.
+For disentangled avatar generation, we compare our
+method with state-of-the-art optimization-based methods.
+As shown in Tab. 1c, our method generates clothed avatars
+in significantly less time and achieves a higher user pref-
+erence. Qualitative comparisons are illustrated in Fig. 3.
+SO-SMPL [70] generates unrealistic, cartoonish colors and
+exhibits unnatural sawtooth on the border of generated com-
+Methods
+FID↓
+KID ↓
+Two-stage
+19.06
+15.40
+Pipeline (SLMO)
+30.83
+30.18
+Pipeline (SLMN)
+28.95
+29.21
+Full pipeline
+12.50
+9.39
+Table 2. Ablation study on THuman2.0 Dataset. The full pipeline
+outperforms baselines on both FID and KID by a large margin.
+ponents (highlighted by orange circles). LAGA [19] and
+TELA [15] struggle with blurry fingers, oversaturated col-
+ors, and incomplete disentanglement from the body layer.
+In contrast, our method generates fully disentangled avatars
+with distinctive fingers and realistic color.
+4.2. Ablation Study
+Layered vs. Single-Layer Representation.
+To demonstrate the effectiveness of our layered UV fea-
+ture plane, we design two baselines that use single-layer
+UV feature plane to generate disentangled clothed avatars.
+
+
+Ours
+Two Stage
+SLMO
+SLMN
+Figure 4. Ablation study on THuman2.0 Dataset. Comparing ran-
+domly generated avatars and decomposition results, our method
+generates avatars with higher quality and better disentanglement.
+One baseline representation is SLMO (single-layer-multi-
+output), which utilizes a single pair of geometry and texture
+decoders (Dg and Dt) to predict attributes for all compo-
+nents. Another one is SLMN (single-layer multi-network),
+which employs different decoders to predict the attributes of
+Gaussian primitives for each component. Since they only
+contain a single-layer UV feature plane, attributes of dif-
+ferent components will share one feature if they are initial-
+ized in the same location. As shown in Fig. 4, Fig.5 and
+Tab. 2, single-layer UV representations generate clothed
+avatars with lower quality both quantitatively and qualita-
+tively. This is because our layered UV feature plane repre-
+sentation provides each component with an optimized UV
+distribution and independent feature space.
+Without the
+layered UV plane, which provides distinctive features for
+components in overlapping and neighboring regions, single-
+layer representations struggle to disentangle components,
+leading to blurred boundaries between components.
+Single Stage vs. Two Stage. We also compare the single-
+stage training scheme with the commonly used two-stage
+training scheme, shown in Tab. 2 and Fig. 4. The single-
+stage training can generate avatars with finer details, such
+as intricate faces.
+4.3. Applications
+Component Transfer.
+We further explore applications
+such as component transfer. Thanks to the component dis-
+entanglement and shared structure provided by our method,
+we can directly transfer clothes and other components be-
+E3Gen
+Ours
+Figure 5. Zoom in comparison between E3Gen and LayerAvatar.
+Compared to single-layer representation, layered representation
+exhibits detailed faces and clear boundaries between components.
+Figure 6. Component transfer. Given the generated avatars in the
+first column, we can transfer the upper-clothes, pants, hair, and
+shoes of the avatars in the second to fifth column to them. The
+results are shown in the rightmost column.
+tween generated samples. The component transfer results
+are shown in Fig. 6. Our method can accurately transfer
+components across various body shapes while maintaining
+high-quality details of the transferred items.
+5. Conclusion
+In this paper, we propose LayerAvatar, a novel feed-
+forward diffusion-based method for generating component-
+disentangled clothed avatars. Our method proposes a lay-
+ered UV feature plane representation, which organizes 3D
+Gaussians into different layers, each corresponding to spe-
+cific components of clothed avatars (e.g., body, hair, cloth-
+ing). Leveraging this representation, we train a single-stage
+diffusion model to generate each feature plane, enabling the
+generation of fully disentangled clothed avatars. To ensure
+complete component disentanglement, we incorporate con-
+straint terms into the model. Extensive experiments validate
+the superiority of LayerAvatar in generating fully disen-
+tangled clothed avatars and its effectiveness in component
+transfer tasks. Additional limitations and implementation
+details are discussed in the supplementary material.
+
+
+Acknowledgments.
+This work was supported in part by
+NSFC (62201342), and Shanghai Municipal Science and
+Technology Major Project (2021SHZDZX0102).
+References
+[1] Rameen Abdal, Wang Yifan, Zifan Shi, Yinghao Xu, Ryan
+Po, Zhengfei Kuang, Qifeng Chen, Dit-Yan Yeung, and Gor-
+don Wetzstein. Gaussian shell maps for efficient 3d human
+generation, 2023. 3
+[2] Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabi´an
+Prada, Takaaki Shiratori, Shih-En Wei, Weipeng Xu, Yaser
+Sheikh, and Jason Saragih. Driving-signal aware full-body
+avatars. ACM Trans. Graph., 40(4), 2021. 1
+[3] Alexander W. Bergman, Petr Kellnhofer, Wang Yifan,
+Eric R. Chan, David B. Lindell, and Gordon Wetzstein. Gen-
+erative neural articulated radiance fields. In NeurIPS, 2022.
+2
+[4] Eric Chan, Marco Monteiro, Petr Kellnhofer, Jiajun Wu, and
+Gordon Wetzstein. pi-gan: Periodic implicit generative ad-
+versarial networks for 3d-aware image synthesis. In Proc.
+CVPR, 2021. 2
+[5] Eric R. Chan, Connor Z. Lin, Matthew A. Chan, Koki
+Nagano, Boxiao Pan, Shalini De Mello, Orazio Gallo,
+Leonidas Guibas, Jonathan Tremblay, Sameh Khamis, Tero
+Karras, and Gordon Wetzstein. Efficient geometry-aware 3D
+generative adversarial networks. In CVPR, 2022. 2, 6
+[6] Hansheng Chen, Jiatao Gu, Anpei Chen, Wei Tian, Zhuowen
+Tu, Lingjie Liu, and Hao Su. Single-stage diffusion nerf:
+A unified approach to 3d generation and reconstruction. In
+ICCV, 2023. 2, 5, 6
+[7] Honghu Chen, Yuxin Yao, and Juyong Zhang. Neural-abc:
+Neural parametric models for articulated body with clothes.
+IEEE Transactions on Visualization and Computer Graphics,
+2024. 2
+[8] Rui Chen, Yongwei Chen, Ningxin Jiao, and Kui Jia. Fan-
+tasia3d: Disentangling geometry and appearance for high-
+quality text-to-3d content creation.
+In Proceedings of the
+IEEE/CVF International Conference on Computer Vision
+(ICCV), pages 22246–22256, 2023. 2
+[9] Xin Chen, Anqi Pang, Yang Wei, Wang Peihao, Lan Xu, and
+Jingyi Yu. Tightcap: 3d human shape capture with clothing
+tightness field. ACM Transactions on Graphics (Presented
+at ACM SIGGRAPH), 2021. 2, 6, 7
+[10] Xu Chen, Yufeng Zheng, Michael J Black, Otmar Hilliges,
+and Andreas Geiger. Snarf: Differentiable forward skinning
+for animating non-rigid neural implicit shapes. In Interna-
+tional Conference on Computer Vision (ICCV), 2021. 3
+[11] Xu Chen, Tianjian Jiang, Jie Song, Max Rietmann, Andreas
+Geiger, Michael J. Black, and Otmar Hilliges. Fast-snarf: A
+fast deformer for articulated neural fields. Pattern Analysis
+and Machine Intelligence (PAMI), 2023. 3
+[12] Zhaoxi Chen, Fangzhou Hong, Haiyi Mei, Guangcong
+Wang, Lei Yang, and Ziwei Liu. Primdiffusion: Volumet-
+ric primitives diffusion for 3d human generation. In Thirty-
+seventh Conference on Neural Information Processing Sys-
+tems, 2023. 2
+[13] Hang Chu, Shugao Ma, Fernando De la Torre, Sanja Fi-
+dler, and Yaser Sheikh. Expressive telepresence via mod-
+ular codec avatars. In Computer Vision–ECCV 2020: 16th
+European Conference, Glasgow, UK, August 23–28, 2020,
+Proceedings, Part XII 16, pages 330–345. Springer, 2020. 1
+[14] Enric Corona, Albert Pumarola, Guillem Aleny`a, Ger-
+ard Pons-Moll, and Francesc Moreno-Noguer.
+Smplicit:
+Topology-aware generative model for clothed people.
+In
+CVPR, 2021. 2
+[15] Junting Dong, Qi Fang, Zehuan Huang, Xudong Xu,
+Jingbo Wang, Sida Peng, and Bo Dai.
+Tela:
+Text to
+layer-wise 3d clothed human generation.
+arXiv preprint
+arXiv:2404.16748, 2024. 2, 3, 6, 7
+[16] Zijian Dong, Xu Chen, Jinlong Yang, Michael J Black, Ot-
+mar Hilliges, and Andreas Geiger. AG3D: Learning to Gen-
+erate 3D Avatars from 2D Image Collections. In Interna-
+tional Conference on Computer Vision (ICCV), 2023. 2, 3,
+5
+[17] Stefan Elfwing, Eiji Uchibe, and Kenji Doya.
+Sigmoid-
+weighted linear units for neural network function approxima-
+tion in reinforcement learning. Neural networks, 107:3–11,
+2018. 1
+[18] Yao Feng, Jinlong Yang, Marc Pollefeys, Michael J. Black,
+and Timo Bolkart.
+Capturing and animation of body and
+clothing from monocular video. In SIGGRAPH Asia 2022
+Conference Papers, 2022. 3, 5
+[19] Jia Gong, Shenyu Ji, Lin Geng Foo, Kang Chen, Hossein
+Rahmani, and Jun Liu.
+Laga: Layered 3d avatar genera-
+tion and customization via gaussian splatting. arXiv preprint
+arXiv:2405.12663, 2024. 2, 3, 6, 7
+[20] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner,
+Bernhard Nessler, and Sepp Hochreiter. Gans trained by a
+two time-scale update rule converge to a local nash equilib-
+rium. Advances in neural information processing systems,
+30, 2017. 6
+[21] Hsuan-I Ho, Lixin Xue, Jie Song, and Otmar Hilliges. Learn-
+ing locally editable virtual humans.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 21024–21035, 2023. 2, 6
+[22] Fangzhou Hong, Zhaoxi Chen, Yushi LAN, Liang Pan, and
+Ziwei Liu.
+EVA3d: Compositional 3d human generation
+from 2d image collections. In International Conference on
+Learning Representations, 2023. 2, 3, 6, 7
+[23] Fangzhou Hong, Jiaxiang Tang, Ziang Cao, Min Shi, Tong
+Wu, Zhaoxi Chen, Shuai Yang, Tengfei Wang, Liang Pan,
+Dahua Lin, et al.
+3dtopia:
+Large text-to-3d genera-
+tion model with hybrid diffusion priors.
+arXiv preprint
+arXiv:2403.02234, 2024. 2
+[24] Shoukang Hu, Fangzhou Hong, Tao Hu, Liang Pan, Haiyi
+Mei, Weiye Xiao, Lei Yang, and Ziwei Liu.
+Humanliff:
+Layer-wise 3d human generation with diffusion model. arXiv
+preprint, 2023. 2, 3, 6, 7
+[25] Shoukang Hu, Tao Hu, and Ziwei Liu. Gauhuman: Articu-
+lated gaussian splatting from monocular human videos. In
+Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition, pages 20418–20431, 2024. 4
+
+
+[26] Tao Hu, Fangzhou Hong, and Ziwei Liu. Structldm: Struc-
+tured latent diffusion for 3d human generation, 2024. 2, 6,
+7
+[27] Peter J Huber. Robust estimation of a location parameter. In
+Breakthroughs in statistics: Methodology and distribution,
+pages 492–518. Springer, 1992. 5
+[28] Zeren Jiang, Chen Guo, Manuel Kaufmann, Tianjian Jiang,
+Julien Valentin, Otmar Hilliges, and Jie Song. Multiply: Re-
+construction of multiple people from monocular video in the
+wild. In Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition (CVPR), 2024. 2
+[29] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. Perceptual
+losses for real-time style transfer and super-resolution. In
+European conference on computer vision, pages 694–711.
+Springer, 2016. 5
+[30] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Transactions on Graphics, 42
+(4), 2023. 2, 4, 1
+[31] Rawal Khirodkar, Timur Bagautdinov, Julieta Martinez, Su
+Zhaoen, Austin James, Peter Selednik, Stuart Anderson, and
+Shunsuke Saito. Sapiens: Foundation for human vision mod-
+els. arXiv preprint arXiv:2408.12569, 2024. 5, 6, 2
+[32] Byungjun Kim, Patrick Kwon, Kwangho Lee, Myunggi Lee,
+Sookwan Han, Daesik Kim, and Hanbyul Joo.
+Chupa:
+Carving 3d clothed humans from skinned shape priors us-
+ing 2d diffusion probabilistic models.
+In Proceedings of
+the IEEE/CVF International Conference on Computer Vision
+(ICCV), pages 15965–15976, 2023. 3
+[33] Diederik P Kingma. Adam: A method for stochastic opti-
+mization. arXiv preprint arXiv:1412.6980, 2014. 1
+[34] Nikos Kolotouros, Thiemo Alldieck, Enric Corona, Ed-
+uard Gabriel Bazavan, and Cristian Sminchisescu. Instant
+3d human avatar generation using image diffusion models.
+arXiv preprint arXiv:2406.07516, 2024. 3
+[35] Maria Korosteleva and Sung-Hee Lee. Neuraltailor: Recon-
+structing sewing pattern structures from 3d point clouds of
+garments. ACM Transactions on Graphics (TOG), 41(4):1–
+16, 2022. 2
+[36] Siran Li, Chen Liu, Ruiyang Liu, Zhendong Wang, Gaofeng
+He, Yong-Lu Li, Xiaogang Jin, and Huamin Wang. Garma-
+genet: A multimodal generative framework for sewing pat-
+tern design and generic garment modeling. arXiv preprint
+arXiv:2504.01483, 2025. 2
+[37] Yixun Liang, Xin Yang, Jiantao Lin, Haodong Li, Xiao-
+gang Xu, and Yingcong Chen. Luciddreamer: Towards high-
+fidelity text-to-3d generation via interval score matching. In
+Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition, pages 6517–6526, 2024. 2
+[38] Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa,
+Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fidler,
+Ming-Yu Liu, and Tsung-Yi Lin. Magic3d: High-resolution
+text-to-3d content creation. In IEEE Conference on Com-
+puter Vision and Pattern Recognition (CVPR), 2023. 2
+[39] Siyou Lin, Zhe Li, Zhaoqi Su, Zerong Zheng, Hongwen
+Zhang, and Yebin Liu. Layga: Layered gaussian avatars for
+animatable clothing transfer. In ACM SIGGRAPH 2024 Con-
+ference Papers, pages 1–11, 2024. 3
+[40] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tok-
+makov, Sergey Zakharov, and Carl Vondrick.
+Zero-1-to-
+3: Zero-shot one image to 3d object.
+In Proceedings of
+the IEEE/CVF international conference on computer vision,
+pages 9298–9309, 2023. 2
+[41] Yufei Liu, Junshu Tang, Chu Zheng, Shijie Zhang, Jinkun
+Hao, Junwei Zhu, and Dongjin Huang. Clothedreamer: Text-
+guided garment generation with 3d gaussians. arXiv preprint
+arXiv:2406.16815, 2024. 5
+[42] Zhen
+Liu,
+Yao
+Feng,
+Michael
+J.
+Black,
+Derek
+Nowrouzezahrai, Liam Paull, and Weiyang Liu.
+Meshd-
+iffusion: Score-based generative 3d mesh modeling.
+In
+International Conference on Learning Representations,
+2023. 2
+[43] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard
+Pons-Moll, and Michael J. Black. SMPL: A skinned multi-
+person linear model. ACM Transactions on Graphics, (Proc.
+SIGGRAPH Asia), 34(6):248:1–248:16, 2015. 2
+[44] Marko Mihajlovic, Shunsuke Saito, Aayush Bansal, Michael
+Zollhoefer, and Siyu Tang. Coap: Compositional articulated
+occupancy of people. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, pages
+13201–13210, 2022. 3
+[45] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf:
+Representing scenes as neural radiance fields for view syn-
+thesis. Communications of the ACM, 65(1):99–106, 2021.
+2
+[46] Gyeongsik Moon, Takaaki Shiratori, and Shunsuke Saito.
+Expressive whole-body 3d gaussian avatar. arXiv preprint
+arXiv:2407.21686, 2024. 3
+[47] Norman
+M¨uller,
+Yawar
+Siddiqui,
+Lorenzo
+Porzi,
+Samuel Rota Bulo,
+Peter Kontschieder,
+and Matthias
+Nießner.
+Diffrf:
+Rendering-guided 3d radiance field
+diffusion.
+In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition,
+pages
+4328–4338, 2023. 2
+[48] Alex Nichol, Heewoo Jun, Prafulla Dhariwal, Pamela
+Mishkin, and Mark Chen. Point-e: A system for generat-
+ing 3d point clouds from complex prompts. arXiv preprint
+arXiv:2212.08751, 2022. 2
+[49] Michael Niemeyer and Andreas Geiger. Giraffe: Represent-
+ing scenes as compositional generative neural feature fields.
+In Proc. IEEE Conf. on Computer Vision and Pattern Recog-
+nition (CVPR), 2021. 2
+[50] Atsuhiro Noguchi, Xiao Sun, Stephen Lin, and Tatsuya
+Harada. Unsupervised learning of efficient geometry-aware
+neural articulated representations. In European Conference
+on Computer Vision, 2022. 2, 3
+[51] Pablo Palafox, Nikolaos Sarafianos, Tony Tung, and Angela
+Dai. Spams: Structured implicit parametric models. In Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 12851–12860, 2022. 3
+[52] Georgios Pavlakos, Vasileios Choutas, Nima Ghorbani,
+Timo Bolkart, Ahmed A. A. Osman, Dimitrios Tzionas, and
+Michael J. Black. Expressive body capture: 3d hands, face,
+and body from a single image. In Proceedings IEEE Conf.

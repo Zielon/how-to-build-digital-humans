@@ -1,0 +1,873 @@
+Title: HumanRAM: Feed-forward Human Reconstruction and Animation Model using Transformers
+
+arXiv:2506.03118v1  [cs.GR]  3 Jun 2025
+HumanRAM: Feed-forward Human Reconstruction and Animation
+Model using Transformers
+ZHIYUAN YU∗†, Hong Kong University of Science and Technology, China
+ZHE LI∗, Huawei, China
+HUJUN BAO, State Key Laboratory of CAD&CG, Zhejiang University, China
+CAN YANG‡, Hong Kong University of Science and Technology, China
+XIAOWEI ZHOU‡, State Key Laboratory of CAD&CG, Zhejiang University, China
+Fig. 1. We propose HumanRAM, a novel approach for feed-forward novel view synthesis (reconstruction) and novel pose synthesis (animation)
+from sparse/single-view human image(s). The animation poses are from ActorsHQ [Işık et al. 2023] and AMASS [Mahmood et al. 2019].
+∗The first two authors contributed equally to this work.
+†Work done during an internship at Huawei.
+‡Corresponding authors.
+Authors’ Contact Information: Zhiyuan Yu, zyuaq@ust.hk, Hong Kong University of
+Science and Technology, Mathematics, Hong Kong, China; Zhe Li, lizhe_thu@126.com,
+Huawei, Hangzhou, China; Hujun Bao, bao@cad.zju.edu.cn, State Key Laboratory of
+CAD&CG, Zhejiang University, Hangzhou, China; Can Yang, macyang@ust.hk, Hong
+Kong University of Science and Technology, Mathematics, Hong Kong, China; Xiaowei
+Zhou, xwzhou@zju.edu.cn, State Key Laboratory of CAD&CG, Zhejiang University,
+Hangzhou, China.
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission
+and/or a fee. Request permissions from permissions@acm.org.
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada
+3D human reconstruction and animation are long-standing topics in com-
+puter graphics and vision. However, existing methods typically rely on
+sophisticated dense-view capture and/or time-consuming per-subject opti-
+mization procedures. To address these limitations, we propose HumanRAM,
+a novel feed-forward approach for generalizable human reconstruction and
+animation from monocular or sparse human images. Our approach integrates
+human reconstruction and animation into a unified framework by intro-
+ducing explicit pose conditions, parameterized by a shared SMPL-X neural
+texture, into transformer-based large reconstruction models (LRM). Given
+monocular or sparse input images with associated camera parameters and
+SMPL-X poses, our model employs scalable transformers and a DPT-based
+decoder to synthesize realistic human renderings under novel viewpoints
+and novel poses. By leveraging the explicit pose conditions, our model si-
+multaneously enables high-quality human reconstruction and high-fidelity
+pose-controlled animation. Experiments show that HumanRAM significantly
+© 2025 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM ISBN 979-8-4007-1540-2/2025/08
+https://doi.org/10.1145/3721238.3730605
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+2
+•
+Yu, Z. et al
+surpasses previous methods in terms of reconstruction accuracy, animation
+fidelity, and generalization performance on real-world datasets. Video results
+are available at https://zju3dv.github.io/humanram/.
+CCS Concepts: • Computing methodologies →Rendering; Animation.
+Additional Key Words and Phrases: Human reconstruction, human anima-
+tion, neural rendering
+ACM Reference Format:
+Zhiyuan Yu, Zhe Li, Hujun Bao, Can Yang, and Xiaowei Zhou. 2025. Human-
+RAM: Feed-forward Human Reconstruction and Animation Model using
+Transformers. In Special Interest Group on Computer Graphics and Interac-
+tive Techniques Conference Conference Papers (SIGGRAPH Conference Papers
+’25), August 10–14, 2025, Vancouver, BC, Canada. ACM, New York, NY, USA,
+13 pages. https://doi.org/10.1145/3721238.3730605
+1
+INTRODUCTION
+Reconstruction and animation are two core topics in human-centric
+3D vision and graphics. Although high-end dense-view capture
+systems and modeling technologies [Collet et al. 2015; Guo et al.
+2019; Işık et al. 2023; Li et al. 2024b] achieve high-quality 3D human
+reconstruction and animation, the complicated hardware and time-
+consuming per-subject optimization limit their broader applications.
+This bottleneck leads to a trend of sparse/single-view reconstruc-
+tion, which employs generalizable feed-forward networks to predict
+3D humans directly from limited inputs. Pioneering works like
+PIFu [Saito et al. 2019, 2020] proposed to reconstruct human geom-
+etry via occupancy fields, but paid less attention to photo-realistic
+rendering demanded by real applications. Recently, with significant
+advances in differentiable rendering [Kerbl et al. 2023; Laine et al.
+2020; Mildenhall et al. 2020] and neural rendering [Tewari et al.
+2020; Thies et al. 2019], researchers start using scalable transform-
+ers [Vaswani 2017] to predict 3D representations or novel-view
+renderings from input images. These approaches originate from
+the Large Reconstruction Model (LRM) [Hong et al. 2023]. After
+being exposed to a large amount of 3D data (e.g., Objaverse [Deitke
+et al. 2023]), LRM and its follow-ups [Jin et al. 2024; Wei et al. 2024;
+Zhang et al. 2024a] learn to predict 3D models or images in a single
+forward pass. While LRMs achieve feed-forward 3D reconstruction,
+they struggle with fine-grained details in human geometry under
+complex poses and cloth deformations. Moreover, existing frame-
+works focus on static reconstruction, ignoring dynamic animations
+that are essential for interactive applications.
+To address these challenges, we propose Human Reconstruction
+and Animation Model (HumanRAM), a novel framework that in-
+tegrates human reconstruction and animation into a unified feed-
+forward model. We leverage Large View Synthesis Model (LVSM)
+[Jin et al. 2024] as the foundational architecture, which implicitly
+learns 3D structures and directly regresses novel-view renderings.
+Previous explicit 3D representations usually require precise geom-
+etry for high-quality output. However, geometric constraints are
+insufficient under sparse observations. By harnessing the implicit na-
+ture of LVSM, we overcome this limitation and improve the model’s
+performance and generalization capacity.
+Original LVSM maps input images & cameras, as well as the tar-
+get camera, into patch tokens and regresses the target-view image
+using transformers. To endow LVSM with the animation ability
+and improve the reconstruction quality for humans, we introduce
+SMPL-X [Pavlakos et al. 2019], a parametric human mesh model
+that provides strong pose and geometry priors as additional input
+tokens. Given calibrated multi-view human images, SMPL-X can
+be estimated using off-the-shelf tools [Sun et al. 2024b; Zhang et al.
+2021]. To tokenize the SMPL-X prior, we introduce rasterization
+of a shared neural texture map bound to the SMPL-X mesh across
+input and target views. This process yields pose images that spa-
+tially align with the RGB and camera tokens used in LVSM. These
+pose images serve as a strong geometrical and semantical guide for
+the transformer’s attention mechanism, thereby enabling a more
+realistic novel-view synthesis and pose-controlled animation.
+The key insights of our method are: 1) The rasterized pose images
+establish shared embedding space between input and target views,
+providing explicit correspondences for the self-attention layers of
+transformers to reassemble the target view, thus producing higher-
+fidelity reconstruction. 2) The pose images enable LVSM to match
+appearance across diverse poses through the shared neural texture
+map, thereby achieving realistic animation. Moreover, we propose a
+DPT-based [Ranftl et al. 2021] decoder to facilitate the information
+exchange among neighboring patches and intermediate transformer
+features, effectively suppressing checkerboard artifacts prevalent in
+linear decoders.
+Overall, the synergy of design choices enables high-quality hu-
+man reconstruction and photo-realistic human animation from
+sparse/single image(s), as shown in Fig. 1 and Fig. 4.
+2
+RELATED WORK
+2.1
+Generalizable Human Reconstruction
+Human reconstruction has been widely explored over the past few
+decades. Traditional methods reconstruct human geometry and tex-
+ture from dense-view images [Bradley et al. 2008; Collet et al. 2015;
+Guo et al. 2019; Liu et al. 2009; Starck and Hilton 2007; Vlasic et al.
+2009; Wu et al. 2011]. With advancements in differentiable 3D repre-
+sentations like implicit functions [Chabra et al. 2020; Mescheder et al.
+2019; Park et al. 2019; Peng et al. 2020], neural radiance fields (NeRF)
+[Mildenhall et al. 2020], and 3D Gaussian splatting (3DGS) [Kerbl
+et al. 2023], researchers tend to learn data-driven feed-forward mod-
+els. Methods like BodyNet [Varol et al. 2018], DeepHuman [Zheng
+et al. 2019], and Tang et al. [2023] regress volumetric outputs from
+image(s) but face resolution limits from GPU memory constraints.
+PIFu [Saito et al. 2019] and its successors [Cao et al. 2023; Saito
+et al. 2020; Xiu et al. 2023, 2022; Yang et al. 2024c; Yu et al. 2021;
+Zhang et al. 2024c,d; Zheng et al. 2021a,b] address this by learning
+pixel-aligned implicit functions for human geometry recovery.
+In recent years, many works have developed generalizable models
+based on NeRF or 3DGS for human novel view synthesis. Similar
+to PIFu, NeRF-based approaches [Chen et al. 2024a, 2023; Hu et al.
+2023b; Kwon et al. 2021; Lin et al. 2022; Mihajlovic et al. 2022; Raj
+et al. 2021; Shao et al. 2022; Sun et al. 2024a; Zhou et al. 2024a]
+extract pixel-aligned features and learn image-conditioned radiance
+fields. In contrast, 3DGS-based methods explicitly parameterize 3D
+gaussians in pixel space [Dong et al. 2024; Hu et al. 2024b; Tu et al.
+2024; Zheng et al. 2024; Zhou et al. 2024b], UV space [Kwon et al.
+2024] or tokens [Prospero et al. 2024]. More recently, 3D AIGC has
+made remarkable progress [Liu et al. 2024b, 2023; Poole et al. 2023;
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+HumanRAM: Feed-forward Human Reconstruction and Animation Model using Transformers
+•
+3
+Voleti et al. 2024], leading researchers to model the reconstruction
+as an image-conditioned generation task [AlBahar et al. 2023; Cao
+et al. 2024; Chen et al. 2024b; Gao et al. 2024; He et al. 2024; Huang
+et al. 2024; I Ho et al. 2024; Kolotouros et al. 2024; Li et al. 2024a;
+Liu et al. 2024c; Sengupta et al. 2024; Weng et al. 2023; Xiu et al.
+2024; Xu et al. 2023b; Yang et al. 2024a]. Although diffusion models
+enhance texture hallucination for occluded regions, their iterative
+refinement process incurs higher computational costs than feed-
+forward models.
+2.2
+Large Reconstruction Model
+Large Reconstruction Model (LRM) was first proposed by Hong et al.
+[2023], which learns a generalizable NeRF [Mildenhall et al. 2020]
+from a single image. Subsequent works [Tang et al. 2025; Wang et al.
+2023b; Wei et al. 2024; Weng et al. 2023; Xie et al. 2024; Xu et al.
+2024b, 2023a; Zhang et al. 2024a] explore LRM in various down-
+stream tasks. For instance, PF-LRM [Wang et al. 2023b] learns from
+unposed images. LRM-Zero [Xie et al. 2024] and MegaSynth [Jiang
+et al. 2024] train LRM on synthetic data and successfully generalize
+to real data. DMV3D [Xu et al. 2023a] applies LRM as a diffusion
+denoiser to improve generation view consistency. Some researchers
+extend the representation of LRM from NeRF to mesh [Wei et al.
+2024], 3DGS [Liang et al. 2024b; Shen et al. 2024; Tang et al. 2025;
+Xu et al. 2024b; Yi et al. 2024; Zhang et al. 2024a; Ziwen et al. 2024]
+and 2DGS [Chen et al. 2024c]. More recently, LVSM [Jin et al. 2024]
+synthesizes novel views using pure transformers. Despite these
+advances, existing LRM variants mainly focus on object/scene re-
+construction, ignoring human-centric applications. In contrast, our
+method specializes in human reconstruction and animation.
+2.3
+Human Animation
+Human animation aims to generate novel-pose images given one or
+more input images. Previous works are categorized into 2D and 3D
+animation. 2D animation formulates the task as signal-driven image
+generation [Chan et al. 2019; Liu et al. 2019; Ren et al. 2020; Siarohin
+et al. 2019a,b, 2021; Yu et al. 2023b; Zhang et al. 2022; Zhao and
+Zhang 2022]. Recently, diffusion-based methods [Hu et al. 2023a;
+Ma et al. 2023; Men et al. 2024; Shao et al. 2024a; Wang et al. 2023a;
+Xu et al. 2024c; Zhang et al. 2024b; Zhu et al. 2024] have gained huge
+attention for their powerful generation capabilities, but they suffer
+from time-consuming generation due to the denoising process.
+3D methods typically optimize person-specific avatars from single
+or multi-view videos using various 3D representations (e.g., point
+clouds [Su et al. 2023], mesh [Bagautdinov et al. 2021; Chen et al.
+2024d], implicit field [Jiang et al. 2022b; Li et al. 2023; Peng et al. 2024;
+Wang et al. 2022; Xu et al. 2024a; Zhang et al. 2023], NeRF [Jiang
+et al. 2022a,c; Li et al. 2022; Liu et al. 2021, 2024a; Peng et al. 2021a;
+Xiao et al. 2024; Xu et al. 2022; Yu et al. 2023a] and 3DGS [Hu et al.
+2024a; Kocabas et al. 2024; Lei et al. 2024; Li et al. 2024b; Lin et al.
+2024; Moon et al. 2024; Shao et al. 2024b; Wen et al. 2024; Zielonka
+et al. 2025]). The avatars are then animated using linear blend skin-
+ning (LBS). However, the optimization process is time-intensive
+and can fail with very sparse inputs. To generalize, researchers use
+learned priors [Chatziagapi et al. 2024; Hsuan-I Ho and Hilliges
+2023; Mu et al. 2023] or feed-forward models [Gao et al. 2023, 2022;
+He et al. 2021; Huang et al. 2020; Kwon et al. 2023; Shin et al. 2025].
+Our method bridges human prior and Large Reconstruction Model,
+leading to more realistic animation.
+3
+METHOD
+3.1
+Preliminary: LVSM
+Large View Synthesis Model (LVSM) [Jin et al. 2024] is a recent
+method for neural rendering without using any explicit 3D rep-
+resentations. This method inputs multi-view images and camera
+parameters and outputs target-view renderings through encoder-
+decoder or decoder-only transformers. Specifically, given 𝑁images
+with their corresponding camera poses parameterized by Plücker
+ray embeddings [Plücker 1865], denoted as {I𝑖∈R𝐻×𝑊×3, P𝑖∈
+R𝐻×𝑊×6|𝑖= 1, ..., 𝑁}, LVSM first maps them into patch tokens
+x𝑖𝑗∈R𝑑with a linear layer (𝑑is the token dimension):
+x𝑖𝑗= Linearinp([I𝑖𝑗, P𝑖𝑗]),
+(1)
+where I𝑖𝑗∈R3𝑝2 and P𝑖𝑗∈R6𝑝2 mean the 𝑗-th 𝑝× 𝑝patch of I𝑖
+and P𝑖, and [·, ·] means concatenation. The target-view pose is also
+represented as Plücker ray embedding P𝑡∈R𝐻×𝑊×6 and mapped
+to patch tokens q𝑗∈R𝑑with another linear layer:
+q𝑗= Lineartar(P𝑡
+𝑗).
+(2)
+Given input and target tokens, decoder-only LVSM synthesizes
+target-view tokens y𝑗∈R𝑑through transformers T:
+x′
+𝑖, ..., x′
+𝑙𝑥, y1, ..., y𝑙𝑞= T (x𝑖, ..., x𝑙𝑥, q1, ..., q𝑙𝑞),
+(3)
+where 𝑙𝑥and 𝑙𝑞mean the number of input and target tokens. Finally,
+LVSM regresses the RGB values of each target patch from output
+tokens with a linear layer followed by a Sigmoid function:
+ˆI𝑡
+𝑗= Sigmoid(Linearout(y𝑗)) ∈R3𝑝2.
+(4)
+The predicted RGB values are unpatchfied to 2D space to form the
+final target image. In this paper, we incorporate dedicated designs
+into LVSM for human reconstruction and animation.
+3.2
+Overview
+Given sparse-view images of a character, we aim to synthesize the
+character under novel views and poses, i.e., to perform feed-forward
+human reconstruction and animation. As a state-of-the-art feed-
+forward large reconstruction model (LRM), LVSM [Jin et al. 2024]
+is introduced as a foundational architecture of our method. To en-
+dow LRM with the animation ability, we introduce pose tokens
+parameterized by a neural texture [Thies et al. 2019] bound with
+SMPL-X [Pavlakos et al. 2019] into LVSM. Specifically, as illustrated
+in Fig. 2, we render the learnable SMPL-X neural texture to the
+sparse input views, resulting in 𝑁feature maps, which we refer to
+as pose images. The input RGB images, their corresponding Plücker
+embeddings, and the pose images are concatenated and then patch-
+fied as input tokens. Given the target view and the target human
+poses to be synthesized, we similarly concatenate and patchify them
+as target tokens. The input and target tokens are fed into a trans-
+former model, and the output tokens are regressed to produce the
+synthesized human image under the target view and pose.
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+4
+•
+Yu, Z. et al
+Fig. 2. Pipeline of HumanRAM. HumanRAM adopts transformers for human reconstruction and animation from sparse view images in a feed-forward
+manner. We first patchify and project spare-view RGB images and their corresponding Plücker rays and pose images into input tokens through a linear layer.
+The pose images are acquired by rasterizing the SMPL-X neural texture onto the input views. Similarly, given the target novel view under the same or another
+novel pose, the target tokens are created from the target Plücker rays and pose images through another linear layer. Then both input tokens and target tokens
+are fed into transformer blocks. Finally, a DPT-based decoder regresses the intermediate target tokens to a high-fidelity human image under the target view
+and target pose. Overall, HumanRAM realizes feed-forward reconstruction and animation by controlling the target views and target poses at the input end.
+3.3
+Pose-conditioned Reconstruction and Animation
+Since LVSM discards explicit 3D representation, we cannot directly
+use the SMPL-X [Pavlakos et al. 2019] model as a geometry prior or
+proxy for pose-conditioned reconstruction and animation, as done
+in previous works [Huang et al. 2020; Kwon et al. 2024; Taubner
+et al. 2024; Xiu et al. 2023; Zheng et al. 2021b]. Inspired by neural
+texture [Deng et al. 2024; Thies et al. 2019; Yoon et al. 2022], we
+render the SMPL-X mesh with a neural texture onto multi-view 2D
+image planes, generating multi-view pose conditions. These pose
+conditions serve not only as a strong geometry prior for the novel
+view synthesis but also as an enabler for the animation ability.
+SMPL-X Neural Texture. We adopt tri-planes [Chan et al. 2021] to
+represent the neural texture for its effectiveness and compactness.
+As illustrated in Fig. 3, the neural texture is defined as learnable
+feature tri-planes within a canonical space, determined by SMPL-
+X with canonical pose and mean shape. We denote the canonical
+SMPL-X vertices as Vcano ∈R𝑁𝑉×3 and feature tri-planes as T ∈
+R3×𝐻′×𝑊′×𝐶, where 𝐻′ and 𝑊′ are the resolution of each plane,
+and 𝐶is the feature dimension. For each position v ∈R3 on the
+canonical SMPL-X surface, its corresponding neural texture is the
+concatenation of sampled features on each plane:
+F(v; T) = [BLerp(v𝑥𝑦; T𝑥𝑦),
+BLerp(v𝑥𝑧; T𝑥𝑧), BLerp(v𝑦𝑧; T𝑦𝑧)] ∈R3𝐶,
+(5)
+where BLerp(·) is the bilinear interpolation function on the fea-
+ture plane given 2D query coordinates. The SMPL-X neural tex-
+ture is shared across all the identities, providing guidance for pose-
+conditioned reconstruction and animation.
+Fig. 3. Illustration of the process of neural texture rasterization. We
+first render position maps with canonical SMPL-X as vertex colors, and then
+the position maps are used to sample triplane-based neural texture.
+Input Tokens. Given calibrated multi-view input images of a char-
+acter, we obtain the registered SMPL-X mesh using multi-view mo-
+tion capture like [Zhang et al. 2021]. The registered SMPL-X serves
+as a geometry proxy. We then bind its vertex attributes with the
+canonical positions Vcano and rasterize it to the input views, produc-
+ing 𝑁position maps {V𝑖∈R𝐻×𝑊×3}, where each pixel corresponds
+to a canonical position. The rendered position maps are then used
+to sample the neural texture using Eq. 5. Consequently, we raster-
+ize the SMPL-X neural texture onto the input views, obtaining 𝑁
+pose images {F𝑖∈R𝐻×𝑊×3𝐶}. Then, similar to Eq. 1, we concate-
+nate RGB images, Plücker embeddings, and pose images along the
+channel dimension, and then patchify them as “input tokens”:
+x𝑖𝑗= Linearinp([I𝑖𝑗, P𝑖𝑗, F𝑖𝑗]).
+(6)
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+HumanRAM: Feed-forward Human Reconstruction and Animation Model using Transformers
+•
+5
+Target Tokens for Reconstruction. Given a new target viewpoint,
+we rasterize the neural texture onto it using the registered SMPL-X
+model to obtain a novel view pose image F𝑡. Similar to Eq. 2, we
+concatenate the Plücker embeddings and pose image of the target
+view, and then patchify them as “target tokens” for reconstruction:
+qrecon
+𝑗
+= Lineartar([P𝑡
+𝑗, F𝑡
+𝑗]).
+(7)
+Target Tokens for Animation. Since the rasterized neural texture
+provides rich human pose information, it is natural to explore our
+model’s potential animation ability for both novel view and pose
+synthesis. Specifically, given a novel target pose ˆ𝜃, we first transform
+it into a posed SMPL-X model. We then rasterize the neural texture
+onto a novel view using the posed SMPL-X, obtaining the pose image
+ˆF𝑡representing both the novel view and the novel pose. Following
+Eq. 7, we acquire “target tokens” {qani
+𝑗
+} for animation.
+Output Tokens. The input and target tokens are subsequently
+fed to a decoder-only transformer T, composed of a series of self-
+attention layers, producing a sequence of “output tokens”. These
+output tokens and intermediate features are decoded as an image
+under the target view and target pose using a DPT-based decoder
+[Ranftl et al. 2021] (Sec. 3.4).
+Discussion on Pose Conditions. We discuss the impact of the neural
+texture-based pose images on both reconstruction and animation.
+• From the perspective of novel view synthesis, i.e., reconstruc-
+tion, LVSM [Jin et al. 2024] learns cross-view matching from
+RGB and camera pose information to reassemble a novel view
+image using the attention mechanism. Our method introduces
+additional SMPL-X neural texture into the matching process,
+providing more explicit correspondences for higher-quality
+view synthesis, as demonstrated in Fig. 5, compared to vanilla
+LVSM.
+• On the other end of the spectrum, the pose condition en-
+ables texture matching across different poses with a shared
+neural texture, achieving novel pose synthesis. To the best
+of our knowledge, HumanRAM is the first to endow Large
+Reconstruction Model with the animation ability.
+3.4
+DPT-based Decoder
+Original LVSM [Jin et al. 2024] uses a linear layer to decode tokens
+into RGB values directly. We empirically find that such a simple
+decoder yields patch-like artifacts for humans, especially in regions
+suffering severe self-occlusions or containing thin structures, as
+shown in Fig. 8. We hypothesize that such artifacts are attributed to
+the lack of information exchange between neighboring patch tokens
+when decoding. Inspired by the dense prediction transformers (DPT)
+used in various vision transformer models [Oquab et al. 2023; Ranftl
+et al. 2021; Wang et al. 2024; Yang et al. 2024b], we replace the
+linear layer with stacks of residual CNN layers, similar to DPT
+heads, enhancing the local information fusion. Therefore, the final
+synthesized image ˆI𝑡is formed using a DPT-based decoder:
+ˆI𝑡= Sigmoid(DPT({y𝑖|𝑖= 3, 6, 9, 12}),
+(8)
+where y𝑖denotes the intermediate tokens of the 𝑖-th layer.
+3.5
+Loss Functions
+Given the predicted target-view images {ˆI𝑖∈R𝐻×𝑊×3|𝑖= 1, ..., 𝑀},
+we optimize HumanRAM using the following objective:
+L = 1
+𝑀Σ𝑀
+𝑖=1(LMSE(ˆI𝑖, I𝑖) + 𝜆· LPerc(ˆI𝑖, I𝑖)),
+(9)
+where L𝑀𝑆𝐸denotes the mean squared error and LPerc denotes the
+perceptual loss [Chen and Koltun 2017], computing 𝐿1 difference
+between the extracted features from the VGG-19 network Φ [Si-
+monyan and Zisserman 2014]. 𝜆is the loss weight of LPerc and set
+to 1.0 in our experiments.
+4
+EXPERIMENTS
+As shown in Fig. 1 and Fig. 4, our method can create realistic human
+reconstruction and animation from single and sparse images since
+our transformer-based architecture is flexible to the image token
+number. Video results can be found in the Supp. video.
+4.1
+Settings
+The implementation and training details are presented in the Supp.
+document.
+Datasets. We conduct experiments on four public datasets: THu-
+man2.1 [Yu et al. 2021], Human4DiT [Shao et al. 2024a], ZJUMo-
+Cap [Peng et al. 2021b], and ActorsHQ [Işık et al. 2023] for training
+and evaluation. THuman2.1 and Human4DiT comprise thousands of
+high-quality 3D human scans, texture maps, and SMPL-X [Pavlakos
+et al. 2019] fittings. We use the training set of 2300 scans from THu-
+man2.1. The training scans are categorized according to human iden-
+tities, enabling the model to learn animation across different poses
+of the same identity. Each training scan is normalized into a [−1, 1]3
+bounding box and rendered to 60-view images at a resolution of 512
+via Cycles [Community 2018]. The cameras are randomly sampled
+with an altitude of [−45◦, 45◦] and a radius of [2.0, 3.0]. ZJUMoCap
+and ActorsHQ are human avatar datasets that provide multi-view
+human videos and SMPL(-X)s. We convert the SMPL [Loper et al.
+2015] parameters into SMPL-X for ZJUMoCap and use the SMPL-X
+provided by Li et al. [2024b] for ActorsHQ. All images are resized
+to 512×512 for aligning the input resolution of networks.
+Baselines. We compare with generalizable human reconstruction
+methods GPS-Gaussian [Zheng et al. 2024] and GHG [Kwon et al.
+2024]. We also compare against LRM-like methods LaRa [Chen et al.
+2024c] and LVSM [Jin et al. 2024]. For animation, we compare with
+generalizable human avatar methods NNA [Gao et al. 2023] and
+SHERF [Hu et al. 2023b], as well as a personalized avatar method
+3DGS-Avatar [Qian et al. 2024].
+Metrics. We utilize the Peak Signal-to-Noise Ratio (PSNR), Struc-
+ture Similarity Index Measure (SSIM) [Wang et al. 2004], and Learned
+Perceptual Image Patch Similarity (LPIPS) [Zhang et al. 2018] as
+metrics to assess the results quantitatively and qualitatively. PSNR
+and SSIM are evaluated on mask-cropped images, while LPIPS is
+computed on full-size images.
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+6
+•
+Yu, Z. et al
+Fig. 4. Qualitative results on ActorsHQ [Işık et al. 2023] and THuman2.1 [Yu et al. 2021]. The top two rows show the reconstruction and animation
+results from multi-view inputs, while the bottom two rows show the results from single-view input. The driving poses for animation are from ActorsHQ [Işık
+et al. 2023] and AMASS [Mahmood et al. 2019].
+Table 1. Quantitative comparison of reconstruction on THuman2.1 [Yu et al. 2021] and Human4DiT [Shao et al. 2024a]. We report PSNR, SSIM, and
+LPIPS to evaluate the reconstruction quality. All methods are trained or finetuned on THuman2.1 for fair comparison.
+Metrics
+THuman2.1
+Human4DiT
+Ours
+LVSM
+GPS-Gaussian
+GHG
+LaRa
+Ours
+LVSM
+GPS-Gaussian
+GHG
+LaRa
+PSNR↑
+30.34
+28.24
+22.11
+21.88
+23.71
+26.35
+25.56
+20.87
+19.47
+22.91
+SSIM↑
+0.9535
+0.9396
+0.9007
+0.8780
+0.8913
+0.9373
+0.9247
+0.8953
+0.8539
+0.8900
+LPIPS↓
+0.0184
+0.0226
+0.0421
+0.0517
+0.0679
+0.0211
+0.0248
+0.0419
+0.0586
+0.0663
+4.2
+Comparison on Reconstruction
+We compare HumanRAM with baselines on synthetic and real-world
+datasets. For synthetic dataset, we randomly select 200 scans from
+Thuman2.1 [Yu et al. 2021] and Human4DiT [Shao et al. 2024a]
+as the test set. We input 4 uniform views for all methods except
+GPS-Gaussian [Zheng et al. 2024], which requires 5 equal-height
+images for reasonable stereo rectification. The qualitative results
+are shown in Fig. 5. LaRa [Chen et al. 2024c] demonstrates blurry
+results due to its low-resolution volume representation, limiting its
+ability to model complicated geometries and textures. GPS-Gaussian
+is inclined to generate incomplete results because its stereo match-
+ing may fail when input views are sparse. GHG [Kwon et al. 2024]
+applies multi-scaffold SMPL-X [Pavlakos et al. 2019] mesh as the ge-
+ometry proxy, which cannot handle loose cloth and tends to produce
+artifacts if severe self-occlusion occurs. LVSM [Jin et al. 2024] fails
+to synthesize fine-grained structures like hands and faces due to the
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+HumanRAM: Feed-forward Human Reconstruction and Animation Model using Transformers
+•
+7
+Fig. 5. Qualitative comparisons for reconstruction on THuman2.1 [Yu et al. 2021] and Human4DiT [Shao et al. 2024a]. We input 4 multi-view
+images of unseen subjects, and our method achieves a more faithful rendering compared to other reconstruction methods. The first four rows are from
+THuman2.1 and the last two rows are from Human4DiT. The red boxes indicate the improvements of our method over LVSM [Jin et al. 2024].
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+8
+•
+Yu, Z. et al
+lack of human priors. Tab. 1 reports the numerical comparison on
+reconstruction. Overall, our method significantly outperforms previ-
+ous methods both qualitatively and quantitatively. To demonstrate
+the generalization ability of HumanRAM, we conduct experiments
+on ActorsHQ [Işık et al. 2023] and in-the-wild images. For ActorsHQ,
+we select 5 uniform cameras as input and sample 100 frames per
+subject for evaluation. The results are shown in Tab. 2 and Fig. 6.
+All previous methods fail to generate reasonable results on real-
+captured data. In contrast, our proposed SMPL-X neural texture
+provides transformer blocks with coarse correspondences for cross-
+view matching, leading to better generalization. For in-the-wild
+images, we present the qualitative results of HumanRAM in the
+Supp. document.
+4.3
+Comparison on Animation
+We compare HumanRAM with generalizable approaches includ-
+ing NNA [Gao et al. 2023] and SHERF [Hu et al. 2023b], as well as
+a personalized approach 3DGS-Avatar [Qian et al. 2024], on ZJU-
+MoCap [Peng et al. 2021b]. We train HumanRAM and SHERF on
+THuman2.1 [Yu et al. 2021] and ZJUMoCap [Peng et al. 2021b]. We
+use official weights for NNA since its training code has not been
+released. For 3DGS-Avatar, we train it on input views and animate it
+with novel poses. The evaluation is conducted on 100 randomly se-
+lected frames for each test subject. The multi-view animation results
+are shown in Tab. 3 and Fig. 7. The single-view results are shown
+in Tab. 4 and the Supp. document. 3DGS-Avatar requires a lengthy
+video to learn per-subject pose-dependent deformation. However,
+when the data size is limited (single frame in our experiments), it is
+prone to overfitting the input images, leading to severe artifacts in
+novel views and poses. NNA and SHERF learn a generalizable canon-
+ical avatar from the input image(s) and deform it to a novel pose
+using LBS wrapping. Compared to 3DGS-Avatar, these generalizable
+methods achieve better animation results owing to the data-driven
+prior learning. However, their canonical representation suffers from
+blurred textures and overfitting. Besides, LBS wrapping tends to
+produce unnatural deformation in the underarm region. Conversely,
+HumanRAM returns more realistic results in terms of quality and
+quantity thanks to the human structure prior learned through our
+dedicated designs. We further present in-the-wild animation results
+in the Supp. document to demonstrate the generalization capacity
+of HumanRAM.
+Table 2. Quantitative comparison of reconstruction on ActorsHQ [Işık
+et al. 2023]. All methods are evaluated directly on ActorsHQ without train-
+ing or finetuning.
+Metrics
+Ours
+LVSM
+GHG
+LaRa
+PSNR↑
+25.47
+20.25
+18.01
+19.98
+SSIM↑
+0.9088
+0.8023
+0.7922
+0.8177
+LPIPS↓
+0.0350
+0.0724
+0.0880
+0.0945
+4.4
+Ablation Study
+Core components. We conduct ablation studies to evaluate the im-
+pact of our core components, i.e., Pose Image and DPT-based Decoder.
+Fig. 6. Qualitative comparisons for reconstruction on ActorsHQ [Işık
+et al. 2023]. We input 5 multi-view images, and our method achieves a
+more faithful rendering compared to other state-of-the-art generalizable
+reconstruction methods.
+The experiments are evaluated on the THuman2.1 [Yu et al. 2021]
+dataset as shown in Tab. 5 and Fig. 8. “Position” means replacing
+the pose image with 3-dim position maps, and this ablation shows
+that such replacement decreases the performance, indicating the
+superiority of learnable neural texture. “Linear” means replacing the
+DPT-based decoder with a linear layer used in vanilla LVSM. Exper-
+iments show that the skip-connection and convolution operations
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+HumanRAM: Feed-forward Human Reconstruction and Animation Model using Transformers
+•
+9
+Fig. 7. Qualitative comparisons for multi-view animation on ZJUMo-
+Cap [Peng et al. 2021b]. We input 4 multi-view images of the unseen
+subject, and our method achieves a more photo-realistic rendering com-
+pared to other methods.
+in DPT are helpful in integrating information from multiple scales
+and neighboring patches, thus eliminating the patch-like artifacts
+and improving the overall visual quality.
+Number of Views. We evaluate the impact of view numbers on
+THuman2.1 [Yu et al. 2021]. The model is directly evaluated on
+different numbers of input views without finetuning. Tab. 5 shows
+Table 3. Quantitative comparison of multi-view animation on ZJU-
+MoCap [Peng et al. 2021b]. Metrics are computed on unseen subjects
+using the same crop manner as NNA [Gao et al. 2023].
+Method
+PSNR↑
+SSIM↑
+LPIPS↓
+NNA
+21.29
+0.9369
+0.0530
+3DGS-Avatar
+18.50
+0.8367
+0.0499
+Ours
+23.40
+0.9529
+0.0252
+the rendering quality increases with more input views, which aligns
+with the performance pattern reported in LVSM [Jin et al. 2024].
+Table 4. Quantitative comparison of single-view animation on ZJU-
+MoCap [Peng et al. 2021b]. Metrics are computed on unseen poses and
+unseen subjects following SHERF [Hu et al. 2023b].
+Method
+PSNR↑
+SSIM↑
+LPIPS↓
+Unseen
+Poses
+SHERF
+18.56
+0.8760
+0.0501
+3DGS-Avatar
+17.28
+0.8243
+0.0778
+Ours
+21.07
+0.9152
+0.0234
+Unseen
+Subjects
+SHERF
+17.80
+0.8768
+0.0536
+3DGS-Avatar
+17.97
+0.8481
+0.0687
+Ours
+20.63
+0.9184
+0.0250
+Table 5. Ablation study on THuman2.1 [Yu et al. 2021]. We report PSNR,
+SSIM, and LPIPS to evaluate the contribution of proposed components and
+the impact of different input views.
+Method
+PSNR↑
+SSIM↑
+LPIPS↓
+Position + DPT
+29.32
+0.9443
+0.0197
+Pose Image + Linear
+30.07
+0.9526
+0.0186
+Ours (Pose Image + DPT, 4 views)
+30.34
+0.9535
+0.0184
+Ours (1 view)
+21.69
+0.8834
+0.0479
+Ours (2 views)
+25.01
+0.9097
+0.0344
+Ours (8 views)
+32.34
+0.9663
+0.0150
+5
+DISCUSSION
+Conclusion. We propose HumanRAM, a novel generalizable feed-
+forward model for human reconstruction and animation. We inte-
+grate human reconstruction and animation into a unified framework
+by introducing pose conditions into large reconstruction models.
+We introduce a shared SMPL-X neural texture and rasterize it onto
+input and target views to associate correspondences across differ-
+ent views and poses, enabling higher-quality reconstruction and
+realistic animation. Overall, our method outperforms other state-
+of-the-art methods in terms of novel view and pose synthesis, both
+qualitatively and quantitatively.
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.
+
+
+10
+•
+Yu, Z. et al
+Fig. 8. Qualitative comparisons for ablations on proposed core com-
+ponents. Compared with positions, pose image helps capture detailed
+structures (indicated by red and blue boxes). Furthermore, the DPT-based
+decoder helps reduce the patch-like artifacts in regions with severe self-
+occlusion (red box), thin structures (blue box), and face (green box).
+Limitation. Our method cannot handle high-resolution image
+inputs since the token number increases quadratically with the
+image resolution. One possible solution is to transfer the inputs
+and outputs from the high-resolution RGB space to the compressed
+low-resolution latent space, like WonderLand [Liang et al. 2024a]
+and HumanSplat [Pan et al. 2024].
+Acknowledgments
+This work was partially supported by the following grants: Na-
+tional Key R&D Program of China (No. 2024YFB2809105), NSFC
+(No. U24B20154, No. 62172364), Zhejiang Provincial Natural Science
+Foundation of China (No. LR25F020003), Information Technology
+Center and State Key Lab of CAD&CG, Zhejiang University, and
+Research Grants Council of the Hong Kong Special Administrative
+Region, China (Project Reference Number: AoE/E-601/24-N).
+References
+Badour AlBahar, Shunsuke Saito, Hung-Yu Tseng, Changil Kim, Johannes Kopf, and Jia-
+Bin Huang. 2023. Single-image 3d human digitization with shape-guided diffusion.
+In SIGGRAPH Asia 2023 Conference Papers. 1–11.
+Timur Bagautdinov, Chenglei Wu, Tomas Simon, Fabian Prada, Takaaki Shiratori, Shih-
+En Wei, Weipeng Xu, Yaser Sheikh, and Jason Saragih. 2021. Driving-signal aware
+full-body avatars. ACM Transactions on Graphics (TOG) 40, 4 (2021), 1–17.
+Derek Bradley, Tiberiu Popa, Alla Sheffer, Wolfgang Heidrich, and Tamy Boubekeur.
+2008. Markerless garment capture. In ACM SIGGRAPH. 1–9.
+Yukang Cao, Yan-Pei Cao, Kai Han, Ying Shan, and Kwan-Yee K Wong. 2024. Dreama-
+vatar: Text-and-shape guided 3d human avatar generation via diffusion models. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+958–968.
+Yukang Cao, Kai Han, and Kwan-Yee K. Wong. 2023. SeSDF: Self-evolved Signed
+Distance Field for Implicit 3D Clothed Human Reconstruction. In IEEE Conference
+on Computer Vision and Pattern Recognition (CVPR).
+Rohan Chabra, Jan E Lenssen, Eddy Ilg, Tanner Schmidt, Julian Straub, Steven Lovegrove,
+and Richard Newcombe. 2020. Deep local shapes: Learning local sdf priors for
+detailed 3d reconstruction. In ECCV. Springer, 608–625.
+Caroline Chan, Shiry Ginosar, Tinghui Zhou, and Alexei A Efros. 2019. Everybody
+Dance Now. In IEEE International Conference on Computer Vision (ICCV).
+Eric R. Chan, Connor Z. Lin, Matthew A. Chan, Koki Nagano, Boxiao Pan, Shalini De
+Mello, Orazio Gallo, Leonidas Guibas, Jonathan Tremblay, Sameh Khamis, Tero
+Karras, and Gordon Wetzstein. 2021. Efficient Geometry-aware 3D Generative
+Adversarial Networks. In arXiv.
+Aggelina Chatziagapi, Grigorios G. Chrysos, and Dimitris Samaras. 2024. MIGS: Multi-
+Identity Gaussian Splatting via Tensor Decomposition. In ECCV.
+Anpei Chen, Haofei Xu, Stefano Esposito, Siyu Tang, and Andreas Geiger. 2024c. LaRa:
+Efficient Large-Baseline Radiance Fields. In European Conference on Computer Vision
+(ECCV).
+Jinnan Chen, Chen Li, and Gim Hee Lee. 2024a. DiHuR: Diffusion-Guided Generalizable
+Human Reconstruction. arXiv preprint arXiv:2411.11903 (2024).
+Jinnan Chen, Chen Li, Jianfeng Zhang, Lingting Zhu, Buzhen Huang, Hanlin Chen,
+and Gim Hee Lee. 2024b. Generalizable Human Gaussians from Single-View Image.
+arXiv preprint (2024).
+Jianchuan Chen, Wentao Yi, Liqian Ma, Xu Jia, and Huchuan Lu. 2023. GM-NeRF:
+Learning Generalizable Model-based Neural Radiance Fields from Multi-view Images.
+In CVPR.
+Qifeng Chen and Vladlen Koltun. 2017. Photographic image synthesis with cascaded
+refinement networks. In Proceedings of the IEEE international conference on computer
+vision. 1511–1520.
+Yushuo Chen, Zerong Zheng, Zhe Li, Chao Xu, and Yebin Liu. 2024d.
+MeshA-
+vatar: Learning High-quality Triangular Human Avatars from Multi-view Videos.
+arXiv:2407.08414 [cs.CV] https://arxiv.org/abs/2407.08414
+Alvaro Collet, Ming Chuang, Pat Sweeney, Don Gillett, Dennis Evseev, David Calabrese,
+Hugues Hoppe, Adam Kirk, and Steve Sullivan. 2015. High-quality streamable
+free-viewpoint video. ACM Transactions on Graphics (ToG) 34, 4 (2015), 1–13.
+Blender Online Community. 2018. Blender - a 3D modelling and rendering package.
+Blender Foundation, Stichting Blender Foundation, Amsterdam. http://www.blender.
+org
+Matt Deitke, Dustin Schwenk, Jordi Salvador, Luca Weihs, Oscar Michel, Eli VanderBilt,
+Ludwig Schmidt, Kiana Ehsani, Aniruddha Kembhavi, and Ali Farhadi. 2023. Obja-
+verse: A universe of annotated 3d objects. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition. 13142–13153.
+Xiang Deng, Zerong Zheng, Yuxiang Zhang, Jingxiang Sun, Chao Xu, Xiaodong Yang,
+Lizhen Wang, and Yebin Liu. 2024. RAM-Avatar: Real-time Photo-Realistic Avatar
+from Monocular Videos with Full-body Control. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition. 1996–2007.
+Zheng Dong, Ke Xu, Yaoan Gao, Hujun Bao, Weiwei Xu, and Rynson WH Lau. 2024.
+Gaussian Surfel Splatting for Live Human Performance Capture. ACM Transactions
+on Graphics (TOG) 43, 6 (2024), 1–17.
+Qingzhe Gao, Yiming Wang, Libin Liu, Lingjie Liu, Christian Theobalt, and Baoquan
+Chen. 2023. Neural novel actor: Learning a generalized animatable neural represen-
+tation for human actors. IEEE Transactions on Visualization and Computer Graphics
+(2023).
+Xiangjun Gao, Xiaoyu Li, Chaopeng Zhang, Qi Zhang, Yanpei Cao, Ying Shan, and
+Long Quan. 2024. ConTex-Human: Free-View Rendering of Human from a Single
+Image with Texture-Consistent Synthesis. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR). 10084–10094.
+Xiangjun Gao, Jiaolong Yang, Jongyoo Kim, Sida Peng, Zicheng Liu, and Xin Tong.
+2022. MPS-NeRF: Generalizable 3D Human Rendering From Multiview Images.
+IEEE Transactions on Pattern Analysis and Machine Intelligence (2022), 1–12. https:
+//doi.org/10.1109/TPAMI.2022.3205910
+Kaiwen Guo, Peter Lincoln, Philip Davidson, Jay Busch, Xueming Yu, Matt Whalen,
+Geoff Harvey, Sergio Orts-Escolano, Rohit Pandey, Jason Dourgarian, et al. 2019. The
+relightables: Volumetric performance capture of humans with realistic relighting.
+ACM Transactions on Graphics (TOG) 38, 6 (2019), 1–19.
+Tong He, Yuanlu Xu, Shunsuke Saito, Stefano Soatto, and Tony Tung. 2021. Arch++:
+Animation-ready clothed human reconstruction revisited. In Proceedings of the
+IEEE/CVF international conference on computer vision. 11046–11056.
+Xu He, Xiaoyu Li, Di Kang, Jiangnan Ye, Chaopeng Zhang, Liyang Chen, Xiangjun
+Gao, Han Zhang, Zhiyong Wu, and Haolin Zhuang. 2024. MagicMan: Generative
+Novel View Synthesis of Humans with 3D-Aware Diffusion and Iterative Refinement.
+arXiv:2408.14211 [cs.CV]
+Yicong Hong, Kai Zhang, Jiuxiang Gu, Sai Bi, Yang Zhou, Difan Liu, Feng Liu, Kalyan
+Sunkavalli, Trung Bui, and Hao Tan. 2023. Lrm: Large reconstruction model for
+single image to 3d. arXiv preprint arXiv:2311.04400 (2023).
+Jie Song Hsuan-I Ho, Lixin Xue and Otmar Hilliges. 2023. Learning Locally Editable
+Virtual Humans. In Proceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR).
+Hezhen Hu, Zhiwen Fan, Tianhao Wu, Yihan Xi, Seoyoung Lee, Georgios Pavlakos, and
+Zhangyang Wang. 2024a. Expressive Gaussian Human Avatars from Monocular
+RGB Video. In NeurIPS.
+Li Hu, Xin Gao, Peng Zhang, Ke Sun, Bang Zhang, and Liefeng Bo. 2023a. Animate Any-
+one: Consistent and Controllable Image-to-Video Synthesis for Character Animation.
+arXiv preprint arXiv:2311.17117 (2023).
+Shoukang Hu, Fangzhou Hong, Liang Pan, Haiyi Mei, Lei Yang, and Ziwei Liu. 2023b.
+Sherf: Generalizable human nerf from a single image. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision. 9352–9364.
+Yingdong Hu, Zhening Liu, Jiawei Shao, Zehong Lin, and Jun Zhang. 2024b. EVA-
+Gaussian: 3D Gaussian-based Real-time Human Novel View Synthesis under Diverse
+SIGGRAPH Conference Papers ’25, August 10–14, 2025, Vancouver, BC, Canada.

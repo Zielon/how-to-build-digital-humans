@@ -1,0 +1,1202 @@
+Title: Single View Garment Reconstruction Using Diffusion Mapping Via Pattern Coordinates
+
+Single View Garment Reconstruction Using Diffusion Mapping Via
+Pattern Coordinates
+REN LI∗, École Polytechnique Fédérale de Lausanne, Switzerland
+CONG CAO, Mohamed bin Zayed University of Artificial Intelligence, United Arab Emirates
+CORENTIN DUMERY, École Polytechnique Fédérale de Lausanne, Switzerland
+YINGXUAN YOU, École Polytechnique Fédérale de Lausanne, Switzerland
+HAO LI, Pinscreen, Mohamed bin Zayed University of Artificial Intelligence, United Arab Emirates
+PASCAL FUA, École Polytechnique Fédérale de Lausanne, Switzerland
+Fig. 1. Given a single image of a clothed person, our proposed method can reconstruct high-fidelity 3D garment models with realistic details.
+Reconstructing 3D clothed humans from images is fundamental to appli-
+cations like virtual try-on, avatar creation, and mixed reality. While recent
+advances have enhanced human body recovery, accurate reconstruction of
+garment geometry—especially for loose-fitting clothing—remains an open
+challenge. We present a novel method for high-fidelity 3D garment recon-
+struction from single images that bridges 2D and 3D representations. Our
+approach combines Implicit Sewing Patterns (ISP) with a generative diffusion
+model to learn rich garment shape priors in a 2D UV space. A key innovation
+is our mapping model that establishes correspondences between 2D image
+pixels, UV pattern coordinates, and 3D geometry, enabling joint optimization
+of both 3D garment meshes and the corresponding 2D patterns by align-
+ing learned priors with image observations. Despite training exclusively
+on synthetically simulated cloth data, our method generalizes effectively
+to real-world images, outperforming existing approaches on both tight-
+and loose-fitting garments. The reconstructed garments maintain physical
+plausibility while capturing fine geometric details, enabling downstream
+applications including garment retargeting and texture manipulation.
+∗Corresponding author is Ren Li (ren.li@epfl.ch).
+Authors’ Contact Information: Ren Li, École Polytechnique Fédérale de Lausanne,
+Switzerland, ren.li@epfl.ch; Cong Cao, Mohamed bin Zayed University of Artificial
+Intelligence, United Arab Emirates, cong.cao@mbzuai.ac.ae; Corentin Dumery, École
+Polytechnique Fédérale de Lausanne, Switzerland, corentin.dumery@epfl.ch; Yingxuan
+You, École Polytechnique Fédérale de Lausanne, Switzerland, yingxuan.you@epfl.ch;
+Hao Li, Pinscreen, Mohamed bin Zayed University of Artificial Intelligence, United
+Arab Emirates, hao@hao-li.com; Pascal Fua, École Polytechnique Fédérale de Lausanne,
+Switzerland, pascal.fua@epfl.ch.
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+XXX, XXX
+© 2025 Copyright held by the owner/author(s).
+ACM ISBN XXX
+https://doi.org/XXX
+CCS Concepts: • Computing methodologies →Reconstruction; Shape
+inference;
+Additional Key Words and Phrases: 3D Garment Reconstruction, Image
+based Modeling, Diffusion Models
+ACM Reference Format:
+Ren Li, Cong Cao, Corentin Dumery, Yingxuan You, Hao Li, and Pascal
+Fua. 2025. Single View Garment Reconstruction Using Diffusion Mapping
+Via Pattern Coordinates. In XXX. ACM, New York, NY, USA, 12 pages.
+https://doi.org/XXX
+1
+Introduction
+Recovering the pose and shape of people’s bodies, along with the
+shape of their garments, solely from images has many applications.
+They include fashion design, virtual try-on, creating 3D avatars,
+telepresence, and immersive VR/AR. Recent years have seen tremen-
+dous progress in modeling people wearing tight-fitting clothing
+both in terms of body poses [Bogo et al. 2016; Georgakis et al. 2020;
+Kanazawa et al. 2018; Kolotouros et al. 2019; Lassner et al. 2017;
+Li et al. 2021a,b, 2024c; Moon and Lee 2020; Pavlakos et al. 2019;
+Xu et al. 2024a] and 3D shape of the clothes [Bhatnagar et al. 2019;
+Corona et al. 2021; Danerek et al. 2017; DeLuigi et al. 2023; Jiang et al.
+2020; Li et al. 2023, 2022; Moon et al. 2022]. However, accurately
+modeling clothing, especially when it fits loosely on the body, re-
+mains a challenge. Most current work relies on a single 3D model to
+jointly represent the body and its clothing. While this can produce
+visually impressive reconstruction results, this fused representa-
+tion of humans and their garments makes it impossible to perform
+realistic cloth simulation or virtual try-on.
+Thus, independent body and garment models are needed. Such
+modeling is made difficult by the intricate structure of clothing.
+XXX, XXX, XXX.
+arXiv:2504.08353v2  [cs.GR]  15 May 2025
+
+
+2
+•
+Ren Li, Cong Cao, Corentin Dumery, Yingxuan You, Hao Li, and Pascal Fua
+Body Estimation
+&
+Rendering
+Mapping Diffusion
+Normal Diffusion
+DISP
+𝐍𝑭
+𝐍𝑩
+𝐒𝑭, 𝐒𝑩
+𝐃𝑭
+𝒃, 𝐃𝑩
+𝒃
+𝐂𝑭
+Normal Estimation
+𝐂𝑩
+𝐃𝑭
+𝒈
+𝐃𝑩
+𝒈
+Refinement
+UV Mapping
+&
+Camera Backprojection
+Recovered UV Positional Map    and Garment 𝐆
+UV Positional Map
+ISP
+𝑓𝜙
+Fig. 2. Pipeline. Given an image of a clothed person, we first estimate the front normal N𝐹of the target garment, and the SMPL body model which is used to
+render the body part segmentation (S𝐹, S𝐵) and depth (D𝑏
+𝐹, D𝑏
+𝐵) images. The back normal N𝐵of the garment is estimated subsequently by the diffusion model
+𝝐𝑛
+𝜃. We then predict the UV-coordinate (C𝐹, C𝐵) and the depth (D𝑔
+𝐹, D𝑔
+𝐵) images from the garment normal and body estimations with the mapping model
+𝝐𝑚
+𝜃. The incomplete UV positional map
+˜U is produced from them using the camera backprojection. Finally, we fit
+˜U to DISP to recover the complete UV
+positional map ˆ
+U and the corresponding garment mesh G, which is further improved by the refinement.
+Since garments are thin surfaces with near-infinite degrees of free-
+dom, they undergo complex deformations caused by dynamic fac-
+tors. The many design styles and shape variations of clothing items
+introduce further complexity, making the modeling process even
+more challenging and the acquisition of real 3D data more difficult.
+In turn, this impedes the deployment of learning-based methods
+for garment reconstruction. To address these challenges, several
+works [Bhatnagar et al. 2019; Casado-Elvira et al. 2022; Danerek
+et al. 2017; Jiang et al. 2020; Liu et al. 2023a] rely on pre-designed
+mesh templates to define the garment geometry, and employ linear
+blend skinning (LBS) [Loper et al. 2015] of the underlying body
+model to capture deformations caused by body motion. However,
+this requires mesh templates for the clothes, which limits modeling
+flexibility and generality. Furthermore, while skinning is effective for
+tight-fitting clothing, it struggles to accurately model loose-fitting
+clothing that often moves far from the body. This was addressed
+in [Li et al. 2024b] by starting from the so-called Implicit Sewing
+Patterns (ISP) model [Li et al. 2023] that represents garments in
+terms of a set of individual 2D panels and 3D surfaces associated
+to these panels, and then applying a deformation model to the 3D
+surfaces so that they can deviate substantially from the body shape.
+These deformations are conditioned on normals estimated from an
+input image of the target garment, which are learned from synthetic
+mesh data featuring loose clothing.
+The approach of [Li et al. 2024b] is effective but tends to over-
+smooth the results. This is in part because different 3D shapes can
+give rise to very similar images, making it difficult to properly
+train a network to predict high-fidelity surface details and complex
+deformations from a single image. Furthermore, some parts of the
+garments are systematically occluded in images of people wearing
+them. To overcome these limitations, we introduce three diffusion
+schemes:
+(1) to learn a shape prior that captures complex garment shapes,
+(2) to complement image information in occluded parts of the
+garments,
+(3) to map the 2D image to 3D and UV spaces so as to recover
+plausible 3D shapes by fitting them to the shape prior.
+Fig. 2 depicts the resulting processing pipeline. We demonstrate
+that our method can recover realistic 3D models for various gar-
+ments. It recovers more details and achieves higher reconstruction
+accuracy than existing approaches. Furthermore, our reconstructed
+meshes are readily usable by downstream applications, such as
+garment retargeting and texture editing. Codes are at Github.
+2
+Related Work
+Tight-Fitting Clothing. Recent advances in clothed human recon-
+struction have primarily focused on clothing that adheres relatively
+closely to the body, thereby significantly limiting the diversity of gar-
+ment shapes that can be accurately represented. These approaches
+can be broadly categorized into two main groups.
+The first category includes methods that represent the body and
+garment using a single 3D model. For instance, [Jackson et al. 2018;
+Zheng et al. 2019] employ voxel-based representations generated
+by volumetric regression networks to model 3D clothed humans.
+Other works [Alldieck et al. 2022; He et al. 2020; Saito et al. 2019,
+2020] utilize pixel-aligned implicit functions to define 3D occupancy
+fields or signed distance fields for clothed humans. In [Alldieck et al.
+2019a,b], displacement vectors or UV maps are used to capture de-
+viations from the SMPL parametric body model [Loper et al. 2015].
+Similarly, approaches such as [He et al. 2021; Huang et al. 2020; Xiu
+et al. 2022; Zheng et al. 2021] combine parametric body models with
+XXX, XXX, XXX.
+
+
+Single View Garment Reconstruction Using Diffusion Mapping Via Pattern Coordinates
+•
+3
+implicit representations to enhance robustness to changes in body
+pose. While effective, these methods have significant limitations:
+because the body and clothing are jointly modeled, they cannot
+disentangle the garment surface from the body surface. This lim-
+itation hinders downstream applications and makes it difficult to
+model loose garments whose motion can behave independently of
+the body.
+The second category consists of methods that explicitly model
+garments as separate surfaces that interact with the body. Deep-
+Garment [Danerek et al. 2017], MGN [Bhatnagar et al. 2019], and
+BCNet [Jiang et al. 2020] employ neural networks trained on syn-
+thetic RGB images to predict vertex positions for predefined mesh
+templates. Other approaches, such as [Casado-Elvira et al. 2022; Liu
+et al. 2023a], optimize vertex positions based on estimated surface
+normals to recover fine wrinkle details. However, the reliance on
+predefined mesh templates inherently limits the range of garment
+shapes these methods can handle. Additionally, being trained on
+synthetic RGB data often results in poor reconstructions when ap-
+plied to real-world images. To address these shortcomings, methods
+like SMPLicit [Corona et al. 2021], DIG [Li et al. 2022], and Cloth-
+Wild [Moon et al. 2022] leverage Signed Distance Functions (SDF)
+to reconstruct a wide variety of garment meshes using segmenta-
+tion masks derived from RGB images. However, representing non-
+watertight garment surfaces with an SDF requires enclosing them
+within watertight surfaces of a minimum thickness, which compro-
+mises modeling accuracy and hinders subsequent refinement. To
+overcome this, approaches such as [DeLuigi et al. 2023; Guillard et al.
+2022] adopt Unsigned Distance Functions (UDF). While UDF avoid
+watertight constraints, they introduce robustness issues: learning
+a sharp and clean 0-isosurface for UDF is challenging for neural
+networks, often resulting in inaccuracies that manifest as holes and
+artifacts in reconstructed models. The Implicit Sewing Patterns (ISP)
+model of [Li et al. 2023] effectively addresses the issues of generality,
+accuracy, and robustness by its 2D pattern and UV parameterization.
+However, since [Li et al. 2023] is trained specifically for draping,
+it struggles to capture the large deformations caused by dynamic
+garment motion.
+Loose-Fitting Clothing. Loose-fitting clothing is significantly more
+challenging to reconstruct due to its large shape variations and
+free-flowing nature, which keeps it far from the body. Some recent
+works [Yang et al. 2018; Zhu et al. 2020, 2022] rely on complex
+physics simulations or feature line estimation to align surface recon-
+structions with input images. However, their reliance on garment
+templates limits their generality, similar to the limitations faced
+by other template-based methods discussed earlier. Point-based ap-
+proaches, such as those proposed in [Ma et al. 2022; Srivastava
+et al. 2022; Zakharkin et al. 2021], aim to reconstruct generic cloth-
+ing. Unfortunately, point clouds are not inherently well-suited for
+downstream applications like cloth simulation and animation. While
+[Srivastava et al. 2022] employs a modified Poisson Surface Recon-
+struction (PSR) technique to generate garment surfaces from point
+clouds, it often produces results with incorrect geometry. ECON [Xiu
+et al. 2023], leveraging techniques like normal integration and shape
+completion, achieves visually appealing reconstructions of individ-
+uals wearing loose clothing. However, it still generates a single
+watertight mesh that tightly binds the body and garment together,
+which limits its applicability for tasks such as cloth simulation and
+recreation.
+Recently, GaRec [Li et al. 2024b] introduced a method that com-
+bines the ISP model [Li et al. 2023] with an image-conditioned defor-
+mation model to reconstruct loose-fitting clothing. Because different
+3D shapes can result in similar images, it struggles to capture high-
+fidelity surface details and complex deformations, particularly for
+unseen or occluded parts that cannot be observed from monocular
+images. However, our method uses diffusion models to supplement,
+lift up, and map the 2D image observations to 3D, and fit a deforma-
+tion prior to it, resulting in high-fidelity 3D reconstruction for the
+garment. GarVerseLOD [Luo et al. 2024] addresses garment recon-
+struction by creating a large-scale hierarchical dataset and training
+implicit models for garment recovery. However, constructing such
+a dataset requires significant manual effort from professional artists.
+In contrast, our method only relies on synthetic data generated
+by using readily accessible cloth simulation tools [blender 2018;
+Designer 2018], greatly reducing the need for manual intervention.
+Diffusion Model. Diffusion models [Ho et al. 2020; Song et al.
+2021] are a class of generative models that excel at learning complex
+data distributions through score matching. These models gener-
+ate high-quality samples via an iterative denoising process and
+have demonstrated state-of-the-art performance across a variety
+of image-based generative tasks [Chung et al. 2022a,b; Dhariwal
+and Nichol 2021; Rombach et al. 2022]. Beyond 2D tasks, diffusion
+models have also been applied to various 3D domains, including
+text-to-3D generation [Poole et al. 2022; Xu et al. 2024b], image-to-
+3D generation [Anciukevičius et al. 2023; Liu et al. 2023b; Müller
+et al. 2023; Xu et al. 2024b], and point cloud synthesis [Melas-Kyriazi
+et al. 2023; Tyszkiewic et al. 2023]. Recently, diffusion-based shape
+priors have been introduced for garment reconstruction [Guo et al.
+2024; Li et al. 2024a], which leverage UV maps for garment param-
+eterization. However, these methods require point clouds as 3D
+measurements of garments and do not account for body-garment
+interaction during reconstruction. In contrast, our proposed method
+reconstructs 3D garments directly from monocular 2D images while
+accurately modeling both the garment and the body.
+3
+Garment Representation Model
+In this section, we define our garment representation model, DISP.
+It defines a reconstruction prior we use when fitting it to images, as
+discussed in the following section. DISP relies on Implicit Sewing
+Pattern (ISP) [Li et al. 2023] to model the garment rest geometry.
+ISP uses UV positional maps to model the geometry of different
+garments but is limited by only producing a single UV map for
+a specific garment, which is not enough to represent the many
+possible answers. To address this issue, we extend ISP into DISP by
+incorporating a diffusion model to capture the complex garment
+shapes caused by body motion. It is depicted by the gray network
+in Fig. 2. In the remainder of this section, we first describe ISP and
+then our proposed extension.
+XXX, XXX, XXX.
+
+
+4
+•
+Ren Li, Cong Cao, Corentin Dumery, Yingxuan You, Hao Li, and Pascal Fua
+3.1
+Implicit Sewing Patterns
+Formalization. Implicit Sewing Patterns (ISP) [Li et al. 2023] is a
+garment model based on the sewing patterns used in the fashion
+industry to design and manufacture clothes. A sewing pattern is
+made of several 2D panels along with stitch information for assem-
+bling them together. The 2D panels and the stitching are implicitly
+modeled using a 2D signed distance field (SDF) and a 2D label field,
+respectively. For a specific garment, its corresponding latent code
+z, and a point u in the 2D UV space Ω = [−1, 1]2, the ISP model
+outputs the signed distance 𝑠to the panel boundary and a label 𝑙
+using a fully connected network IΘ as
+(𝑠,𝑙) = IΘ(u, z) .
+(1)
+The zero crossing of the SDF defines the shape of the panel, with
+𝑠< 0 indicating that u is within the panel and 𝑠> 0 indicating that
+u is outside the panel. The label 𝑙encodes the stitch information,
+instructing which panel boundaries should be stitched together. To
+map the 2D sewing patterns to 3D surfaces, a UV parameterization
+function AΦ is learned to perform the 2D-to-3D mapping
+X = AΦ(u, z) ,
+(2)
+where X ∈R3 represents the 3D position of u. In essence, ISP regis-
+ters different garments onto a unified UV space and establishes the
+mapping functions between points in UV space and the 3D garment
+surfaces. The shape of SDF’s 0-crossing defines the geometry of
+garment in its rest state. As ISP is a differentiable representation,
+we can easily fit a latent code z to arbitrary masks or contours of
+the panels to recover the corresponding garment geometry.
+Training. Training ISP requires the 2D sewing patterns of rest-
+state 3D garments. However, they are not available in most garment
+datasets, e.g. CLOTH3D [Bertiche et al. 2020]. Following the garment
+flattening strategy of [Li et al. 2024b; Pietroni et al. 2022], we cut the
+garment mesh of CLOTH3D into front and back surfaces according
+to predefined cutting rules and then flatten them into 2D panels by
+minimizing an as-rigid-as-possible energy [Liu et al. 2008]. For each
+garment in the dataset, a front and a back panel are generated as its
+sewing pattern. By using the paired 2D sewing patterns and their
+3D meshes, we learn the weights of the ISP model (IΘ, AΦ) with
+the training procedure of [Li et al. 2023].
+3.2
+Extending ISP with a Diffusion Model
+For a specific garment, the UV parameterization function of ISP
+only produces a single UV positional map U𝑟to model its 3D shape
+in the rest state
+U𝑟[𝑢, 𝑣] =
+(
+AΦ(u, z),
+if 𝑠u ≤0
+∅,
+if 𝑠u > 0 ,
+(3)
+where u = (𝑢, 𝑣), 𝑠u is the SDF value of u, [·, ·] denotes the standard
+array addressing and ∅= (−1, −1, −1) indicates the region outside
+the panel. When dressed on the body, the garment can have various
+deformations due to the motion of the underlying body, which is
+not able to be modeled by ISP solely. Inspired by [Guo et al. 2024; Li
+et al. 2024a], we incorporate a diffusion model into ISP to capture
+these possible deformations by generating plausible UV maps.
+Given the deformed garments worn on the body whose rest states
+are modeled by ISP as Eq. 3, we write the corresponding UV maps
+U[𝑢, 𝑣] =
+(
+V,
+if 𝑠u ≤0
+∅,
+if 𝑠u > 0 ,
+(4)
+where V ∈R3 is the corresponding position on the deformed mesh
+surface for the UV point u = (𝑢, 𝑣). Each U represents a specific de-
+formed shape for a particular garment. We use a diffusion model [Ho
+et al. 2020] 𝝐𝜃to learn the distribution of plausible deformations
+represented by U.
+For each garment sample, we generate its UV map U according
+to Eq. 4, along with a panel mask M as
+M[𝑢, 𝑣] =
+(
+1,
+if 𝑠u ≤0
+0,
+if 𝑠u > 0 .
+(5)
+M depicts the panel shape, which itself encodes the 3D geometry
+of the canonical rest garment. We concatenate U and M along
+the channel dimension to form the training samples and train the
+network 𝝐𝜃on them. After training, the diffusion model and ISP
+together form the garment model DISP.
+4
+Reconstructing Garments from Monocular Images
+Monocular images yield 2D observations for non-occluded regions.
+We rely on a generative diffusion model to complement image in-
+formation in occluded parts. By mapping the 2D image information
+to 3D and UV spaces, we then enable their fitting to DISP for the
+recovery of realistic 3D garments, even in parts that are not visible.
+4.1
+Observations from Images
+Recent advances in image segmentation [Kirillov et al. 2023; Ravi
+et al. 2024], normal estimation [Bae and Davison 2024; Khirodkar
+et al. 2025] and human mesh recovery [Goel et al. 2023; Stathopou-
+los et al. 2024] can be used to extract accurate observations from
+an image of a clothed person. In this manner, we first segment the
+target garment using [Kirillov et al. 2023; Li et al. 2020] and esti-
+mate its normals N𝐹using [Khirodkar et al. 2025]. To model the
+body underneath, we use SMPL [Loper et al. 2015], which relies on
+two sets of parameters (𝛽,𝜃) to describe the body shape and pose
+respectively. The SMPL parameters are estimated from the image by
+[Goel et al. 2023] to infer the 3D body shape, which are then used
+to render front and back body part segmentations S𝐹and S𝐵, along
+with front and back depth images D𝑏
+𝐹and D𝑏
+𝐵, as shown in the top
+left of Fig. 2.
+To estimate the invisible normals, typically in the back, N𝐵as
+shown in Fig. 2, we use the estimated normal N𝐹to guide a condi-
+tional diffusion model 𝝐𝑛
+𝜃. The denoising process of 𝝐𝑛
+𝜃is conditioned
+on the visible normals N𝐹, the front and back segmentation images
+S = (S𝐹, S𝐵), the body depth maps D = (D𝑏
+𝐹, D𝑏
+𝐵). It is learned by
+minimizing the loss
+L = E𝑡,N𝐵,𝝐∥𝝐−𝝐𝑛
+𝜃
+√¯𝛼𝑡N𝐵+ √1 −¯𝛼𝑡𝝐, N𝐹, S, D,𝑡
+
+∥2 .
+(6)
+The conditioning images of the garment and body provide infor-
+mation to generate plausible normals for the back of the garment.
+As will be shown in our experiments, the back normal estimation
+XXX, XXX, XXX.
+
+
+Single View Garment Reconstruction Using Diffusion Mapping Via Pattern Coordinates
+•
+5
+N𝐵provides additional constraints to regularize the garment fitting
+process, which improves the fidelity of the reconstruction.
+4.2
+Mapping from Pixel Space to UV Space and 3D Space
+𝑃−1
+𝑑= 𝐃𝑔[𝑥, 𝑦]
+(𝑥, 𝑦)
+(𝑋, 𝑌, 𝑍)
+(𝑢, 𝑣)
+UV Space
+Image Space
+3D Space
+𝑢, 𝑣, 𝜎= 𝐂[𝑥, 𝑦]
+Fig. 3. Mapping between pixel, 3D, and UV spaces. The pixel (𝑥, 𝑦)
+is mapped to (𝑋,𝑌,𝑍) in the 3D space using the estimated depth 𝑑and
+the camera backprojection 𝑃−1, and to (𝑢, 𝑣) in the UV space using the
+estimated UV coordinates (𝑢, 𝑣, 𝜎). The dash line indicates that (𝑋,𝑌,𝑍)
+and (𝑢, 𝑣) are connected indirectly through (𝑥, 𝑦).
+The normal estimations provide observations in pixel space, while
+the garment model DISP is learned in the UV space of the garment
+panels, and the garment surface resides in the 3D space. To recon-
+struct 3D garments using DISP, it is thus necessary to connect these
+three different spaces. To this end, we introduce a mapping function
+that translates image observations from the pixel space to both the
+UV space and the 3D space, as illustrated by Fig. 3.
+To 3D Space. Since the depth and surface normal are closely re-
+lated in terms of 3D geometry, we estimate the garment depth
+image D𝑔from normal estimations N conditioned on the body
+depth D𝑏. For the foreground pixel (𝑥,𝑦), its absolute depth value
+is 𝑑= D𝑔[𝑥,𝑦]. By leveraging the camera projection 𝑃, we can have
+the 3D coordinate (𝑋,𝑌,𝑍) for each pixel
+(𝑋,𝑌,𝑍) = 𝑃−1(𝑥,𝑦,𝑑) ,
+(7)
+where 𝑃−1 denotes the camera backprojection. Through Eq. 7, we
+establish the mapping from the pixel space to the 3D space.
+To UV Space. Given the normal estimation N, we train a network
+𝝐𝑚
+𝜃to predict a UV-coordinate image C conditioned on the body
+part segmentation S. The pixel value of C is
+C[𝑥,𝑦] = (𝑢, 𝑣, 𝜎) ,
+(8)
+where (𝑢, 𝑣) is the predicted coordinate on the UV space of the panel
+for pixel (𝑥,𝑦), 𝜎indicates whether it belongs to the front (𝜎> 0)
+or the back (𝜎< 0) panel. Through Eq. 8, we establish the mapping
+from the pixel space to the UV space.
+By assembling the results of UV and 3D mapping of Eq. 8 and Eq.
+7, we can get a UV map ˜U, where
+˜U[𝑢, 𝑣] = 𝑃−1(𝑥,𝑦,𝑑) = (𝑋,𝑌,𝑍) .
+(9)
+For the positions on ˜U without projected points, we simply set their
+values to ∅. We also compute a mask ˜
+M with ˜
+M[𝑢, 𝑣] = 1 at where
+a pixel is projected, and
+˜
+M[𝑢, 𝑣] = 0 otherwise. Due to occlusions,
+both ˜U and ˜
+M are incomplete. In the next section, we will complete
+them by fitting to the priors encoded in DISP.
+Training. We learn the mapping function in an image-to-image
+translation fashion with a conditional diffusion model 𝝐𝑚
+𝜃. For the
+normal estimation N𝐹and N𝐵, 𝝐𝑚
+𝜃is trained to predict their UV-
+coordinate image C𝐹and C𝐵, and depth images D𝑔
+𝐹and D𝑔
+𝐵jointly.
+The denoising process of 𝝐𝑚
+𝜃is conditioned on the estimated normals
+of the front and the back N = (N𝐹, N𝐵), the segmentation images
+S = (S𝐹, S𝐵), the body depth maps D = (D𝑏
+𝐹, D𝑏
+𝐵), and is learned by
+minimizing the loss
+L = E𝑡,m0,𝝐∥𝝐−𝝐𝑚
+𝜃
+√¯𝛼𝑡m0 + √1 −¯𝛼𝑡𝝐, N, S, D,𝑡
+
+∥2 ,
+(10)
+where m0 = [C𝐹, C𝐵, D𝑔
+𝐹, D𝑔
+𝐵]. After the training, we assemble the
+results for both the front and the back to produce the UV map ˜U
+and the mask
+˜
+M. Compared with only using the front result, this
+provides more observations and constraints for the fitting, resulting
+in a reconstruction with higher quality for both the visible and
+invisible parts.
+4.3
+Fitting
+The incomplete panel mask
+˜
+M and the incomplete UV map ˜U pro-
+vides partial information of the garment geometry and deformation,
+respectively. To recover a complete garment from them, we leverage
+the prior of DISP. We first recover the complete panel mask to re-
+cover the garment geometry in its rest shape, and then recover the
+complete UV map for the deformation. To remedy the synthetic-to-
+real domain gap and further improve the reconstruction accuracy,
+we rely on a post-optimization step to align the garment with image
+observations.
+Front
+Back
+(a)
+(c)
+(b)
+(d)
+Rest Garment
+Fig. 4. Recovering garment rest geometry. Given (a) the incomplete
+panel mask
+˜
+M, we fit (b) the complete panel mask M by Eq. 11. (c) shows
+the overlay of
+˜
+M in gray and M in white. (d) is the corresponding rest-state
+garment mesh ¯G for (b).
+4.3.1
+Recovering the Rest Geometry. To recover the garment rest
+geometry represented by the 2D panel shape from
+˜
+M, we optimize
+the latent code z of Eq. 1 so that its corresponding patterns match
+XXX, XXX, XXX.
+
+
+6
+•
+Ren Li, Cong Cao, Corentin Dumery, Yingxuan You, Hao Li, and Pascal Fua
+˜
+M as well as possible. The optimization objective is
+L(z) =
+∑︁
+u ∈M+
+𝑅𝑒𝐿𝑈(𝑠u(z)) −𝜆𝑎𝑟𝑒𝑎
+∑︁
+u ∈Ω
+𝑠u(z) + 𝜆z||z||2 ,
+(11)
+where M+ = {u| ˜
+Mu = 1, u ∈Ω}, 𝑠u(z) is the SDF value of u
+computed by ISP, and 𝜆𝑎𝑟𝑒𝑎and 𝜆z are the weighting constants. The
+first item in Eq. 11 ensures that the projected UV points are within
+the panel, while the second one penalizes large panel area to make
+the panel contours surround the non-zero points of
+˜
+M as closely
+as possible. This optimization produces an optimal latent code z∗
+that we can use to infer a complete panel mask M and a rest-state
+garment mesh ¯G as shown in Fig. 4.
+4.3.2
+Recovering Deformed Geometry. The diffusion model 𝜖𝜃of
+DISP learns the distribution of plausible deformations represented
+by UV maps. To recover the full UV map U, we use the partial
+UV map ˜U and the recovered panel mask M as the manifold guid-
+ance [Chung et al. 2022a,b] in the reverse diffusion process of 𝜖𝜃:
+∇x𝑡log𝑝(x𝑡| ˜U,
+˜
+M, M) ≃−𝜖𝜃(x𝑡,𝑡)
+𝜎𝑡
+−𝜌∇x𝑡L(ˆx0, ˜U,
+˜
+M, M) , (12)
+ˆx0 =
+1
+√¯𝛼𝑡
+x𝑡−
+√︂
+1 −¯𝛼𝑡
+¯𝛼𝑡
+𝜖𝜃(x𝑡,𝑡) ,
+(13)
+where 𝜌is the guidance step size. L is the function that measures
+the difference between the generated and the given UV maps and
+panel masks
+L(ˆx0, ˜U, ˜
+M, M) = ∥˜
+M ∗( ˆ
+U −˜U)∥2 + ∥ˆ
+M −M∥1 ,
+(14)
+where ˆx0 = [ ˆ
+U, ˆ
+M], ˆ
+U and ˆ
+M refer to the generated UV map and
+panel mask respectively, and ∗denotes the element-wise multiplica-
+tion. With the generated UV map ˆ
+U, we update the vertices of ¯G to
+get the recovered mesh G as shown in the bottom-left of Fig. 2.
+4.3.3
+Garment Refinement. As the diffusion model learns the shape
+distribution from the garment simulation data which is generated
+with limited materials, external forces, and body motions, when
+handling in-the-wild images that are out-of-distribution, it can pro-
+duce inaccurate UV maps by Eq. 12 and result in inaccurate garment
+mesh that does not align with the images. To further improve the
+reconstruction accuracy, we refine the recovered mesh G in Sec.
+4.3.2 by optimizing its vertex positions to align it with the image
+observations. The loss function we use is
+L = 𝜆𝑚L𝑚𝑎𝑠𝑘+ 𝜆𝑑L𝑑𝑒𝑝𝑡ℎ+ 𝜆𝑛L𝑛𝑜𝑟𝑚𝑎𝑙+ 𝜆𝑢L𝑢𝑣+ 𝜆𝑝L𝑝ℎ𝑦𝑠, (15)
+where 𝜆𝑚, 𝜆𝑑, 𝜆𝑛, 𝜆𝑢and 𝜆𝑝are the weighting scalars. L𝑚𝑎𝑠𝑘,
+L𝑑𝑒𝑝𝑡ℎand L𝑛𝑜𝑟𝑚𝑎𝑙penalize the difference between the rendered
+front and back masks, depth and normal of the mesh G and their cor-
+responding estimation respectively. L𝑢𝑣ensures the corresponding
+UV map ˆ
+U of G aligns with the partial UV observations ˜U by
+L𝑢𝑣= ∥˜
+M ∗( ˆ
+U −˜U)∥2.
+(16)
+L𝑝ℎ𝑦𝑠contains a set of physics-based mesh regularization [Narain
+et al. 2012; Santesteban et al. 2022] computed by using the recovered
+rest-state garment ¯G as the reference
+L𝑝ℎ𝑦𝑠= L𝑠𝑡𝑟𝑎𝑖𝑛+ L𝑏𝑒𝑛𝑑+ L𝑔𝑟𝑎𝑣𝑖𝑡𝑦+ L𝑐𝑜𝑙𝑙𝑖𝑠𝑖𝑜𝑛,
+(17)
+where L𝑠𝑡𝑟𝑎𝑖𝑛is the membrane strain energy caused by the defor-
+mation, L𝑏𝑒𝑛𝑑is the bending energy resulting from the folding of
+adjacent faces, L𝑔𝑟𝑎𝑣𝑖𝑡𝑦is the gravitational potential energy and
+L𝑐𝑜𝑙𝑙𝑖𝑠𝑖𝑜𝑛is the penalty for body garment collision.
+However, directly optimizing the vertex positions using Eq. 15 will
+lead to a suboptimal solution, as vertices are not strongly coupled.
+Inspired by [Gadelha et al. 2021; Ulyanov et al. 2018], we introduce a
+multi-layer perceptron (MLP) for the optimization to update vertices
+by a neural displacement field. To be specific, we initialize an MLP
+network 𝑓with learnable parameters 𝜙. Given the vertex 𝑉of mesh
+G and its canonical position ¯𝑉on ¯G, the network 𝑓𝜙predicts its
+displacement by
+Δ𝑉= 𝑓𝜙(𝑉, ¯𝑉).
+(18)
+We use the updated vertex position𝑉+Δ𝑉to compute the loss of Eq.
+15 and compute the gradient with respect to 𝜙for its learning. Since
+neural networks tend to learn low-frequency functions [Rahaman
+et al. 2019], the result after this step is a bit smooth. To further
+recover fine surface details, we perform an additional refinement
+step by directly optimizing the garment mesh vertices with Eq. 15.
+(a)
+(c)
+(b)
+Fig. 5. Body refinement. For the image of (a), we refine the initial body
+estimation of (c) by Eq. 19 to improve its accuracy and align it with the
+image as (b).
+4.3.4
+Refining Body. As the body estimation can be inaccurate,
+making it inconsistent with the garment recovery as shown in Fig.5,
+we refine the SMPL body parameters 𝛽and 𝜃by minimizing
+L(𝛽,𝜃) = 𝜆𝑚L𝑚𝑎𝑠𝑘+ 𝜆𝑜L𝑜𝑟𝑑𝑒𝑟+ 𝜆𝑗L𝑗𝑜𝑖𝑛𝑡+ 𝜆𝛽||𝛽||2
+2,
+(19)
+where 𝜆𝑚, 𝜆𝑜, 𝜆𝑗, and 𝜆𝛽are the weighting scalars. L𝑚𝑎𝑠𝑘penalizes
+the difference between the rendered body mask with segmented
+mask. L𝑗𝑜𝑖𝑛𝑡penalizes the difference between 2D projection of
+body joints and the detected 2D joints. L𝑜𝑟𝑑𝑒𝑟ensures that the body
+mesh is inside the garment mesh by enforcing the rendered depth
+of the body is larger than the depth of the garments D𝑔
+𝐹and D𝑔
+𝐵
+estimated in Sec. 4.2
+L𝑜𝑟𝑑𝑒𝑟= ||𝑅𝑒𝐿𝑈(D𝑔
+𝐹−D𝑏
+𝐹+ 𝛿)||1 + ||𝑅𝑒𝐿𝑈(D𝑔
+𝐵−D𝑏
+𝐵+ 𝛿)||1, (20)
+where D𝑏
+𝐹and D𝑏
+𝐵are the rendered front and back depth images of
+the body mesh and 𝛿is the threshold value. Note that we first refine
+the body with the garment depth estimations D𝑔
+𝐹and D𝑔
+𝐵, and then
+optimize the garment with the refined body as introduced in Sec.
+4.3.3.
+5
+Experiments
+5.1
+Dataset and Evaluation Metrics
+Due to the intricate structure of garments, collecting real 3D data
+with complete geometry for them is extremely difficult. Instead, we
+XXX, XXX, XXX.
+
+
+Single View Garment Reconstruction Using Diffusion Mapping Via Pattern Coordinates
+•
+7
+use physics-based simulation to generate garment with realistic
+deformations in its interaction with the underlying body.
+Skirt
+CD ↓
+IoU ↑
+NC ↑
+SMPLicit
+3.00
+65.03
+0.02
+DrapeNet
+n/a
+n/a
+n/a
+ISP
+2.51
+71.10
+0.76
+GaRec
+2.00
+93.81
+0.80
+Ours
+1.21
+95.32
+0.83
+Trousers
+CD ↓
+IoU ↑
+NC ↑
+SMPLicit
+1.59
+68.19
+-0.03
+DrapeNet
+1.38
+74.23
+0.84
+ISP
+1.53
+57.745
+0.85
+GaRec
+1.12
+88.52
+0.86
+Ours
+0.74
+94.00
+0.88
+Shirt
+CD ↓
+IoU ↑
+NC ↑
+SMPLicit
+6.53
+47.50
+0.06
+DrapeNet
+1.93
+77.15
+0.84
+ISP
+1.92
+68.64
+0.83
+GaRec
+1.20
+93.20
+0.83
+Ours
+0.85
+94.02
+0.89
+Open Shirt
+CD ↓
+IoU ↑
+NC ↑
+SMPLicit
+2.37
+61.27
+-0.08
+DrapeNet
+1.76
+73.56
+0.78
+ISP
+1.90
+69.27
+0.77
+GaRec
+1.46
+92.81
+0.73
+Ours
+1.19
+92.48
+0.82
+Table 1. Quantitative comparisons. Our method outperforms SMPLicit,
+DrapeNet, ISP and GaRec in terms of CD, IoU and NC on different garment
+categories. The unit of CD is cm.
+CLOTH3D [Bertiche et al. 2020] is a synthetic dataset, with 3D
+garments draped on T-posed SMPL bodies [Loper and Black 2014].
+For each clothing category, including shirt, open shirt, skirt and
+trousers, we randomly select 33 samples. Each pair of garment and
+body models is simulated with the motion data sourced from the
+dance category of the AMASS dataset [Mahmood et al. 2019]. The
+motion sequences are generated by using Blender [blender 2018] and
+Marvelous Designer [Designer 2018]. Additional pins are manually
+set for open shirt, skirt and trousers to avoid sliding during the
+simulation. For each body sample in the sequence, we randomly
+rotate it and render its front and back body part segmentation and
+depth images. For the corresponding garment sample, we rotate
+it with the same angle and render its front and back normal and
+depth images. Its front and back UV coordinate images are generated
+using the UV parameterization of ISP. For each garment category,
+we randomly select 30 pairs of garment and body for training and
+use the rest pairs for the evaluation.
+To evaluate the quality of garment reconstruction, we use the
+Chamfer Distance (CD) and the Normal Consistency (NC) between
+the ground truth and the recovered garment mesh, and the Inter-
+section over Union (IoU) between the ground truth mask and the
+rendered mask of reconstructed garment mesh. The quantitative
+comparison is conducted on the test set of the synthetic data, and
+the qualitative evaluation is conducted on in-the-wild images.
+5.2
+Results
+In Table 1, we present the quantitative comparison between our
+method and the state-of-the-art approaches: SMPLicit [Corona et al.
+2021], DrapeNet [DeLuigi et al. 2023], ISP [Li et al. 2023], and
+GaRec [Li et al. 2024b]. Our method achieves significantly better
+performance across all garment categories—Skirt, Trousers, Shirt,
+and Open Shirt—in terms of CD, IoU and NC.
+Fig. 6 provides a qualitative comparison of the results recon-
+structed from the in-the-wild image. Methods like BCNet [Jiang
+et al. 2020], SMPLicit, and ISP rely solely on the SMPL body model’s
+skinning function to deform garments, which limits them to gen-
+erating results tightly adhered to the body surface. ECON [Xiu
+et al. 2023] and GaRec, on the other hand, can recover garments
+that stand away from the body. However, ECON produces a sin-
+gle watertight mesh that models both the body and garment as a
+single entity. While GaRec generates standalone garment surfaces,
+its recovered meshes appear overly flat and lack realistic folds or
+creases. In contrast, our method, leveraging the proposed fitting
+approach that incorporates back normal estimation and DISP priors,
+faithfully reconstructs garment meshes with high-fidelity wrinkle
+details, both on the front and back of the garment. Fig. 10 and 11
+provides more results of our method applied to in-the-wild images,
+demonstrating its ability to produce realistic 3D meshes with fine
+details for both tight-fitting and loose-fitting garments.
+5.3
+Ablation Study
+Fig. 7 presents the ablation study of our fitting method. As shown
+in Fig. 7(c), the initial reconstruction, without the post-refinement
+step described in Section 4.3.3, fails to fully align with the input
+image shown in Fig. 7(a). Incorporating a neural displacement field
+to optimize the initial mesh improves reconstruction accuracy, as
+seen in Fig. 7(d). Further refinement by directly optimizing vertex
+positions enhances the wrinkle details, as illustrated in Fig. 7(b).
+However, applying post-refinement without first optimizing the
+neural displacement field (Fig. 7(e)) struggles to recover an accu-
+rate shape, as each vertex is optimized independently, leading to
+suboptimal results. Finally, Fig. 7(f) shows the outcome when only
+the front normal estimation is used throughout the fitting process
+described in Section 4.3. The lack of constraints for the back surface
+results in unrealistic deformations on the back. The corresponding
+quantitative results are provided in the supplementary materials.
+5.4
+Downstream Applications
+Retargeting. Since our method produces separate models for the
+garment and the underlying body, we can easily repose it on the new
+body. In Fig. 8, we show the retargeting results for the reconstructed
+open shirt and trousers by transferring them onto bodies with differ-
+ent poses and shapes. Accurate reconstruction of garments results
+in realistic retargeting.
+Texture Editing. Since we reconstruct both the 3D model and the
+corresponding 2D panels for garment, we can easily realize texture
+editing. As shown in Fig. 9, by painting patterns or drawing specific
+figures onto the recovered panels, the mesh will show the texture
+on the corresponding position.
+6
+Conclusion
+We have presented a novel approach for recovering realistic 3D
+garment meshes from monocular images. Our method leverages
+Implicit Sewing Patterns (ISP) and a generative diffusion model
+to learn plausible garment shape priors defined in a 2D UV space.
+By utilizing diffusion schemes, we complement 2D observations
+for the occluded parts of the garments and lift them into 3D space.
+Additionally, we design a diffusion-based mapping across 2D, 3D,
+and UV space, enabling the alignment of learned priors with image
+observations to produce accurate 3D garment reconstructions. Our
+XXX, XXX, XXX.
+
+
+8
+•
+Ren Li, Cong Cao, Corentin Dumery, Yingxuan You, Hao Li, and Pascal Fua
+method outperforms existing approaches across different types of
+garments, and the resulting reconstructions are readily applicable to
+downstream tasks, such as garment retargeting and texture editing.
+Limitations. While our method is capable of producing realistic
+3D reconstructions for a wide variety of garments, it has certain
+limitations. As shown in the middle example of the fourth row in Fig.
+10, it is challenging for our method to capture very small wrinkles.
+This limitation arises because our normal loss relies on a differ-
+entiable renderer [Ravi et al. 2020], which uses interpolation and
+approximations for normal and gradient computation. These ap-
+proximations tend to smooth out high-frequency geometric details.
+Additionally, since small wrinkles contribute only marginally to the
+overall loss, their gradients can be overwhelmed during optimiza-
+tion. Together, these factors explain the observed results. Beside,
+our method cannot currently handle garments with multi-layered
+structures, such as ruffle-layered skirts. A potential solution could
+involve incorporating additional panels into ISP to support layered
+designs. Furthermore, our approach requires full-body images of
+clothed individuals and, therefore, cannot handle images with par-
+tial garments or profile views. Due to the inherent ill-posed nature
+of 3D reconstruction from a single image, our method also cannot
+address depth ambiguity and does not fully capture the physical
+behavior of garments. The result for video input can also seem jit-
+tery. In future work, we aim to address this problem by modeling
+garment deformations over time using video sequences.
+Acknowledgments
+This work was supported in part by the Swiss National Science
+Foundation grant and by the Metaverse Center Grant from the
+MBZUAI Research Office.
+References
+T. Alldieck, M. Magnor, B. Bhatnagar, C. Theobalt, and G. Pons-Moll. 2019a. Learning to
+reconstruct people in clothing from a single RGB camera. In Conference on Computer
+Vision and Pattern Recognition. 1175–1186.
+T. Alldieck, G. Pons-Moll, C. Theobalt, and M. Magnor. 2019b. Tex2shape: Detailed full
+human body geometry from a single image. In International Conference on Computer
+Vision. 2293–2303.
+T. Alldieck, M. Zanfir, and C. Sminchisescu. 2022. Photorealistic Monocular 3D Re-
+construction of Humans Wearing Clothing. In Conference on Computer Vision and
+Pattern Recognition. 1506–1515.
+T. Anciukevičius, Z. Xu, M. Fisher, P. Henderson, H. Bilen, N. J. Mitra, and P. Guerrero.
+2023. Renderdiffusion: Image Diffusion for 3D Reconstruction, Inpainting and
+Generation. In Conference on Computer Vision and Pattern Recognition. 12608–12618.
+G. Bae and A. Davison. 2024. Rethinking Inductive Biases for Surface Normal Estimation.
+In Conference on Computer Vision and Pattern Recognition. 9535–9545.
+H. Bertiche, M. Madadi, and S. Escalera. 2020. CLOTH3D: Clothed 3D Humans. In
+European Conference on Computer Vision. 344–359.
+B. L. Bhatnagar, G. Tiwari, C. Theobalt, and G. Pons-Moll. 2019. Multi-Garment Net:
+Learning to Dress 3D People from Images. In International Conference on Computer
+Vision.
+blender 2018. Blender. https://www.blender.org/.
+F. Bogo, A. Kanazawa, C. Lassner, P. Gehler, J. Romero, and M. J. Black. 2016. Keep It
+SMPL: Automatic Estimation of 3D Human Pose and Shape from a Single Image. In
+European Conference on Computer Vision.
+A. Casado-Elvira, M. Trinidad, and D. Casas. 2022. PERGAMO: Personalized 3d Gar-
+ments from Monocular Video. In Computer Graphics Forum, Vol. 41. 293–304.
+H. Chung, J. Kim, M. T. Mccann, M. L. Klasky, and J. C. Ye. 2022a. Diffusion Poste-
+rior Sampling for General Noisy Inverse Problems. In International Conference on
+Learning Representations.
+H. Chung, B. Sim, D. Ryu, and J. C. Ye. 2022b. Improving Diffusion Models for Inverse
+Problems Using Manifold Constraints. In Advances in Neural Information Processing
+Systems. 25683–25696.
+E. Corona, A. Pumarola, G. Alenya, G. Pons-Moll, and F. Moreno-Noguer. 2021. Smplicit:
+Topology-Aware Generative Model for Clothed People. In Conference on Computer
+Vision and Pattern Recognition.
+R. Danerek, E. Dibra, C. öztireli, R. Ziegler, and M. Gross. 2017. Deepgarment : 3D
+Garment Shape Estimation from a Single Image. Eurographics (2017).
+L. DeLuigi, R. Li, B. Guillard, M. Salzmann, and P. Fua. 2023. Drapenet: Generating
+Garments and Draping Them with Self-Supervision. In Conference on Computer
+Vision and Pattern Recognition.
+M. Designer. 2018. https://www.marvelousdesigner.com.
+Prafulla Dhariwal and Alexander Nichol. 2021. Diffusion Models Beat GANs on Image
+Synthesis. In Advances in Neural Information Processing Systems, Vol. 34. 8780–8794.
+M. Gadelha, R. Wang, and S. Maji. 2021. Deep Manifold Prior. In International Conference
+on Computer Vision. 1107–1116.
+G. Georgakis, R. Li, S. Karanam, T. Chen, J. Košecká, and Z. Wu. 2020. Hierarchical
+Kinematic Human Mesh Recovery. In European Conference on Computer Vision.
+768–784.
+S. Goel, G. Pavlakos, J. Rajasegaran, A. Kanazawa, and J. Malik. 2023. Humans in 4D: Re-
+constructing and Tracking Humans with Transformers. In International Conference
+on Computer Vision.
+B. Guillard, F. Stella, and P. Fua. 2022. MeshUDF: Fast and Differentiable Meshing of
+Unsigned Distance Field Networks. In European Conference on Computer Vision.
+J. Guo, F. Prada, D. Xiang, J. Romero, C. Wu, H. S. Park, T. Shiratori, and S. Saito. 2024.
+Diffusion Shape Prior for Wrinkle-Accurate Cloth Registration. In International
+Conference on 3D Vision.
+T. He, J. Collomosse, H. Jin, and S. Soatto. 2020. Geo-PIFu: Geometry and pixel aligned
+implicit functions for single-view human reconstruction. Advances in Neural Infor-
+mation Processing Systems 33 (2020), 9276–9287.
+T. He, Y. Xu, S. Saito, S. Soatto, and T. Tung. 2021. ARCH++: Animation-Ready Clothed
+Human Reconstruction Revisited. In International Conference on Computer Vision.
+11046–11056.
+J. Ho, A. Jain, and P. Abbeel. 2020. Denoising Diffusion Probabilistic Models. Advances
+in Neural Information Processing Systems 33 (2020), 6840–6851.
+Z. Huang, Y. Xu, C. Lassner, H. Li, and T. Tung. 2020. Arch: Animatable Reconstruction
+of Clothed Humans. In Conference on Computer Vision and Pattern Recognition.
+3093–3102.
+A. Jackson, C. Manafas, and G. Tzimiropoulos. 2018. 3D Human Body Reconstruction
+from A Single Image via Volumetric Regression. In European Conference on Computer
+Vision Workshops.
+B. Jiang, J. Zhang, Y. Hong, J. Luo, L. Liu, and H. Bao. 2020. Bcnet: Learning Body and
+Cloth Shape from a Single Image. In European Conference on Computer Vision.
+A. Kanazawa, M. J. Black, D. W. Jacobs, and J. Malik. 2018. End-To-End Recovery of
+Human Shape and Pose. In Conference on Computer Vision and Pattern Recognition.
+R. Khirodkar, T. Bagautdinov, J. Martinez, S. Zhaoen, A. James, P. Selednik, S Anderson,
+and S. Saito. 2025. Sapiens: Foundation for Human Vision Models. In European
+Conference on Computer Vision. 206–228.
+A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson, T. Xiao, S. Whitehead,
+A. C. Berg, W.-Y. Lo, P. Dollár, and R. Girshick. 2023. Segment Anything. In arXiv
+Preprint.
+N. Kolotouros, G. Pavlakos, M. J. Black, and K. Daniilidis. 2019. Learning to Reconstruct
+3D Human Pose and Shape via Model-Fitting in the Loop. In Conference on Computer
+Vision and Pattern Recognition.
+C. Lassner, J. Romero, M. Kiefel, F. Bogo, M.J. Black, and P.V. Gehler. 2017. Unite the
+People: Closing the Loop Between 3D and 2D Human Representations. In Conference
+on Computer Vision and Pattern Recognition.
+J. Li, C. Xu, Z. Chen, S. Bian, L. Yang, and C. Lu. 2021a. Hybrik: A Hybrid Analytical-
+Neural Inverse Kinematics Solution for 3D Human Pose and Shape Estimation. In
+Conference on Computer Vision and Pattern Recognition.
+P. Li, Y. Xu, Y. Wei, and Y. Yang. 2020. Self-Correction for Human Parsing. IEEE
+Transactions on Pattern Analysis and Machine Intelligence 44, 6 (2020), 3260–3271.
+R. Li, C. Dumery, Z. Dang, and P. Fua. 2024a. Reconstruction of Manipulated Gar-
+ment with Guided Deformation Prior. In Advances in Neural Information Processing
+Systems.
+R. Li, C. Dumery, B. Guillard, and P. Fua. 2024b. Garment Recovery with Shape and
+Deformation Priors. In Conference on Computer Vision and Pattern Recognition.
+R. Li, B. Guillard, and P. Fua. 2023. ISP: Multi-Layered Garment Draping with Implicit
+Sewing Patterns. In Advances in Neural Information Processing Systems.
+R. Li, B. Guillard, E. Remelli, and P. Fua. 2022. DIG: Draping Implicit Garment over the
+Human Body. In Asian Conference on Computer Vision.
+R. Li, M. Zheng, S. Karanam, T. Chen, and Z. Wu. 2021b. Everybody Is Unique: Towards
+Unbiased Human Mesh Recovery. In British Machine Vision Conference.
+W. Li, M. Liu, H. Liu, B. Ren, X. Li, Y. You, and N. Sebe. 2024c. HYRE: Hybrid Regressor
+for 3D Human Pose and Shape Estimation. IEEE Transactions on Image Processing
+(2024).
+L. Liu, L. Zhang, Y. Xu, C. Gotsman, and S. J. Gortler. 2008. A Local/global Approach to
+Mesh Parameterization. In Proceedings of the Symposium on Geometry Processing.
+1495–1504.
+XXX, XXX, XXX.
+
+
+Single View Garment Reconstruction Using Diffusion Mapping Via Pattern Coordinates
+•
+9
+Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tokmakov, Sergey Zakharov, and Carl
+Vondrick. 2023b. Zero-1-To-3: Zero-Shot One Image to 3D Object. In International
+Conference on Computer Vision. 9298–9309.
+X. Liu, J. Li, and G. Lu. 2023a. Modeling Realistic Clothing from a Single Image Under
+Normal Guide. IEEE Transactions on Visualization and Computer Graphics (2023).
+M. Loper and M.J. Black. 2014. Opendr: An Approximate Differentiable Renderer. In
+European Conference on Computer Vision. 154–169.
+M. Loper, N. Mahmood, J. Romero, G. Pons-Moll, and M.J. Black. 2015. SMPL: A Skinned
+Multi-Person Linear Model. ACM SIGGRAPH Asia 34, 6 (2015).
+Z. Luo, H. Liu, C. Li, W. Du, Z. Jin, W. Sun, Y. Nie, W. Chen, and X. Han. 2024. Gar-
+VerseLOD: High-Fidelity 3D Garment Reconstruction from a Single In-the-Wild
+Image using a Dataset with Levels of Details. ACM Transactions on Graphics 43, 6
+(2024), 1–12.
+Q. Ma, J. Yang, M. J. Black, and S. Tang. 2022. Neural Point-Based Shape Modeling of
+Humans in Challenging Clothing. In International Conference on 3D Vision.
+N. Mahmood, N. Ghorbani, N. F. Troje, G. Pons-Moll, and M. J. Black. 2019. AMASS:
+Archive of Motion Capture as Surface Shapes. In International Conference on Com-
+puter Vision. 5442–5451.
+L. Melas-Kyriazi, C. Rupprecht, and A. Vedaldi. 2023. Pc2: Projection-Conditioned Point
+Cloud Diffusion for Single-Image 3D Reconstruction. In Conference on Computer
+Vision and Pattern Recognition. 12923–12932.
+G. Moon and K.M. Lee. 2020. I2l-Meshnet: Image-To-Lixel Prediction Network for Ac-
+curate 3D Human Pose and Mesh Estimation from a Single RGB Image. In European
+Conference on Computer Vision.
+G. Moon, H. Nam, T. Shiratori, and K.M. Lee. 2022. 3D Clothed Human Reconstruction
+in the Wild. In European Conference on Computer Vision.
+N. Müller, Y. Siddiqui, L. Porzi, S. R. Bulo, P. Kontschieder, and M. Nießner. 2023. Diffrf:
+Rendering-Guided 3D Radiance Field Diffusion. In Conference on Computer Vision
+and Pattern Recognition. 4328–4338.
+R. Narain, A. Samii, and J.F. O’brien. 2012. Adaptive anisotropic remeshing for cloth
+simulation. ACM Transactions on Graphics (2012).
+G. Pavlakos, V. Choutas, N. Ghorbani, T. Bolkart, A. Osman, D. Tzionas, and M.J. Black.
+2019. Expressive Body Capture: 3D Hands, Face, and Body from a Single Image. In
+Conference on Computer Vision and Pattern Recognition.
+N. Pietroni, C. Dumery, R. Falque, M. Liu, T. Vidal-Calleja, and O. Sorkine-Hornung.
+2022. Computational Pattern Making from 3D Garment Models. ACM Transactions
+on Graphics 41, 4 (2022), 1–14.
+Ben Poole, A. Jain, J. T. Barron, and Ben Mildenhall. 2022. Dreamfusion: Text-To-3D
+Using 2D Diffusion. In International Conference on Learning Representations.
+N. Rahaman, A. Baratin, D. Arpit, F. Draxler, M. Lin, F. Hamprecht, Y. Bengio, and A.
+Courville. 2019. On the Spectral Bias of Neural Networks. In International Conference
+on Machine Learning. 5301–5310.
+N. Ravi, V. Gabeur, Y. Hu, R. Hu, C. Ryali, T. Ma, H. Khedr, R. Rädle, C. Rolland, Laura
+L. Gustafson, and Others. 2024. Sam 2: Segment Snything in Images and Videos.
+arXiv Preprint (2024).
+Nikhila Ravi, Jeremy Reizenstein, David Novotny, Taylor Gordon, Wan-Yen Lo,
+Justin Johnson, and Georgia Gkioxari. 2020.
+PyTorch3D.
+https://github.com/
+facebookresearch/pytorch3d.
+Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer.
+2022. High-resolution image synthesis with latent diffusion models. In Conference
+on Computer Vision and Pattern Recognition. 10684–10695.
+S. Saito, Z. Huang, R. Natsume, S. Morishima, A. Kanazawa, and H. Li. 2019. PIFu:
+Pixel-Aligned Implicit Function for High-Resolution Clothed Human Digitization.
+In International Conference on Computer Vision.
+S. Saito, T. Simon, J. Saragih, and H. Joo. 2020. Pifuhd: Multi-Level Pixel-Aligned Implicit
+Function for High-Resolution 3D Human Digitization. In Conference on Computer
+Vision and Pattern Recognition. 84–93.
+I. Santesteban, M.A. Otaduy, and D. Casas. 2022. SNUG: Self-Supervised Neural Dynamic
+Garments. In Conference on Computer Vision and Pattern Recognition.
+J. Song, C. Meng, and S. Ermon. 2021. Denoising Diffusion Implicit Models. In Interna-
+tional Conference on Learning Representations.
+A. Srivastava, C. Pokhariya, S. Jinka, and A. Sharma. 2022. xCloth: Extracting Template-
+free Textured 3D Clothes from a Monocular Image. In Proceedings of the 30th ACM
+International Conference on Multimedia. 2504–2512.
+A. Stathopoulos, L. Han, and D. Metaxas. 2024. Score-Guided Diffusion for 3D Human
+Recovery. In Conference on Computer Vision and Pattern Recognition. 906–915.
+M. Tyszkiewic, P. Fua, and E. Trulls. 2023. GECCO: Geometrically-Conditioned Point
+Diffusion Models. In International Conference on Computer Vision.
+D. Ulyanov, A. Vedaldi, and V. Lempitsky. 2018. Deep Image Prior. In Conference on
+Computer Vision and Pattern Recognition. 9446–9454.
+Y. Xiu, J. Yang, X. Cao, D. Tzionas, and M. J Black. 2023. ECON: Explicit Clothed humans
+Optimized via Normal integration. In Conference on Computer Vision and Pattern
+Recognition. 512–523.
+Y. Xiu, J. Yang, D. Tzionas, and M. J Black. 2022. ICON: Implicit clothed humans
+obtained from normals. In Conference on Computer Vision and Pattern Recognition.
+13286–13296.
+J. Xu, Y. Guo, and Y. Peng. 2024a. FinePOSE: Fine-Grained Prompt-Driven 3D Human
+Pose Estimation via Diffusion Models. In Conference on Computer Vision and Pattern
+Recognition. 561–570.
+Yinghao Xu, Hao Tan, Fujun Luan, Sai Bi, Peng Wang, Jiahao Li, Zifan Shi, Kalyan
+Sunkavalli, Gordon Wetzstein, Zexiang Xu, et al. 2024b. Dmv3D: Denoising Multi-
+View Diffusion Using 3d Large Reconstruction Model. In International Conference
+on Learning Representations.
+S. Yang, Z. Pan, T. Amert, K. Wang, L. Yu, T. Berg, and M. Lin. 2018. Physics-Inspired
+Garment Recovery from a Single-View Image. ACM Transactions on Graphics 37, 5
+(2018), 1–14.
+I. Zakharkin, K. Mazur, A. Grigorev, and V. Lempitsky. 2021. Point-Based Modeling of
+Human Clothing. In International Conference on Computer Vision.
+Z. Zheng, T. Yu, Y. Liu, and Q. Dai. 2021. Pamir: Parametric model-conditioned implicit
+representation for image-based human reconstruction. IEEE Transactions on Pattern
+Analysis and Machine Intelligence 44, 6 (2021), 3170–3184.
+Z. Zheng, T. Yu, Y. Wei, Q. Dai, and Y. Liu. 2019. DeepHuman: 3D Human Reconstruction
+from A Single Image. In International Conference on Computer Vision. 7739–7749.
+H. Zhu, Y. Cao, H. Jin, W. Chen, D. Du, Z. Wang, S. Cui, and X. Han. 2020. Deep
+Fashion3D: A Dataset and Benchmark for 3d Garment Reconstruction from Single
+Images. In European Conference on Computer Vision. 512–530.
+H. Zhu, L. Qiu, Y. Qiu, and X. Han. 2022. Registering Explicit to Implicit: Towards
+High-Fidelity Garment Mesh Reconstruction from Single Images. In Conference on
+Computer Vision and Pattern Recognition. 3845–3854.
+XXX, XXX, XXX.
+
+
+10
+•
+Ren Li, Cong Cao, Corentin Dumery, Yingxuan You, Hao Li, and Pascal Fua
+Front
+Back
+Ours
+BCNet
+SMPLicit
+ISP
+GaRec
+ECON
+Fig. 6. Qualitative comparison with state-of-the-art methods. The top and bottom rows show the front and the back of the reconstructions produced by
+our method, BCNet [Jiang et al. 2020], SMPLicit [Corona et al. 2021], ISP [Li et al. 2023], GaRec [Li et al. 2024b] and ECON [Xiu et al. 2023], respectively.
+(a)
+(b)
+(c)
+(d)
+(e)
+(f)
+Fig. 7. Ablation study. (a) The input image and its normal estimations for the front and back. (b) Our full reconstruction. (c) Reconstruction without
+post-refinement. (d) Reconstruction refined by optimizing only the neural displacement field. (e) Reconstruction refined by optimizing only the vertex positions.
+(f) Reconstruction using only the front normal.
+Fig. 8. Retargeting. Left: The input image and our reconstructions. Right:
+The reconstructed garments are transferred to body with different poses and
+shapes.
+Reconstruction
+Texture on Panels
+Textured Mesh
+Fig. 9. Texture editing. By simply drawing figures or patterns on the recov-
+ered 2D panels, we can directly edit the texture of the recovered garment
+mesh.
+XXX, XXX, XXX.

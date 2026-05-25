@@ -1,0 +1,1208 @@
+Title: Dress-1-to-3: Single Image to Simulation-Ready 3D Outfit with Diffusion Prior and Differentiable Physics
+
+Dress-1-to-3: Single Image to Simulation-Ready 3D Outfit with
+Diffusion Prior and Differentiable Physics
+XUAN LI∗, UCLA
+CHANG YU∗, UCLA
+WENXIN DU∗, UCLA
+YING JIANG∗, UCLA
+TIANYI XIE, UCLA
+YUNUO CHEN, UCLA
+YIN YANG, University of Utah
+CHENFANFU JIANG, UCLA
+Fig. 1. Dress-1-to-3 can reconstruct simulation-ready textured clothed humans from casually posed single view images.
+Recent advances in large models have significantly advanced image-to-3D
+reconstruction. However, the generated models are often fused into a single
+piece, limiting their applicability in downstream tasks. This paper focuses on
+3D garment generation, a key area for applications like virtual try-on with
+dynamic garment animations, which require garments to be separable and
+simulation-ready. We introduce Dress-1-to-3, a novel pipeline that recon-
+structs physics-plausible, simulation-ready separated garments with sewing
+patterns and humans from an in-the-wild image. Starting with the image, our
+approach combines a pre-trained image-to-sewing pattern generation model
+for creating coarse sewing patterns with a pre-trained multi-view diffusion
+model to produce multi-view images. The sewing pattern is further refined
+using a differentiable garment simulator based on the generated multi-view
+images. Versatile experiments demonstrate that our optimization approach
+substantially enhances the geometric alignment of the reconstructed 3D
+garments and humans with the input image. Furthermore, by integrating
+a texture generation module and a human motion generation module, we
+∗indicates equal contributions.
+produce customized physics-plausible and realistic dynamic garment demon-
+strations. Our project page is https://dress-1-to-3.github.io/.
+1
+INTRODUCTION
+Creating digital assets of clothed humans is crucial for a wide range
+of applications, including virtual reality (VR), the film industry, fash-
+ion design, and gaming. However, the traditional pipeline for digital
+human and garment creation involves multiple intricate steps, such
+as concept design, material selection, garment modeling, human
+pose generation, garment fitting, and animation. These processes
+are often labor-intensive and time-consuming.
+In recent years, significant advancements in image-to-3D asset
+reconstruction have been driven by the development of powerful
+image and video generation models. Among these, multiview diffu-
+sion models [Chen et al. 2024c; Gao et al. 2024; Liu et al. 2023a] have
+emerged as a promising approach, effectively leveraging multiview
+images as intermediate representations to capture 3D information.
+arXiv:2502.03449v2  [cs.CV]  21 May 2025
+
+
+When fine-tuned on human datasets, these models generalize well
+to avatar reconstructions from in-the-wild images [He et al. 2024a;
+Li et al. 2024d]. However, the generated results are often fused into
+a single piece, making them unsuitable for downstream tasks such
+as garment animation and interaction.
+In the meantime, sewing patterns, a foundational representation
+in the garment design industry, have been adopted as intermedi-
+ate reconstruction outputs to recover garment geometries [Li et al.
+2024b; Liu et al. 2023b]. This representation is particularly advan-
+tageous due to its seamless integration with downstream applica-
+tions such as physics simulation and garment editing. Despite their
+promise, these feed-forward approaches face significant limitations
+stemming from the scarcity of high-quality 3D data. As a result,
+the reconstructed garments are often constrained by the distribu-
+tion of the training dataset, leading to inaccuracies in aligning with
+input images. This limitation hinders their ability to produce de-
+tailed and diverse reconstructions reflective of real-world garment
+variations. The question then arises: can we keep the advantages
+of the simulation-ready representation of sewing patterns while
+leveraging the powerful priors in large multi-view diffusion models
+to reconstruct garments from solely an in-the-wild image?
+To address this problem, we introduce Dress-1-to-3, a novel gar-
+ment reconstruction pipeline that accurately transforms an in-the-
+wild image into a simulation-ready representation of separated hu-
+man and garment by leveraging the strengths of both 2D multi-view
+diffusion and 3D sewing pattern reconstruction. To bridge those two
+parts, we propose a generalized and unified IPC differentiable frame-
+work for garment optimization, which enables the optimization of
+3D sewing patterns using 2D generative multi-view RGB images
+and normal maps as guidance. By refining imperfect generative out-
+puts to align with the geometry encoded in multiview images, our
+approach allows the reconstruction of out-of-distribution garment
+shapes with high fidelity. Our contributions include:
+• We propose a holistic garment reconstruction pipeline that
+takes a single image as input and generates garments fitted
+onto a posed human, ensuring both the human pose and
+garments align with the input image.
+• We derive a generalized and unified IPC differentiable frame-
+work that is agonistic to constitutive models. We apply this
+framework for co-dimensional garment optimization.
+• We conduct extensive experiments to demonstrate the effec-
+tiveness and versatility of our garment optimization frame-
+work, successfully reconstructing garments across diverse
+categories, including those not present in the training dataset.
+2
+RELATED WORK
+2.1
+Multi-view Diffusion
+Owing to their powerful predictive ability, Diffusion Probabilistic
+Models [Ho et al. 2020] have been applied to image [Dhariwal and
+Nichol 2021; Nichol et al. 2021; Ruiz et al. 2023; Saharia et al. 2022;
+Zhang et al. 2023], video [Chen et al. 2024d; Ho et al. 2022], and 3D
+shape synthesis tasks [Long et al. 2024; Tang et al. 2024; Yu et al.
+2024b], etc. However, applying image diffusion models to generate
+multi-view images separately poses significant challenges in main-
+taining consistency across different views. To address multi-view
+inconsistency, multi-view attentions and camera pose controls are
+adopted to fine-tune pre-trained image diffusion models, enabling
+the simultaneous synthesis of multi-view images [Long et al. 2024;
+Shi et al. 2023, 2024; Wang and Shi 2023; Xu et al. 2024; Yang et al.
+2024], though these methods might result in compromised geomet-
+ric consistency due to the lack of inherent 3D biases. To ensure both
+global semantic consistency and detailed local alignment in multi-
+view diffusion models, 3D-adapters [Chen et al. 2024a] propose a
+plug-in module designed to infuse 3D geometry awareness. Never-
+theless, the generated images by these models are sparse views. To
+address this issue, CAT3D [Gao et al. 2024] introduces an efficient
+parallel sampling strategy to generate a large set of camera poses,
+and MVDiffusion++ [Tang et al. 2025] adopts a pose-free architec-
+ture and a view dropout strategy to reduce computational costs,
+generating dense, high-resolution images.
+Generating consistent images from multi-view diffusions offers
+guidance for further 3D shape reconstruction [Gao et al. 2024]. PSHu-
+man [Li et al. 2024d] integrates a body-face cross-scale diffusion with
+an SMPL-X conditioned multi-view diffusion for clothed human
+reconstruction with high-quality face details. Recent work, Magic-
+Man [He et al. 2024a], utilizes a hybrid human-specific multi-view
+diffusion model with 3D SMPL-X-based body priors and 2D diffu-
+sion priors to consistently generate dense multi-view RGB images
+and normal maps, supporting high-quality human mesh reconstruc-
+tion. Different from these works, we exploited multi-view diffusions
+to generate multi-view normals and RGB images as guidance to
+optimize sewing patterns and stitches instead of human meshes.
+2.2
+Garment Reconstruction
+Previous work focusing on clothed human reconstruction [Xiu et al.
+2023, 2022] typically generates garments fused with digital human
+models, limiting them to basic skinning-based animations and re-
+quiring extra segmentation and editing to separate the garments
+from the human body. In contrast, our approach focuses on recon-
+structing separately wearable, simulation-ready garments and hu-
+man models. Other closely related works include Li et al. [2024a]; Yu
+et al. [2024a], which also generates simulation-ready clothes via dif-
+ferentiable simulation, but at the cost of creating clothing templates
+by artists, precise point clouds by scanners or 3D shapes of garments.
+NeuralTailor [Korosteleva and Lee 2022] utilizes point-level atten-
+tion for pattern shape and stitching information regression, enabling
+the reconstruction of garment meshes from point clouds. In contrast,
+our paper focuses on reconstructing non-watertight garments and
+humans separately from a single image without additional inputs.
+To reconstruct separated non-watertight garments from a sin-
+gle image, GarVerseLOD [Luo et al. 2024] recovers garment details
+hierarchically in a coarse-to-fine framework. However, it fails to
+reconstruct complex skirts or dresses with slits or with complex
+human poses due to the limited representation of such features in
+the training data. ClothWild [Moon et al. 2022] exploits a weakly su-
+pervised pipeline with DensePose-based loss to further increase ro-
+bustness on in-the-wild images. BCNet [Jiang et al. 2020] introduces
+a layered garment representation and a generic skinning weight
+generation network to model garments with different topologies.
+Deep Fashion3D [Zhu et al. 2020] refines adaptable templates with
+2
+
+
+rich annotations to fit garment shapes. While they are limited to
+garment categories in their training datasets, these works fail to
+reconstruct complex categories such as jumpsuits. Additionally, they
+require nearly frontal images as input, limiting reconstruction from
+different views. AnchorUDF [Zhao et al. 2021] explores a learnable
+unsigned distance function to query both 3D position features and
+pixel-aligned image features via anchor points, which reconstructs
+the coarse garment shape but lacks the generation of high-quality
+geometric details.
+Instead of directly reconstructing garment meshes, some works
+[He et al. 2024b; Korosteleva and Sorkine-Hornung 2023; Liu et al.
+2023b] treat sewing patterns as intermediate representations to
+generate garments by stitching them together. Recent work, Gar-
+mentRecovery [Li et al. 2024b], introduces implicit sewing patterns
+(ISP) to provide shape priors integrated with deformation priors
+for further garment recovery, though it builds specialized models
+for each individual garment or garment type. Both SewFormer [Liu
+et al. 2023b], and PanelFormer [Chen et al. 2024b] utilize Trans-
+formers to predict sewing patterns and stitches. Concurrent work,
+SewingLDM, AIpparel, Design2GarmentCode, and ChatGarment
+[Bian et al. 2025; Liu et al. 2024; Nakayama et al. 2024; Zhou et al.
+2025], exploits multimodal models to synthesize sewing patterns.
+However, their garment results lack physical material parameters.
+Therefore, they fail to reconstruct diverse shapes for garments with
+different physical materials. While Wang et al. [2018] and Yang
+et al. [2018] leverage a shared latent space and joint material-pose
+optimization to generate 3D garments and 2D sewing patterns, their
+approaches rely heavily on large-scale datasets on garment tem-
+plates and human-body models, limiting their ability to generalize
+to out-of-distribution garments and body shapes. Our work aims to
+generate diverse, image-aligned, simulation-ready garments with
+high-quality details from in-the-wild images by optimizing sewing
+patterns and stitches with physical parameters via differentiable
+simulations.
+2.3
+Differentiable Simulation
+Differentiable simulation has seen widespread application in recent
+research, particularly for system identification and the inference of
+material parameters from both synthetic [Li et al. 2023a, 2024c] and
+real-world [Huang et al. 2024; Si et al. 2024] observations. The scope
+of exploration spans various domains, including fluid dynamics
+and control [Li et al. 2024c, 2023b; McNamara et al. 2004; Schenck
+and Fox 2018], rigid-body dynamics [Freeman et al. 2021; Strecke
+and Stueckler 2021; Xu et al. 2023], articulated systems [Geilinger
+et al. 2020; Qiao et al. 2021; Xu et al. 2021], soft-body dynamics [Du
+et al. 2021; Hahn et al. 2019; Hu et al. 2019b; Huang et al. 2024;
+Jatavallabhula et al. 2021], cloth [Li et al. 2024a, 2022; Stuyck and
+Chen 2023], inelasticity [Huang et al. 2021; Li et al. 2023a], inflatable
+structures [Panetta et al. 2021], and Voronoi diagrams [Numerow
+et al. 2024].
+Cloth-based applications, whether for static optimization or dy-
+namic simulation [Grigorev et al. 2023; Santesteban et al. 2022],
+frequently involve extensive frictional contact. Consequently, many
+works focus on robust methods for handling dry frictional con-
+tact in differentiable simulations. Bartle et al. [2016] proposes a
+physics-driven pattern adjustment for garment editing using fixed-
+point optimization, which does not account for gradients. Liang
+et al. [2019] is the first to introduce a fully functional differentiable
+cloth simulator with frictional contact and self-collision, formulat-
+ing a quadratic programming problem. Jatavallabhula et al. [2021]
+employs a penalty-based frictional contact model, while Du et al.
+[2021] and Li et al. [2022] leverage the adjoint method for Projective
+Dynamics [Bouaziz et al. 2014] with friction. Building on Position-
+Based Dynamics [Macklin et al. 2016; Müller et al. 2007], Stuyck and
+Chen [2023] and Li et al. [2024a] introduce differentiable formula-
+tions for compliant constraint dynamics, and Huang et al. [2024]
+presents an adjoint-based framework for differentiable Incremental
+Potential Contact (IPC) [Li et al. 2020, 2021].
+The finite difference (FD) method [Renardy and Rogers 2006] is a
+standard approach to numerical differentiation. The complex-step
+finite difference technique [Luo et al. 2019; Shen et al. 2021] offers an
+alternative that mitigates issues such as subtractive cancellation and
+accumulated numerical errors by leveraging complex Taylor expan-
+sions [Brezillon et al. 1981]. They can be used to optimize low-DoF
+system [Zheng et al. 2025]. Automatic differentiation (AD) [Margos-
+sian 2019; Naumann 2011] and code transformation libraries like
+NVIDIA Warp [Macklin 2022], DiffTaichi [Hu et al. 2019a,b], and
+others [Herholz et al. 2024] automatically compute gradients based
+on forward simulation, allowing for greater reuse of existing code.
+However, they can introduce code constraints, incur a high memory
+footprint, and may cause gradient explosion if applied naively. Our
+framework combines NVIDIA Warp’s AD with an adjoint method
+to achieve both development efficiency and high performance.
+3
+DIFFERENTIABLE GARMENT SIMULATION
+3.1
+Forward Simulation
+We use Codimensional Incremental Potential Contact (CIPC) [Li
+et al. 2021] as our underlying garment simulation method, which
+is the state-of-the-art in cloth simulation regarding accuracy and
+robustness. It ensures non-penetration through distance-based log
+barrier energy and continuous collision detection (CCD). Below, we
+summarize the simulation pipeline, with further details available in
+Li et al. [2021].
+The simulated codimensional surface is discretized into triangles
+defined by vertices 𝑽and faces 𝑭. Let 𝑿denote the vertex positions
+in the undeformed state, and let 𝒙𝑛and 𝒗𝑛represent the vertex
+positions and velocities, respectively, at time step 𝑡𝑛. CIPC employs
+an optimization-based time integrator to achieve the state transition
+from time step 𝑡𝑛to 𝑡𝑛+1 = 𝑡𝑛+ℎ, minimizing the following energy:
+𝒙𝑛+1 = arg min
+𝒙
+𝐸(𝒙) = 1
+2 ∥𝒙−˜𝒙∥2
+𝑴+ Ψ(𝒙; 𝑿) + 𝐵(𝒙).
+(1)
+Here, ˜𝒙= 𝒙𝑛+ 𝒗𝑛ℎ+ 𝒈ℎ2 represents the predictive position under
+backward Euler integration. ∥· ∥𝑴denotes the 𝐿2-norm weighted
+by the vertex mass 𝑴𝑖𝑖. Ψ(𝒙; 𝑿) is the elastic energy, encompass-
+ing both stretching and bending energies, depending on the user’s
+choice. 𝐵(𝒙) is the log barrier energy introduced by IPC, defined
+over all contacting vertex-triangle and edge-edge pairs. The barrier
+energy for each pair of primitives increases from zero to infinity
+3
+
+
+as the gap decreases from a threshold ˆ𝑑to 0, providing sufficient
+repulsion to prevent penetrations.
+Newton’s method with line search is employed to solve the op-
+timization problem, requiring the analytical computation of the
+gradient and Hessian matrix of the energy at each iteration. The
+step size upper bound in each line search is clamped by CCD to
+ensure that all intermediate states remain intersection-free, pro-
+vided that 𝒙𝑛is initially intersection-free. Finally, the new velocity
+is updated as 𝒗𝑛+1 = (𝒙𝑛+1 −𝒙𝑛)/ℎ.
+3.2
+Differentiable CIPC
+Huang et al. [2024] provided an analytical derivation of differen-
+tiable IPC using the adjoint method. However, their derivation is
+closely tied to specific choices of constitutive models. To extend
+their framework to support cloth simulation, tedious derivations of
+analytical derivatives are required. In this work, we present a simple
+and unified framework that leverages both automatic differentiation
+and the adjoint method.
+The governing equation of CIPC simulation can be expressed as
+an implicit nonlinear system of equations derived from the first-
+order optimality condition of the minimizer for Equation 1:
+𝑮(𝒙∗; 𝒙𝑛, 𝒗𝑛, 𝝇𝑛) = ∇𝐸(𝒙∗; 𝒙𝑛, 𝒗𝑛, 𝝇𝑛) = 0,
+(2)
+𝒙𝑛+1 = 𝒙∗,
+𝒗𝑛+1 = 1
+ℎ(𝒙∗−𝒙𝑛),
+(3)
+Here, 𝒙∗is the minimizer of the system energy 𝐸, 𝒙𝑛, 𝒗𝑛represents
+the last system state, and 𝝇𝑛denotes the set of all continuous param-
+eters of the implicit equation, including shape parameters 𝑿, mass
+matrix 𝑴, elastic moduli, and others. We assume 𝝇𝑛are independent,
+although they may share the same values. This abstraction allows
+the simulator to function as a differentiable layer with 𝒙𝑛, 𝒗𝑛, 𝝇𝑛
+as input and 𝒙𝑛+1, 𝒗𝑛+1 as output. The computational graph can be
+handled by any auto-differentiable framework such as PyTorch. The
+backward operator computes dL
+d𝒙𝑛, dL
+d𝒗𝑛, and dL
+d𝝇𝑛given
+dL
+d𝒙𝑛+1 and
+dL
+d𝒗𝑛+1 for a given training loss function L.
+Taking the full derivatives of Equation 2 with respect to 𝒙𝑛, 𝒗𝑛, 𝝇𝑛
+on both sides, we obtain:
+𝜕𝑮
+𝜕𝒙∗
+ d𝒙∗
+d𝒙𝑛, d𝒙∗
+d𝒗𝑛, d𝒙∗
+d𝝇𝑛
+
++
+ 𝜕𝑮
+𝜕𝒙𝑛, 𝜕𝐺
+𝜕𝒗𝑛, 𝜕𝐺
+𝜕𝝇𝑛
+
+= 0,
+(4)
+which leads to
+ d𝒙∗
+d𝒙𝑛, d𝒙∗
+d𝒗𝑛, d𝒙∗
+d𝝇𝑛
+
+= −
+ 𝜕𝑮
+𝜕𝒙∗
+ −1  𝜕𝑮
+𝜕𝒙𝑛, 𝜕𝐺
+𝜕𝒗𝑛, 𝜕𝐺
+𝜕𝝇𝑛
+
+.
+(5)
+By the chain rule, we have:
+ dL
+d𝒙𝑛, dL
+d𝒗𝑛, dL
+d𝝇𝑛
+
+=
+dL
+d𝒙𝑛+1
+ d𝒙𝑛+1
+d𝒙𝑛, d𝒙𝑛+1
+d𝒗𝑛, d𝒙𝑛+1
+d𝝇𝑛
+
++ dL
+d𝒗𝑛+1
+ d𝒗𝑛+1
+d𝒙𝑛, d𝒗𝑛+1
+d𝒗𝑛, d𝒗𝑛+1
+d𝝇𝑛
+
+.
+(6)
+Here, we assume dL
+d𝒙𝑛, dL
+d𝒗𝑛, and dL
+d𝝇𝑛are all row vectors to ensure
+dimension consistency. From Equation 3, we have:
+d𝒙𝑛+1 = d𝒙∗,
+d𝒗𝑛+1 = 1
+ℎ(d𝒙∗−d𝒙𝑛).
+(7)
+Plugging Equation 7 into Equation 6, we obtain:
+ dL
+d𝒙𝑛, dL
+d𝒗𝑛, dL
+d𝝇𝑛
+
+=
+dL
+d𝒙𝑛+1
+ d𝒙∗
+d𝒙𝑛, d𝒙∗
+d𝒗𝑛, d𝒙∗
+d𝝇𝑛
+
++ 1
+ℎ
+dL
+d𝒗𝑛+1
+ d𝒙∗
+d𝒙𝑛−𝑰, d𝒙∗
+d𝒗𝑛, d𝒙∗
+d𝝇𝑛
+
+.
+(8)
+With some rearrangements, we arrive at:
+dL
+d𝒙𝑛=
+ dL
+d𝒙𝑛+1 + 1
+ℎ
+dL
+d𝒗𝑛+1
+ d𝒙∗
+d𝒙𝑛−1
+ℎ
+dL
+d𝒗𝑛+1
+ dL
+d𝒗𝑛, dL
+d𝝇𝑛
+
+=
+ dL
+d𝒙𝑛+1 + 1
+ℎ
+dL
+d𝒗𝑛+1
+  d𝒙∗
+d𝒗𝑛, d𝒙∗
+d𝝇𝑛
+
+.
+(9)
+Denote A =
+h
+dL
+d𝒙𝑛+1 + 1
+ℎ
+dL
+d𝒗𝑛+1
+i  𝜕𝑮
+𝜕𝒙∗
+ −1. By Equation 5, we have:
+dL
+d𝒙𝑛= −A 𝜕𝑮
+𝜕𝒙𝑛−1
+ℎ
+dL
+d𝒗𝑛+1 ,
+(10)
+ dL
+d𝒗𝑛, dL
+d𝝇𝑛
+
+= −A
+ 𝜕𝑮
+𝜕𝒗𝑛, 𝜕𝑮
+𝜕𝝇𝑛
+
+.
+(11)
+Observe that A is obtained by solving a linear system, where the
+coefficient matrix 𝜕𝑮
+𝜕𝒙∗is the Hessian matrix of the system energy
+𝐸. The term A
+h
+𝜕𝑮
+𝜕𝒙𝑛, 𝜕𝑮
+𝜕𝒗𝑛, 𝜕𝑮
+𝜕𝝇𝑛
+i
+back-propagates the differentials in
+A to 𝒙𝑛, 𝒗𝑛, and 𝝇𝑛through 𝑮, respectively. This process can be
+implemented by treating 𝑮as a differentiable layer that supports
+auto-differentiation. Using AutoDiff, we eliminate the need to man-
+ually derive the analytical expressions for 𝜕𝑮
+𝜕𝒗𝑛and 𝜕𝑮
+𝜕𝝇𝑛. All other
+components required for forward simulations have already been
+derived.
+4
+METHOD OVERVIEW
+We start our pipeline by estimating an initial garment sewing pattern
+from a single-view image. Next, we generate consistent multi-view
+RGB images and their corresponding normal maps, based on which
+we predict the human body pose. The 3D garment is initialized by
+stitching and draping the 2D patterns onto the predicted human
+model. The garment’s interaction with the human body is simulated
+using a differentiable CIPC simulator, allowing us to optimize the
+physical parameters and the shapes of the sewing patterns guided by
+the previously generated multi-view RGB images, normal maps, and
+segmentation results. The optimized state produces a simulation-
+ready scene with a human model wearing well-fitted 3D outfits
+that align with the input. Garment textures are automatically gen-
+erated using a visual-language model and image diffusion. Finally,
+by applying our CIPC simulator, we can simulate dynamic scenes
+where the predicted human body wears the optimized garments
+while performing various motion sequences. An illustration of the
+pipeline is shown in Figure 2. We elaborate on each component of
+the pipeline in the following sections.
+5
+PRE-OPTIMIZATION STEPS
+5.1
+Simulatable Sewing Pattern Generation
+From a single-view image, our pipeline starts by generating an ini-
+tial sewing pattern decomposition along with stitch information
+using SewFormer [Liu et al. 2023b]. Following SewFormer’s conven-
+tion, the sewing pattern is represented as a set of quadratic Bézier
+4
+
+
+Multivew
+Diffusion
+Sewing Paern Generation
+Pose Estim.
+Multiview
+Garment 
+Initialization 
+Texture
+Recon.
+Sim.
+Phys.
+Segmentation
+Guidance
+Garment Opt.
+w. Diff. Phys.
+Phys. Param.
+Fig. 2. Dress-1-to-3 Pipeline. Starting with a single-view input image of a clothed human, we first derive an initial estimation of the sewing pattern.
+Additionally, we employ multi-view diffusion to generate orbital camera views, which serve as ground-truth 3D information for both human pose and garment
+shape. Next, we utilize differentiable simulation to sew and drape the pattern onto the posed human model, optimizing its shape and physical parameters
+in conjunction with geometric regularizers. Finally, the optimized garment shape provides a physically plausible rest shape in its static state and is readily
+animatable using a physical simulator.
+curves on a 2D plane, forming a collection of disconnected patches.
+The curves for each patch are connected to form a loop. Let E de-
+note the set of all curves, with its control parameters comprising
+the set of curve vertices P = {𝑷𝑖} and the set of control points
+K = {𝑲𝑒} for each edge curve 𝑒∈E. To enable garment simulation,
+the patches are discretized into triangle meshes. First, we apply
+arc-length parameterization to achieve uniform sampling along the
+patch boundaries. For stitched patch edges, we ensure they share the
+same number of sampled points. This consistency allows us to apply
+vertex-to-vertex stitch constraints in garment simulations, simplify-
+ing the sewing process. Using the sampled boundary points, we then
+perform Delaunay triangulation [Shewchuk 2008] independently
+for the interior of each patch.
+Curve Vertex
+Symmetry Constraint
+5.1.1
+Patch Symmetrization. The
+sewing patterns generated by Sew-
+Former often display certain sym-
+metries, which we aim to pre-
+serve during garment optimiza-
+tion. SewFormer generates a fixed
+number of patches with a pre-
+defined order for patch names,
+though some patches may remain
+inactive. Symmetry information, including self-symmetry and inter-
+symmetry, is embedded in these patch names. Symmetric edge pairs
+can be automatically identified by overlapping a patch with its mir-
+rored symmetric counterpart or, in the case of self-symmetry, with
+the mirrored version of itself. Given the set of symmetric edge pairs
+E𝑆= {(𝑖, 𝑗) ∼(𝑘,𝑙)}, we define the validated curve vertices { ˆ𝑷𝑖} of
+the patches prior to triangulation by solving the following quadratic
+optimization problem:
+min
+{ ˆ𝑷𝑖}
+∑︁
+(𝑖,𝑗)∼(𝑘,𝑙)
+∥( ˆ𝑷𝑖−ˆ𝑷𝑗) + 𝑹𝑆( ˆ𝑷𝑘−ˆ𝑷𝑙)∥2
+2 + 𝜖
+∑︁
+𝑖
+∥ˆ𝑷𝑖−𝑷𝑖∥2
+2. (12)
+Here, 𝑹𝑆=
+−1
+0
+0
+1
+
+represents the flip matrix, assuming the sym-
+metry axis is vertical. This optimization involves solving a fixed-
+coefficient, positive definite linear system, which ensures differentia-
+bility. The validated edge control points { ˆ𝑲𝑒} are computed analyt-
+ically by symmetrizing their relative coordinates. The symmetriza-
+tion constraints are illustrated in the inset figure. Throughout this
+paper, we omit the hat notation for validated vertices and control
+points, as all computations are based on the symmetrized patches.
+However, it is important to note that the underlying garment op-
+timization variables retain the original, non-symmetry-enforced
+geometry parameters.
+5.1.2
+Sewing Pattern Discretization. To enable direct optimization
+of Bézier curves, we make the sampling from boundary curve pa-
+rameters to mesh vertices differentiable. Both boundary sampling
+and interior sampling are conceptualized as fixed-coordinate sam-
+pling based on their control points. Each boundary edge curve
+𝑒∈E is defined by the starting vertex 𝑷𝑒
+0 , the control point 𝑲𝑒,
+and the endpoint 𝑷𝑒
+1 (which is also the starting point of the next
+edge). The curve can be differentiably parameterized as 𝑷𝑒(𝑡) =
+(1−𝑡)2𝑷𝑒
+0 +2(1−𝑡)𝑡𝑲𝑒+𝑡2𝑷𝑒
+1 . Uniform sampling along the curve in
+terms of arc length is represented as a set of parameters {𝑡𝑒
+1, . . . ,𝑡𝑒𝑛𝑒},
+with 𝑽𝑒
+𝑖= 𝑷𝑒(𝑡𝑒
+𝑖) being the sampled points. The number of sampled
+points 𝑛𝑒may vary for different edges. After independent triangu-
+lation for each patch, we compute the harmonic coordinate matrix
+𝑯∈R𝑛𝐼×𝑛𝐵[Joshi et al. 2007] for all the interior points, where
+𝑛𝐼is the number of interior vertices and 𝑛𝐵is the total number of
+5
+
+
+boundary vertices. With a slight abuse of notation, we reparameter-
+ize the 𝑗-th interior vertex as 𝑽𝐼
+𝑗= Í
+𝑖𝑯𝑗𝑖𝑽𝐵
+𝑖, with 𝑯𝑗𝑖denoting its
+harmonic weight relative to the 𝑖-th boundary point 𝑽𝐵
+𝑖. Here 𝑯𝑗𝑖is
+zero if 𝑽𝐼
+𝑗and 𝑽𝐵
+𝑖do not belong to the same patch. During backprop-
+agation, we fix the boundary sampling coordinates Ð
+𝑒∈E,𝑖≤𝑛𝑒{𝑡𝑒
+𝑖}
+and the interior harmonic coordinate matrix 𝑯, so that the triangu-
+lation is analytically determined by the original parameters of the
+Bézier curves. These coordinates are updated only after remeshing
+is performed, which will be discussed in the garment optimization
+section.
+5.2
+Multi-view Image Generation
+Given a single-view image of a full-body clothed human, we gener-
+ate a set of multi-view RGB images and normal maps under orbital
+camera views using a pre-trained multi-view diffusion model, Mag-
+icMan [He et al. 2024a]. These multi-view images of the clothed
+human are treated as ground truth data for human pose and garment
+shape in the subsequent reconstruction steps.
+5.3
+Human Body Reconstruction
+The generated garment is statically draped on a fixed human mesh.
+To reduce the gap between the reconstructed garment and the image,
+an accurate human body is required to correctly support the garment.
+We use SMPL-X [Pavlakos et al. 2019] as our parameterized human
+model. First, we apply OSX [Lin et al. 2023] to the input single-view
+image to obtain an initial pose estimation 𝜽and shape estimation
+𝜷. This initial estimation typically does not perfectly align with
+other views, and the scaling and rotation are inconsistent across the
+multi-view images. Subsequently, we fine-tune the pose based on
+multi-view images using a coarse-to-fine strategy.
+In the coarse stage, we estimate joint landmarks on the images
+using DWPose [Yang et al. 2023]. Here, we optimize only the global
+scaling𝑆and rotation 𝑹of the SMPL-X model based on the following
+landmark loss:
+LP
+Land =
+1
+|Ω|
+∑︁
+𝑖
+∥𝒘𝑖·  Proj(𝑱(𝑆, 𝑹, 𝜽, 𝜷); Ω𝑖) −¯𝑱𝑖
+ ∥2
+2,
+(13)
+where Ω = {Ω𝑖} represents the set of camera parameters, 𝑱is the
+3D joint location map provided by the SMPL-X model, Proj is the
+projection operator from world space to screen space, ¯𝑱𝑖is the 2D
+joint location estimated by DWPose, and 𝒘𝑖is the per-landmark
+confidence score of the estimation. We use ∥· ∥2
+2 to denote the
+mean square error (MSE). This optimization essentially estimates the
+model-to-world matrix of the SMPL-X model. To further refine pose
+and shape parameters, in the fine stage, we additionally incorporate
+the following RGB loss and mask loss:
+LP
+RGB =
+1
+|Ω|
+∑︁
+𝑖
+∥(𝑴𝑜
+𝑖)𝑐· (𝑰(𝑆, 𝑹, 𝜽, 𝜷, 𝑪𝐻; Ω𝑖) −¯𝑰𝑖)∥1,
+(14)
+LP
+Mask =
+1
+|Ω|
+∑︁
+𝑖
+∥(𝑴𝑜
+𝑖)𝑐· (𝑴(𝑆, 𝑹, 𝜽, 𝜷; Ω𝑖) −¯𝑴𝑖)∥1.
+(15)
+Here, 𝑪𝐻represents the optimizable human body vertex color, while
+𝑰(·) and 𝑴(·) denote the posed human body RGB rendering process
+and contour rendering process under camera view Ω𝑖, implemented
+using Nvdiffrast [Laine et al. 2020]. ¯𝑰𝑖and ¯𝑴𝑖are the generated
+multi-view RGB images and masks, respectively. 𝑴𝑜
+𝑖represents the
+occluded region of the human body, which includes the garment
+region 𝑴𝛽
+𝑖and other non-garment occlusions 𝑴𝛼
+𝑖(such as footwear,
+accessories, and hair). These regions are generated using SegFormer
+[Xie et al. 2021]. The notation (·)𝑐denotes the complement of the
+specified region. We use ∥· ∥1 to denote the mean absolute error
+(MAE). By excluding the loss computation in the occluded region, we
+can accommodate loosely fitted garments. In summary, we optimize
+using the following loss in the fine stage:
+LP(𝑆, 𝑹, 𝜽, 𝜷, 𝑪𝐻) = LP
+RGB + LP
+Mask + 𝜆1LP
+Land + 𝜆2∥𝜽−𝜽0∥1 + 𝜆3∥𝜷−𝜷0∥1.
+(16)
+Here, we also regularize the pose and shape parameters where 𝜽0
+and 𝜷0 are their initial estimates provided by OSX.
+5.4
+Garment Initialization
+The generated sewing patterns are positioned near the human body
+and sewn together to be dressed. SewFormer provides an initial
+placement around the T-posed SMPL-X model. To ensure proper
+layering, we adopt a bottom-to-top strategy for fitting the entire
+set of garments onto the human body, allowing the top garments
+to overlay the bottom ones. Connected components are identified
+by treating stitched vertices as connected. These components are
+sorted vertically and sequentially fitted from bottom to top through
+simulations using CIPC. After completing the T-pose fitting, the
+human body is interpolated from the T-pose to the reconstructed
+pose, and the entire cloth-human interaction is simulated by treating
+the human in motion as a moving boundary condition. To secure
+the bottom garments and prevent them from slipping during pose
+interpolation, we shrink the rest shape of the triangles near the
+waist to generate sufficient friction.
+6
+GARMENT OPTIMIZATION
+6.1
+Optimization Overview
+In garment optimization phase, we iteratively fine tune parameters
+of sewing pattern so that the statically draped garments on a posed
+human body match generated multi-view images in all views. We
+optimize the curve vertex set P and the control point set K of
+Bézier curves using differentiable CIPC simulation based on the
+generated multi-view images. To further leverage RGB information
+for assisting the optimization, we also optimize the vertex colors 𝑪𝐺
+of the discretized garment mesh for RGB renderings. Additionally,
+we optimize the global stretching stiffness 𝜅𝑠and the global bending
+stiffness 𝜅𝑏to automatically discover a set of physical parameters
+that align with the 2D observations.
+For each optimization iteration, we use CIPC simulation to stat-
+ically drape the garment onto the fixed-posed human body mesh.
+Leveraging the robustness of CIPC, we simulate one step of 1 second
+to directly reach near-static equilibrium. Since the static equilibrium
+does not locally depend on the initial state, meaning that the Jaco-
+bian matrix of the simulated state with respect to the initial state is
+zero, we update the initial state of iteration 𝑛, 𝒙𝑛
+0 , to the previously
+simulated state:
+𝒙𝑛
+0 = Sim(𝒙𝑛−1
+0
+; 𝝇(𝜅𝑠,𝜅𝑏, P, K)).
+(17)
+6
+
+
+Here, Sim represents the simulation process described in section 3.
+The initial state, 𝒙0
+0, is obtained from the initial garment fitting de-
+scribed in subsection 5.4. 𝝇(P, K) denotes the simulation rest shape
+data, including nodal mass, per-stencil elastic stiffness, undistorted
+material space, and similar properties. To make the simulation as
+path-independent as possible, we avoid adding friction during the
+process. To prevent the bottom garments from slipping down, the
+boundary loop of the bottom component near the waist area is fixed.
+In summary, we solve the following optimization problem:
+min L(P, K,𝜅𝑠,𝜅𝑏; 𝒙, 𝒙0),
+(18)
+where 𝒙represents the simulated state starting from initial state 𝒙0,
+which is iteratively updated to the previously simulated state. We
+elaborate on the training losses in L that we use in the following
+sections. We observe that edge curvatures K are more sensitive
+than vertex positions P. Therefore, we employ a two-stage training
+approach, where in the first stage, the update of K is frozen.
+6.2
+Rendering Losses
+6.2.1
+Garment Mask Loss. The dominant rendering loss we employ
+is the garment mask loss. Given the multi-view ground-truth images,
+we use SegFormer [Xie et al. 2021] to segment top, bottom, and dress
+garment masks, assigning each component with a distinct color. The
+mask loss is defined as follows:
+LMask =
+1
+|Ω|
+∑︁
+𝑖
+∥(𝑴𝛼
+𝑖)𝑐· (𝑴(𝒙; 𝑪𝐶, Ω𝑖) −¯𝑴𝑖)∥1.
+(19)
+Here, 𝒙represents the simulated state of garments draped over the
+human body. 𝑪𝐶denotes the component color, which is discussed
+in the following section. The rendered colored mask 𝑴(𝒙; 𝑪𝐶, Ω𝑖)
+is obtained by assigning 𝑪𝐶to the corresponding garment vertices
+and setting the human body to black, ensuring that only the non-
+occluded parts of the garments are rendered. ¯𝑴𝑖is the set of colored
+garment masks generated from multi-view RGB images. We also
+exclude the loss computation in the occluded regions 𝑴𝛼
+𝑖caused
+by hair and accessories to avoid incorrect mask guidance.
+Initialization of Component Colors. The component color 𝑪𝐶is
+automatically assigned prior to garment optimization. SewFormer
+typically predicts garments with one or two connected components.
+We vertically sort the sewn garment components and the 2D mask
+regions from the first camera view. The component colors are then
+assigned accordingly. If only one component is predicted but multi-
+ple garment masks are present, we adjust the multi-view garment
+masks to use a single color.
+6.2.2
+RGB and Normal Rendering Loss. We also utilize RGB and
+normal rendering losses to improve garment optimization. These
+losses are introduced to stabilize the training process, as the gradient
+of the mask rendering loss within the interior regions of the garment
+is zero. They are formulated similarly to the mask rendering loss:
+LRGB =
+1
+|Ω|
+∑︁
+𝑖
+∥𝑴𝛽
+𝑖· (𝑰(𝒙; 𝑪𝐺, Ω𝑖) −¯𝑰𝑖)∥1,
+(20)
+LNormal =
+1
+|Ω|
+∑︁
+𝑖
+∥𝑴𝛽
+𝑖· (𝑵(𝒙; Ω𝑖) −¯𝑵𝑖)∥1.
+(21)
+Here, 𝑰(𝒙; 𝑪𝐺, Ω𝑖) represents the garment RGB rendering of the
+vertex color 𝑪𝐺under the camera view Ω𝑖, and 𝑵(𝒙; Ω𝑖) denotes
+the corresponding normal map rendering. The sets {¯𝑰𝑖} and { ¯𝑵𝑖}
+are the multi-view RGB and normal images generated by the multi-
+view diffusion process. The loss computation is restricted to the
+garment regions 𝑴𝛽
+𝑖.
+6.3
+Geometric Regularizers
+The sewing pattern optimization under rendering losses alone is
+ill-posed because, for the same sewn 3D garment mesh, there are
+infinitely many ways to decompose the mesh into flattened patches.
+Therefore, we incorporate several geometric losses to regularize the
+sewing pattern optimization.
+6.3.1
+Area Ratio Loss. We use the following area ratio loss to pre-
+serve the relative area of each patch with respect to the connected
+component it belongs to:
+LAR =
+1
+𝑁𝑃
+∑︁
+𝑝
+ ¯𝐴𝑝(𝑿)
+¯𝐴𝑝(𝑿0) −1
+2
+,
+(22)
+where 𝑁𝑃is the number of garment patches, ¯𝐴𝑝is the operator that
+computes the ratio between the area of the 𝑝-th patch and the area
+of the component. 𝑿represents the current 2D discretization of the
+garment patches, and 𝑿0 denotes the initial sampling.
+Boundary Corner
+Regularizer
+6.3.2
+Corner Regularizers.
+Boundary Corner Regularizer.
+For the boundary loops of gar-
+ment components, we identify all
+corner vertices of the original
+Bézier curves. At these corners,
+where two patches are typically
+sewn together, we apply the fol-
+lowing boundary corner regular-
+izer to penalize deviations of cor-
+ner angles from right angles, as illustrated in the inset figure:
+LBC =
+1
+𝑁𝐵𝐶
+∑︁
+𝑐
+(1 −𝒅𝑐
+1 × 𝒅𝑐
+2).
+(23)
+Here, 𝑁𝐵𝐶represents the total number of boundary corners, 𝒅𝑐
+1 and
+𝒅𝑐
+2 denote two consecutive unit tangent vectors at corner 𝑐.
+Small-Angle Corner Regularizers. Small angles at patch corners
+can introduce instabilities into optimization and simulation; thus,
+we use the following regularizer to penalize such angles:
+LSAC = −1
+𝑁𝐶
+∑︁
+𝑐
+𝑠𝑐(𝑿) 
+(𝑽𝑐
+1 −𝑽𝑐
+0 ) × 
+(𝑽𝑐
+2 −𝑽𝑐
+0 ).
+(24)
+Here, 𝑁𝐶is the number of patch cor-
+ners, (𝑽𝑐
+1 , 𝑽𝑐
+0 , 𝑽𝑐
+2 ) is the tuple of three
+consecutive discrete boundary sampling
+points at the corner 𝑐, c
+(·) is the vector
+normalization operator. 𝑠𝑐(𝑿) is a non-
+differentiable sign function: 𝑠𝑐(𝑿) = 0
+if the discretized corner angle is larger
+than some threshold, otherwise, 𝑠𝑐(𝑿)
+equals the sign of the cross product on
+7
+
+
+the initial sewing pattern. This regularization applies to the two
+cases illustrated in the inset figure. It tries to maintain the same
+sign of the angle and avoid the angle becoming too small. How-
+ever, Bézier curves may still intersect at corners even though the
+discretized corner triangles are normal. We use the following dis-
+cretization consistency regularizer to align the curve’s end tangents
+and discrete edge directions:
+LDC =
+1
+𝑁𝐶
+∑︁
+𝑐
+(2 −𝝉𝑐
+1 · 
+(𝑽𝑐
+1 −𝑽𝑐
+0 ) −𝝉𝑐
+2 · 
+(𝑽𝑐
+2 −𝑽𝑐
+0 )),
+(25)
+where 𝝉𝑐
+1,𝝉𝑐
+2 are two consecutive end tangents of Bézier curves at
+corner 𝑐.
+6.3.3
+Comfort Loss. In addition to the appearance of the fitting
+matching the observation, we also aim to ensure that the fitting is
+comfortable. We use the stretching elasticity energy to evaluate the
+tightness of the fitting. To prevent overly tight fitting, we introduce
+the following comfort regularizer:
+LComfort =
+∫
+∥𝑭(𝒙, 𝑿) −𝑹(𝑭)∥2𝑑𝑿,
+(26)
+where 𝑹(𝑭) represents the closest rotation matrix to 𝑭. This is the
+same as the as-rigid-as-possible (ARAP) stretching energy used
+in the forward simulation, except that here we assume the global
+stiffness is 1.
+6.3.4
+Laplacian Loss. To ensure the smoothness of the fitting, we
+include a Laplacian regularizer:
+LLap = ∥Δ𝒙∥2,
+(27)
+where Δ represents the node-area-weighted Laplacian operator on
+triangle meshes, and 𝒙denotes the simulated garment vertex posi-
+tions.
+6.3.5
+Seam Losses. The stitched curved edge pairs should have
+the same shape to prevent undesired wrinkles near the seams. To
+achieve this, we use a seam length regularization similar to [Li et al.
+2024a] to regularize the paired stitched edges:
+LSL = 1
+𝑁𝑆
+∑︁
+𝑒𝑖∼𝑒𝑗
+
+∫
+∥¤𝑷𝑒𝑖(𝑡)∥𝑑𝑡−
+∫
+∥¤𝑷𝑒𝑗(𝑡)∥𝑑𝑡
+,
+(28)
+where 𝑁𝑆is the number of stitched seams, 𝑒𝑖and 𝑒𝑗iterate over all
+stitched edge pairs, and ¤𝑷𝑒(𝑡) represents the tangent vector. The
+integral is computed using finite difference and the Riemann sum.
+Additionally, we regularize the seam curvatures on these pairs to
+preserve their initial curvatures:
+LSC =
+1
+2𝑁𝑆
+∑︁
+𝑒𝑖∼𝑒𝑗
+∥¯K𝑒𝑖−¯K𝑒𝑖,0∥+ ∥¯K𝑒𝑗−¯K𝑒𝑗,0∥,
+(29)
+where ¯K𝑒represents the relative coordinate of the control point
+within the frame of the curved edge segment 𝑒, and ¯K𝑒,0 denotes
+its initial value.
+6.4
+Post-Iteration Processing
+Occasionally, when two Bézier curves come close to each other—such
+as when forming a thin strip—the curves may penetrate one another
+after a parameter update in some iteration. This can lead to flipped
+triangles, causing the simulation to fail in the next iteration. To
+Before Remesh
+Aer Remesh
+Pullback
+Re-init.
+Relax
+Fig. 3. Sewing Pattern Remeshing. We perform automatic remeshing
+during optimization when ill-conditioned triangles are detected. To avoid
+penetration, we pull back the new discretization to the initial unoptimized
+stage and rerun the garment initialization to fit it onto the human.
+address this, we enforce a safeguard that modifies the geometry
+in-place to prevent such occurrences. Specifically, we optimize the
+negative triangle areas using a least-squares penalty after each iter-
+ation 𝑛:
+LFlip(P, K) = 1
+|𝐹|
+∑︁
+𝑓
+(𝜖−min{𝐴𝑓(𝑿),𝜖}) + 𝜆Flip∥𝑿−𝑿𝑛+1∥1,
+(30)
+where |𝐹| is the number of faces 𝐴𝑓is the signed area of triangle
+𝑓and 𝑿𝑛+1 is the discretized garment vertices after the parameter
+update at iteration 𝑛. We optimize the above loss only if triangles
+are close to flipping.
+6.5
+Remeshing
+During optimization, we use cage deformations defined by a fixed
+set of harmonic coordinates to deform a fixed number of interior
+vertices. The triangulation quality can degrade significantly in re-
+gions with large deformations, creating challenges for simulations.
+To address this, we introduce automatic remeshing during the opti-
+mization iterations when the mesh quality drops below a predefined
+threshold. While rerunning the discretization on updated sewing
+patterns is straightforward, directly remeshing the fitted garment
+state on the human body can lead to penetrations. This occurs be-
+cause the underlying smoothly interpolated surface may intersect
+after re-triangulation, as the collision handling relies on the previous
+discretization. To resolve this, we propose a refitting procedure that
+sews and refits the garment patches onto the human body without
+causing penetrations.
+Assume 𝝌0 is the initial garment sewing pattern in the continuous
+domain with triangulation T 0. The sewing pattern optimization at
+step 𝑛can be characterized by a map Φ𝑛from 𝝌0 to 𝝌𝑛, where Φ𝑛is
+a piecewise linear map defined on the continuous domain. Observe
+that the initial fitting is sewn from the discretization of 𝝌0, where
+SewFormer provides reasonable transformations to position the
+8
+
+
+panels around the human body. After generating a new triangulation
+T𝑛of 𝝌𝑛, we pull T𝑛back to 𝝌0 as the new triangulation of 𝝌0:
+˜T 0 ←[Φ𝑛]−1(T𝑛). We then apply the initial transformations to
+the updated discretization ˜T 0 to position the patches around the
+T-pose human body and execute the fitting procedure described
+in subsection 5.4. During this fitting process, we set the rest shape
+as ˜T 0. A relaxation process follows, using T𝑛as the rest shape.
+The newly fitted results are non-penetrating, and we set them as
+the initial state 𝒙𝑛
+0 for the differentiable simulation process. Finally,
+T 0 is replaced with ˜T 0. This remeshing process is illustrated in
+Figure 3.
+7
+POST-OPTIMIZATION STEPS
+7.1
+Texture Generation
+To complete our pipeline and deliver a fully textured garment di-
+rectly from a single image input, tailored to the needs of the garment
+fabrication industry, we incorporate an additional texture genera-
+tion module. Unlike formulating texture creation as a reconstruction
+task—an approach constrained by the ill-posed nature of the prob-
+lem due to sparse inputs, severe distortion, and occlusions caused
+by the human body and overlapping garment layers—our module
+adopts generative methods to produce garment textures. This mod-
+ule employs two strategies for texture generation:
+Tileable Texture Generation via FabricDiffusion. In this strategy,
+we assume that in real-world garment creation, clothing panels
+are typically cut from a single piece of fabric and sewn together,
+resulting in similar and tileable textures. Based on this assumption,
+given the front-view ground truth input image and its correspond-
+ing colored segmentation mask, we identify the largest uniform
+color square area within the segmentation mask for each garment
+component (e.g., top or bottom) as the captured texture region. This
+region may exhibit distortions and varying illumination caused by
+occlusions and poses in the input image. To address these issues, we
+process the captured texture region using FabricDiffusion [Zhang
+et al. 2024], which generates distortion-free and tileable texture
+maps. To determine the appropriate tiling scale for aligning the
+textures with the garment’s UV space (optimized in our pipeline),
+we assume consistent camera view parameters for the front view.
+This scale can be calculated by multiplying the derivative of the
+cropped region’s size by a constant factor.
+In-the-Wild Texture Generation via GPT-4o and FLUX. For general-
+ized textures that do not fall into the above case, we utilize Vision-
+Language Models (VLMs) in collaboration with a Diffusion model.
+Specifically, we process the input image using the GPT-4o [Achiam
+et al. 2023] VLM to extract descriptive keywords for the textures
+of various components, such as "denim, dark blue, smooth
+fabric" and "argyle, grey and white, knitted fabric"
+through prompt-based querying. These extracted keywords are
+then fed into FLUX [Labs 2023], which generates the corresponding
+textures.
+7.2
+Showcase under Human Motions
+The reconstructed simulation-ready garment and human model can
+be used to generate realistic dynamic human motion in clothing
+using the robust CIPC physics-based simulator. However, IPC-based
+simulators require the initial configuration of the human model to
+be penetration-free. As IPC-based simulators produce intersection-
+free results, self-penetrations of the human model during the given
+motion can cause solution failures when the human model interacts
+with garments. To address this issue, we replace the human model
+during motion with the nearest intersection-free human model by
+solving Injective Deformation Processing (IDP) [Fang et al. 2021]
+problems. In solving these IDP problems, we follow the method
+in Li et al. [2025] where the authors use PBD simulations to re-
+solve collisions between garments and human models. Instead, we
+apply extended Position-Based Dynamics (XPBD) [Macklin et al.
+2016] simulations to resolve self-penetrations in the human model
+by repelling colliding vertices and faces, while preserving natural
+deformations.
+8
+IMPLEMENTATION
+Differentiable Simulation Layer. We implement CIPC simulation
+using NVIDIA Warp [Macklin 2022] to utilize the Auto-Diff feature.
+The simulator is wrapped in a customized autograd.Function to
+be integrated to the global computational graph.
+Balancing between Losses. The training loss is weighted sum of all
+rendering losses and geometric regularizers. We use the 𝐿Mask as the
+dominant loss and set the relative weights for 𝐿RGB and 𝐿Normal to
+𝜆RGB = 0.1 and 𝜆Normal = 0.1. For geometric regularizers, we do not
+have a rule of thumb to balance them. For all experiments, we use
+𝜆Lap = 0.001, 𝜆Comfort = 0.1, 𝜆AR = 0.01, 𝜆SAC = 0.01, 𝜆DC = 0.001,
+𝜆BC = 0.001, 𝜆SL = 0.1, 𝜆SL = 0.1.
+Training Time. The pre-optimization steps require about 10 min-
+utes. The garment optimization process can be finished within 2
+hours on a single RTX 3090 with 24GB device memory.
+9
+EXPERIMENTS
+9.1
+Geometry Reconstruction Comparison
+We first conduct comparison study to evaluate the reconstruction
+accuracy of baseline methods and our proposed approach.
+Benchmark. We use the CloSe [Antić et al. 2024] and 4D-Dress
+[Wang et al. 2024] datasets for the comparison study. CloSe is a large-
+scale 3D clothing dataset featuring detailed segmentation across
+diverse clothing classes. 4D-Dress offers high-quality 4D textured
+scans of dynamic clothed human sequences. For evaluation, we care-
+fully select examples encompassing a variety of human body shapes,
+poses, and their corresponding front-view images to establish a
+comprehensive benchmark.
+Baselines. pare our method with state-of-the-art single-view gar-
+ment reconstruction methods, including BCNet [Jiang et al. 2020],
+ClothWild [Moon et al. 2022], GarmentRecovery [Li et al. 2024b],
+and SewFormer [Liu et al. 2023b]. Among these, BCNet and Cloth-
+Wild are designed for clothed human reconstruction but are limited
+to tight-fitting clothing and not readily adaptable for downstream
+tasks such as animation and simulation. GarmentRecovery extends
+to loose-fitting garments reconstruction by deforming predicted rest
+shapes to align with input images. In contrast, SewFormer predicts
+9
+
+
+Input
+BCNet
+ClothWild
+GarmentRecovery
+SewFormer
+Ours
+Fig. 4. Qualitative Comparisons of Geometry Reconstruction. Our proposed method not only generates sewing patterns that seamlessly integrate into
+animation and simulation workflows but also achieves superior garment reconstruction accuracy compared to baseline methods.
+corresponding sewing patterns directly from images, enabling seam-
+less integration into animation pipelines and physical simulations.
+Our proposed method builds upon SewFormer and incorporate dif-
+ferentiable simulation to refine 2D panels and physical parameters.
+For SewFormer and our approach, we simulate the predicted sewing
+patterns and use the resulting 3D garments for quantitative com-
+parisons.
+Results. We evaluate the accuracy of baseline methods and our ap-
+proach using two metrics: Chamfer Distance (CD) and Intersection
+over Union (IoU). CD quantifies the geometric similarity between
+10

@@ -1,0 +1,1104 @@
+Title: Rana: Relightable articulated neural avatars
+
+RANA: Relightable Articulated Neural Avatars
+Umar Iqbal1*
+Akin Caliskan2*
+Koki Nagano1
+Sameh Khamis1
+Pavlo Molchanov1
+Jan Kautz1
+1NVIDIA
+2University of Surrey, UK
+https://nvlabs.github.io/RANA/
+Figure 1. We present, RANA, an approach for learning dynamic and relightable full-body avatars from monocular RGB videos. A training
+frame of the person is shown in the ﬁrst column. RANA can synthesize images of the person under novel poses, viewpoints, and lighting
+environments. In the insets, we show the synthesized albedo image, the normal map, and the target HDRI light map.
+Abstract
+We propose RANA, a relightable and articulated neural
+avatar for the photorealistic synthesis of humans under
+arbitrary viewpoints, body poses, and lighting.
+We only
+require a short video clip of the person to create the avatar
+and assume no knowledge about the lighting environment.
+We present a novel framework to model humans while
+disentangling their geometry, texture, and also lighting
+environment from monocular RGB videos.
+To simplify
+this otherwise ill-posed task we ﬁrst estimate the coarse
+geometry and texture of the person via SMPL+D model
+ﬁtting and then learn an articulated neural representation
+for photorealistic image generation. RANA ﬁrst generates
+the normal and albedo maps of the person in any given
+*equal contribution. The work was partially done during AC’s internship
+at NVIDIA.
+target body pose and then uses spherical harmonics
+lighting to generate the shaded image in the target lighting
+environment.
+We also propose to pretrain RANA using
+synthetic images and demonstrate that it leads to better
+disentanglement between geometry and texture while also
+improving robustness to novel body poses. Finally, we also
+present a new photorealistic synthetic dataset, Relighting
+Humans, to quantitatively evaluate the performance of the
+proposed approach.
+1. Introduction
+Articulated neural avatars of humans have numerous ap-
+plications across telepresence, animation, and visual con-
+tent creation. To enable the widespread adoption of these
+neural avatars, they should be easy to generate and animate
+under novel poses and viewpoints, able to render in photo-
+arXiv:2212.03237v1  [cs.CV]  6 Dec 2022
+
+
+realistic image quality, and easy to relight in novel envi-
+ronments. Existing methods commonly aim to learn such
+neural avatars using monocular videos [38–40, 46, 50, 58].
+While this allows photo-realistic image quality and anima-
+tion, the synthesized images are always limited to the light-
+ing environment of the training video. Other works directly
+tackle relighting of human avatars but do not provide con-
+trol over the body pose [19,34]. Moreover, these approaches
+often require multiview images recorded in a Light Stage for
+training, which is limited to controlled settings only. Some
+recent methods aim to relight RGB videos of a dynamic hu-
+man but do not provide control over body pose [13].
+In this work, we present the Relightable Articulated Neu-
+ral Avatar (RANA) method, which allows photo-realistic
+animation of people under any novel body pose, viewpoint,
+and lighting environment. To create an avatar, we only re-
+quire a short monocular video clip of the person in uncon-
+strained environment, clothing, and body pose. During in-
+ference, we only require the target novel body pose and the
+target novel lighting information.
+Learning relightable neural avatars of dynamics humans
+from monocular RGB videos recorded in unknown environ-
+ments is a challenging problem. First, it requires model-
+ing the complex human body articulations and geometry.
+Second, in order to allow relighting under novel environ-
+ments, the texture, geometry, and illumination information
+have to be disentangled, which is an ill-posed problem to
+solve from RGB videos [8]. To address these challenges,
+we ﬁrst extract canonical, coarse geometry and texture in-
+formation from the training frames using a statistical human
+shape model SMPL+D [5,30,33]. We then propose a novel
+convolutional neural network that is trained on synthetic
+data to remove the shading information from the coarse tex-
+ture. We augment the coarse geometry and texture with
+learnable latent features and pass them to our proposed neu-
+ral avatar framework, which generates reﬁned normal and
+albedo maps of the person under the target body pose us-
+ing two separate convolutional networks. Given the normal
+map, albedo map, and lighting information, we generate the
+ﬁnal shaded image using spherical harmonics (SH) light-
+ing [41]. During training, since the environment lighting
+is unknown, we jointly optimize it together with the per-
+son’s appearance and propose novel regularization terms
+to prevent the leaking of lighting into the albedo texture.
+We also propose to pre-train the avatar using photo-realistic
+synthetic data with ground-truth albedo and normal maps.
+During pretraining, we simultaneously train a single avatar
+model for multiple subjects while having separate neural
+features for each subject. This not only improves the gener-
+alizability of the neural avatar to novel body poses but also
+learns to decouple the texture and geometry information.
+For a new subject, we only learn a new set of neural fea-
+tures and ﬁne-tune the avatar model to capture ﬁne-grained
+person-speciﬁc details. In our experiments, the avatar for a
+novel subject can be learned within 15k training iterations.
+To the best of our knowledge, RANA is the ﬁrst method
+to enable relightable and articulated neural avatars. Hence,
+in order to quantitatively evaluate the performance of our
+method, we also propose a novel photo-realistic synthetic
+dataset, Relighting Humans (RH), with ground truth albedo,
+normals, and lighting information. The Relighting Humans
+dataset allows for simultaneous evaluation of the perfor-
+mance in terms of novel pose and novel light synthesis. We
+also perform a qualitative evaluation of RANA on the Peo-
+ple Snapshot dataset [5] to compare with other baselines.
+Our contributions can be summarized as follows:
+• We present, RANA, a novel framework for learning
+relightable articulated neural avatars from short uncon-
+strained monocular videos. The proposed approach is
+very easy to train and does not require any knowledge
+about the environment of the training video.
+• Our proposed approach can synthesize photorealis-
+tic images of humans under any arbitrary body pose,
+viewpoint, and lighting. It can also be used for relight-
+ing videos of dynamic humans.
+• We present a new photo-realistic synthetic dataset for
+quantitative evaluation and to further the research in
+this direction.
+2. Related work
+Mesh Based Human Avatars. These methods represent
+human avatars using a rigged mesh and an associated tex-
+ture map. Earlier methods captured human avatars using
+multi-view cameras [10, 45] or with the help of depth sen-
+sors [9, 63].
+However, their adoption remained limited
+due to the constrained hardware requirements. The recent
+works, therefore, focus on creating the avatars from monoc-
+ular videos [4, 5] or images [6, 20, 22, 30, 56]. The meth-
+ods [4,5,30] use body model ﬁtting to capture the humans,
+while more recent methods use data-driven implicit func-
+tions combined with pixel-aligned features [42] for human
+reconstruction [6, 22, 56, 63]. The main limitation of these
+methods is that the shading information is baked into the
+texture, therefore, the avatars cannot be rendered with novel
+lights. PHORUM [6] is the only exception, however, it cre-
+ates the avatar from a single image and relies on data-driven
+priors to hallucinate the occluded regions of the person.
+Hence, the generated images may not be the true represen-
+tation of the person. In contrast, our approach uses video
+data to capture a detailed human representation, while also
+allowing the rendering of the person in novel lighting.
+Neural Human Avatars.
+More recent methods learn a
+neural representation of the person and use neural ren-
+derers [49] to directly generate photorealistic images in
+2
+
+
+novel view
+novel pose
+generalizable
+relightable
+Method
+✓
+NeuralBody [39], HumanNeRF [54]
+✓
+✓
+AnimatableNeRf [38], NeuMan [26]
+✓
+✓
+✓
+ANR [40], TNA [44], StylePeople [18]
+✓
+✓
+Relighting4D [13]
+✓
+✓
+✓
+✓
+RANA (Ours)
+Table 1. Comparison of some of the representative methods for
+neural human avatar creation. Ours (RANA) is the only method
+that allows novel view, pose and light synthesis.
+the target body pose and viewpoints [7, 11, 16, 21, 51, 55].
+These methods are generally classiﬁed into 2D or 3D neu-
+ral rendering based methods [49].
+The 3D neural ren-
+dering methods represent the person using neural radi-
+ance ﬁelds [35] and render the target images using vol-
+ume rendering [26, 38, 39, 50, 54]. The 2D neural render-
+ing methods, on the other hand, use CNNs to render the im-
+ages [18,40,58,62]. One limitation of the 3D neural rending
+methods is that the avatar has to be created from scratch for
+each person. In contrast, the 2D based methods offer some
+generalizability by sharing the neural renderer across mul-
+tiple subjects [40]. Our method falls into the 2D neural ren-
+dering paradigm as we use CNNs to generate the albedo and
+normal images of the person. In particular, we take inspi-
+ration from ANR [40] for designing our framework. Tab. 1
+compares existing neural avatar creation methods. Ours is
+the only method that allows synthesis under novel poses,
+viewpoints, and lighting, while also being generalizable.
+Human Relighting. Relighting of human images has been
+studied extensively in the literature [14,25,27,29,31,43,47,
+48, 53, 61, 64]. However, these methods cannot render re-
+lighted images in novel body poses and viewpoints. Some
+recent methods allow relighting from novel views but pro-
+vide no control over the body pose [13, 19, 36, 57]. Our
+approach, in contrast, provides full control over the body
+pose, viewpoint, and lighting.
+3. Method
+Our goal is to learn a relightable articulated neural avatar,
+RANA, that can synthesize photorealistic images of the
+person under any target body pose, viewpoint, and light-
+ing. To create the avatar, we use a small video sequence
+I={If}F
+f=1 with F video frames and assume no knowledge
+about the lighting environment and body poses present in
+the video. We parameterize RANA using the SMPL [33]
+body model to control the animation and use Spherical Har-
+monics (SH) [41] lighting to model the lighting. During
+inference, we only need the target body pose and target
+lighting information in the form of SH coefﬁcients and do
+not require any exemplar images for groundtruth. Learning
+RANA from a monocular video requires capturing the ge-
+ometry and appearance of the dynamic human while also
+disentangling the shading information. In order to tackle
+this ill-posed problem, we ﬁrst capture the coarse geome-
+try using the SMPL+D ﬁts (Sec. 3.1). We use the coarse
+geometry to extract a coarse texture map from the training
+images which is converted to an albedo texture map using a
+convolutional network (Sec. 3.2). We then propose RANA
+that generates the reﬁned albedo and normal maps. The re-
+ﬁned normal maps are used to obtain the shading map us-
+ing SH lighting which is combined with the reﬁned albedo
+map to obtain the ﬁnal image in the target body pose and
+light (Sec. 3.3). An overview of our method can be seen in
+Fig. 2. In the following, we describe each of these modules
+in greater detail.
+3.1. Coarse Geometry Estimation
+Given the training frames, we ﬁrst estimate the coarse
+geometry of the person including the clothing and hair de-
+tails. For this, we employ the SMPL+D [4, 30] variant of
+the SMPL body model [33].
+SMPL is a linear function
+M(θ, β) that takes the body pose θ ∈R72 and shape param-
+eters β ∈R10 as input and produces a triangulated mesh
+M ∈RV ×3 with V =6890 vertices. SMPL only captures
+the undressed shape of the body and ignores the clothing
+and hair details. For this, SMPL+D adds a set of 3D offsets
+D ∈RV ×3 to SMPL to capture the additional geometric
+details, i.e., M(θ, β, D) ∈RV ×3 can also model clothed
+humans. We refer the readers to [4, 30] for a detailed de-
+scription of SMPL+D.
+For ﬁtting SMPL+D to training images, we ﬁrst estimate
+the parameters of SMPL using an off-the-shelf method SM-
+PLify3D [23]. Since the person in the video remains the
+same, we optimize a single β for the entire video. We then
+ﬁx the pose {θ}F
+f=1 and shape β parameters and optimize
+for the offsets D using the following objective:
+D = argmin
+D′
+F
+X
+f=1
+L(M(θf, β, D′)) = LSil+Lsmooth. (1)
+Here the term LSil is the silhouette loss. We obtain the sil-
+houette of SMPL+D vertices Sf for frame f using a differ-
+entiable renderer [32] while the target silhouette ˆSt is ob-
+tained using a person segmentation model [12]. We deﬁne
+the LSil loss as
+LSil = 1
+F
+F
+X
+f=1
+|Sf −ˆSf|.
+(2)
+The term Lsmooth is a laplacian smoothing term to encour-
+age the smooth surface of the mesh:
+Lsmooth = 1
+F
+F
+X
+f=1
+||LMf||,
+(3)
+3
+
+
+(c) Coarse Texture Estimation (Sec 3.2)
+AlbedoNet
+refined normals
+Target  Light 
+Shaded Image 
+w. background
+NormalNet
+(a) Training frames 
+(d) RANA: Relightable Articulated Neural Avatar (Sec 3.3)
+Latent Neural Features
+u
+v
+256x256x16
+coarse albedo & features
+refined albedo & mask
+coarse normals & features
+Rasterize
+SH Lighting
+SH Coeff
+TextureNet
+(b) Coarse Geometry Estimation  (Sec. 3.1) 
+Coarse Albedo Texture
+Target Pose
+Shaded Image 
+Figure 2. Overview of the proposed approach. (a) shows some training frames. (b) We estimate the coarse geometry of the person using the
+SMPL+D body model. (c) The SMPL+D ﬁts are used to extract a UV texture map, which we process using TextureNet to obtain a coarse
+albedo texture map. (d) Given a target body pose, we rasterize person-speciﬁc neural features, coarse albedo, and coarse normals from
+SMPL+D to the target body pose and pass them to NormalNet and AlbedoNet to obtain reﬁned normal and albedo maps, respectively. We
+then use the normal map and spherical harmonics lighting to obtain the shading image, which is multiplied with reﬁned albedo to produce
+the shaded image. AlbedoNet also generates a binary mask, which we use to overlay the shaded image onto the background.
+where L is the mesh Laplacian operator Note that we opti-
+mize a single set of D for the entire video, hence it does not
+model any pose-dependent geometric deformations. Some
+examples of SMPL+D can be seen in Fig. 2b.
+3.2. Coarse Albedo Estimation
+Given the SMPL+D ﬁts for the training frames, we es-
+timate an albedo texture map TA of the person in the UV
+space of SMPL. We follow [5] and ﬁrst extract a partial tex-
+ture map for each frame by back-projecting the image colors
+of all visible vertices to the UV space. The ﬁnal texture map
+TI is then generated by calculating the median color value
+of most orthogonal texels from all frames. Depending on
+the available body poses in the training video, the obtained
+texture map can be noisy, and still have missing regions,
+e.g., hand regions are often very noisy as no hand tracking
+is performed during SMPL ﬁtting. Also, to ensure plausi-
+ble relighting, the unknown shading from the texture map
+has to be removed, which is a challenging problem since
+decomposing shading and albedo is an ill-posed problem.
+To address these problems, we propose TextureNet,
+GTex (Fig. 2c), which takes a noisy texture map TI with
+unknown lighting as input and produces a clean albedo tex-
+ture map as output, i.e., TA = GTex(TI). One main chal-
+lenge for training such a model is the availability of training
+pairs of noisy/shaded and albedo texture maps. We generate
+these pairs using 400 rigged characters from the Render-
+People dataset [2]. Since each character in RenderPeople
+has different UV coordinates, we follow [30] and register
+the characters with SMPL to obtain ground-truth UV maps
+in consistent SMPL UV coordinates. For noisy pairs, we
+generate images with random poses and lighting and ex-
+tract texture maps like any other video mentioned above.
+We train GTex using the following losses:
+LTex = Lpixel + LVGG + LGAN.
+(4)
+Here Lpixel is the L1 loss between the predicted and ground-
+truth albedo texture maps, LVGG is L1 difference be-
+tween their VGG features, and LGAN is a typical GAN
+loss [17,37]. More details about data generation and train-
+ing of GTex are provided in Sec. A.1. Some examples of
+estimated albedo maps can be seen in Fig. 3.
+3.3. Relightable Articulated Neural Avatar
+The coarse albedo texture and geometry obtained so far
+lack photo-realism and ﬁne-grained details of the person.
+First, the topology of SMPL+D is ﬁxed and cannot fully
+capture the ﬁne geometric details, for example, loose cloth-
+ing or long hairs. Second, the TextureNet can confuse the
+texture of the person with shading and may remove some
+texture details while estimating the albedo texture map. In
+this section, we present RANA which utilizes the coarse
+4
+
+
+Noisy/Shaded Map
+Albedo Map
+Noisy/Shaded Map
+Albedo Map
+Noisy/Shaded Map
+Albedo Map
+Figure 3. Examples of estimated albedo maps from noisy/shaded maps using our proposed TextureNet (Sec. 3.2). The ﬁrst row shows
+some examples from the PeopleSnapshot dataset, while the second row shows examples from our proposed RelightingHuman dataset.
+geometry and albedo map and generates photo-realistic im-
+ages of the person. We parametrize RANA using the SMPL
+body model and SH lighting [5]. Speciﬁcally, RANA takes
+the target body pose θ and the target lighting in the form of
+second-order spherical harmonics coefﬁcients E ∈R9×3 as
+input and synthesizes the target image Iθ,E as:
+Iθ,E = RANA(θ, E, K),
+(5)
+where K corresponds to the intrinsic parameters of the tar-
+get camera viewpoint.
+One main challenge in learning
+such a neural avatar from a short RGB video is to main-
+tain the disentanglement of geometry, albedo, and lighting,
+as any learnable parameters can overﬁt the training frames
+disregarding plausible disentanglement. Hence, we design
+RANA such that a plausible disentanglement is encouraged
+during training. Speciﬁcally, RANA consists of two convo-
+lutional neural networks NormalNet, GN, and AlbedoNet,
+GA, each responsible for generating the normal map Iθ
+N ∈
+Rh×w×3, and albedo map, Iθ
+A ∈Rh×w×3, of the person
+in the body pose θ, respectively. It also consists of a set
+of subject-speciﬁc latent neural features Z ∈R256×256×16
+in UV coordinates to augment the details available in the
+coarse albedo map and geometry.
+More speciﬁcally, given the target body pose θ, we ﬁrst
+generate the SMPL+D mesh Mθ = M(θ, β, D), where the
+shape parameters β and clothing offsets D are the ones ob-
+tained in Sec. 3.1. We then use Mθ to differentiably raster-
+ize [32] the latent features Z and coarse albedo texture TA
+to obtain a features image Iθ
+Z and coarse albedo image ¯Iθ
+A
+in the target body pose. We also rasterize a coarse normal
+image ¯Iθ
+N and a UV image Iθ
+uv using the normals and UV
+coordinates of M θ, respectively. The reﬁned normal image
+Iθ
+N and reﬁned albedo image Iθ
+A are then obtained as
+Iθ
+N = GN(Iθ
+Z, ¯Iθ
+N, γ(Iθ
+uv)),
+(6)
+Iθ
+A, Sθ = GA(Iθ
+Z, ¯Iθ
+A, γ(Iθ
+uv)),
+(7)
+where Sθ is the person mask in the target pose and γ
+corresponds to the positional encoding of the UV coordi-
+nates [35]. Given the lighting E, we obtain the shading
+image Iθ,E
+S
+using the normal map Iθ
+N and SH lighting [41].
+Under the usual assumptions of Lambertian material, dis-
+tant lighting, and no cast shadows, the ﬁnal shaded image
+Iθ,E is then obtained as
+Iθ,E = Iθ
+A · Iθ,E
+S
+.
+(8)
+An overview of RANA can be seen in Fig. 2d.
+Since
+the lighting environment of the training video is unknown,
+we also optimize the second order SH coefﬁcients E ∈
+R9×3 [41] of the training video during training. Note that
+none of the learnable parameters in RANA depend on the
+lighting information. Hence, if the disentanglement of nor-
+mals, albedo, and lighting during training is correct, we
+can simply replace E during inference with any other novel
+lighting environment to obtain relit images. We train RANA
+with the following objective:
+L = Lpixel + Lface + Lmask + LVGG + LGAN
+(9)
++ Lalbedo
+reg
++ Lnormal
+reg
+.
+(10)
+Here Lpixel is the L1 difference between the generated im-
+age Iθ,E and the ground-truth training frame, Lface is the
+L1 difference between their face regions to assign a higher
+weight to face, and Lmask is the binary-cross-entropy loss
+between the estimated mask Sθ using GA and the pseudo-
+ground-truth mask obtained using a person segmentation
+model [12]. The term LVGG is the L1 difference between
+the VGG features of generated and ground-truth images,
+and LGAN is the commonly used GAN loss [17, 37]. The
+term Lalbedo
+reg
+is the albedo regularization term that prevents
+the light information from leaking into the albedo image:
+Lalbedo
+reg
+= ||σ(Iθ
+A, k) −σ(¯Iθ
+A, k)||2.
+(11)
+5
+
+
+Here Iθ
+A is the albedo image obtained using GA, ¯Iθ
+A is the
+coarse albedo image, and σ is the Gaussian smoothing oper-
+ator with a kernel size k=51. Lalbedo
+reg
+encourages the overall
+color information in Iθ
+A to be close to ¯Iθ
+A while disregarding
+the texture information. Similarly, Lnormal
+reg
+is the normal
+regularization loss which prevents the normal image Iθ
+N to
+move very far from the coarse normal image ¯Iθ
+N:
+Lalbedo
+reg
+= |Sθ
+smplIθ
+N −Sθ
+smpl ¯Iθ
+N|,
+(12)
+where Sθ
+smpl is the rasterized mask of SMPL+D mesh. It
+ensures that the regularization is applied only on the pixels
+where SMPL+D normals are valid. Note that no ground-
+truth supervision is provided to GA and GN.
+They are
+mostly learned via the image reconstruction losses, while
+the disentanglement of normals and albedo is ensured via
+the novel design of RANA and regularization losses.
+3.3.1
+Pre-training using synthetic data
+While we design RANA such that it generalizes well to
+novel body poses, the networks GA and GN may still overﬁt
+to the body poses available in the training video, in particu-
+lar, when the coarse geometry and albedo are noisy. A sig-
+niﬁcant advantage of RANA is that it can be trained simul-
+taneously for multiple subjects, i.e., we use different neu-
+ral features Z for each subject while sharing the networks
+GA and GN. This not only allows the model to see diverse
+body poses during pre-training but also helps in learning
+to disentangle normals and albedo. Hence, we propose to
+pretrain GA and GN on synthetic data. For this, we use
+400 rigged characters from the RenderPeople dataset. We
+generated 150 albedo and normal images for each subject
+under random body poses and pretrain both networks us-
+ing ground-truth albedo and normal images. We use the L1
+loss for both terms. For a new subject, we learn the neural
+features Z from scratch and only ﬁne-tune GA. During our
+experiments, we found that ﬁne-tuning GN is not required
+if the model is pretrained (see Sec. 4.3).
+4. Experiments
+In this section, we evaluate the performance of RANA
+using two different datasets. We perform an ablation study
+to validate our design choices and also compare our method
+with state-of-the-art and other baselines.
+4.1. Datasets
+Relighting Human Dataset.
+We propose a new photore-
+alistic synthetic dataset to quantitatively evaluate the perfor-
+mance of our method. We use 49 rigged characters from the
+RenderPeople dataset [2] to generate photo-realistic images
+for each subject. We use HDRI maps from PolyHaven [1] to
+illuminate the characters and use the CMU motion capture
+dataset [3] to pose the characters. In contrast to our pro-
+posed method that uses image-based lighting, we use full
+Path Tracing to generate the dataset. Hence, it is the clos-
+est setting to an in-the-wild video, and any future work that
+uses a more sophisticated lighting model can be evaluated
+on this dataset. For a fair evaluation, we ensure that none
+of the characters is used during the training in Sec 3.2 and
+Sec 3.3. All testing images come with a ground-truth albedo
+map, a normal map, a segmentation mask, and light infor-
+mation. For our experiments, we evaluate on all 49 charac-
+ters and learn a separate RANA model for each subject. We
+develop two different protocols for evaluation:
+a) Novel Pose and Light Synthesis. This protocol evalu-
+ates the quality in terms of novel pose and light synthesis.
+We generate 100 training images for each subject rotating
+360◦with A-pose in front of the camera with ﬁxed lighting.
+For testing, we generate 150 frames for each subject with
+random body pose and random light in each frame.
+b) Novel Light Synthesis. This protocol evaluates the re-
+lighting ability of the methods. We generate 150 frames
+for train and test sets. The train set is generated with ﬁxed
+lighting and random body poses. The body poses in the test
+set are exactly the same as the train sets, but each frame is
+generated using a different light source.
+People Snapshot Dataset. [5]. This dataset consists of real
+videos of characters rotating in front of the camera. We use
+this dataset for qualitative evaluation.
+4.2. Metrics
+We report several metrics to evaluate the quality of syn-
+thesized images as well as the disentanglement of normal
+and albedo images.
+For synthesized images and albedo
+maps, we use Learned Perceptual Patch Similarity (LPIPS
+↓) [60], Deep Image Structure and Texture Similarity
+(DISTS ↓) [15], Structural Similarity Index (SSIM ↑) [52]
+and Peak Signal-to-Noise Ratio (PSNR ↑). For normals, we
+compute the error in degrees (◦).
+4.3. Ablation study
+We evaluate different design choices of RANA in Tab. 2
+and Fig 4. We use protocol-a of the Relighting Humans
+dataset for all experiments. We ﬁrst report the results of the
+ﬁnal model which includes all loss terms in (15) and pre-
+training using synthetic data (Sec. 3.3.1). The full model
+achieves an LPIPS score of 0.217 for image synthesis and
+0.219 for albedo map reconstruction.
+If we remove the
+loss term Lalbedo
+reg
+from (15), the LPIPS scores for im-
+age and albedo map reconstruction increase to 0.249 and
+0.264, respectively. Note that the error for albedo maps
+increases signiﬁcantly while the error for normal maps re-
+mains roughly the same. This indicates that without Lalbedo
+reg
+the light information leaks into the albedo image. An exam-
+ple of this behavior can also be seen in Fig 4c (w/o Lalbedo
+reg
+).
+6
+
+
+(a) Ground Truth
+(b) Full Model
+(c) w/o Lalbedo
+reg
+(d) w/o coarse geo. & tex.
+(e) w/o pre-training
+Figure 4. Ablation Study. Impact of the different components of the proposed approach. Our full model yields the best results. Without
+the Lalbedo
+reg
+loss, the light information leaks into the albedo texture resulting in incorrect illumination. If we do not use coarse geometry
+and albedo texture, the resulting model does not generalize well to novel body poses. Similarly, training the model from scratch, without
+any pretraining on synthetic data, can result in an incorrect disentanglement of texture and geometry.
+Method
+Image
+Normal Map
+Albedo Map
+LPIPS ↓
+FLIP ↓
+SSIM ↑
+PSNR ↑
+Degree◦↓
+LPIPS ↓
+FLIP ↓
+SSIM ↑
+PSNR ↑
+Full model
+0.217
+0.204
+0.751
+19.498
+64.350
+0.219
+0.207
+0.779
+21.832
+w/o Lalbedo
+0.249
+0.241
+0.697
+15.199
+64.064
+0.264
+0.257
+0.713
+15.688
+w/o coarse geo. & tex.
+0.242
+0.222
+0.730
+18.580
+65.887
+0.260
+0.232
+0.751
+20.778
+w/o pre-training
+0.301
+0.293
+0.669
+13.798
+74.215
+0.327
+0.307
+0.696
+15.632
+ﬁne-tune GN
+0.219
+0.205
+0.746
+19.198
+64.226
+0.221
+0.210
+0.778
+21.577
+Table 2. Ablation study. We evaluate the impact of different components of the proposed method. See Fig. 4 for a qualitative comparison.
+Next, we evaluate the impact of coarse geometry and
+albedo texture on RANA. If we do not use coarse geometry
+and albedo, LPIPS score increases to 0.242 as compared to
+0.217 for the full model. The normal error also increases to
+65.9◦from 64.3◦. This is also evident from the qualitative
+results shown in Fig 4d, indicating that coarse geometry and
+albedo help in improved image synthesis quality, in particu-
+lar when the target body pose is far from the training poses.
+Next, we evaluate the impact of pretraining on synthetic
+data. Without the pretraining, all error metrics increase sig-
+niﬁcantly. Speciﬁcally, the LPIPS score for image recon-
+struction increases from 0.217 to 0.301, while the normal
+error increases from 64.3◦to 74.2◦. If we look at Fig 4e,
+we can see that shading information leaks into both the nor-
+mals and albedo maps. Hence, pretraining the networks
+also help with the plausible disentanglement of geometry,
+texture, and light. Thanks to the design of RANA, we can
+pretrain on as many subjects as available, which is not pos-
+sible with most of the state-of-the-art methods for human
+synthesis [38,39,50]. Finally, As discussed in Sec 3.3.1, we
+keep the network GN ﬁxed during ﬁnetuning if RANA is
+pretrained on synthetic data. In the last row of Tab. 2, we
+evaluate the case when GN is also ﬁne-tuned. We can see
+that it has a negligible impact on the results.
+4.4. Comparison with other methods
+Since RANA is the ﬁrst neural avatar method that allows
+novel light and pose synthesis, we ourselves build some
+baselines as follows:
+SMPL+D: We rasterize the SMPL+D mesh normals and
+albedo texture ( Sec. 3.1 & Sec. 3.2) in the target body pose
+and use SH lighting to generate the shaded images.
+ANR [40]+RH [27]: We train an ANR [40] model which
+synthesizes images in the lighting of the training video. We
+then pass the generated images to the single-image human
+relighting method [27] to obtain the relighted images for the
+target light. We use the publicly available source code and
+models of [27].
+Relighting4D [13] is a state-of-the-art human video relight-
+ing method. We use the publicly available source code and
+train it on our dataset.
+The results are summarized in Tab. 3 and Fig 5. We
+do not report results of Relighting4D [13] for protocol-a
+since it cannot handle novel body poses as can be seen in
+Fig 5 (column-5). For protocol-a, our method clearly out-
+performs other baselines for ﬁnal image synthesis results.
+Surprisingly, the SMPL+D baseline yields better numbers
+for albedo reconstruction, even though it provides overly
+smooth albedo textures. Our qualitative investigation (see
+Sec. A.4) suggests that the used image quality assessment
+metrics penalize color differences more than missing tex-
+ture details. For very bright scenes, RANA can still leak
+some lighting information to the albedo texture resulting in
+higher errors for albedo maps even though it provides sig-
+niﬁcantly better texture details than SMPL+D. This is evi-
+dent from Fig. 5 and the ﬁnal image synthesis results where
+RANA signiﬁcantly outperforms SMPL+D baseline.
+For protocol-b, RANA outperforms Relighting4D [13]
+7
+
+
+Protocol-A
+Protocol-B
+Reference
+RANA (Ours)
+ANR [40]+RH [27]
+SMPL+D
+Relighting4D [13]
+RANA (Ours)
+Relighting4D [13]
+Figure 5. Comparison with the baselines and state-of-the-art methods. Column 1 shows a reference frame with the target body pose and
+lighting in the insets. In the absence of true reference images, for the Snapshot dataset (rows 1-2), we show training frames for reference.
+Columns 2-5 compare different methods for protocol-a, while columns 6-7 provide a comparison for protocol-b.
+Method
+Image
+Normal Map
+Albedo Map
+LPIPS ↓
+DISTS ↓
+SSIM ↑
+PSNR ↑
+Degree◦↓
+LPIPS ↓
+DISTS ↓
+SSIM ↑
+PSNR ↑
+Protocol (a): Novel Pose and Light Synthesis
+Ours
+0.217
+0.204
+0.751
+19.498
+64.350
+0.219
+0.207
+0.779
+21.832
+SMPL+D
+0.265
+0.225
+0.751
+19.678
+64.121
+0.216
+0.182
+0.811
+22.623
+ANR [40] + RH [28]
+0.275
+0.416
+0.664
+17.495
+N.A.
+0.266
+0.429
+0.656
+14.804
+Protocol (b): Novel Light Synthesis
+Ours
+0.173
+0.171
+0.842
+22.338
+62.823
+0.200
+0.179
+0.865
+24.721
+Relighting4D [13]
+0.192
+0.342
+0.654
+21.080
+65.099
+0.263
+0.374
+0.593
+20.014
+Table 3. Comparison with the baselines and state-of-the-art methods. See Fig. 5 for qualitative comparison.
+across all metrics. Some qualitative comparisons can be
+seen in Fig. 5 (columns 6-7), where RANA clearly yields
+better image relighting results.
+Note that each model
+for Religthing4D [13] requires 260k iterations for training
+whereas RANA models are trained only for 15k iterations,
+thanks to our novel design that allows pre-training on syn-
+thetic data, allowing quick ﬁne-tuning for new subjects. In
+contrast, Relighting4D [13] by design cannot be pretrained
+easily on multiple subjects. Finally, we provide additional
+qualitative results in the supplementary video.
+5. Conclusion and Future Work
+We presented RANA which is a novel framework for
+learning relightable and articulated neural avatars of hu-
+mans.
+We demonstrated that RANA can model humans
+from unconstrained RGB videos while also disentangling
+their geometry, albedo texture, and environmental lighting.
+We showed that it can generate photorealistic images of
+people under any novel body pose, viewpoints, and light-
+ing. RANA can be trained simultaneously for multiple peo-
+ple and we showed that pretraining it on multiple (400) syn-
+thetic characters signiﬁcantly improves the image synthesis
+quality. We also proposed a new photorealistic synthetic
+dataset to quantitatively evaluate the performance of our
+proposed method, and believe that it will prove to be very
+useful to further the research in this direction.
+The most pressing limitation of RANA is the assumption
+of Lambertian surface, no cast shadows, and image-based
+8
+
+
+lighting. In the future, we hope to incorporate more sophis-
+ticated physically-based rendering in our framework which
+will hopefully result in better image quality and normal
+maps with more details. Moreover, RANA does not explic-
+itly model motion-dependent clothing deformations. Mod-
+eling clothing deformations from a short video clip would
+be interesting future work.
+A. Appendix
+We provide the implementation details of our proposed
+approach in Sec. A.1 and Sec. A.2. We also provide more
+details about our proposed Relighting Humans dataset in
+Sec. A.3. Finally, we provide qualitative results to compare
+RANA with SMPL+D baseline for albedo texture map es-
+timation in Sec. A.4. The qualitative results augment our
+comments regarding Tab. 3.
+A.1. Implementation details of TextureNet
+We use a vanilla U-Net architecture for TextureNet. It
+takes a noisy/shaded UV texture map with a resolution of
+512×512 as input and produces the abledo texture with the
+same resolution as output. We also concatenate a 2D ten-
+sor of UV coordinates with the input texture map to provide
+part-speciﬁc information to TextureNet. We train the net-
+work using Adam optimizer with a batch size of 8 and a
+learning rate of 1e−4 with cosine annealing and a minimum
+learning rate of 1e−5. To avoid overﬁtting during training,
+we perform random noise augmentation to the input tex-
+ture maps including coarse dropout, gaussian noise, random
+brightness, and MixUp (β = 0.4) [59]. As mentioned in the
+paper we train the model with the following loss function:
+LTex =Lpixel(TA, ˆTA)+
+λVGGLVGG(TA, ˆTA)+
+λGANLGAN(TA),
+where TA and ˆTA are the predicted and ground-truth
+albedo texture maps, respectively. Lpixel and LVGG corre-
+spond to the L1 difference between ground-truth and pre-
+dicted albedo texture maps and their VGG features, re-
+spectively.
+We use VGG16 to calculate the VGG fea-
+tures and use the features from relu 1 2, relu 2 2,
+relu 3 3 and relu 4 3 layers. For LGAN we use the
+PatchGAN discriminator [24]. We empirically set λVGG=1
+and λGAN=10.
+A.2. Implementation details of RANA
+Similar to TextureNet,
+we use vanilla U-Net for
+AlbedoNet and NormalNet.
+A.2.1
+Pretraining.
+For pretraining RANA, we use 400 characters from Ren-
+derPeople and generate 150 samples in the random body
+poses for each character. Each sample consists of a ground-
+truth albedo map, a normal map, and the person segmenta-
+tion mask. We then train AlbedoNet and NormalNet using
+Adam optimizer with a batch size of 16 and learning rate of
+1e−4 with cosine annealing and minimum learning rate of
+1e−5. We optimize the following objective:
+L = Lnormal + λaLalbedo + λmLmask
+where,
+Lnormal =Lpixel(Iθ
+N, ˆIθ
+N)+
+λVGGLVGG(Iθ
+N, ˆIθ
+N)+
+λGANLGAN(Iθ
+N),
+Lalbedo =Lpixel(Iθ
+A, ˆIθ
+A)+
+λVGGLVGG(Iθ
+A, ˆIθ
+A)+
+λGANLGAN(Iθ
+A),
+and
+Lmask = BCE(Sθ, ˆSθ).
+Here Iθ
+N and ˆIθ
+N are the predicted and ground-truth normal
+maps, Iθ
+A and ˆIθ
+A are the predicted and ground-truth albedo
+maps, and Sθ and ˆSθ are the predicted and ground-truth
+segmentation mask of the person. We empirically chose
+λa=0.5, λm=10, λVGG=5, and λGAN=0.1. We train the
+model at the resolution of 512×512 for 230 epochs.
+A.2.2
+Personalization.
+Given the RGB video of a novel subject, we optimize the
+latent features Z and lighting environment E of the video
+from scratch and only ﬁne-tune AlbedoNet (GA). We keep
+GA ﬁxed for the ﬁrst 1000 iterations and only optimize Z
+and E. This allows optimization of the latent features Z to
+be compatible with the pretrained GA and GN. We then op-
+timize GA, Z, and E jointly for a total of 15k iterations. As
+mentioned in Sec. 3.3, we optimize the following objective
+L = Lpixel + λfLface + λmLmask
+(13)
++ λVGGLVGG + λGANLGAN
+(14)
++ λa
+regLalbedo
+reg
++ λn
+regLnormal
+reg
+.
+(15)
+We chose λf=1, λm=10, λVGG=5, λGAN=0.1, λa
+reg=0.5
+and λn
+reg=0.25, For Lface, we project the nose keypoint of
+SMPL body model on to the image and crop a 100×100
+patch around the face to compute the loss. All other losses
+are calculated on the 512×512 generated images as men-
+tioned above.
+9
+
+
+A.3. Relighting Human Dataset
+We provide more details about our proposed Relighting
+Humans dataset. The dataset consists of 49 subjects with
+26 males and 23 female characters. The characters come in
+all appearances, including long hair, loose clothing, jackets,
+hats, head scarves, etc. Some example characters can be
+seen in Fig. 6. Moreover, we also provide some examples of
+training and testing sequences for protocol-a and protocol-b
+in Fig. 7 and Fig. 8, respectively.
+A.4. Qualitative comparison with SMPL+D base-
+line
+As reported in Tab. 3, SMPL+D baseline yields bet-
+ter quantitative results than RANA even though it provides
+overly smoothed texture details due to TextureNet confus-
+ing shading and texture during albedo texture map estima-
+tion. On the other hand, RANA recovers signiﬁcantly bet-
+ter texture details, but sometimes lighting can still leak into
+albedo texture, especially for very bright or complex light-
+ing environments. We found that the used evaluation met-
+rics penalize color differences more than the texture details
+as we show in Fig. 9. In any case, RANA provides signiﬁ-
+cantly better results for ﬁnal image reconstruction as shown
+in Tab. 3.
+References
+[1] Poly Haven, 2020. https://hdrihaven.com. 6
+[2] Render People, 2020. https://renderpeople.com/
+3d-people. 4, 6
+[3] Carnegie Mellon University Graphics Lab: Motion Capture
+Database. http://mocap.cs.cmu.edu, 2014. 6
+[4] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Detailed human avatars
+from monocular video. In 3DV, 2018. 2, 3
+[5] Thiemo Alldieck, Marcus Magnor, Weipeng Xu, Christian
+Theobalt, and Gerard Pons-Moll. Video based reconstruction
+of 3d people models. In CVPR, June 2018. 2, 4, 5, 6
+[6] Thiemo Alldieck, Mihai Zanﬁr, and Cristian Sminchisescu.
+Photorealistic monocular 3d reconstruction of humans wear-
+ing clothing. In CVPR, 2022. 2
+[7] Guha Balakrishnan, Amy Zhao, Adrian V Dalca, Fredo Du-
+rand, and John Guttag. Synthesizing images of humans in
+unseen poses. In CVPR, 2018. 3
+[8] Jonathan T. Barron and Jitendra Malik. Shape, illumination,
+and reﬂectance from shading. In TPAMI, 2020. 2
+[9] Federica Bogo, Michael J Black, Matthew Loper, and Javier
+Romero. Detailed full-body reconstructions of moving peo-
+ple from monocular rgb-d sequences. In ICCV, 2015. 2
+[10] Joel Carranza, Christian Theobalt, Marcus A Magnor, and
+Hans-Peter Seidel. Free-viewpoint video of human actors.
+ToG, 2003. 2
+[11] Caroline Chan, Shiry Ginosar, Tinghui Zhou, and Alexei A
+Efros. Everybody dance now. In ICCV, 2019. 3
+[12] Liang-Chieh Chen, George Papandreou, Florian Schroff, and
+Hartwig Adam. Rethinking atrous convolution for semantic
+image segmentation. In CVPR, 2017. 3, 5
+[13] Zhaoxi Chen and Ziwei Liu.
+Relighting4d:
+Neural re-
+lightable human from videos. In ECCV, 2022. 2, 3, 7, 8
+[14] Paul Debevec, Tim Hawkins, Chris Tchou, Haarm-Pieter
+Duiker, Westley Sarokin, and Mark Sagar.
+Acquiring the
+reﬂectance ﬁeld of a human face. In Annual conference on
+Computer Graphics and Interactive Techniques, 2000. 3
+[15] Keyan Ding, Kede Ma, Shiqi Wang, and Eero P. Simoncelli.
+Image Quality Assessment: Unifying Structure and Texture
+Similarity. TPAMI, 2022. 6
+[16] Patrick Esser, Ekaterina Sutter, , and Bjorn Ommer. A vari-
+ational U-Net for conditional appearance and shape genera-
+tion. In CVPR, 2018. 3
+[17] Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing
+Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and
+Yoshua Bengio. Generative adversarial nets. In NeurIPS,
+2014. 4, 5
+[18] Artur Grigorev, Karim Iskakov, Anastasia Ianina, Renat
+Bashirov, Ilya Zakharkin, Alexander Vakhitov, and Victor
+Lempitsky. Stylepeople: A generative model of fullbody hu-
+man avatars. In CVPR, 2021. 3
+[19] Kaiwen Guo, Peter Lincoln, Philip Davidson, Jay Busch,
+Xueming Yu, Matt Whalen, Geoff Harvey, Sergio Orts-
+Escolano, Rohit Pandey, Jason Dourgarian, et al. The re-
+lightables: volumetric performance capture of humans with
+realistic relighting. In TOG, 2019. 2, 3
+[20] Tong He, Yuanlu Xu, Shunsuke Saito, Stefano Soatto, and
+Tony Tung. Arch++: Animation-ready clothed human re-
+construction revisited. In ICCV, 2021. 2
+[21] Zhichao Huang, Xintong Han, Jia Xu, and Tong Zhang. Few-
+shot human motion transfer by personalized geometry and
+texture modeling. In CVPR, 2021. 3
+[22] Zeng Huang, Yuanlu Xu, Christoph Lassner, Hao Li, and
+Tony Tung. ARCH: Animatable reconstruction of clothed
+humans. In CVPR, 2020. 2
+[23] Umar Iqbal, Kevin Xie, Yunrong Guo, Jan Kautz, and Pavlo
+Molchanov. Kama: 3d keypoint aware body mesh articula-
+tion. In 3DV, 2021. 3
+[24] Phillip Isola, Jun-Yan Zhu, Tinghui Zhou, and Alexei A
+Efros. Image-to-image translation with conditional adver-
+sarial networks. In CVPR, 2017. 9
+[25] Chaonan Ji, Tao Yu, Kaiwen Guo, Jingxin Liu, and Yebin
+Liu. Geometry-aware single-image full-body human relight-
+ing. In ECCV, 2022. 3
+[26] Wei Jiang, Kwang Moo Yi, Golnoosh Samei, Oncel Tuzel,
+and Anurag Ranjan. Neuman: Neural human radiance ﬁeld
+from a single video. In ECCV, 2022. 3
+[27] Yoshihiro Kanamori and Yuki Endo.
+Relighting humans:
+Occlusion-aware inverse rendering for full-body human im-
+ages. In SIGGRAPH, 2018. 3, 7, 8
+[28] Yoshihiro Kanamori and Yuki Endo.
+Relighting humans:
+Occlusion-aware inverse rendering for full-body human im-
+ages. In SIGGRAPH Asia, 2018. 8
+[29] Manuel Lagunas, Xin Sun, Jimei Yang, Ruben Villegas, Jian-
+ming Zhang, Zhixin Shu, Belen Masia, and Diego Gutierrez.
+Single-image full-body human relighting. In Eurographics
+Symposium on Rendering (EGSR), 2021. 3
+10

@@ -1,0 +1,1113 @@
+Title: Cap4d: Creating animatable 4d portrait avatars with morphable multi-view diffusion models
+
+CAP4D: Creating Animatable 4D Portrait Avatars
+with Morphable Multi-View Diffusion Models
+Felix Taubner1,2
+Ruihang Zhang1
+Mathieu Tuli3
+David B. Lindell1,2
+1University of Toronto
+2Vector Institute
+3LG Electronics
+https://felixtaubner.github.io/cap4d
+Abstract
+Reconstructing photorealistic and dynamic portrait avatars
+from images is essential to many applications including
+advertising, visual effects, and virtual reality. Depending
+on the application, avatar reconstruction involves different
+capture setups and constraints—for example, visual effects
+studios use camera arrays to capture hundreds of reference
+images, while content creators may seek to animate a sin-
+gle portrait image downloaded from the internet. As such,
+there is a large and heterogeneous ecosystem of methods
+for avatar reconstruction. Techniques based on multi-view
+stereo or neural rendering achieve the highest quality re-
+sults, but require hundreds of reference images. Recent gen-
+erative models produce convincing avatars from a single
+reference image, but visual fidelity yet lags behind multi-
+view techniques. Here, we present CAP4D: an approach
+that uses a morphable multi-view diffusion model to recon-
+struct photoreal 4D (dynamic 3D) portrait avatars from any
+number of reference images (i.e., one to 100) and animate
+and render them in real time. Our approach demonstrates
+state-of-the-art performance for single-, few-, and multi-
+image 4D portrait avatar reconstruction, and takes steps to
+bridge the gap in visual fidelity between single-image and
+multi-view reconstruction techniques.
+1. Introduction
+Reconstructing realistic human avatars from images is a
+sought-after capability for applications including advertis-
+ing, cinema, content creation, teleconferencing, and vir-
+tual reality. Depending on the application, avatar recon-
+struction involves different capture setups and constraints—
+from elaborate visual effects workflows involving hundreds
+of reference images [2] to more constrained settings where
+content creators seek to animate a single “in-the-wild” im-
+age [79]. In every application, photorealism and fidelity to
+the subject’s likeness are paramount. In this paper, we seek
+a general method to reconstruct photorealistic 4D (dynamic
+3D) portrait avatars that are consistent with the likeness of
+any number of input reference images—e.g., from one to
+100—while enabling real-time animation and rendering.
+Conventional methods for reconstructing photorealis-
+tic, animatable avatars rely on setups involving camera ar-
+rays [2, 50, 53, 58] or monocular video sequences [30, 32,
+44, 91, 115]. These setups aim to capture sufficient vari-
+ation in poses and expressions to enable 4D avatar recon-
+struction, often through multi-view stereo [29] or neural
+rendering techniques [84]. However, these methods strug-
+gle to produce accurate results if the captured reference im-
+ages lack sufficient diversity in poses or expressions.
+To address this limitation, recent techniques leverage
+large datasets of 2D portrait images [45, 65, 92] and 3D
+scans [20, 33, 99, 116] to train diffusion models that cap-
+ture robust priors on human appearance, enabling the recon-
+struction of 2D [85], 3D [36, 68], or 4D avatars [18] from
+a single reference image. Still, most diffusion-based meth-
+ods focus on 2D representations [17, 24, 36, 85, 93], and
+inference with diffusion models is computationally expen-
+sive, which is a major obstacle to real-time rendering and
+animation. Moreover, no existing technique for 4D avatar
+reconstruction scales seamlessly from one to hundreds of
+reference images while consistently providing photorealis-
+tic results.
+Here, we introduce CAP4D, a method that uses a mor-
+phable multi-view diffusion model (MMDM) to reconstruct
+photoreal 4D avatars that are based on any number of ref-
+erence images and that are animated and rendered in real
+time (see Figure 1). Similar to other multi-view diffusion
+models [18, 31, 57, 78], MMDMs generate novel views of
+a scene based on reference images and pose conditioning.
+Our approach uses a 3D morphable model (3DMM) [9, 53]
+to provide pose and expression conditioning for the refer-
+ence images [83] and to control the appearance of the gen-
+erated images.
+CAP4D reconstructs 4D avatars in two stages. In the
+first stage, the MMDM uses an iterated generation process
+to synthesize hundreds of images from novel viewpoints
+with a wide range of expressions. While the MMDM nom-
+inally supports only a limited number of reference and gen-
+erated images, we lift this restriction through a stochastic
+input/output (I/O) conditioning procedure inspired by re-
+1
+arXiv:2412.12093v1  [cs.CV]  16 Dec 2024
+
+
+single image to 4D avatar
+few images to 4D avatar
+many images to 4D avatar
+text to 4D avatar
+reconstructed 4D avatar
+generated images (MMDM)
+reference image
+Figure 1. We present CAP4D: a method that generates 4D portrait avatars based on an arbitrary number of reference images (e.g., from one
+to one hundred) and animates them in real time. Our approach uses a morphable multi-view diffusion model to predict novel views with
+unseen expressions. For each subject, we generate hundreds of such views and train an animatable avatar using a representation based on
+3D Gaussian splatting. Our method demonstrates state-of-the-art results for portrait view synthesis from a single image, monocular videos,
+or multi-view camera setups based on visual quality, identity consistency, 3D structure, and temporal consistency.
+2
+
+
+cent work on view synthesis [90] and video generation [52].
+Specifically, at different steps of the reverse diffusion pro-
+cess [80], we condition the diffusion model on different in-
+put reference images and noisy generated outputs, enabling
+generation of hundreds of novel views based on a large
+number of reference images. In the second stage, we use
+the generated images to train a real-time 4D avatar based
+on 3D Gaussian splatting [69]. We augment the represen-
+tation with an expression dependent appearance model to
+improve photorealism, and the resulting avatar can be an-
+imated and rendered in real time. Our approach outper-
+forms other methods for view synthesis and animation of
+head avatars that use one, few, or many reference images as
+input, and is thus relevant to a broad range of applications.
+Overall we make the following contributions.
+• We introduce an MMDM for multi-view portrait image
+generation with pose and expression control, and we pro-
+pose a stochastic I/O conditioning procedure to generate
+self-consistent portrait images given an arbitrary number
+of input reference images and novel viewpoints.
+• We develop a technique to distill generated portrait im-
+ages into a 4D avatar that is animated and rendered in
+real time.
+• We perform an extensive evaluation of our approach for
+self-reenactment and cross-identity reenactment from one
+or more reference images, and we demonstrate state-of-
+the-art results for these tasks.
+2. Related Work
+Our work is connected to methods for avatar reconstruction
+that use different types of input data (e.g., multi-view im-
+agery, monocular video, or single images).
+Monocular and multi-view avatar reconstruction.
+Pre-
+vious work reconstructs animatable 3D avatars from multi-
+view images or monocular video using textured mesh mod-
+els [4, 15, 35, 44, 60, 111], volumetric representations [7,
+34, 115], or point-based representations [112]. Textured
+mesh models are efficient to render and can be animated
+using 3DMMs [9]; however, they often fail to represent
+detailed structures like hair or teeth. Alternatively, volu-
+metric representations model fine-grained appearance and
+produce photoreal results, but they are more computation-
+ally expensive to render [64]. Further, they require more
+sophisticated dynamics models, such as conditioning on
+3DMM parameters [3, 30, 110] or learned latent codes [34].
+While point-based methods can be animated via deforma-
+tion [112], they face a tradeoff between rendering efficiency
+and photorealism based on the number of points in the rep-
+resentation. CAP4D builds on 3D Gaussian splatting [47]—
+a hybrid between point-based and volumetric representa-
+tions that represents scenes using Gaussian primitives, is
+efficient to optimize, and achieves photoreal reconstruction
+quality [43, 76, 91, 97]. We adapt a real-time representation
+based on GaussianAvatars [69], which we optimize based
+on the output of the MMDM.
+Single image avatar reconstruction.
+By leveraging pri-
+ors learned from large datasets, single-image methods di-
+rectly regress 3D avatar representations based on textured
+meshes [48, 99, 116], feature grids [22, 49, 54, 61, 86,
+87], or neural radiance fields [70, 114].
+They perform
+novel view synthesis with expression control via 3DMMs,
+conditioning with latent codes, or predicted deformation
+fields [19, 26, 89, 96, 98, 100, 102]. Other approaches oper-
+ate entirely in 2D, and render novel expressions and poses
+through learned warping and inpainting operations applied
+to a reference image [14, 25, 37, 71, 79, 95, 101, 103–105].
+Overall, techniques for directly regressing 3D representa-
+tions require prediction in a canonical space, which can fail
+with extreme head poses or strong variations in appearance
+(e.g., non-photoreal or animated scenes). 2D techniques of-
+ten fail to inpaint discluded regions when head pose deviates
+significantly from the reference image. CAP4D sidesteps
+the limitations of these methods by using the MMDM to
+generate multi-view images based on one or more reference
+images; then we use iterative optimization to reconstruct
+the 4D avatar. Thus, our approach inherits the strengths of
+learned priors and iterative reconstruction methods.
+Multi-view diffusion models.
+Our work builds on rapid
+progress in the areas of 2D and 3D generation [12, 27, 41,
+77]. We leverage latent diffusion models [72], which were
+developed for image and video generation [8, 11, 16, 38]
+and enable synthesis of 3D or 4D objects [5, 6, 67, 81]
+and 3D or 4D avatars [68, 106, 113]. We also build on
+multi-view diffusion models [78] that generate multiple im-
+ages of the same scene simultaneously for 3D reconstruc-
+tion. In this vein, we are inspired by CAT3D [31], which
+trains a multi-view diffusion model on large image datasets;
+at inference time, hundreds of novel views are generated
+from a single image to reconstruct the scene in 3D. Our
+approach uses a similar generate-and-reconstruct paradigm,
+but we generate dynamic avatars rather than static scenes,
+and we enable controllable real-time rendering. Close to
+our work, Chen et al. [18] train a morphable multi-view dif-
+fusion model conditioned on 3DMM information for single-
+image 3D avatar reconstruction. Given a reference image,
+they generate a fixed number of novel views with control-
+lable expressions and then directly infer a 3D representa-
+tion. However, their approach cannot generate consistent
+video frames and does not support real-time rendering.
+3
+
+
+Morphable
+Multi-view
+Diffusion
+Model
+b) 4D avatar reconstruction
+4D avatar
+stochastic input-output conditioning
+3DMM estimator
+t = T, T −1, ..., 1
+a) image generation
+3DMM
+sampler
+Figure 2. Overview of CAP4D. (a) The method takes as input an arbitrary number of reference images Iref that are encoded into the latent
+space of a variational autoencoder [72]. An off-the-shelf face tracker estimates a 3DMM, Mref, for each reference image, from which
+we derive conditioning signals that describe camera view direction, Vref, head pose Pref, and expression Eref. We associate additional
+conditioning signals with each input noisy latent image based on the desired generated viewpoints, poses, and expressions. The MMDM
+generates images through a stochastic input–output conditioning procedure that randomly samples reference images and generated images
+during each step of the iterative image generation process. (b) The generated and reference images are used with the tracked and sampled
+3DMMs to reconstruct a 4D avatar based on a 3D Gaussian splatting representation [47, 69].
+3. Method
+CAP4D consists of two main stages: (1) a morphable multi-
+view diffusion model that generates a large number of novel
+views from input reference images, and (2) an animatable
+4D representation based on 3D Gaussian splatting represen-
+tation that is reconstructed from the reference and generated
+images. We provide an overview of CAP4D in Figure 2.
+3.1. Morphable Multi-View Diffusion Model
+We train an MMDM that takes a set of R reference images,
+Iref = {i(r)
+ref }R
+r=1, as input and outputs G generated images,
+Igen = {i(g)
+gen}G
+g=1. The model is conditioned on additional
+information including the head pose, expression, and cam-
+era view direction for each reference and generated image,
+given as Cref = {c(r)
+ref }R
+r=1 and Cgen = {c(g)
+gen}G
+g=1. In this
+way, the MMDM learns the joint probability of generated
+images:
+P(Igen|Iref, Cref, Cgen).
+(1)
+Architecture.
+Our model is initialized from Stable Diffu-
+sion 2.1 [72], and we adapt the architecture for multi-view
+generation following previous work [31]. Specifically, we
+use a pre-trained image auto-encoder [72] to encode images
+into a low-resolution latent space, and we use the latent dif-
+fusion model to processes R reference latent images, Zref,
+and G generated latent images Zgen in parallel. To share in-
+formation between the processed latents for each image, we
+replace 2D attention layers after 2D residual blocks with 3D
+attention (i.e., two spatial dimensions and one dimension
+across input images). We also remove the cross-attention
+layers since we do not use a text conditioning input. We
+fine-tune the model by optimizing all parameters.
+The model is conditioned on additional images that pro-
+vide the head pose, expression, camera view and other con-
+textual information for each reference and generated im-
+age.
+These conditioning images consist of (1) 3D pose
+maps, Pref/gen, that provide the rasterized canonical 3D co-
+ordinates of the head geometry; (2) expression deforma-
+tion maps, Eref/gen, containing the rasterized 3D deforma-
+tions of the geometry relative to the neutral expression
+mesh; (3) view direction maps, Vref/gen, showing the di-
+rection of each camera ray in the first camera reference
+frame; and (4) binary masks Bref/gen that indicate whether
+the input is a reference or generated image. We express
+the conditioning information for the reference images as
+Cref = {Pref, Eref, Vref, Bref} (defined analogously for the
+generated images), and we concatenate them to the latent
+reference images, Zref, as input to the network.
+3D pose map conditioning.
+To obtain the 3D pose maps,
+Pref/gen (illustrated in Figure 2), we use an off-the-shelf
+head tracker [83] that jointly fits a FLAME model [53] to
+each reference image. The tracker provides the shape, head
+pose, and expression blendshapes, along with camera intrin-
+sics and extrinsics. We apply the blendshapes to a template
+model, T, to recover the 3D models, Mref = {m(r)
+ref }R
+r=1,
+corresponding to each reference image; we similarly define
+3D models, Mgen = {m(g)
+gen}G
+g=1, for the generated images
+based on the desired head poses, expressions, and camera
+positions. Finally, we assign a texture to each vertex of
+Mref/gen, consisting of the 3D position of the corresponding
+vertex in the template mesh T.
+The 3D pose map is rendered by rasterizing the textures
+of Mref/gen from the viewpoint of each reference and gener-
+ated image:
+p(r)
+ref = γ
+h
+RASTERIZE
+
+m(r)
+ref , T, Π(r)
+ref
+i
+,
+(2)
+where p(r)
+ref ∈Pref is the 3D pose map for the rth reference
+image, RASTERIZE performs rasterization of the reference
+4
+
+
+mesh using the associated 3D vertex position textures from
+the template mesh, and Π(r)
+ref is the camera projection matrix
+given by the intrinsics and extrinsics. The function γ per-
+forms positional encoding [64] that maps the rasterized 3D
+vertex position at each pixel into a high-dimensional fea-
+ture using sine and cosine functions (see the supplement for
+additional details). We render the 3D pose maps for the
+generated images in the same fashion.
+Expression deformation map conditioning.
+To facilitate
+the generation of subtle expression changes, we explicitly
+condition the network with expression deformation maps,
+Eref/gen. We employ a procedure similar to that used for the
+3D pose map, but we assign a different texture to each ver-
+tex of Mref/gen. Specifically, at each vertex, we calculate
+the 3D offset to the corresponding vertex of a 3D model
+that shares the same shape blendshapes, but uses the neu-
+tral expression blendshape. Then, we rasterize these vertex
+textures from the camera viewpoints of the reference and
+generated images. We omit the positional encoding step be-
+cause the expression deformations have relatively low spa-
+tial frequencies [82].
+View direction map and mask conditioning.
+For each
+reference and generated image, we encode the correspond-
+ing per-pixel ray directions into images, Vref/gen. We use
+ray directions, expressed relative to the reference frame of
+the first view, based on the estimated camera intrinsics and
+extrinsics from the tracker. An additional binary mask in-
+dicates whether the input image is a reference or generated
+image, and an outcropping mask identifies padded regions
+added to the reference images after center cropping around
+the head (see the supplement for additional details). All
+conditioning images are rendered at the latent image resolu-
+tion and concatenated to the reference and generated latent
+images before input to the MMDM.
+3.2. Generation
+The first stage of our 4D avatar reconstruction procedure is
+an iterative image generation process. Given any number of
+reference images as input, we generate hundreds of novel
+views with a range of expressions.
+Inference with stochastic I/O conditioning.
+The appear-
+ance of occluded head regions and expression-dependent
+features is ambiguous if only a few reference images are
+provided (e.g., hair on the back of the head, teeth covered
+by lips, wrinkles, etc.). Since the MMDM architecture can
+only take up to four reference images as input in a single
+forward pass, outputs of the model when using different
+reference images could have a very different likeness. To
+bypass this issue, we use a stochastic input–output (I/O)
+Alg. 1: Inference with Stochastic I/O Conditioning
+Input: Reference image latents and conditioning
+Zref, Cref, Cgen
+R = |Zref| = |Cref|, G = |Cgen|
+G′: generated latents in each forward pass
+Output: Generated image latents Zgen
+Zgen,T ∼N(0, I) // sample noisy latents
+for t in (T, T −1 , . . . , 1) do
+// shuffle generated latents
+(Z′
+gen,t, C′
+gen) ←SHUFFLE(Zgen,t, Cgen)
+for i in (0, . . . , G −1) do
+// sample w/o replacement
+(Z′
+ref, C′
+ref) ←RANDSAMPLE ((Zref, Cref))
+// sample next batch
+(Z′
+gen,t, C′
+gen) ←(Zgen,t, Cgen)[iG′+1 : (i+1)G′]
+// predict noise
+ϵidx,t = MMDM(Z′
+gen,t|Z′
+ref, C′
+ref, C′
+gen)
+// apply DDIM step [80]
+Z′
+gen,t−1 =√αt−1(
+Zgen,t−√
+1−αtϵidx,t
+√αt
+) +
+p1 −αt−1 · ϵidx,t
+return Zgen := Zgen,0
+conditioning procedure where we pass a random subset of
+input reference images and generated images to the model
+at each diffusion timestep. This procedure has multiple ben-
+efits: (1) it improves the consistency of generated images;
+(2) it provides a mechanism to condition on tens to hundreds
+of reference images; and (3) it likewise enables generating
+hundreds of consistent output images.
+A detailed description of inference using stochastic I/O
+conditioning is provided in Algorithm 1. We build on con-
+ventional denoising diffusion implicit model sampling [80]
+by adding an inner loop in each diffusion timestep where
+we shuffle the generated images and iterate over them in
+batches.
+Within this inner loop, we sample a batch of
+the generated images and a random subset of the reference
+images. Then, the model predicts the denoised generated
+latent images at the subsequent diffusion timestep using
+DDIM sampling. After iterating through all the generated
+images, we proceed to the next diffusion timestep, proceed-
+ing until all images have been completely denoised. Given
+a sufficient number of diffusion steps (we use 250), all ref-
+erence and generated images participate jointly in the image
+generation process.
+3.3. Robust 4D Avatar Reconstruction
+Given the reference images, generated images, FLAME pa-
+rameters, and camera views, we synthesize a 4D avatar.
+We build our representation based on GaussianAvatars [69],
+which uses a collection of 3D Gaussian splats attached to
+the triangles of a FLAME head mesh. Each Gaussian is
+linked to a specific parent triangle, with deformations mod-
+5
+
+
+eled by expression blendshapes that drive the mesh and tri-
+angle deformations. Additional Gaussians are added during
+optimization by splitting the existing Gaussians and assign-
+ing the new Gaussians to the same triangle. Different than
+GaussianAvatars, we remesh the FLAME head to achieve
+pixel-aligned vertices in UV space at 128 × 128 resolu-
+tion. We capture fine-grained, expression-dependent defor-
+mations using a U-Net [73] that predicts a UV deformation
+map given the offsets in UV space due to the expression
+blendshape. We use our modified FLAME mesh, with an
+upper jaw mesh and an additional lower jaw mesh, which
+follows the design in GaussianAvatars. For more informa-
+tion please refer to the supplement.
+To optimize the representation, we use the generated im-
+ages alongside the sampled expression parameters, head
+poses, and camera poses. Additionally, we apply Laplacian
+regularization on the predicted deformation map and an L2
+regularization on the relative deformation and rotation of
+every Gaussian splat. We include an LPIPS [108] loss to im-
+prove robustness as proposed by previous work [31], where
+we increase λLPIPS linearly with the number of iterations.
+Additional details about the optimization and regularizers
+are included in the supplement.
+4. Implementation
+Training.
+We use a collection of monocular and multi-
+view videos to train our model: VFHQ [92], MEAD [88],
+Ava-256 [63] and Nersemble [50]. This amounts to 24.6k
+video sequences with a total number of 41.3M frames of
+6317 diverse subjects. We use an off-the-shelf multi-view
+head tracker [83] to obtain 3DMM parameters along with a
+gaze estimator [1] to obtain the eye rotation from the video
+sequences. We train the model with the AdamW [59] opti-
+mizer, a learning rate of 10−4, and batch size 64. We train
+the model for 80k iterations with R = 1, then train it for
+an additional 20k iterations with randomly chosen R <= 4
+for a total of 100k iterations. During training, we randomly
+drop-out all conditioning signals with a probability of 0.1,
+and we apply a classifier-free guidance [40] during infer-
+ence. Training takes 2 weeks on 8×H100 GPUs.
+Sampling and 4D reconstruction.
+We generate G = 840
+images using 250 DDIM steps with stochastic I/O condi-
+tioning, which takes around 4 hours on 4×RTX6000 GPUs.
+4D avatar reconstruction requires 100k iterations (≈4 hours
+on a single RTX6000 GPU). We provide additional opti-
+mization details in the supplement.
+5. Experiments
+We apply CAP4D to the tasks of self-reenactment and
+cross-reenactment and provide experimental results and
+comparisons to baselines. We also conduct an extensive set
+of ablation studies to assess the impact of individual com-
+ponents of our method: the MMDM, stochastic I/O condi-
+tioning, and the 4D representation.
+Baselines
+We implement and compare our method to
+baselines for single-view 4D avatar reconstruction: GAGA-
+vatar [19],
+Portrait4D-v2 [23],
+Real3D-Portrait [100]
+Voodoo3D [86].
+We also include several multi-view re-
+construction methods: DiffusionRig [24], FlashAvatar [91]
+and GaussianAvatars [69]. Last, we evaluate two ablated
+versions of our method—one without the MMDM (“w/o
+MMDM”; i.e., we reconstruct the avatar directly from the
+reference images) and one where the MMDM directly pre-
+dicts the target frames (“MMDM only”).
+5.1. Self-reenactment
+We evaluate self-reenactment on nine multi-view capture
+sequences from the Nersemble [50] dataset. We hold out
+4 of the 16 camera viewpoints for evaluation (each with
+100 frames). From the remaining viewpoints, we select one
+(single), 10 (few), or 100 (many) reference images. Given
+the reference images, we assess how well each method reen-
+acts the appearance of the evaluation images.
+CAP4D significantly outperforms every baseline in the
+single- and few-image reconstruction categories (Tab. 1)
+in terms of photometric accuracy (PSNR, LPIPS), tempo-
+ral consistency [62] (JOD) and identity preservation (using
+cosine similarity of identity embeddings [21]; CSIM). In
+the “many” reference image category, CAP4D achieves sig-
+nificantly higher LPIPS and CSIM than previous methods,
+indicating that avatars reconstructed with our method are
+sharper while improving identity preservation. Although
+FlashAvatar achieves competitive PSNR, its output images
+are blurrier than CAP4D (see Fig. 3), and hence it has a
+lower LPIPS score. We find that GaussianAvatars, FlashA-
+vatar, and our 4D avatar trained without generated images
+(no-MMDM) tend to overfit to the reference views and do
+not generalize well to novel views. Our method improves
+with the number of reference images (see, e.g., CSIM),
+and by predicting the target frames directly (MMDM only),
+we achieve even higher visual quality (PSNR) at the cost
+of temporal consistency (JOD). Qualitatively CAP4D pro-
+duces avatars with significantly higher visual fidelity than
+all baselines, especially for large deviations from the refer-
+ence view (e.g., Fig. 3, row 1).
+5.2. Cross-reenactment
+To evaluate cross-reenactment, we select 10 reference im-
+ages from the FFHQ [46] dataset. We pair five of the images
+with videos from VFHQ [92], which have a normal expres-
+sion range, and we select five videos with more extreme ex-
+pressions from Nersemble. The avatar is reconstructed from
+the reference image and the video drives its expressions.
+6
+
+
+DiffusionRig
+GaussianAvatars
+FlashAvatar
+MMDM only
+CAP4D
+GT
+GT
+reference images
+reference image
+Voodoo3D
+Portrait4D-v2
+GAGAvatar
+MMDM only
+CAP4D
+Figure 3. Self-reenactment. Our approach is more realistic than baseline methods for self-reenactment from a single reference image (row
+1), 10 reference images (row 2) and 100 reference images (row 3). The MMDM output (MMDM only) produces the most realistic output
+at the cost of temporal consistency compared to our reconstructed 4D Avatar (CAP4D).
+single reference image
+Method
+PSNR↑LPIPS↓CSIM↑JOD↑
+Voodoo3D [86]
+19.05
+0.381
+0.282
+4.782
+GAGAvatar [19]
+20.78
+0.373
+0.457
+5.034
+Real3D [100]
+17.42
+0.417
+0.420
+4.681
+Portrait4D-v2 [23]
+16.94
+0.404
+0.436
+3.871
+MMDM only
+21.82
+0.317
+0.632
+5.397
+CAP4D
+21.69
+0.311
+0.633
+5.672
+10 reference images
+100 reference images
+Method
+PSNR↑LPIPS↓CSIM↑JOD↑PSNR↑LPIPS↓CSIM↑JOD↑
+DiffusionRig [24]
+16.55
+0.450
+0.475
+3.89
+16.61
+0.446
+0.435
+3.86
+FlashAvatar [91]
+14.21
+0.456
+0.489
+2.92
+22.87
+0.313
+0.731
+6.03
+GaussianAvatars [69] 18.97
+0.448
+0.478
+4.33
+20.01
+0.416
+0.722
+5.10
+no MMDM
+17.05
+0.404
+0.578
+4.19
+19.07
+0.333
+0.758
+4.97
+MMDM only
+23.82
+0.270
+0.804
+6.06
+24.12
+0.266
+0.803
+6.14
+CAP4D
+23.19
+0.265
+0.779
+6.13
+23.30
+0.257
+0.792
+6.15
+Table 1. Single-image (left) and multi-image (right) self-reenactment results. CAP4D outperforms previous methods across all metrics.
+Predicting images directly with the MMDM (MMDM only) trades off photometric quality (PSNR, LPIPS) and temporal consistency (JOD).
+H+46°
+V+4°
+H+40°
+V+6°
+H-47°
+V+3°
+driving image
+Voodoo3D
+Real3D
+Portrait4D-v2
+GAGAvatar
+CAP4D
+reference image
+Figure 4. Cross-reenactment. Avatars are reconstructed from a single reference image (col. 1), and their expressions are driven by frames
+of a driving video (col. 2). The camera moves according to the indicated horizontal (H) and vertical (V) view angle. CAP4D faithfully
+recovers the driving expression and maintains the likeness of the reference subject from challenging view directions. It generates plausible
+results in occluded regions based on the reference image (e.g., earrings, row 1) and recovers high-frequency details (freckles, row 1).
+7
+
+
+2D edit
+2D edit
+relighting
+virtual make-up
+speech to 4D
+Figure 5. Extensions. We demonstrate 4D appearance editing and relighting by applying CAP4D to images edited using off-the-shelf
+models [66, 109]. We also animate CAP4D avatars with a method that predicts 3DMM expressions from speech [94] (see supplement).
+human preference
+Method
+CSIM↑
+VQ
+ET
+3DS
+TC
+Overall
+Voodoo3D [86]
+0.349
+94% 94% 98% 99%
+97%
+Real3D [100]
+0.647
+97% 90% 94% 94%
+96%
+Portrait4D-v2 [23]
+0.597
+80% 73% 85% 89%
+85%
+GAGAvatar [19]
+0.606
+75% 63% 74% 77%
+74%
+CAP4D
+0.634
+—
+Table 2. Cross-reenactment results. We evaluate identity simi-
+larity (CSIM) and human preference based on visual quality (VQ),
+expression transfer (ET), 3D structure (3DS), temporal consis-
+tency (TC), and overall preference (Overall). The table reports the
+percentage of users (23 participants) who preferred CAP4D over
+the corresponding baseline in side-by-side comparisons.
+We assess the results using the CSIM metric (Tab. 2) and
+in a user study, where 24 participants were presented with
+reference images, driving videos, and side-by-side videos
+generated with CAP4D and a baseline. Then, participants
+indicated their preference for each of the following criteria:
+visual quality, expression transfer accuracy, quality of 3D
+structure, temporal consistency, and overall preference.
+The results of the user study (Tab. 2) show a clear prefer-
+ence toward CAP4D overall (74% versus the most compet-
+itive baseline), as well as across all other criteria. Although
+Real3D-Portrait [100] achieves slightly better performance
+in the CSIM metric, human users overwhelmingly prefer
+CAP4D to Real3D. Qualitative results (Fig. 4) indicate that
+CAP4D more faithfully captures the 3D appearance of the
+reference subject. Further, it preserves high-frequency de-
+tail better, is robust to large viewpoint changes, and pro-
+duces 3D consistent video when other methods fail.
+5.3. Ablations and Extensions
+Ablation study.
+We investigate the design choices of our
+method relating to the MMDM, the stochastic sampling
+strategy, and the 4D reconstruction stage in Tab. 3. All ab-
+lations are conducted on the self-reenactment task with 10
+reference images. Please refer to the supplement for more
+ablations and qualitative comparisons.
+(MMDM) We ablate the expression deformation map
+(w/o expr) and view direction conditioning (w/o ray) after
+training the model for 30k steps. We find that the expression
+deformation map has a significant impact on photometric
+quality while the impact of view direction is less significant.
+(Stochastic I/O sampling) We directly predict the eval-
+uation frames (MMDM-only) with and without stochastic
+Category
+Ablation
+PSNR ↑LPIPS ↓CSIM ↑JOD ↑
+MMDM
+w/o expr
+21.64
+0.320
+0.669
+5.43
+w/o ray
+22.66
+0.315
+0.665
+5.59
+Ours
+22.54
+0.308
+0.668
+5.59
+sampling w/o stochastic
+23.43
+0.282
+0.755
+5.92
+Ours
+23.82
+0.270
+0.779
+6.06
+4D rep.
+w/o U-Net
+21.25
+0.327
+0.617
+5.63
+w/o LPIPS
+21.75
+0.400
+0.615
+5.63
+Ours
+21.69
+0.311
+0.633
+5.67
+Table 3. Ablation study. We assess the impact of removing the
+expression maps, view ray conditioning, stochastic I/O condition-
+ing, and the deformation U-Net and LPIPS reconstruction loss.
+sampling (w/o stochastic) with 10 reference frames. Tab. 3
+shows that the stochastic sampling strategy improves the
+PSNR, CSIM, and JOD. (4D avatar fitting) We ablate our
+U-Net, which predicts expression-dependent deformations
+of the 3D Gaussians (“no U-Net”); without this component
+we see a decrease in PSNR and LPIPS due to a reduced ca-
+pability to model effects such as wrinkles. We also ablate
+the LPIPS loss—removing it improves PSNR but at a cost
+to LPIPS and perceptual image equality.
+Extensions.
+We demonstrate text-to-4D avatars genera-
+tion by leveraging off-the-shelf image generation models
+such as Midjourney (Fig. 1). Similarly, we can extend any
+2D face editing model to 4D by generating avatars from
+an edited reference image. We show virtual make-up and
+relighting examples in Fig. 5. Lastly, we exhibit speech-
+driven animation of a CAP4D avatar using an off-the-shelf
+FLAME-based [94] (see videos in the supplement).
+6. Discussion
+We see multiple promising avenues for future work. Cur-
+rently, generation is time-consuming (up to 8 hours), and
+while the 3DMM is convenient to animate the avatar, it
+does not model certain effects (e.g., tongue or hair mo-
+tion).
+Future extensions could enable animation without
+3DMMs and improve appearance modeling through con-
+trollable lighting (e.g., similar to Saito et al. [74]). Finally,
+our method could be extended to model the full body.
+Ethics statement.
+Digital human avatars are important to
+many applications, but can also be misused. We encour-
+age responsible use of this technology (see Hancock and
+Bailenson [39] for an extended discussion).
+8
+
+
+Acknowledgements.
+DBL
+acknowledges
+support
+from LG Electronics,
+the Natural Sciences and En-
+gineering
+Research
+Council
+of
+Canada
+(NSERC)
+under the RGPIN, RTI, and Alliance programs,
+the
+Canada
+Foundation
+for
+Innovation,
+and
+the
+On-
+tario Research Fund.
+The authors also acknowledge
+computing support provided by the Vector Institute.
+References
+[1] Ahmed A. Abdelrahman, Thorsten Hempel, Aly Khalifa,
+Ayoub Al-Hamadi, and Laslo Dinges. L2CS-Net : Fine-
+grained gaze estimation in unconstrained environments. In
+Proc. ICFSP, pages 98–102, 2023. 6, 5
+[2] Oleg Alexander, Mike Rogers, William Lambeth, Jen-Yuan
+Chiang, Wan-Chun Ma, Chuan-Chang Wang, and Paul De-
+bevec. The digital Emily project: Achieving a photorealis-
+tic digital actor. IEEE Comput. Graph. Appl., 30(4):20–31,
+2010. 1
+[3] ShahRukh Athar, Zexiang Xu, Kalyan Sunkavalli, Eli
+Shechtman, and Zhixin Shu. RigNeRF: Fully controllable
+neural 3D portraits. In Proc. CVPR, 2022. 3
+[4] ShahRukh Athar, Shunsuke Saito, Zhengyu Yang, Stanislav
+Pidhorsky, and Chen Cao. Bridging the gap: Studio-like
+avatar creation from a monocular phone capture. In Proc.
+ECCV, 2024. 3
+[5] Sherwin Bahmani, Xian Liu, Wang Yifan, Ivan Sko-
+rokhodov, Victor Rong, Ziwei Liu, Xihui Liu, Jeong Joon
+Park, Sergey Tulyakov, Gordon Wetzstein, et al. TC4D:
+Trajectory-conditioned text-to-4D generation.
+In Proc.
+ECCV, 2024. 3
+[6] Sherwin Bahmani, Ivan Skorokhodov, Victor Rong, Gor-
+don Wetzstein, Leonidas Guibas, Peter Wonka, Sergey
+Tulyakov, Jeong Joon Park, Andrea Tagliasacchi, and
+David B Lindell. 4D-fy: Text-to-4D generation using hy-
+brid score distillation sampling. In Proc. CVPR, 2024. 3
+[7] Ziqian Bai, Feitong Tan, Zeng Huang, Kripasindhu Sarkar,
+Danhang Tang, Di Qiu, Abhimitra Meka, Ruofei Du, Ming-
+song Dou, Sergio Orts-Escolano, et al. Learning personal-
+ized high quality volumetric head avatars from monocular
+RGB videos. In Proc. CVPR, 2023. 3
+[8] Jason Baldridge, Jakob Bauer, Mukul Bhutani, Nicole
+Brichtova, Andrew Bunner, Kelvin Chan, Yichang Chen,
+Sander Dieleman, Yuqing Du, Zach Eaton-Rosen, et al. Im-
+agen 3. arXiv preprint arXiv:2408.07009, 2024. 3
+[9] Volker Blanz and Thomas Vetter. A morphable model for
+the synthesis of 3D faces. In Proc. SIGGRAPH, 1999. 1, 3
+[10] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel
+Mendelevitch, Maciej Kilian, Dominik Lorenz, Yam Levi,
+Zion English, Vikram Voleti, Adam Letts, et al.
+Stable
+video diffusion: Scaling latent video diffusion models to
+large datasets. arXiv preprint arXiv:2311.15127, 2023. 1,
+2
+[11] Andreas Blattmann, Robin Rombach, Huan Ling, Tim
+Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten
+Kreis. Align your latents: High-resolution video synthesis
+with latent diffusion models. In Proc. CVPR, 2023. 3
+[12] Tim Brooks, Bill Peebles, Connor Holmes, Will DePue,
+Yufei Guo, Li Jing, David Schnurr, Joe Taylor, Troy Luh-
+man, Eric Luhman, et al. Video generation models as world
+simulators, 2024. 3
+[13] Adrian Bulat and Georgios Tzimiropoulos. How far are we
+from solving the 2D & 3D face alignment problem? (and
+a dataset of 230,000 3D facial landmarks). In Proc. ICCV,
+2017. 5
+[14] Egor Burkov, Igor Pasechnik, Artur Grigorev, and Victor
+Lempitsky. Neural head reenactment with latent pose de-
+scriptors. In Proc. CVPR, 2020. 3
+[15] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz,
+Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi,
+Shih-En Wei, Danielle Belko, Shoou-I Yu, et al. Authentic
+volumetric avatars from a phone scan. ACM Trans. Graph.,
+41(4):1–19, 2022. 3
+[16] Haoxin Chen, Yong Zhang, Xiaodong Cun, Menghan Xia,
+Xintao Wang, Chao Weng, and Ying Shan. VideoCrafter2:
+Overcoming data limitations for high-quality video diffu-
+sion models. In Proc. CVPR, 2024. 3
+[17] Ken Chen, Sachith Seneviratne, Wei Wang, Dongting Hu,
+Sanjay Saha, Md Tarek Hasan, Sanka Rasnayaka, Tamasha
+Malepathirana, Mingming Gong, and Saman Halgamuge.
+AniFaceDiff:
+High-fidelity face reenactment via facial
+parametric conditioned diffusion models.
+arXiv preprint
+arXiv:2406.13272, 2024. 1
+[18] Xiyi Chen, Marko Mihajlovic, Shaofei Wang, Sergey
+Prokudin, and Siyu Tang.
+Morphable Diffusion:
+3D-
+consistent diffusion for single-image avatar creation.
+In
+Proc. CVPR, 2024. 1, 3
+[19] Xuangeng Chu and Tatsuya Harada. Generalizable and an-
+imatable Gaussian head avatar. In Proc. NeurIPS, 2024. 3,
+6, 7, 8, 5
+[20] Hang Dai, Nick Pears, William Smith, and Christian Dun-
+can. Statistical modeling of craniofacial shape and texture.
+Int. J. Comput. Vis., 128(2):547–571, 2020. 1
+[21] Jiankang Deng, Jia Guo, Jing Yang, Niannan Xue, Irene
+Kotsia, and Stefanos Zafeiriou. ArcFace: Additive angu-
+lar margin loss for deep face recognition. IEEE Transac-
+tions on Pattern Analysis and Machine Intelligence, 44(10):
+5962–5979, 2022. 6
+[22] Yu Deng, Duomin Wang, Xiaohang Ren, Xingyu Chen, and
+Baoyuan Wang.
+Portrait4D: Learning one-shot 4D head
+avatar synthesis using synthetic data. In Proc. CVPR, 2024.
+3
+[23] Yu Deng, Duomin Wang, and baoyuan Wang. Portrait4D-
+v2: Pseudo multi-view data creates better 4D head synthe-
+sizer. arXiv, 2024. 6, 7, 8
+[24] Zheng Ding, Xuaner Zhang, Zhihao Xia, Lars Jebe,
+Zhuowen Tu, and Xiuming Zhang. DiffusionRig: Learning
+personalized priors for facial appearance editing. In Proc.
+CVPR, 2023. 1, 6, 7
+[25] Michail Christos Doukas, Stefanos Zafeiriou, and Viktoriia
+Sharmanska. HeadGAN: One-shot neural head synthesis
+and editing. In Proc. ICCV, 2021. 3
+[26] Nikita Drobyshev, Jenya Chelishev, Taras Khakhulin, Alek-
+sei Ivakhnenko, Victor Lempitsky, and Egor Zakharov.
+9
+
+
+MegaPortraits: One-shot megapixel neural head avatars. In
+Proc. ACM-MM, 2022. 3
+[27] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim
+Entezari, Jonas M¨uller, Harry Saini, Yam Levi, Dominik
+Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling rectified
+flow transformers for high-resolution image synthesis. In
+Proc. ICML, 2024. 3
+[28] Yao Feng, Haiwen Feng, Michael J. Black, and Timo
+Bolkart. Learning an animatable detailed 3D face model
+from in-the-wild images. ACM Transactions on Graphics
+(ToG), Proc. SIGGRAPH, 40(8), 2021. 3, 5
+[29] Yasutaka Furukawa, Carlos Hern´andez, et al. Multi-view
+stereo: A tutorial. Found. Trends Comput. Graph. Vis., 9
+(1-2):1–148, 2015. 1
+[30] Guy Gafni, Justus Thies, Michael Zollhofer, and Matthias
+Nießner. Dynamic neural radiance fields for monocular 4D
+facial avatar reconstruction. In Proc. CVPR, 2021. 1, 3
+[31] Ruiqi Gao*,
+Aleksander Holynski*,
+Philipp Henzler,
+Arthur Brussee, Ricardo Martin-Brualla, Pratul P. Srini-
+vasan, Jonathan T. Barron, and Ben Poole*. Cat3d: Cre-
+ate anything in 3d with multi-view diffusion models. Proc.
+NeurIPS, 2024. 1, 3, 4, 6, 2
+[32] Pablo Garrido, Levi Valgaerts, Chenglei Wu, and Christian
+Theobalt. Reconstructing detailed dynamic face geometry
+from monocular video. ACM Trans. Graph., 32(6):1–10,
+2013. 1
+[33] Simon Giebenhain, Tobias Kirschstein, Markos Geor-
+gopoulos, Martin R¨unz, Lourdes Agapito, and Matthias
+Nießner. Learning neural parametric head models. In Proc.
+CVPR, 2023. 1
+[34] Simon Giebenhain, Tobias Kirschstein, Markos Geor-
+gopoulos, Martin R¨unz, Lourdes Agapito, and Matthias
+Nießner. MonoNPHM: Dynamic head reconstruction from
+monocular videos. In Proc. CVPR, 2024. 3
+[35] Philip-William Grassal, Malte Prinzler, Titus Leistner,
+Carsten Rother, Matthias Nießner, and Justus Thies. Neural
+head avatars from monocular rgb videos. In Proc. CVPR,
+2022. 3
+[36] Yuming Gu, Hongyi Xu, You Xie, Guoxian Song, Yichun
+Shi, Di Chang, Jing Yang, and Linjie Luo. DiffPortrait3D:
+Controllable diffusion for zero-shot portrait view synthesis.
+In Proc. CVPR, 2024. 1
+[37] Jianzhu Guo, Dingyun Zhang, Xiaoqiang Liu, Zhizhou
+Zhong, Yuan Zhang, Pengfei Wan, and Di Zhang. Live-
+Portrait: Efficient portrait animation with stitching and re-
+targeting control. arXiv preprint arXiv:2407.03168, 2024.
+3
+[38] Yuwei Guo, Ceyuan Yang, Anyi Rao, Zhengyang Liang,
+Yaohui Wang, Yu Qiao, Maneesh Agrawala, Dahua Lin,
+and Bo Dai. AnimateDiff: Animate your personalized text-
+to-image diffusion models without specific tuning. In Proc.
+ICLR, 2024. 3
+[39] Jeffrey T. Hancock and Jeremy N. Bailenson. The social
+impact of deepfakes. Cyberpsychology, Behavior, and So-
+cial Networking, 24(3):149–152, 2021. PMID: 33760669.
+8
+[40] Jonathan Ho and Tim Salimans. Classifier-free diffusion
+guidance. In NeurIPS 2021 Workshop on Deep Generative
+Models and Downstream Applications, 2021. 6
+[41] Yicong Hong, Kai Zhang, Jiuxiang Gu, Sai Bi, Yang Zhou,
+Difan Liu, Feng Liu, Kalyan Sunkavalli, Trung Bui, and
+Hao Tan. LRM: Large reconstruction model for single im-
+age to 3D. arXiv preprint arXiv:2311.04400, 2023. 3
+[42] Emiel Hoogeboom, Jonathan Heek, and Tim Salimans.
+simple diffusion: End-to-end diffusion for high resolution
+images. In Proc. ICML, 2023. 1
+[43] Liangxiao Hu, Hongwen Zhang, Yuxiang Zhang, Boyao
+Zhou, Boning Liu, Shengping Zhang, and Liqiang Nie.
+GaussianAvatar: Towards realistic human avatar modeling
+from a single video via animatable 3D Gaussians. In Proc.
+CVPR, 2024. 3
+[44] Alexandru Eugen Ichim, Sofien Bouaziz, and Mark Pauly.
+Dynamic 3D avatar creation from hand-held video input.
+ACM Trans. Graph., 34(4):1–14, 2015. 1, 3
+[45] Tero Karras, Samuli Laine, and Timo Aila. A style-based
+generator architecture for generative adversarial networks.
+In Proc. CVPR, 2019. 1
+[46] Tero Karras, Samuli Laine, and Timo Aila. A style-based
+generator architecture for generative adversarial networks.
+IEEE Transactions on Pattern Analysis & Machine Intelli-
+gence, 43(12):4217–4228, 2021. 6
+[47] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis. 3D Gaussian splatting for real-time
+radiance field rendering. ACM Trans. Graph., 42(4):1–14,
+2023. 3, 4
+[48] Taras Khakhulin, Vanessa Sklyarova, Victor Lempitsky,
+and Egor Zakharov. Realistic one-shot mesh-based head
+avatars. In Proc. ECCV, 2022. 3
+[49] Taekyung Ki, Dongchan Min, and Gyeongsu Chae. Learn-
+ing to generate conditional tri-plane for 3D-aware expres-
+sion controllable portrait animation. In Proc. ECCV, 2024.
+3
+[50] Tobias Kirschstein, Shenhan Qian, Simon Giebenhain, Tim
+Walter, and Matthias Nießner. Nersemble: Multi-view ra-
+diance field reconstruction of human heads. ACM Trans.
+Graph., 42(4):1–14, 2023. 1, 6, 3, 4, 5
+[51] Tobias Kirschstein,
+Simon Giebenhain,
+and Matthias
+Nießner.
+DiffusionAvatars: Deferred diffusion for high-
+fidelity 3D head avatars. In Proc. CVPR, 2024. 5
+[52] Zhengfei Kuang, Shengqu Cai, Hao He, Yinghao Xu,
+Hongsheng Li,
+Leonidas Guibas,
+and Gordon Wet-
+zstein.
+Collaborative video diffusion: Consistent multi-
+video generation with camera control.
+arXiv preprint
+arXiv:2405.17414, 2024. 3
+[53] Tianye Li, Timo Bolkart, Michael J Black, Hao Li, and
+Javier Romero. Learning a model of facial shape and ex-
+pression from 4D scans. ACM Trans. Graph., 36(6):194–1,
+2017. 1, 4, 3
+[54] Xueting Li, Shalini De Mello, Sifei Liu, Koki Nagano,
+Umar Iqbal, and Jan Kautz. Generalizable one-shot 3D neu-
+ral head avatar. Proc. NeurIPS, 2024. 3
+[55] Shanchuan
+Lin,
+Linjie
+Yang,
+Imran
+Saleemi,
+and
+Soumyadip Sengupta. Robust high-resolution video mat-
+ting with temporal guidance, 2021. 1
+10

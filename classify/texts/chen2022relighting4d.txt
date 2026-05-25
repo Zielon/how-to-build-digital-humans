@@ -1,0 +1,490 @@
+Title: Relighting4d: Neural relightable human from videos
+
+Relighting4D:
+Neural Relightable Human from Videos
+Zhaoxi Chen and Ziwei Liu∗
+S-Lab, Nanyang Technological University
+{zhaoxi001, ziwei.liu}@ntu.edu.sg
+Abstract. Human relighting is a highly desirable yet challenging task.
+Existing works either require expensive one-light-at-a-time (OLAT) cap-
+tured data using light stage or cannot freely change the viewpoints of
+the rendered body. In this work, we propose a principled framework,
+Relighting4D, that enables free-viewpoints relighting from only human
+videos under unknown illuminations. Our key insight is that the space-
+time varying geometry and reflectance of the human body can be decom-
+posed as a set of neural fields of normal, occlusion, diffuse, and specular
+maps. These neural fields are further integrated into reflectance-aware
+physically based rendering, where each vertex in the neural field absorbs
+and reflects the light from the environment. The whole framework can
+be learned from videos in a self-supervised manner, with physically in-
+formed priors designed for regularization. Extensive experiments on both
+real and synthetic datasets demonstrate that our framework is capable of
+relighting dynamic human actors with free-viewpoints. Codes are avail-
+able at https://github.com/FrozenBurning/Relighting4D.
+Keywords: Neural Rendering · Dynamic Scenes · Inverse Rendering
+1
+Introduction
+The emergence of metaverse has fueled the demands for photorealistic rendering
+of human characters, which benefits applications like digital 3D human and
+virtual reality. Among all factors, lighting is the most crucial one for rendering
+quality. Recently, remarkable success in relighting humans has been achieved [4,
+11,17,25,26,31,45,51,60,62]. However, the impressive quality of these methods
+heavily relies on the data captured by Light Stage [8]. The complicated hardware
+setup makes relighting systems expensive and only applicable in the constrained
+environment. On the other hand, a number of recent works propose to relight
+human images from a perspective of inverse rendering [13,15,21,39,47,64]. They
+succeed in relighting 2D images, yet fail to relight with novel views. A lack of
+underlying 3D representations impedes their flexibility of application.
+∗Corresponding author.
+arXiv:2207.07104v1  [cs.CV]  14 Jul 2022
+
+
+2
+Z. Chen et al.
+Relighting with Free Viewpoints
+Videos of  Dynamic Humans
+Fig. 1. Relighting of dynamic humans with free viewpoints. Relighting4D takes
+only videos as input, decomposing them into geometry and reflectance, which enables
+relighting of dynamic humans with free viewpoints by a physically based renderer.
+In this paper, we focus on the problem of relighting dynamic humans from
+only videos, as illustrated in Figure 1. The setting significantly reduces the cost
+of a flexible relighting system and broadens its scope of application. It has been
+proved [5,6,19,24,28,30,32,34,35,41,42,54,58,63] that a scene can be represented
+as neural fields to enable novel view synthesis and relighting. Among above
+methods, some [5, 6, 24, 42, 59, 63] deal with relighting static objects but fail to
+model dynamic scenes. In sum, none of those methods successfully incorporate
+illuminations and scene dynamics simultaneously.
+Different from existing methods on novel view synthesis of the human body
+that are either non-relightable or require expensive OLAT captured images, we
+seek to estimate plausible geometry and reflectance from posed human videos.
+To this end, we propose Relighting4D, to relight dynamic humans with
+free viewpoints from videos given the 4D coordinates (x, y, z, t) and the desired
+illumination. Specifically, our method first aggregates observations from posed
+human videos through space and time by a neural field conditioned on a de-
+formable human model. Then, we decompose the neural field into geometry and
+reflectance counterparts, namely normal, occlusion, diffuse, and specular maps,
+which drive a physically based renderer to perform relighting.
+We evaluate our approach on both monocular and multi-view videos. Over-
+all, Relighting4D outperforms other methods on perceptual quality and physical
+correctness. It relights dynamic humans in high fidelity, and generalizes to novel
+views. Furthermore, we demonstrate our capability of relighting under novel il-
+luminations, especially the challenging OLAT setting, by creating a synthetic
+dataset called BlenderHuman for quantitative evaluations.
+We summarize our contributions as follows: 1) We present a principled frame-
+work, Relighting4D, which is the first to relight dynamic humans with free view-
+points using only videos. 2) We propose to disentangle reflectance and geometry
+from input videos under unknown illuminations by leveraging multiple phys-
+
+
+Relighting4D: Neural Relightable Human from Videos
+3
+ically informed priors in a physically based rendering pipeline. 3) Extensive
+experiments on both synthetic and real datasets demonstrate the feasibility and
+significant improvements of our approach over prior arts.
+2
+Related Work
+Neural scene representation [14,18,20,28,34,35,36,40,41,43,46,49,56] has
+witnessed significant progress in representing a 3D scene with deep neural net-
+works. NeRF [28] proposes to model the scene as a 5D radiance field. To model
+dynamic humans, Neural Body [34] proposes to attach a set of latent codes to a
+deformable human body model (i.e., SMPL [23]). However, these methods im-
+plicitly incorporate all color information in the radiance field, which impedes
+their application towards relighting a dynamic human.
+Inverse rendering aims to disentangle the appearance from observed images
+into geometry, material, and lighting condition. Previous works [3, 16, 21, 22,
+27, 37, 53, 57] seek to address it by conditioning on physically based priors or
+synthetic data. However, they fail in novel view synthesis due to the lack of
+underlying 3D representations. Recently, NeRF based methods [5, 6, 42, 59, 63]
+propose to learn 3D reflectance fields or light transport fields from input images
+to enable free-viewpoint relighting. However, none of them is applicable to relight
+dynamic humans with space-time varying features.
+Relighting of human face, avatar and body has wide-range applications [31,39,
+44,51,64]. As for full-body human relighting, convolutional methods [13,47] fail to
+relight from novel viewpoints as there is no underlying 3D representation. Other
+methods [11,62] heavily relies on one-light-at-a-time [8] (OLAT) images, which is
+neither cheap to capture nor publicly available. Relighting4D differentiates itself
+from aforementioned methods in that we achieve free-viewpoint relighting of
+dynamic full-body humans without the requirement on expensive capture setup.
+3
+Our Approach
+Given a human video, Relighting4D can synthesize videos with free viewpoints
+under novel illuminations. We denote the input video as I = {I1, I2, ..., It}, where
+t is the time step. In general, our model learns a physically based renderer from
+I. During inference, it takes a 3D position x ∈R3, a time step t, a camera
+view ωo ∈R3, a desired light probes Li ∈R16×32×3 as inputs, and outputs the
+corresponding outgoing radiance Lo ∈R3.
+Framework overview. We first give an overview of Relighting4D (Figure 2).
+It first derives latent features from the video, which is achieved by estimating a
+neural field. Based on the latent features, Relighting4D decomposes the human
+performer into geometry and reflectance information which drive our physically
+based renderer. The space-time varying geometry and reflectance of the full hu-
+man body are parameterized by four multilayer perceptrons. Note that, Relight-
+ing4D enables relighting of dynamic humans with free viewpoints using only
+videos, without training on any captured data (e.g., OLAT or flash images).
+
+
+4
+Z. Chen et al.
+Neural Field  𝜓𝜓
+(Sec 3.1)
+𝓩𝓩
+Latent Feature 𝜓𝜓𝑡𝑡(𝒙𝒙)
+Light Probe 𝐿𝐿𝑖𝑖(𝝎𝝎𝑖𝑖)
+Relight
+Input Videos  𝑰𝑰
+Position  𝒙𝒙
+Time 𝑡𝑡
+Geometry
+(Sec 3.3)
+Reflectance
+(Sec 3.4)
+∫
+Physically Based 
+Renderer (Sec 3.2)
+Normal
+𝒏𝒏(𝒙𝒙)
+Occlusion
+𝑉𝑉(𝒙𝒙)
+Diffuse
+𝑨𝑨(𝒙𝒙)
+Specular
+𝛾𝛾(𝒙𝒙)
+𝝎𝝎𝑖𝑖
+BRDF
+𝑹𝑹(⋅)
+𝝎𝝎o
+Fig. 2. Overview of Relighting4D. Given the input video frame at time step t,
+Relighting4D represents the human as a neural field ψ on latent vectors Z anchored to
+a deformable human model. The value of the neural field ψt(x) at any 3D point x and
+time t is taken as latent feature and fed into multilayer perceptrons to obtain geometry
+and reflectance, which are normal, occlusion, diffuse, and specular maps respectively.
+Finally, a physically based renderer is raised to render the human subject to the input
+light probe under novel illumination.
+3.1
+Neural Field as Human Representation
+Extracting 4D representations of dynamic human performers is a non-trivial
+task. Compared to the static scenes where NeRF [28] fits well, dynamic scenes
+in videos have factors like motion, occlusion, non-rigid deformation, and illumi-
+nation that vary through space and time which hampers an accurate estimation.
+Inspired by the local implicit representations [10, 34], we introduce a 4D
+neural field ψ conditioned on a parametric human model (SMPL [23] or SMPL-
+X [33]) to represent a dynamic human performer, which maps the position x and
+time step t to the latent feature ψt(x). Specifically, at frame It, we obtain the
+parameters of human model (i.e. locations of vertices) using this tool [12]. Then,
+a set of latent vectors Z ∈RN×16 is assigned to the vertices of human model,
+where N = 6890 for SMPL [23] and N = 10475 for SMPL-X [33]. Then we
+query the neural field by the 4D coordinates (x, t), extracting the latent feature
+ψt(x) ∈R256 from Z via trilinear interpolation of its nearby vertices.
+NeuralBody [34] employs a similar strategy on human representations. But
+it’s not relightable in the way that it fails to disentangle geometry and reflectance
+from the latent codes. In contrast, Relighting4D learns a distinct neural field
+that can be decomposed into geometry (Section 3.3) and reflectance (Section
+3.4), which serves the physically based renderer (Section 3.2) for relighting.
+3.2
+Physically Based Rendering
+While differentiable volume rendering has been used in recent works [28,34,56],
+these methods focus on novel view synthesis with radiance fields. In general, to
+
+
+Relighting4D: Neural Relightable Human from Videos
+5
+enable relighting with neural representations, instead of modeling the human
+body as a field of vertices that emit light, we represent the human as a field of
+vertices that reflect the light from the environment. Specifically, we leverage a
+physically based renderer, which models a reflectance-aware rendering process.
+Mathematically, our rendering pipeline is driven by the following equation:
+  \la bel  
+{
+e
+q:re nde r-c ontinuous}  \smal l  L_o(\boldsymbol {x}, \boldsymbol {\omega }_o) = \int _{\Omega }R(\boldsymbol {x}, \boldsymbol {\omega }_i, \boldsymbol {\omega }_o, \boldsymbol {n}(\boldsymbol {x}))L_i(\boldsymbol {x},\boldsymbol {\omega }_i)(\boldsymbol {\omega }_i \cdot \boldsymbol {n}(\boldsymbol {x})) d \boldsymbol {\omega }_i, 
+(1)
+where Lo(x, ωo) ∈R3 is the outgoing radiance at point x viewed from ωo.
+Li(x, ωi) ∈R3 is the incident radiance arriving at x from direction ωi. Ωis an
+unit sphere that models all possible light directions, and n(x) ∈R3 is the nor-
+mal. R(x, ωi, ωo, n(x))† is the Bidirectional Reflectance Distribution Function
+(BRDF) which defines how the incident light is reflected at the surface, and dωi
+is the solid angle of incident light at ωi. We use a discrete set of light samples
+to approximate Eqn. 1 in the following way:
+  \la bel  
+{
+eq
+:ren der -di screte} \s mall L _ o(\boldsymbol {x}, \boldsymbol {\omega }_o) \approx \sum _{\boldsymbol {\omega }_i}R(\boldsymbol {x}, \boldsymbol {\omega }_i, \boldsymbol {\omega }_o, \boldsymbol {n}(\boldsymbol {x}))L_i(\boldsymbol {x},\boldsymbol {\omega }_i)(\boldsymbol {\omega }_i \cdot \boldsymbol {n}(\boldsymbol {x})) \Delta \boldsymbol {\omega }_i, 
+(2)
+where ∆ωi is sampled from a light probe that depicts the distribution of light
+sources in space. We represent the environment light Li(ωi) as a light probe im-
+age in latitude-longitude format with a resolution of 16×32×3, which facilitates
+relighting applications by replacing the estimated light probe with an external
+one. Figure 3 illustrates our physically based renderer at surface x.
+Note that previous work [28,34] implicitly encodes R(·) in the radiance fields
+without modeling the reflectance. To enable flexible relighting applications, we
+leverage the microfacet model [50] to approximate a differentiable reflectance
+function parameterized by the surface normal n(x), the diffuse map A(x) and
+the specular roughness γ(x). Due to the limited space, we introduce the imple-
+mentation of R(·) in the supplementary.
+To encode harsh shadow and occlusion, we mask the incident light Li(x, ωi)
+by the occlusion map V (x, ωi) at x:
+  \la bel  { eq: occlusion} \small L_i(\boldsymbol {x},\boldsymbol {\omega }_i) = V(\boldsymbol {x},\boldsymbol {\omega }_i)L_i(\boldsymbol {\omega }_i). 
+(3)
+Physical characteristics disentanglement. Driven by Eqn. 2, the renderer
+requires physical characteristics, i.e., geometry, reflectance, and light, of a given
+human performer, which are disentangled and estimated by Relighting4D from
+input videos. The details are introduced in the following two sections.
+3.3
+Volumetric Geometry
+In terms of geometry, our renderer requires a normal map n(x) ∈R3 and an
+occlusion map V (x, ωi) ∈R as inputs. Moreover, we render on the surface to
+keep the computing process tractable, which requires an estimation of surface
+position. It can be easily obtained by querying a density field.
+†For simplicity, we also use R(·) to denote BRDF when necessary.
+
+
+6
+Z. Chen et al.
+Δ𝝎𝝎𝑖𝑖
+𝒙𝒙
+𝒏𝒏(𝒙𝒙)
+𝛀𝛀
+𝐼𝐼(𝒓𝒓) = 𝐿𝐿𝑜𝑜(𝒙𝒙, 𝝎𝝎𝑜𝑜)
+𝜃𝜃
+𝐿𝐿𝑖𝑖(𝝎𝝎𝑖𝑖)
+Lat.
+Long.
+𝝎𝝎𝑜𝑜
+𝒐𝒐
+camera ray 𝒓𝒓= 𝒐𝒐−𝑘𝑘𝝎𝝎
+incoming light
+×
+𝐿𝐿𝑜𝑜
+Fig. 3. Illustration of our physically based
+rendering pipeline. The environment light is
+represented as spherical coordinates in latitude-
+longtitude (Lat.-Long.) format. Given the sur-
+face location x, the incoming light from ωi with
+the area of ∆ωi is scattered by the microfacet
+that is parameterized by BRDF R(·), normal
+n(x), and cos θ = ωi · n(x). Then the outgoing
+radiance Lo(x, ωo) along the ray r = o −kωo
+is calculated according to Eqn. 2, which equals
+to the corresponding pixel value.
+𝜎𝜎(𝒙𝒙)
+𝒙𝒙
+𝑠𝑠𝑛𝑛
+𝑠𝑠𝑓𝑓
+𝒐𝒐
+−𝝎𝝎𝒐𝒐
+𝝎𝝎𝑖𝑖
+𝒏𝒏(𝒙𝒙)
+ray from camera to surface
+ray from surface to light
+𝒏𝒏𝒙𝒙= −𝛻𝛻𝜎𝜎𝒙𝒙
+||𝛻𝛻𝜎𝜎(𝒙𝒙)||
+Fig. 4. The process of baking ge-
+ometry. Note that we perform two
+different types of ray marching during
+training. The one is marching along
+the camera ray r = o −kωo to the
+expected depth of termination k to
+get the geometry surface x, while the
+other is marching from the surface x
+to the light coming from direction ωi
+to calculate the accumulated trans-
+mittance (occlusion map).
+We first reconstruct the geometry of the given scene using an auxiliary density
+field fσ : (x, ψt(x)) −→σ(x). It’s derived from the latent feature ψt(x) using an
+MLP. As shown in Figure 4, Relighting4D leverages the auxiliary density field
+by baking it into surface maps, normal maps and occlusion maps.
+Surface map is the 3D coordinates of points at the expected termination
+of depth given the camera view ωo. We march the camera ray r from its origin
+o along the direction −ωo to the expected termination of depth k to get the
+surface x = o −kωo.
+Normal map is computed on the surface as the normalized negative gradient
+of the density field: ˜n(x) = −∇σ(x)/||∇σ(x)||.
+Occlusion map denotes the transmittance of surface points from a specific
+direction. We compute the occlusion map by marching the ray r(s, x, ωi) =
+x + sωi from the surface of the human body to the corresponding light at ωi:
+˜V (x, ωi) = 1 −exp(−
+R sf
+sn σ(r(s, x, ωi))ds), where sn and sf is the near and far
+bounds along the direction of the light. We set sn = 0, sf = 0.5 for all scenes.
+In other words, occlusion map considers the visibility at the given surface x by
+querying the density fields from sn to sf along the incident light direction ωi.
+Unfortunately, directly using the baked geometry causes numerous queries of
+fσ(e.g., for occlusion map, we should trace 16 × 32 = 512 rays from all possi-
+ble lighting directions for one 3D point), which is not tractable during training
+and rendering. Thus, we use an MLP fn : (x, ψt(x)) −→n(x) to reparame-
+terize the surface and latent features to the normal map, and another MLP
+fV : (x, ωi, ψt(x)) −→V (x) to map the surface, light direction and features
+
+
+Relighting4D: Neural Relightable Human from Videos
+7
+to the occlusion map V . The weights of fV , fn are trained with the geometry
+reconstruction loss, intending to recover the baked geometry:
+  \s m all  \m a th cal {L
+} _ {geo} =  ||V(\bo
+ldsymbol {x}) - \Tilde {V}(\boldsymbol {x})||^2_2 + ||\boldsymbol {n}(\boldsymbol {x}) - \Tilde {\boldsymbol {n}}(\boldsymbol {x})||^2_2. 
+(4)
+Smoothness regularization. We regularize fV , fn by L1 penalty to keep the
+smoothness of their outputs:
+  \ la bel  { eq : geo-
+sm o othne s s} \ small \tau _V = |V(\boldsymbol {x}) - V(\boldsymbol {x}+\boldsymbol {\epsilon })|_1 \quad \tau _n = |\boldsymbol {n}(\boldsymbol {x}) - \boldsymbol {n}(\boldsymbol {x}+\boldsymbol {\epsilon })|_1, 
+(5)
+where we measure the local smoothness by adding 3D perturbation ϵ to x which
+is sampled from a Gaussian distribution with zero mean and standard deviation
+0.01. Several works [29, 63] have validated the use of similar smoothness losses
+for the aim of shape reconstruction.
+Temporal coherence regularization. It is crucial for a 4D representation to
+incorporate temporal coherence. Otherwise, the rendered sequence will contain
+jitter appearance. Moreover, an accurate geometry is also important for artifact-
+free physically based rendering. Therefore, we add the following regularization
+term to encourage a temporally smooth geometry:
+  \la b e
+l
+ 
+{
+eq:
+corr } \m a thcal {L}_{temp} = \frac {1}{N}\sum ^N_{i=1}|\sigma _t(\hat {\boldsymbol {x}_i}) - \sigma _{t+1}(\hat {\boldsymbol {x}}_i)|_1, 
+(6)
+where ˆxi is the 3D position of i-th vertex of SMPL model. Eqn. 6 explicitly
+constrains the temporal coherence of the geometry, and also implicitly regularize
+the latent feature ψt(x) which benefits the following reflectance estimation.
+3.4
+Reflectance
+In terms of reflectance, our physically based renderer requires the BRDF R(·)
+and the light probe Li(ωi) as inputs. As presented in Section 3.2, our BRDF
+estimation consists of a Lambertian RGB diffuse component A(x) ∈R3 and
+a specular component γ(x) ∈R. We parameterize the diffuse map at x with
+latent features ψt(x) as an MLP fA : (x, ψt(x)) −→A(x), and parameterize the
+specular map as another MLP fγ : (x, ψt(x)) −→γ(x).
+Local smoothness prior. The problem that decomposes BRDF from video
+frames under unknown illumination is highly ill-posed. As the color information
+is entangled, and there is no off-the-shelf supervision on the reflectance. Inspired
+by work [3, 6, 37, 59, 63] on intrinsic decomposition which leverages piece-wise
+smoothness prior on albedo, we regularize the optimization of fA by L1 penalty:
+  \ label  {eq : refl-smoothness} \small \tau _A = |\boldsymbol {A}(\boldsymbol {x}) - \boldsymbol {A}(\boldsymbol {x}+\boldsymbol {\epsilon })|_1, 
+(7)
+where ϵ is the same type of perturbation as Eqn. 5.
+Global sparsity prior. However, given this under-constrained problem, the
+local smoothness regularization in Eqn. 7 is not sufficient for a plausible estima-
+tion of the diffuse map, as shown in Figure 7. Thus, we further leverage global
+
+
+8
+Z. Chen et al.
+minimum-entropy sparsity prior on diffuse map which has been previously ex-
+plored [2, 3, 9, 38] on shadow removal. From a perspective of physically based
+rendering, the diffuse map represents the base color, indicating that the palette
+should be sparse enough. Intuitively, the diffuse map of clothes should contains a
+small number of colors. Thus, we minimize the Shannon entropy of diffuse map,
+denoted as HA, to impose this prior on our model. Since the diffuse map A(x)
+is a continuous variable whose probability density function (PDF) is unknown,
+a naive way to estimate its entropy is using histogram to get PDF. But, it’s
+not differentiable. Instead, it’s always possible to use a soft and differentiable
+generalization of Shannon entropy (i.e. quadratic entropy [55]). However, it’s
+quadratically expensive to the number of sampled camera rays.
+This motivates our novel approximation of minimizing HA in a both differen-
+tiable and efficient way. The key insight is that the PDF of A(x), p(A(x)), can
+be estimated by a Gaussian KDE (Kernel Density Estimator). Given a diffuse
+map A(x), we leverage a KDE as its PDF approximation:
+ \label  {
+e
+q
+:
+kde
+} \Tild e  {p}(\boldsymbol {A}(\boldsymbol {x})) = \frac {1}{n}\sum ^{n}_{i=1} K_G(\boldsymbol {A}(\boldsymbol {x})-\boldsymbol {A}_i(\boldsymbol {x})), 
+(8)
+where KG is the standard normal density function, n is the number of sampled
+rays during training, and Ai(x) is the value of diffuse map at the i-th camera
+ray. Then the entropy of A(x) is computed as an expectation:
+  H _{A } = \mathbb {E}[-\log (\Tilde {p}(\boldsymbol {A}(\boldsymbol {x})))]. 
+(9)
+In addition, as the input video is captured under unknown illuminations, we
+randomly initialize the light probe Li(ωi) as a trainable parameter, optimizing
+it during the training phase to estimate a plausible ambient light of the scene.
+It can be replaced by a new HDR map for relighting after training.
+3.5
+Progressive End-to-End Learning
+In the training phase, we randomly sample 1024 camera rays for each input
+frame. Besides, we employ a progressive training strategy which allows the reso-
+lution of video to gradually increase. In specific, before ray sampling, the input
+video is scaled to the resolution of αH ×αW where α ∈(0, 1] is a monotonically
+increasing function of the number of iterations.
+Furthermore, we embed the surface position x and the light direction ωi using
+the positional encoding [28, 48] before concatenating them with latent features
+ψt(x). The maximum frequency of set to 210 and 24, respectively. We use four
+fully-connected ReLU layers with 256 channels for each MLP.
+Our full loss function is a summation:
+  \label { e q:loss} \ small \mat h ca l { L} =  \lam b da _{rgb}\mathcal {L}_{rgb} + \lambda _{geo}\mathcal {L}_{geo} + \lambda _{temp}\mathcal {L}_{temp} + \lambda _V\tau _V + \lambda _n\tau _n + \lambda _A\tau _A + \lambda _H H_A, 
+(10)
+where Lrgb is the reconstruction loss against the ground-truth pixel color value.
+We train each model for 260k iterations with a Tesla V100 GPU. Details of
+training hyperparameters are deferred to the supplementary.
+
+
+Relighting4D: Neural Relightable Human from Videos
+9
+NB+A
+NB+LE
+NeRFactor
+Ours
+Input
+PhySG
+“Night”
+“Courtyard”
+“Sunset”
+Fig. 5. Free-viewpoint relighting on the People-Snapshot dataset. Two vari-
+ants of NeuralBody [34] (NB+A and NB+LE) fail to incorporate the lighting in a
+physical way, thus are unable to reasonably relight the human actor. NB+A learns
+the wrong mapping between the target light and the appearance. And NB+LE recon-
+struct the input video well yet fails to generalize to novel lightings. NeRFactor [63] and
+PhySG [59] seem to model physically correct illuminations but gives blurry results due
+to the incapability of modeling dynamics. Relighting4D significantly outperforms com-
+parison methods. We show more results in both ambient lighting and OLAT
+setting in the supplementary videos.
+
+
+10
+Z. Chen et al.
+4
+Experiments
+Rendering settings. We render humans in both the ambient lighting and the
+OLAT setting. For ambient lighting, we use publicly available† HDRi maps as
+light probes. Furthermore, for the OLAT setting, we simulate point lights by
+generating one-hot light probes given the incoming light directions.
+Real datasets. We validate our method on the People-Snapshot [1] dataset
+and ZJU-Mocap [34] dataset qualitatively. People-Snapshot [1] captures monoc-
+ular videos with dynamic performers that keep rotating. And ZJU-Mocap [34]
+captures dynamic humans with complex motions using a multi-camera system.
+Synthetic dataset. To further demonstrate the effectiveness of Relighting4D,
+we create a dataset, BlenderHuman, using the Blender engine [7] for quanti-
+tative evaluation. Details will be deferred to the supplementary.
+Comparison methods. We compare Relighting4D with several competitive
+methods. NeRFactor [63] requires a pretrained NeRF as a geometry proxy
+and learns a data-driven BRDF to perform relighting, but it fails to represent
+dynamic scenes. PhySG [59] adopts a spherical Gaussians reflectance model
+which cannot handle high-frequency lights, and its geometry representation can-
+not model dynamic scenes. Moreover, to demonstrate the importance of physi-
+cally based rendering, we implement two variants on top of NeuralBody (NB) [34]
+which succeeds in novel view synthesis of dynamic humans but fails to incorpo-
+rate lighting and reflectance. NB+Ambient Light (NB+A) uses a flattened
+light probe as the latent code which contributes to the prediction of its color
+model, while NB+Learnable Embedding (NB+LE) maps the light probe
+into a latent code using an MLP with two layers.
+Evaluation metrics. For quantitative analysis, we use Peak Signal-to-Noise
+Ratio (PSNR), Structural Similarity Index Measure [52](SSIM), and Learned
+Perceptual Image Patch Similarity [61](LPIPS) as metrics. In addition, we use
+the error of degree(◦) to measure the normal map estimations.
+4.1
+Results on Real Datasets
+Performance on relighting with novel views. Figure 5 shows qualitative
+results on People-Snapshot dataset. All methods train a separate model for each
+human performer and re-render the human given the input light probes. Two
+variants of NeuralBody [34], NB+A and NB+LE, are good at reconstructing
+appearance but fail to incorporate novel illuminations in a perceptually salient
+way. They fail to learn the underlying physics of rendering. For example, NB+A
+maps the input light probe to artifacts of texture while NB+LE even seems to
+discard the features from lightings. NeRFactor [63] and PhySG [59] give blurry
+results, which show that they cannot aggregate space-time varying geometry
+and reflectance of dynamic humans, leading to degraded rendering results. In
+contrast, our method generates photorealistic relit novel views.
+†https://polyhaven.com/
