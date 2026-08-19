@@ -232,6 +232,25 @@ def load_json_classifications(path: Path):
     )
 
 
+def compute_legend_usage():
+    """Return a has_usage(field, value) predicate telling whether at least one
+    paper in classify/final_results.json currently matches that legend entry,
+    using the same case-insensitive substring match as the client-side legend
+    filter (see doFilter() in build_publications.py)."""
+    avatar_list, assets_list, _ = load_json_classifications(JSON_FILE)
+    all_fields = [item.get("fields", {}) for item in avatar_list + assets_list]
+
+    def has_usage(field: str, value: str) -> bool:
+        value_lower = value.lower()
+        for fields in all_fields:
+            cell = str(fields.get(field, "") or "")
+            if value_lower in cell.lower():
+                return True
+        return False
+
+    return has_usage
+
+
 def is_empty(val) -> bool:
     if val is None:
         return True
@@ -548,6 +567,8 @@ def build_legend_table():
         "Animation Stage": {1: "rgba(255,165,0,0.04)"}, # orange!04 on even rows
     }
 
+    has_usage = compute_legend_usage()
+
     out = []
     out.append('<div class="latex-table-wrapper">')
     out.append('<table class="legend-table latex-table">')
@@ -592,10 +613,13 @@ def build_legend_table():
                     if rendered == html.escape(key):
                         # Wasn't found in icon/crbox mappings; try the display label
                         rendered = render_single_value(display_label)
+                    used = has_usage(cat_name, key)
+                    css_class = "legend-item legend-filter-btn" + ("" if used else " is-disabled")
+                    title_attr = "" if used else ' title="No matching papers currently"'
                     icon_parts.append(
-                        f'<span class="legend-item legend-filter-btn" '
+                        f'<span class="{css_class}" '
                         f'data-filter-field="{html.escape(cat_name)}" '
-                        f'data-filter-value="{html.escape(key)}">'
+                        f'data-filter-value="{html.escape(key)}"{title_attr}>'
                         f'{rendered}'
                         f'<span class="legend-label">{html.escape(display_label)}</span></span>'
                     )
@@ -604,10 +628,13 @@ def build_legend_table():
                 items_for_cat = _get_items_for_category(cat_name)
                 for label, macro_name in items_for_cat:
                     rendered = _render_macro(macro_name)
+                    used = has_usage(cat_name, label)
+                    css_class = "legend-item legend-filter-btn" + ("" if used else " is-disabled")
+                    title_attr = "" if used else ' title="No matching papers currently"'
                     icon_parts.append(
-                        f'<span class="legend-item legend-filter-btn" '
+                        f'<span class="{css_class}" '
                         f'data-filter-field="{html.escape(cat_name)}" '
-                        f'data-filter-value="{html.escape(label)}">'
+                        f'data-filter-value="{html.escape(label)}"{title_attr}>'
                         f'{rendered}'
                         f'<span class="legend-label">{html.escape(label)}</span></span>'
                     )

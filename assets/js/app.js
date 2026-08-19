@@ -124,6 +124,7 @@ function initTabs() {
   document.getElementById("table-container").addEventListener("click", function(e) {
     var btn = e.target.closest(".legend-filter-btn");
     if (!btn) return;
+    if (btn.classList.contains("is-disabled")) return;
     var field = btn.getAttribute("data-filter-field");
     var value = btn.getAttribute("data-filter-value");
 
