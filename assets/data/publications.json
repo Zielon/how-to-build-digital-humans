@@ -11384,20 +11384,20 @@
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Needed Assets": "Artist-authored hair mesh, procedural styling parameters",
+        "Input": "Mesh",
         "Additional Priors": "",
         "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
-        "Lighting Control": "",
+        "Creation Speed": "Real-time",
+        "Animation Signal": "Simulation",
+        "Lighting Control": "None",
         "Animation Speed": "Real-time",
         "Image Synthesis": "Mesh",
         "Image Refinement": "No",
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "This is a real-time strand-based hair RENDERING technique, not a simulation method: it converts a coarse artist-authored \"hair mesh\" (volumetric extrusion of a scalp mesh, from Yuksel et al. 2009) into full-resolution strand geometry on-the-fly in GPU mesh/compute shaders via a custom texture layout, avoiding storage of full hair strand data. The demonstrated results (100 animated characters, 200 teapots) use hair meshes DRIVEN BY PRIOR PHYSICS SIMULATION WORK (XPBD / Macklin et al. 2016, force models from Wu & Yuksel 2016, sag-free init from Hsu et al. 2022) — the simulation itself is not this paper's contribution, only the rendering pipeline is. No training dataset or learned priors are used (purely procedural/geometric); example hair mesh models came from a handful of named artists (Lee Perry-Smith, Dani Garcia, Alexander Tomchuk), not a formal dataset. Reported timings exclude pixel-shading/lighting time, so no lighting-control contribution. Note: the \"webpage\" link provided in the source metadata (cemyuksel.com/research/dualscattering/) is actually for a different, unrelated paper (Dual Scattering Approximation for hair, 2008); the correct project/PDF page is https://cemyuksel.com/research/hairmesh_rendering/.",
     "skip_reason": null
   },
   {
@@ -11417,15 +11417,15 @@
       "table_type": "avatar",
       "fields": {
         "Prior Dataset Size": "",
-        "Datasets": "",
+        "Datasets": "Danielle, Josh, Hadley (proprietary hairstyle assets used for evaluation; no public training dataset)",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Needed Assets": "Simulated guide hair strands, hair material model, scalp/head mesh",
+        "Input": "Guide hair strands",
         "Additional Priors": "Physics",
         "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Creation Speed": "Real-time",
+        "Animation Signal": "Simulation",
         "Lighting Control": "",
         "Animation Speed": "Real-time",
         "Image Synthesis": "Strands",
@@ -11433,7 +11433,7 @@
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "The webpage/pdf/video links in the entry actually point to a different, unrelated paper (\"Real-Time Hair Simulation with Neural Interpolation\" by Lyu, Chai, Chen, Zhou, TVCG 2020) — a link mismatch. I instead located and used the correct paper's real page (kuiwuchn.github.io/hairInterp.html, ACM TOG/SIGGRAPH 2024) for this classification. The method is a physics-based (non-learned) reconstruction: it interpolates internal forces from a sparse set of simulated/mocap-driven guide hairs (e.g. 128 guides) to reconstruct dense full-head strand geometry (e.g. 106K strands, 1.7M vertices) via a constraint-satisfaction solve against a hair material model, avoiding the kinking/zigzag artifacts of linear hair skinning. No neural network or trained dataset is used; only proprietary named test hairstyles (Danielle, Josh, Hadley) appear as example assets.",
     "skip_reason": null
   },
   {
@@ -13901,20 +13901,20 @@
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Needed Assets": "Hair groom, head/body collision mesh",
+        "Input": "Meshes",
         "Additional Priors": "Physics",
         "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Creation Speed": "Real-time",
+        "Animation Signal": "Simulation",
         "Lighting Control": "",
-        "Animation Speed": "Interactive",
+        "Animation Speed": "Real-time",
         "Image Synthesis": "Strands",
         "Image Refinement": "No",
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "NVIDIA research paper introducing a GPU local-global ADMM solver for Discrete Elastic Rods with Coulomb friction, enabling real-time simulation of contacting assemblies of thousands of hair strands (interactive physics-based editing of digital grooms). It is a pure physics solver validated against analytical/experimental benchmarks (cantilever, bend-twist, stick-slip tests), not a data-driven method — no training dataset, hence blank Dataset/Data-type fields are correct, not a gap. Hair motion is driven by root/boundary-condition motion resolved through simulation (not by a pose/mocap-conditioned generative signal), so Animation Signal = Simulation.",
     "skip_reason": null
   },
   {
@@ -14773,12 +14773,12 @@
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Needed Assets": "Artist-groomed strand-based hairstyle",
+        "Input": "Hair Strands",
         "Additional Priors": "Physics",
         "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Creation Speed": "Seconds-Minutes",
+        "Animation Signal": "Simulation",
         "Lighting Control": "",
         "Animation Speed": "Interactive",
         "Image Synthesis": "Strands",
@@ -14786,7 +14786,7 @@
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "The provided webpage/pdf links (mlchai.com/publication/chai2016adaptive) are mismatched — that URL belongs to an unrelated Menglei Chai 2016 paper, not this one. I instead verified via the NSF Public Access repository entry and the official Utah Graphics Lab project page (graphics.cs.utah.edu/research/projects/sag-free-hair/). This SIGGRAPH 2023 paper is a preprocessing technique for Lagrangian(Cosserat-rod strands)/Eulerian(MPM) hybrid hair simulators: given an artist-authored strand-based groom, it computes a physically stable (\"sag-free\") quasistatic rest configuration so gravity doesn't immediately distort the intended hairstyle once dynamic simulation begins. No hair dataset is used (evaluated on \"a wide range of hairstyles,\" i.e. artist-created grooms), so dataset fields are legitimately blank. Reported timing is only for the initialization step (\"a few seconds to minutes for hundreds of strands\"); the abstract does not give explicit fps/sec-per-frame numbers for the subsequent dynamic simulation itself, so \"Animation Speed: Interactive\" is inferred from the broader hybrid MPM-hair-simulation literature (this line of work, including co-author Kui Wu's other hair-sim papers, targets real-time/interactive game and VFX use) rather than a number stated in this specific paper — treat with some caution.",
     "skip_reason": null
   },
   {
@@ -14879,20 +14879,20 @@
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "Physics",
+        "Needed Assets": "Garment mesh, animated character body mesh/skeleton motion as moving boundary condition",
+        "Input": "Meshes",
+        "Additional Priors": "Material/physics parameters (membrane & bending stiffness, friction coefficient); UV/2D ARAP parameterization of garment patches for subspace basis construction",
         "Req. Optimization": "No",
-        "Creation Speed": "",
-        "Animation Signal": "Pose",
-        "Lighting Control": "",
-        "Animation Speed": "Real-time",
+        "Creation Speed": "Offline",
+        "Animation Signal": "Simulation",
+        "Lighting Control": "None",
+        "Animation Speed": "Offline",
         "Image Synthesis": "Mesh",
         "Image Refinement": "No",
         "Contents": "Garment"
       }
     },
-    "note": null,
+    "note": "Pure physics-based GPU cloth solver (subspace-preconditioned Projective Dynamics + IPC contact) — no learned/data-driven component, no dataset. Its \"Garment Animation\" demo (Sec 6.7) drives a multi-layer dress via an artist/mocap character kick animation (reused from Li et al. 2021 CIPC) as a moving boundary condition, then physically simulates cloth dynamics/contact/wrinkles on top — hence Animation Signal = Simulation, not raw Pose. Reported speeds are per-frame offline compute (seconds, not real-time), despite being described as GPU-accelerated and much faster than prior IPC solvers.",
     "skip_reason": null
   },
   {
@@ -14909,26 +14909,23 @@
       "arxiv": "https://dl.acm.org/doi/epdf/10.1145/3588430.3597247"
     },
     "classification": {
-      "table_type": "avatar",
+      "table_type": "assets",
       "fields": {
         "Prior Dataset Size": "",
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
-        "Lighting Control": "",
-        "Animation Speed": "Real-time",
-        "Image Synthesis": "Mesh",
-        "Image Refinement": "No",
+        "Needed Assets": "Hair mesh",
+        "Input": "Meshes",
+        "Additional Priors": "Procedural styling operations; coordinate-frame attachment scheme for consistent strand placement",
+        "Creation Speed": "Real-time",
+        "Representation": "Procedurally-generated strands from a compact hair mesh",
+        "Simulation Ready": "Yes",
+        "Lighting Control": "None",
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "This is a real-time hair rendering paper: it takes a compact hand-authored \"hair mesh\" (coarse guide geometry) plus procedural styling parameters and generates/rasterizes thousands of strands per hairstyle on the GPU (mesh shaders + texture-unit tricks + LOD). It is not a hair simulation or reconstruction method and doesn't itself drive animation - it supports rendering strands consistently on top of an already-animated/deforming mesh via a coordinate-frame scheme, and no dataset/learning is involved. Reclassified from \"avatar\" to \"assets\" since it's fundamentally a static/simulation-ready hair representation + rendering technique, not an animation-driving component; original fields (Input: Zero, Animation Signal: Pose, Image Synthesis: Mesh) were templated boilerplate and did not match the paper (which has no learned pose-driven animation signal at all).",
     "skip_reason": null
   },
   {
@@ -15034,12 +15031,12 @@
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Needed Assets": "Groomed strand-based hair geometry, head/scalp collision mesh",
+        "Input": "Strands",
         "Additional Priors": "Physics",
         "Req. Optimization": "No",
         "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Animation Signal": "Simulation",
         "Lighting Control": "",
         "Animation Speed": "Real-time",
         "Image Synthesis": "Strands",
@@ -15240,28 +15237,9 @@
       "video": null,
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "",
-        "Lighting Control": "",
-        "Animation Speed": "Offline",
-        "Image Synthesis": "Strands",
-        "Image Refinement": "No",
-        "Contents": "Hair"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "Pure hair-fiber light-scattering/appearance (BSDF) model, analogous to the Marschner model but based on microfacet theory with a rough cylinder + tilted cuticle scale geometry (GGX-based analytical reflected lobe, elliptical cross-sections, non-separable lobes). It is a general rendering technique for shading hair/fur fibers given existing strand geometry — it does not reconstruct, create, or animate any human-specific hair asset, and involves no dataset, simulation, or driving signal. This is a supporting shading model that would be cited/used by hair rendering pipelines elsewhere, not a digital-human asset/avatar contribution in its own right."
   },
   {
     "key": "choutas2022accurate",
@@ -16812,24 +16790,24 @@
     "classification": {
       "table_type": "avatar",
       "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "Physics",
+        "Prior Dataset Size": "10 hairstyles (5 straight, 5 curly, varying length/curliness) simulated over a 12,000-frame randomized head-motion sequence for training data",
+        "Datasets": "USC-HairSalon public hair models (cemyuksel.com/research/hairmodels) plus procedurally generated hairstyles, driven by physically simulated (mass-spring) guide-hair sequences generated by the authors",
+        "Data Type": "Synthetic 3D hair strand simulation sequences",
+        "Data Modality": "3D geometry",
+        "Needed Assets": "Pre-groomed 3D hairstyle, head model/rig for rigid head motion",
+        "Input": "Rest-shape hairstyle geometry and physically-simulated guide-hair states updated per frame",
+        "Additional Priors": "Physics (mass-spring guide-hair simulation) + learned CNN interpolation weights",
         "Req. Optimization": "No",
         "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Animation Signal": "Simulation. Head motion/pose is only used to drive the rigid head transform in the demo avatar application, not to directly regress hair shape.",
         "Lighting Control": "",
-        "Animation Speed": "Real-time",
+        "Animation Speed": "Real-time/interactive: 23.7 FPS at 128x128 resolution, 6.4 FPS at 256x256",
         "Image Synthesis": "Strands",
         "Image Refinement": "No",
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "IMPORTANT DATA ISSUE: the webpage and pdf links given for this entry (graphics.cs.utah.edu/.../sag-free-hair/, sig23_sagfree-hair.pdf) actually point to a completely different, unrelated paper: \"Sag-Free Initialization for Strand-Based Hybrid Hair Simulation\" (Hsu et al., SIGGRAPH 2023) — likely a mismatched citation link. I instead located and read the real \"Real-Time Hair Simulation with Neural Interpolation\" (Lyu, Chai, Chen, Zhou, IEEE TVCG 2022) PDF at http://kunzhou.net/2020/nnhairsim-tvcg20.pdf and based this classification on that. The parent site's video link (youtube jF3CgUt3ekk) was not verified and may also be mismatched — worth double-checking/correcting the webpage/pdf/video URLs in the bibliography entry for this key.",
     "skip_reason": null
   },
   {
@@ -20526,15 +20504,15 @@
       "table_type": "avatar",
       "fields": {
         "Prior Dataset Size": "",
-        "Datasets": "",
+        "Datasets": "None (per-hairstyle self-generated training data via offline full-space spring-particle simulation of a few head-motion sequences; no shared/public dataset)",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Needed Assets": "Groomed rest-state hair strand geometry, rigid head model, solid interaction objects",
+        "Input": "Meshes/Strands",
         "Additional Priors": "Physics",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Req. Optimization": "Yes",
+        "Creation Speed": "Offline precompute ~2 hours per hairstyle, runtime interactive at 40-55ms/frame",
+        "Animation Signal": "Simulation",
         "Lighting Control": "",
         "Animation Speed": "Interactive",
         "Image Synthesis": "Strands",
@@ -20542,7 +20520,7 @@
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "This is Chai/Zheng/Zhou's IEEE TVCG 2017 (published online 2016) paper on adaptive hair skinning for interactive hair-solid collision handling (e.g. combing, gears) — verified via full PDF (found at kunzhou.net/2016/hairanimation-tvcg16.pdf; the webpage link given in the entry, cemyuksel.com/research/hairmeshsim, actually hosts a different paper — Wu & Yuksel's \"Real-Time Hair Mesh Simulation\" — so it was likely mismatched in the source data). The method is a reduced/guide-hair spring-particle simulation with a data-driven precomputation stage (sparse coding on self-generated, per-hairstyle training animations, not an external dataset) and two-way collision correction; it does not use pose/mocap driving — hair motion is fully physics-simulated in response to interactively moved solid objects.",
     "skip_reason": null
   },
   {
@@ -20873,12 +20851,12 @@
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "Physics",
+        "Needed Assets": "Pre-authored volumetric hair mesh, body/head mesh for collision",
+        "Input": "Meshes",
+        "Additional Priors": "",
         "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Creation Speed": "Real-time",
+        "Animation Signal": "Simulation",
         "Lighting Control": "",
         "Animation Speed": "Real-time",
         "Image Synthesis": "Mesh",
@@ -20886,7 +20864,7 @@
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "This is a physics-based simulation method (cloth-style sheet dynamics + volumetric force model + collision-driven position correction/shape recovery) applied to the \"hair mesh\" volumetric representation (from Yuksel et al.'s 2009 Hair Meshes authoring technique), not a data-driven/learned method. The demo video drives the character body with motion-capture data (from Victor Zordan / ARCSim) purely to showcase the hair reacting; the hair itself is animated by real-time physics simulation, not directly posed, so Animation Signal = Simulation. No hair/garment dataset or training data is used — Prior Dataset Size/Datasets/Data Type/Data Modality are legitimately blank. Quantitative frame-rate/strand-count numbers were not visible on the fetched webpage (only qualitative real-time claims), so exact performance figures are not verified. Official page: http://www.cemyuksel.com/research/hairmeshsim/ (note the site path is \"hairmeshsim\", not \"hairmeshes\" which is the earlier 2009 authoring paper).",
     "skip_reason": null
   },
   {
@@ -20902,28 +20880,9 @@
       "video": "https://www.youtube.com/watch?v=jrvJFzrF3kg",
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "Physics",
-        "Req. Optimization": "No",
-        "Creation Speed": "",
-        "Animation Signal": "Pose",
-        "Lighting Control": "",
-        "Animation Speed": "Real-time",
-        "Image Synthesis": "Mesh",
-        "Image Refinement": "No",
-        "Contents": "Garment"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "XPBD is a general-purpose constrained-dynamics solver (an extension of Position Based Dynamics that adds compliance/inverse-stiffness so constraint behavior is independent of iteration count and timestep). It is not specific to human hair or garments: the paper demonstrates the method on generic examples such as cloth patches, inextensible rods/ropes, articulated rigid-body chains/joints, and soft-body pressure constraints, purely as a numerical-methods contribution to real-time physics solvers. It does not reconstruct, create, or drive any human-specific digital asset (no avatar, no named garment/hair dataset, no human-specific pipeline) — it's a supporting simulation technique widely cited/used by later cloth/hair/avatar papers, not a digital-human contribution itself."
   },
   {
     "key": "Chiang2015practical",
@@ -20938,28 +20897,9 @@
       "video": null,
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "",
-        "Lighting Control": "",
-        "Animation Speed": "Offline",
-        "Image Synthesis": "Strands",
-        "Image Refinement": "No",
-        "Contents": "Hair"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "This is a pure hair/fur appearance (shading/BSDF) model for path tracing, not a digital-human creation or animation contribution. It defines an energy-conserving, near-field fiber scattering model (with a closed-form logistic-distribution azimuthal roughness term) that determines how light scatters off already-existing hair/fur fiber geometry during rendering. It does not generate, reconstruct, simulate, or animate hair geometry itself — it assumes strands/fibers come from an external grooming or simulation pipeline. This matches the guidance to skip general-purpose rendering/appearance techniques like hair scattering/shading models."
   },
   {
     "key": "Chai2015high",
@@ -21044,15 +20984,15 @@
       "table_type": "avatar",
       "fields": {
         "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Datasets": "None (per-hairstyle precomputed offline full simulations, not a public dataset)",
+        "Data Type": "Offline full-hair simulation trajectories",
+        "Data Modality": "3D geometry",
+        "Needed Assets": "Pre-groomed hair strand geometry",
+        "Input": "Head motion, external forces",
         "Additional Priors": "Physics",
         "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Creation Speed": "Offline",
+        "Animation Signal": "Simulation",
         "Lighting Control": "",
         "Animation Speed": "Interactive",
         "Image Synthesis": "Strands",
@@ -21060,7 +21000,7 @@
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "Data-driven reduced-order model: offline, precomputed full hair simulations (per specific groomed hairstyle, not a public dataset) are used to build a compact guide-hair subspace + interpolation weights, enabling real-time (>150K strand) simulation driven by external forces such as head movement and wind (plus a position-based correction pass for collisions/detail). This is a physics-simulation acceleration technique, not pose/mocap-driven animation, so \"Animation Signal\" was corrected from \"Pose\" to \"Simulation\"; \"Input\"/\"Creation Speed\" were corrected from the templated \"Zero\"/\"Instant\" defaults since the method requires a pre-authored hairstyle and offline precomputation before real-time playback.",
     "skip_reason": null
   },
   {
@@ -21159,28 +21099,9 @@
       "video": "https://www.youtube.com/watch?v=TkzmqAgcilU",
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "Physics",
-        "Req. Optimization": "No",
-        "Creation Speed": "",
-        "Animation Signal": "Pose",
-        "Lighting Control": "",
-        "Animation Speed": "Interactive",
-        "Image Synthesis": "Mesh",
-        "Image Refinement": "No",
-        "Contents": "Garment"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "Projective Dynamics is a general-purpose physics simulation framework unifying implicit FEM integration and Position Based Dynamics via constraint projection. It is not specific to human hair or garments — the paper demonstrates it on solids, cloth, shells, and example-based simulation generically (teaser scene mixes a building, grass, tree, and clothes). It is a foundational numerical solver widely cited/used by later human-specific avatar/cloth papers, but it does not itself reconstruct, create, or drive any human-specific digital asset, so it does not belong in this human-avatar taxonomy."
   },
   {
     "key": "Hu2014robust",
@@ -21463,28 +21384,9 @@
       "video": "https://dl.acm.org/doi/suppl/10.1145/1778765.1778792/suppl_file/tp101-10.mp4",
       "arxiv": "https://cg.cs.tsinghua.edu.cn/people/~kun/hair/[SIGA11][Interactive%20Hair%20Rendering%20and%20Appearance%20Editing%20under%20Environment%20Lighting].pdf"
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "",
-        "Lighting Control": "Distant Light",
-        "Animation Speed": "Interactive",
-        "Image Synthesis": "Strands",
-        "Image Refinement": "No",
-        "Contents": "Hair"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "This is a pure hair appearance/shading and rendering technique (SIGGRAPH Asia 2011), not a hair asset-creation or simulation/animation paper. It introduces a compact 1D circular Gaussian (SRBF) approximation of the Marschner hair scattering function, enabling closed-form real-time evaluation of single/multiple scattering under environment lighting (represented via spherical radial basis functions), so users can interactively edit hair material/scattering parameters (color, eccentricity, roughness) and see results at interactive rates on the GPU. It operates on pre-existing static hair fiber geometry supplied from elsewhere — it does not reconstruct, generate, or simulate/animate hair geometry itself, and reports no dataset of hair models. This matches the taxonomy's explicit skip category for \"pure appearance/shading papers (e.g., hair scattering/shading models).\""
   },
   {
     "key": "Sadeghi2010artist",
@@ -21499,28 +21401,9 @@
       "video": "https://www.youtube.com/watch?v=ngJsYW7XaZY",
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "",
-        "Lighting Control": "",
-        "Animation Speed": "Offline",
-        "Image Synthesis": "Strands",
-        "Image Refinement": "No",
-        "Contents": "Hair"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "This is a pure hair shading/reflectance (appearance) model, not a digital-human asset or animation contribution. It reparameterizes existing physically-based hair scattering models (in the tradition of Marschner et al.) into an artist-directable form for rendering already-modeled/animated hair strands; validated via an informal artist user study and adopted into Disney's production pipeline for the film Tangled. It does not create, reconstruct, or drive hair geometry or motion — it is a supporting rendering/shading technique, analogous to the other skip-category examples (hair scattering/shading models, opacity map rendering)."
   },
   {
     "key": "Beeler2010highsingle",
@@ -21608,17 +21491,17 @@
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Needed Assets": "None",
+        "Input": "Meshes",
         "Additional Priors": "",
-        "Creation Speed": "Instant",
-        "Representation": "Strands",
-        "Simulation Ready": "Yes",
-        "Lighting Control": "",
+        "Creation Speed": "Interactive/manual",
+        "Representation": "Volumetric 'hair mesh': a generalized quadrilateral polygon mesh with topological constraints that let individual hair strand paths be traced uniquely through the mesh volume, generating strand geometry procedurally from the sculpted surface",
+        "Simulation Ready": "No",
+        "Lighting Control": "None",
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "This is a static hair-shape modeling/authoring representation (basis of the commercial \"Hair Farm\" 3ds Max plugin), not a simulation or animation method — no dynamics, physics, or motion are addressed in the paper. It lets an artist sculpt hair volume as an ordinary polygon mesh, from which many individually traceable hair strands are generated automatically. Because it's a manual-authoring geometry technique with no training data, no simulation, and no lighting model, most data/animation fields are correctly left blank rather than filled with the previous templated defaults.",
     "skip_reason": null
   },
   {
@@ -21634,28 +21517,9 @@
       "video": "https://www.youtube.com/watch?v=7x2UvvD48Fw",
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "",
-        "Lighting Control": "",
-        "Animation Speed": "Real-time",
-        "Image Synthesis": "Strands",
-        "Image Refinement": "No",
-        "Contents": "Hair"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "Deep Opacity Maps (Yuksel & Keyser, EGSR 2008) is a real-time hair/fur self-shadowing rendering technique: it approximates deep shadow maps using a small number of opacity layers rasterized from the light's point of view, enabling efficient GPU-based soft shadows for hair strands. It is a pure shadow/light-transport rendering algorithm applied to already-existing hair geometry — it does not reconstruct, create, simulate, or drive any human-specific digital asset (no hair geometry generation, no dynamics/animation, no dataset). This matches the \"skip\" criteria for general-purpose rendering/shadow techniques used as a supporting component elsewhere in digital-human pipelines rather than being a digital-human contribution itself."
   },
   {
     "key": "Zinke2008dual",
@@ -21670,28 +21534,9 @@
       "video": "https://www.youtube.com/watch?v=q7fGtYDwh5w",
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "",
-        "Lighting Control": "",
-        "Animation Speed": "Real-time",
-        "Image Synthesis": "Strands",
-        "Image Refinement": "No",
-        "Contents": "Hair"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "This is a pure hair rendering/light-transport technique (a fast approximation of multiple scattering / BSDF-based shading for hair fibers), not a method for reconstructing, creating, or animating hair geometry. It operates on static, pre-existing hair fiber geometry under given lighting and produces rendered images (offline or real-time GPU), with no dynamics/simulation, no dataset, and no digital-human asset creation of its own. It's a supporting shading model that would be cited/used by other hair pipelines rather than a digital-human contribution in its own right."
   },
   {
     "key": "bradley2008markerless",
@@ -21739,28 +21584,9 @@
       "video": "https://www.youtube.com/watch?v=j5igW5-h4ZM",
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "Physics",
-        "Req. Optimization": "No",
-        "Creation Speed": "",
-        "Animation Signal": "Pose",
-        "Lighting Control": "",
-        "Animation Speed": "Real-time",
-        "Image Synthesis": "Mesh",
-        "Image Refinement": "No",
-        "Contents": "Garment"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "General-purpose, non-human-specific physics simulation technique. Position Based Dynamics is a foundational constraint-based (as opposed to force-based) real-time simulation framework for deformable bodies in general — demonstrated on generic cloth sheets, ropes/chains, and soft/rigid bodies, not on human garments, hair grooms, or any human-specific digital asset. It underlies many later human-cloth/hair simulation papers (and game engines like PhysX/Unity) as a numerical solver, but the paper itself makes no human-avatar contribution, so it does not belong in this taxonomy as an avatar/assets entry."
   },
   {
     "key": "Yuksel2006rendering",
@@ -21775,28 +21601,9 @@
       "video": null,
       "arxiv": null
     },
-    "classification": {
-      "table_type": "avatar",
-      "fields": {
-        "Prior Dataset Size": "",
-        "Datasets": "",
-        "Data Type": "",
-        "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "",
-        "Req. Optimization": "No",
-        "Creation Speed": "Instant",
-        "Animation Signal": "",
-        "Lighting Control": "",
-        "Animation Speed": "Offline",
-        "Image Synthesis": "Strands",
-        "Image Refinement": "No",
-        "Contents": "Hair"
-      }
-    },
+    "classification": null,
     "note": null,
-    "skip_reason": null
+    "skip_reason": "This is a SIGGRAPH 2006 poster (Yuksel & Akleman, \"Rendering Hair with Global Illumination\") presenting a light-transport/rendering framework and speed optimizations for applying global illumination (inter-reflection, self-shadowing between strands) to hair geometry. It is a general appearance/shading-and-lighting technique for hair rendering, not a method that reconstructs, creates, or animates a human hair asset — it assumes an existing static hair strand model (e.g. demoed on a Cornell Box hair model and a \"hairy teapot\") and only changes how light is computed on it. No digital human asset, dataset, or animation signal is produced or driven. This fits the taxonomy's \"skip\" category for pure rendering/light-transport techniques."
   },
   {
     "key": "Bertails2006super",
@@ -21818,20 +21625,20 @@
         "Datasets": "",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
+        "Needed Assets": "Guide hair strand rest-shape curves, measured hair-fiber mechanical parameters",
+        "Input": "Curves",
         "Additional Priors": "Physics",
         "Req. Optimization": "No",
         "Creation Speed": "Instant",
-        "Animation Signal": "Pose",
+        "Animation Signal": "Simulation",
         "Lighting Control": "",
         "Animation Speed": "Offline",
-        "Image Synthesis": "Mesh",
+        "Image Synthesis": "None",
         "Image Refinement": "No",
         "Contents": "Hair"
       }
     },
-    "note": null,
+    "note": "Classic physically-based hair-dynamics paper (SIGGRAPH 2006, Bertails/Audoly/Cani/Querleux/Leroy/Lévêque). Represents each hair strand as a \"super-helix\" (piecewise helical Kirchhoff elastic rod) and animates it via Lagrangian dynamics, allowing large stable time steps; explicitly handles nonlinear bending/twisting for straight-to-curly hair. Motion is driven by physics (gravity/inertia/collision response to e.g. head motion), not by captured pose/mocap, so Animation Signal = Simulation. No training dataset or ML component: the authors validated the model by comparing simulated vs. real filmed hair-tress motion (in-house L'Oréal experiments), not a public dataset, so Datasets/Data Type/Modality/Prior Dataset Size are legitimately blank. Paper is about dynamics/geometry, not image synthesis (no renderer contribution), so Image Synthesis=None/Image Refinement=No. Official page (lmm.jussieu.fr/~audoly) had an SSL/cert mismatch and could not be fetched directly; corroborated via SIGGRAPH History archive summary and general knowledge of this well-known paper.",
     "skip_reason": null
   },
   {
@@ -21868,23 +21675,23 @@
       "table_type": "avatar",
       "fields": {
         "Prior Dataset Size": "",
-        "Datasets": "",
+        "Datasets": "None (no public dataset; example character body models and motion-capture data for figures 5-6 supplied by Alias|Wavefront)",
         "Data Type": "",
         "Data Modality": "",
-        "Needed Assets": "",
-        "Input": "Zero",
-        "Additional Priors": "Physics",
+        "Needed Assets": "Cloth/garment triangle mesh, animated character body mesh, per-material stiffness/damping parameters",
+        "Input": "Mesh",
+        "Additional Priors": "None (no learned priors; user-specified continuum material parameters: stretch, shear, bend stiffness, damping)",
         "Req. Optimization": "No",
-        "Creation Speed": "",
-        "Animation Signal": "Pose",
-        "Lighting Control": "",
+        "Creation Speed": "Offline",
+        "Animation Signal": "Simulation",
+        "Lighting Control": "None",
         "Animation Speed": "Offline",
         "Image Synthesis": "Mesh",
         "Image Refinement": "No",
         "Contents": "Garment"
       }
     },
-    "note": null,
+    "note": "Classic implicit-integration cloth solver (SIGGRAPH'98), not a learned/data-driven method. Confirmed via full PDF text (extracted from cs.cmu.edu/~baraff/papers/sig98.pdf): demos are a shirt on a twisting figure, pants on a walking man, and skirts on mocap-driven dancers -- i.e. garments simulated in response to an animated/mocap human body, which is why \"avatar\" fits despite being a pure physics paper. No public dataset; example body models/mocap credited to Alias|Wavefront. Per-frame timings (Table 1) range 0.23s (simple cloth) to 38.5s (pants), so it is an offline simulator, not interactive, contrary to the templated defaults.",
     "skip_reason": null
   }
 ]
