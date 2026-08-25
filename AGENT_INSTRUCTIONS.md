@@ -141,6 +141,56 @@ auto-download thumbnails from arXiv PDF links.
 
 ## 3. How to Classify a Paper
 
+### ⚠️ MANDATORY: Verify every claim against the actual paper text
+
+A 2026-08-25 audit of this repository's classification database found that a
+large fraction of entries contained **fabricated dataset/method names and
+factually wrong numbers** that were never actually derived from reading the
+cited paper — e.g. field values like "Instant (<1min)" and "Input: Zero"
+copy-pasted identically across dozens of unrelated papers, dataset names
+(`Human3.6M`, `FaceScape`, `DexYCB`, `CustomHumans`, `iPER`, `PeopleSnapshot`,
+`Hair20k`) that never appear anywhere in the papers they were attributed to,
+and at least one entry whose `% Arxiv:` metadata link pointed to a
+*completely different paper*, silently contaminating its classification with
+that other paper's dataset names. See the git history around commits
+`0e2c46e` and `afc70c5` (August 2026) for the full list of fixes and
+examples of what was wrong.
+
+**Do not repeat this. Before writing any field value:**
+
+1. **Read the actual paper** — fetch the arXiv HTML (`arxiv.org/html/<id>`)
+   or PDF, or the paper's own project/webpage if it predates arXiv or has no
+   preprint, and read the method/experiments/limitations sections. Do **not**
+   classify from the title or abstract alone.
+2. **Never invent a dataset, method, or number.** If a field genuinely isn't
+   stated in the paper (common for non-data-driven algorithm papers), leave
+   it blank — a blank field is honest; a guessed one is not. Do not reuse a
+   value from a similar-sounding paper "because it's probably the same."
+3. **Don't template.** If you notice you're about to write the same
+   Input/Creation Speed/Animation Signal combination for several different
+   papers in a row, stop and re-check each one individually — that's exactly
+   the pattern that produced the fabricated cluster found in the audit.
+4. **Cross-check your own `% Webpage/Code/Video/Arxiv` links** against the
+   paper's actual title/authors before trusting content fetched from them —
+   metadata comment blocks in `bibliography.bib` have been found misassigned
+   to the wrong entry. If a fetched page's authors don't match the bib
+   entry's authors, the link is wrong; find the real one or leave it `None`.
+5. **Verify numeric claims (FPS, timing, dataset sizes) against the paper's
+   own stated figures**, not against what "should" be true for that kind of
+   architecture. E.g. don't assume "feed-forward = real-time" — check the
+   paper's own Table/timing section; several entries wrongly claimed
+   `Real-time (>30 FPS)` when the paper's own numbers were 18–28 FPS.
+6. **Avatar vs Assets is about demonstrated behavior, not architecture
+   potential.** A single-image static reconstruction method (no shown
+   pose/expression/audio-driven animation) is Assets even if a "driven"
+   avatar could plausibly be built from its output later — see PIFu/PIFuHD/
+   ECON for the established precedent. Conversely, a physics-simulation
+   paper that demonstrably drives hair/cloth motion from an external signal
+   belongs in Avatar with `Animation Signal: Simulation`, not Assets.
+7. **Dataset-only / benchmark-only papers are Skip**, even if they include a
+   figure showing example renders — check whether the paper *proposes a
+   method* or only *releases data used to evaluate other people's methods*.
+
 ### Step 4: Add Classification to `classify/final_results.json`
 
 This is the most important step. Each paper must be classified into one of
@@ -564,6 +614,27 @@ python scripts/check_assets.py
 7. **Classifying non-method papers**: Survey papers, benchmark papers, dataset
    papers, and papers that do not propose a method for creating digital humans
    should go in the `skipped` array with a reason.
+
+8. **Fabricating field values**: Never write a dataset name, model name, or
+   number you didn't actually read in the paper. This was the single biggest
+   data-quality problem found in this repo's history (see the mandatory
+   verification section above) — hundreds of fields had to be corrected
+   because they were guessed rather than verified.
+
+9. **Copy-pasting the same field combination across multiple papers**: If
+   several papers in a row are getting identical Input/Creation
+   Speed/Animation Signal values, you are templating instead of reading each
+   paper — stop and verify each one individually.
+
+10. **Trusting `% Webpage/Code/Video/Arxiv` links without checking them**:
+    These have been found misassigned to the wrong bib entry. Confirm the
+    fetched page's title/authors match before using its content.
+
+11. **Asserting a speed/FPS bucket without checking the paper's own number**:
+    "Feed-forward" or "GPU-accelerated" does not automatically mean
+    `Real-time (>30 FPS)` — check the paper's actual reported timing/FPS
+    figure before picking a bucket, and leave the field blank if no number is
+    given rather than guessing.
 
 ---
 
